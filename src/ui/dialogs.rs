@@ -52,13 +52,27 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::Shortcuts => {
                     theme::text(ui, "Keyboard shortcuts", theme::bold(20.0), palette.text);
                     ui.add_space(12.0);
-                    egui::Grid::new("shortcuts").num_columns(2).spacing([24.0, 8.0]).show(ui, |ui| {
-                        for (keys, description) in super::keys::SHORTCUTS {
-                            theme::text(ui, *keys, theme::semibold(13.0), palette.text);
-                            theme::text(ui, *description, theme::regular(13.5), palette.secondary);
-                            ui.end_row();
-                        }
-                    });
+                    // `theme::text` truncates, which in a grid makes each cell
+                    // claim almost no width and turns "Ctrl+Shift+A" into
+                    // "Ctrl…". A shortcut is unusable when abbreviated, so
+                    // these cells are sized to their content.
+                    let cell = |ui: &mut egui::Ui, text: &str, font: egui::FontId, color| {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(text).font(font).color(color))
+                                .extend()
+                                .selectable(false),
+                        );
+                    };
+                    egui::Grid::new("shortcuts")
+                        .num_columns(2)
+                        .spacing([24.0, 8.0])
+                        .show(ui, |ui| {
+                            for (keys, description) in super::keys::SHORTCUTS {
+                                cell(ui, keys, theme::semibold(13.0), palette.text);
+                                cell(ui, description, theme::regular(13.5), palette.secondary);
+                                ui.end_row();
+                            }
+                        });
                     ui.add_space(16.0);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if theme::pill_button(ui, &palette, "Done", true).clicked() {
