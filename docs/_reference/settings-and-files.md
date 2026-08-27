@@ -54,5 +54,21 @@ fastpotify [OPTIONS]
 ## Demo mode
 
 Builds made with `cargo build --features demo` accept `--demo`, which fills
-the interface with sample data and never contacts Spotify, useful for
-screenshots, theming, and interface work. Demo mode never writes settings.
+the interface with sample data, useful for screenshots, theming, and
+interface work. Demo mode never writes settings.
+
+`--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
+and `--demo-show` adds surfaces on top of it: a comma separated list of
+`queue`, `devices`, `shortcuts`, `create`, and `light`.
+
+`--demo-shot <PATH>` writes the window to a PNG and exits, which is how the
+screenshots in these pages are made:
+
+```
+cargo run --release --features demo -- \
+  --demo-shot docs/screenshot.png --demo-page playlist:pl1 --demo-show queue
+```
+
+The shot is the window's own frame buffer, so it comes out at whatever size
+the window is. `--demo-shot-delay <MS>` sets how long cover art has to arrive
+before the frame is taken.

@@ -486,6 +486,15 @@ pub fn populate(app: &mut App) {
             kind: "smartphone".into(),
         },
     ];
+    // A speaker announcing itself over ZeroConf that the account has not
+    // adopted yet, so the device picker shows the row that offers to hand it
+    // the account.
+    app.receivers = vec![crate::zeroconf::Receiver {
+        name: "House Spotify".into(),
+        address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 42)),
+        port: 5555,
+        path: "/zc".into(),
+    }];
     app.remote = Some(RemoteSnapshot {
         state: PlaybackState {
             device: Some(app.devices[1].clone()),

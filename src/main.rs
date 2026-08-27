@@ -33,6 +33,20 @@ struct Cli {
     #[cfg(feature = "demo")]
     #[arg(long)]
     demo_show: Option<String>,
+
+    /// Write a PNG of the demo window to this path and exit. Implies
+    /// `--demo`. The shot is the window's own frame buffer, so it is however
+    /// large the window is: full screen where that request is honoured, and
+    /// the size of the tile under a tiling window manager, which decides for
+    /// itself.
+    #[cfg(feature = "demo")]
+    #[arg(long, value_name = "PATH")]
+    demo_shot: Option<std::path::PathBuf>,
+
+    /// How long to let cover art download before the shot is taken.
+    #[cfg(feature = "demo")]
+    #[arg(long, value_name = "MS", default_value_t = 6000)]
+    demo_shot_delay: u64,
 }
 
 fn main() -> eframe::Result<()> {
@@ -63,7 +77,9 @@ fn main() -> eframe::Result<()> {
     // A second launch surfaces the instance already running instead of
     // starting a rival one. Held for the lifetime of the process.
     #[cfg(feature = "demo")]
-    let guarded = !cli.demo;
+    let demo = cli.demo || cli.demo_shot.is_some();
+    #[cfg(feature = "demo")]
+    let guarded = !demo;
     #[cfg(not(feature = "demo"))]
     let guarded = true;
     let instance = if guarded {
@@ -78,22 +94,44 @@ fn main() -> eframe::Result<()> {
         None
     };
 
+    // A capture run is a throwaway process next to the real one: no tray
+    // icon of its own, and no second MPRIS service to fight over media keys.
     #[allow(unused_mut)]
-    let mut app = app::App::new(&waker, dirs, settings, app::AppOptions::default());
+    let mut options = app::AppOptions::default();
+    #[cfg(feature = "demo")]
+    if cli.demo_shot.is_some() {
+        options = app::AppOptions {
+            mpris: false,
+            tray: false,
+        };
+    }
+    #[allow(unused_mut)]
+    let mut app = app::App::new(&waker, dirs, settings, options);
     if let Some(guard) = &instance {
         app.set_show_requests(guard.show_requests());
     }
     #[cfg(feature = "demo")]
-    if cli.demo {
+    if demo {
         fastpotify::demo::populate(&mut app);
         fastpotify::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
     }
+    #[cfg(feature = "demo")]
+    let shot = cli.demo_shot.clone().map(|path| Shot {
+        path,
+        due: std::time::Instant::now() + std::time::Duration::from_millis(cli.demo_shot_delay),
+        asked: false,
+    });
     let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(app)));
 
     loop {
         let creator_slot = std::sync::Arc::clone(&slot);
         let creator_waker = waker.clone();
-        let options = native_options();
+        #[cfg(feature = "demo")]
+        let creator_shot = shot.clone();
+        #[cfg(feature = "demo")]
+        let options = native_options(shot.is_some());
+        #[cfg(not(feature = "demo"))]
+        let options = native_options(false);
         eframe::run_native(
             "Fastpotify",
             options,
@@ -108,6 +146,8 @@ fn main() -> eframe::Result<()> {
                 Ok(Box::new(Shell {
                     app: Some(app),
                     slot: std::sync::Arc::clone(&creator_slot),
+                    #[cfg(feature = "demo")]
+                    shot: creator_shot.clone(),
                 }))
             }),
         )?;
@@ -161,13 +201,14 @@ fn main() -> eframe::Result<()> {
     Ok(())
 }
 
-fn native_options() -> eframe::NativeOptions {
+fn native_options(fullscreen: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Fastpotify")
             .with_app_id("fastpotify")
             .with_inner_size([1240.0, 800.0])
             .with_min_inner_size([760.0, 520.0])
+            .with_fullscreen(fullscreen)
             .with_icon(app_icon()),
         // A Wayland compositor stops sending frame callbacks to a hidden
         // window; waiting for vsync there would block the event loop.
@@ -185,6 +226,66 @@ fn native_options() -> eframe::NativeOptions {
 struct Shell {
     app: Option<app::App>,
     slot: std::sync::Arc<std::sync::Mutex<Option<app::App>>>,
+    /// A pending `--demo-shot` capture, if this is a screenshot run.
+    #[cfg(feature = "demo")]
+    shot: Option<Shot>,
+}
+
+/// A screenshot the window still owes us.
+///
+/// Cover art arrives over the network, so the capture waits for `due` before
+/// asking egui for the frame buffer. The image comes back as an input event
+/// on a later frame, which is where it gets written and the window closed.
+#[cfg(feature = "demo")]
+#[derive(Clone)]
+struct Shot {
+    path: std::path::PathBuf,
+    due: std::time::Instant,
+    asked: bool,
+}
+
+#[cfg(feature = "demo")]
+impl Shell {
+    fn drive_shot(&mut self, ctx: &egui::Context) {
+        let Some(shot) = self.shot.as_mut() else {
+            return;
+        };
+
+        // Nothing here is driven by user input, so the frames have to be
+        // asked for: art still has to load and the request has to be issued.
+        ctx.request_repaint();
+
+        if !shot.asked && std::time::Instant::now() >= shot.due {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            shot.asked = true;
+        }
+
+        let image = ctx.input(|input| {
+            input.events.iter().find_map(|event| match event {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+        let Some(image) = image else {
+            return;
+        };
+
+        let [width, height] = [image.size[0] as u32, image.size[1] as u32];
+        let pixels: Vec<u8> = image
+            .pixels
+            .iter()
+            .flat_map(|pixel| pixel.to_srgba_unmultiplied())
+            .collect();
+        match image::RgbaImage::from_raw(width, height, pixels) {
+            Some(buffer) => match buffer.save(&shot.path) {
+                Ok(()) => log::info!("wrote {}x{} to {}", width, height, shot.path.display()),
+                Err(error) => log::error!("could not write {}: {error}", shot.path.display()),
+            },
+            None => log::error!("the frame buffer did not match {width}x{height}"),
+        }
+        self.shot = None;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
 }
 
 impl eframe::App for Shell {
@@ -192,6 +293,8 @@ impl eframe::App for Shell {
         if let Some(app) = self.app.as_mut() {
             app.background_frame(ctx);
         }
+        #[cfg(feature = "demo")]
+        self.drive_shot(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
