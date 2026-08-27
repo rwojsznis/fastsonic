@@ -29,6 +29,13 @@ const DEVICES_FRESH: Duration = Duration::from_secs(12);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
+/// How long the interface trusts its own play/pause over a polled state that
+/// has not caught up yet. Spotify can take a moment to report a command it
+/// has already carried out, and a button that springs back looks broken.
+const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
+/// A second look after a command, so the button settles quickly rather than
+/// waiting for the ordinary poll.
+const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
 const CONTAINS_BATCH: usize = 50;
 
 pub struct RemoteSnapshot {
@@ -164,6 +171,8 @@ pub struct App {
     /// A receiver just activated, waiting for Spotify to list it so playback
     /// can move there.
     pending_transfer_to: Option<(String, Instant)>,
+    /// When to take a confirming look at remote playback after a command.
+    remote_recheck_at: Option<Instant>,
     pub seek_preview: Option<f32>,
     pub volume_preview: Option<f32>,
     last_eviction: Instant,
@@ -260,6 +269,7 @@ impl App {
             pending_play_at: None,
             queued_play: None,
             pending_transfer_to: None,
+            remote_recheck_at: None,
             seek_preview: None,
             volume_preview: None,
             last_eviction: Instant::now(),
@@ -368,7 +378,7 @@ impl App {
                         .collect()
                 });
             let playing = match self.optimistic_playing {
-                Some((playing, at)) if at.elapsed() < OPTIMISTIC_HOLD => playing,
+                Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
                 _ => self.local.playback == Playback::Playing,
             };
             return Some(NowPlaying {
@@ -404,7 +414,7 @@ impl App {
         let item = remote.state.item.as_ref()?;
         let device = remote.state.device.as_ref();
         let playing = match self.optimistic_playing {
-            Some((playing, at)) if at.elapsed() < OPTIMISTIC_HOLD => playing,
+            Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
             _ => remote.state.is_playing,
         };
         let position = match self.pending_remote_position {
@@ -700,6 +710,12 @@ impl App {
             };
             if !self.remote_poll_pending && self.remote_polled_at.elapsed() >= interval {
                 self.poll_remote(false);
+            }
+            if let Some(due) = self.remote_recheck_at
+                && Instant::now() >= due
+            {
+                self.remote_recheck_at = None;
+                self.poll_remote(true);
             }
             if self.show_devices
                 && !self.devices_loading
@@ -1268,6 +1284,14 @@ impl App {
                             known.is_active = true;
                             known.volume_percent = device.volume_percent;
                         }
+                        if let Some((wanted, _)) = self.optimistic_playing
+                            && self
+                                .remote
+                                .as_ref()
+                                .is_some_and(|remote| remote.state.is_playing == wanted)
+                        {
+                            self.optimistic_playing = None;
+                        }
                         if uri != previous_uri {
                             self.on_now_playing_changed();
                         }
@@ -1763,7 +1787,9 @@ impl App {
                     self.clear_play_pending();
                 }
                 match result {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
+                    }
                     Err(error) => {
                         self.optimistic_playing = None;
                         self.pending_remote_position = None;

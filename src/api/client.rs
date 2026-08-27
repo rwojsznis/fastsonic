@@ -311,7 +311,7 @@ impl ApiClient {
         path: &str,
         query: &[(&str, String)],
         body: Option<&Value>,
-    ) -> Result<Option<Value>> {
+    ) -> Result<String> {
         let url = if path.starts_with("http") {
             path.to_string()
         } else {
@@ -369,12 +369,7 @@ impl ApiClient {
             }
             let text = response.text().await?;
             if status.is_success() {
-                if text.trim().is_empty() {
-                    return Ok(None);
-                }
-                return serde_json::from_str(&text)
-                    .map(Some)
-                    .map_err(|error| ApiError::Decode(error.to_string()));
+                return Ok(text);
             }
             let message = serde_json::from_str::<ApiErrorBody>(&text)
                 .ok()
@@ -394,11 +389,12 @@ impl ApiClient {
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, String)]) -> Result<T> {
-        let value = self
-            .send(Method::GET, path, query, None)
-            .await?
-            .unwrap_or(Value::Null);
-        serde_json::from_value(value).map_err(|error| ApiError::Decode(error.to_string()))
+        let text = self.send(Method::GET, path, query, None).await?;
+        if text.trim().is_empty() {
+            return serde_json::from_value(Value::Null)
+                .map_err(|error| ApiError::Decode(error.to_string()));
+        }
+        serde_json::from_str(&text).map_err(|error| ApiError::Decode(error.to_string()))
     }
 
     async fn get_optional<T: DeserializeOwned>(
@@ -406,14 +402,21 @@ impl ApiClient {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<Option<T>> {
-        match self.send(Method::GET, path, query, None).await? {
-            None | Some(Value::Null) => Ok(None),
-            Some(value) => serde_json::from_value(value)
-                .map(Some)
-                .map_err(|error| ApiError::Decode(error.to_string())),
+        // Spotify answers 204 with no body when nothing is playing.
+        let text = self.send(Method::GET, path, query, None).await?;
+        if text.trim().is_empty() || text.trim() == "null" {
+            return Ok(None);
         }
+        serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|error| ApiError::Decode(error.to_string()))
     }
 
+    /// Performs a change. The status decides success; the body is only
+    /// consulted where a caller needs something from it, because Spotify's
+    /// replies to player commands are not reliably JSON and contain nothing
+    /// this client uses. Treating an unparseable body as failure told people
+    /// their music had not started while it was already playing.
     async fn write(
         &self,
         method: Method,
@@ -421,7 +424,17 @@ impl ApiClient {
         query: &[(&str, String)],
         body: Option<&Value>,
     ) -> Result<Option<Value>> {
-        self.send(method, path, query, body).await
+        let text = self.send(method, path, query, body).await?;
+        if text.trim().is_empty() {
+            return Ok(None);
+        }
+        match serde_json::from_str(&text) {
+            Ok(value) => Ok(Some(value)),
+            Err(error) => {
+                log::debug!("{path} succeeded with a body that is not JSON: {error}");
+                Ok(None)
+            }
+        }
     }
 
     // ---- identity and player ---------------------------------------------
