@@ -1,0 +1,119 @@
+title: Fastpotify
+fastpotify_version: "0.1.0"
+description: A fast, native Spotify client for Linux, macOS, and Windows, written in Rust.
+lang: en-US
+timezone: Europe/Berlin
+url: https://crmne.github.io
+baseurl: /fastpotify
+logo: /assets/images/logo.svg
+image: /screenshot.png
+
+markdown: kramdown
+kramdown:
+  input: GFM
+
+permalink: pretty
+theme: jekyll-vitepress-theme
+
+collections:
+  guide:
+    output: true
+    permalink: "/:name/"
+  reference:
+    output: true
+    permalink: "/:name/"
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+      image: /screenshot.png
+      topics:
+        - Spotify client
+        - Rust
+        - egui
+        - librespot
+        - Spotify Connect
+        - Linux music player
+  - scope:
+      type: guide
+    values:
+      layout: default
+  - scope:
+      type: reference
+    values:
+      layout: default
+
+jekyll_vitepress:
+  seo:
+    page_type: TechArticle
+    image:
+      path: /screenshot.png
+      alt: Fastpotify showing a playlist with the queue open and a track playing
+    publisher:
+      type: Person
+      name: Carmine Paolino
+      url: https://paolino.me
+      same_as:
+        - https://github.com/crmne/fastpotify
+  llms:
+    title: Fastpotify
+    description: >-
+      Documentation for Fastpotify, a fast native Spotify client written in
+      Rust with egui and librespot: one lightweight app for your whole
+      library, local playback, and Spotify Connect on Linux, macOS, and
+      Windows.
+    full: true
+    details: >-
+      The canonical documentation covers installation, signing in, everyday
+      use, settings, and how the client connects to Spotify. Source is on
+      [GitHub](https://github.com/crmne/fastpotify).
+  branding:
+    site_title: Fastpotify
+    logo:
+      default: /assets/images/logo.svg
+      alt: Fastpotify
+  syntax:
+    light_theme: github
+    dark_theme: github.dark
+  footer:
+    enabled: true
+    show_on_docs: false
+    message: >-
+      Brought to you by <a href="https://paolino.me" target="_blank" rel="noreferrer">Carmine Paolino</a>
+    copyright: >-
+      <span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Fastpotify is an independent project, not affiliated with or endorsed by Spotify AB. Spotify is a trademark of Spotify AB.</span>
+  doc_footer:
+    enabled: true
+    previous_label: Previous page
+    next_label: Next page
+  last_updated:
+    enabled: true
+    text: Last updated
+    format: "%Y-%m-%d %H:%M"
+  edit_link:
+    enabled: true
+    pattern: "https://github.com/crmne/fastpotify/edit/main/docs/:path"
+    text: Edit this page on GitHub
+  github_star:
+    enabled: true
+    repository: crmne/fastpotify
+    text: Star
+    show_count: true
+  github_sponsor:
+    enabled: true
+    user: crmne
+    text: Sponsor
+
+plugins:
+  - jekyll-vitepress-theme
+
+exclude:
+  - _site
+  - .jekyll-cache
+  - .sass-cache
+  - .bundle
+  - vendor
+  - Gemfile
+  - Gemfile.lock

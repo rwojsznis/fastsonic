@@ -4,3 +4,7 @@
 .vscode/
 /examples/token_probe.rs
 /examples/oauth_probe.rs
+docs/_site/
+docs/.jekyll-cache/
+docs/vendor/
+docs/.bundle/
