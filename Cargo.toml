@@ -26,6 +26,16 @@ egui_extras = { version = "0.36", features = ["image", "svg"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 # Spotify playback and Connect. rustls everywhere so the client links one TLS
 # stack and builds without OpenSSL on every platform.
+#
+# librespot-core depends on hyper-proxy2 for HTTP proxy support, whose only
+# published release (0.1.0) pins rustls 0.22 and so drags in rustls-webpki
+# 0.102, which carries advisories against its CRL and name-constraint
+# handling. Fastpotify never configures a proxy — SessionConfig.proxy stays
+# None — so that TLS client is compiled in but never used to verify anything.
+# Every connection this app actually makes (the Web API through reqwest, and
+# librespot's own sessions) goes through rustls 0.23 with a patched
+# rustls-webpki. Removing the old copy needs a release of hyper-proxy2, or a
+# librespot that stops depending on it.
 librespot-core = { version = "0.8", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-playback = { version = "0.8", default-features = false, features = ["rodio-backend", "rustls-tls-native-roots"] }
 librespot-connect = { version = "0.8", default-features = false }
