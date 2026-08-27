@@ -4,17 +4,17 @@
 [egui](https://github.com/emilk/egui), playing music through
 [librespot](https://github.com/librespot-org/librespot). It runs on Linux,
 macOS, and Windows, starts in well under a second, and stays small while it
-runs — there is no browser engine anywhere in the process.
+runs. There is no browser engine anywhere in the process.
 
 Fastpotify follows in the footsteps of
 [Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify) and
 [spotify-tui](https://github.com/Rigellute/spotify-tui): the familiar Spotify
-layout, the whole library, and a Spotify Connect receiver on your computer —
+layout, the whole library, and a Spotify Connect receiver on your computer,
 as one ordinary desktop application rather than a shell plugin.
 
 ![Fastpotify showing a playlist, with the queue open and a track playing on a remote speaker](docs/screenshot.png)
 
-**Documentation:** [crmne.github.io/fastpotify](https://crmne.github.io/fastpotify/) — what it is, getting started, everyday use, and how it connects to Spotify.
+**Documentation:** [crmne.github.io/fastpotify](https://crmne.github.io/fastpotify/): what it is, getting started, everyday use, and how it connects to Spotify.
 
 ## What it does
 
@@ -22,7 +22,7 @@ as one ordinary desktop application rather than a shell plugin.
   Pick it from your phone, or press play here. Gapless, up to 320 kbps, with
   optional volume normalisation and an on-disk audio cache.
 - **Controls every other device.** Move playback to a speaker, a phone, or
-  another computer from the device picker, and keep controlling it — play,
+  another computer from the device picker, and keep controlling it: play,
   pause, skip, seek, shuffle, repeat, volume.
 - **Your whole library.** Playlists, Liked Songs, saved albums, followed
   artists, podcasts, and saved episodes, filterable in the sidebar and as
@@ -44,14 +44,14 @@ as one ordinary desktop application rather than a shell plugin.
   them).
 - **Keeps playing when you close the window.** The window closes for real,
   the music and the process stay in the system tray (Linux status notifier),
-  and clicking the tray — or your desktop's media controls — brings a window
+  and clicking the tray, or your desktop's media controls, brings a window
   back. No compositor-specific tricks, so it behaves the same on any
   desktop. Quit from the tray menu or `Ctrl+Q`; turn the behaviour off in
   Settings if you prefer close-to-quit.
 - **Honest about the network.** Pages show spinners while they load, a
   quiet indicator appears in the top bar whenever the app is talking to
   Spotify for more than a moment, and if Spotify asks the app to back off
-  you see "Spotify is busy — retrying" instead of an unexplained wait.
+  you see that it is waiting, instead of an unexplained pause.
 - **Desktop integration.** MPRIS on Linux, so media keys, the shell, and
   `playerctl` see Fastpotify like any other player.
 
@@ -95,10 +95,10 @@ of other devices work immediately. The refresh token is stored in the
 platform's state directory (`~/.local/state/fastpotify` on Linux), so the
 browser is needed once per machine.
 
-Playing music **on this computer** is one more one-time browser approval —
+Playing music **on this computer** is one more one-time browser approval.
 Spotify treats streaming as a separate grant for its own client identity,
 which is what librespot plays with. Take it from the device menu ("Play
-here — set up once") or Settings; it needs Spotify Premium, and librespot
+here, set up once") or Settings; it needs Spotify Premium, and librespot
 stores a reusable credential so it also never asks again. Browsing and
 remote control work on any account without this step.
 
@@ -141,20 +141,20 @@ any time without signing you out.
 
 ## How it is built
 
-- `src/player.rs` — the librespot session, player, mixer, and Spirc (Spotify
+- `src/player.rs`: the librespot session, player, mixer, and Spirc (Spotify
   Connect) wrapped into one engine that folds player events into a state
   snapshot for the interface.
-- `src/api/` — a small Web API client with bounded concurrency,
+- `src/api/`: a small Web API client with bounded concurrency,
   `Retry-After` handling, and automatic fallback between the 2026 endpoint
   shapes (`/me/library`, `/playlists/{id}/items`) and the classic ones.
-- `src/backend.rs` — a tokio runtime on its own thread; the interface talks to
+- `src/backend.rs`: a tokio runtime on its own thread; the interface talks to
   it through channels and is woken with `request_repaint`, so the app is idle
   when nothing happens.
-- `src/images.rs` — album art as an egui bytes loader with a disk cache and
+- `src/images.rs`: album art as an egui bytes loader with a disk cache and
   time-based eviction, plus the accent-colour extraction.
-- `src/app.rs`, `src/model.rs`, `src/ui/` — state, navigation, and the views.
+- `src/app.rs`, `src/model.rs`, `src/ui/`: state, navigation, and the views.
   Views collect `Action`s while drawing and the app applies them afterwards.
-- `src/mpris.rs` — Linux media controls on a dedicated thread.
+- `src/mpris.rs`: Linux media controls on a dedicated thread.
 
 Fastpotify pins its Rust toolchain in `rust-toolchain.toml`; `cargo test`
 covers the API models, the endpoint fallbacks, PKCE, the player state

@@ -1786,7 +1786,7 @@ impl App {
         if device_id.is_none() && self.remote_fresh().is_none() {
             // Spotify would only answer "no active device found".
             self.clear_play_pending();
-            self.toast("Nothing is playing — pick something first");
+            self.toast("Nothing is playing. Pick something first");
             return;
         }
         self.backend.api(ApiRequest::Remote {
@@ -1846,7 +1846,7 @@ impl App {
             }
             Target::Remote(None) => {
                 // No remote device is active, and this computer's player is
-                // not ready. Never ask Spotify to play "nowhere" — either
+                // not ready. Never ask Spotify to play "nowhere": either
                 // wait for the connecting engine or ask for a device.
                 if matches!(
                     self.local_playback,

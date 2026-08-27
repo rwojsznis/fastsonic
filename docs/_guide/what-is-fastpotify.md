@@ -16,7 +16,7 @@ Fastpotify is a native Spotify client written in Rust with
 [egui](https://github.com/emilk/egui), playing music through
 [librespot](https://github.com/librespot-org/librespot). One small binary,
 no browser engine anywhere in the process, a launch measured in fractions of
-a second — with the layout you already know from Spotify, so there is almost
+a second, with the layout you already know from Spotify, so there is almost
 nothing new to learn.
 
 ![Fastpotify showing a playlist with the queue open and a track playing](/screenshot.png)
@@ -27,7 +27,7 @@ nothing new to learn.
   pick it from your phone, or press play here. Gapless, up to 320 kbps, with
   optional volume normalisation and an on-disk audio cache.
 - **Controls every other device.** Move playback to a speaker, a phone, or
-  another computer from the device picker, and keep controlling it — play,
+  another computer from the device picker, and keep controlling it: play,
   pause, skip, seek, shuffle, repeat, volume.
 - **Your whole library.** Playlists, Liked Songs, saved albums, followed
   artists, podcasts, and saved episodes, filterable in the sidebar and as

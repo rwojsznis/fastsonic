@@ -10,9 +10,9 @@ Fastpotify follows each platform's conventions. On Linux:
 
 | What | Where | Safe to delete? |
 | --- | --- | --- |
-| Settings | `~/.config/fastpotify/settings.json` | Yes — you lose preferences |
-| Web API sign-in | `~/.local/state/fastpotify/web_api_token.json` | Yes — you sign in again |
-| Playback credential | `~/.local/state/fastpotify/credentials/` | Yes — you approve playback again |
+| Settings | `~/.config/fastpotify/settings.json` | Yes, you lose preferences |
+| Web API sign-in | `~/.local/state/fastpotify/web_api_token.json` | Yes, you sign in again |
+| Playback credential | `~/.local/state/fastpotify/credentials/` | Yes, you approve playback again |
 | Last session | `~/.local/state/fastpotify/session.json` | Yes |
 | Audio cache | `~/.cache/fastpotify/audio/` | Always |
 | Artwork cache | `~/.cache/fastpotify/art/` | Always |
@@ -38,7 +38,7 @@ One readable JSON file, written atomically. The interesting fields:
 | `theme` | `dark` | `dark`, `light`, or `system` |
 | `accent_from_art` | `true` | Tint pages with album art |
 | `keep_playing_in_background` | `true` | Close to tray |
-| `web_client_id` | — | Your own Spotify app id, if you set one |
+| `web_client_id` | none | Your own Spotify app id, if you set one |
 
 ## Command line
 
@@ -54,5 +54,5 @@ fastpotify [OPTIONS]
 ## Demo mode
 
 Builds made with `cargo build --features demo` accept `--demo`, which fills
-the interface with sample data and never contacts Spotify — useful for
+the interface with sample data and never contacts Spotify, useful for
 screenshots, theming, and interface work. Demo mode never writes settings.

@@ -79,7 +79,7 @@ fn main() -> eframe::Result<()> {
 
     // The application (audio engine, Web API, MPRIS, tray) outlives any
     // window. Closing to the tray destroys the window and this loop creates
-    // a new one when the tray or MPRIS asks for it — plain window lifecycle,
+    // a new one when the tray or MPRIS asks for it. Plain window lifecycle,
     // portable across desktops.
     let waker = backend::Waker::default();
     #[allow(unused_mut)]

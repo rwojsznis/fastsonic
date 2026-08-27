@@ -41,14 +41,14 @@ control your other devices immediately.
 
 The sign-in is stored as a refresh token in your platform's state directory
 (`~/.local/state/fastpotify` on Linux), so the browser is needed once per
-machine — the next launch goes straight to your library.
+machine. The next launch goes straight to your library.
 
 ## Enable playback on this computer
 
 Playing music *on this machine* is one more one-time browser approval,
 because Spotify treats streaming as a separate grant
-([why](/how-it-connects/)). Take it from the device menu — the speaker icon
-in the player bar, then **Play here — set up once** — or from Settings.
+([why](/how-it-connects/)). Take it from the device menu (the speaker icon
+in the player bar, then **Play here, set up once**) or from Settings.
 It needs Spotify Premium, and it too is remembered forever.
 
 After that, this computer shows up as a Spotify Connect device named
@@ -61,7 +61,7 @@ speaker.
   from the system tray; reopen it from the tray icon and quit from the tray
   menu or Ctrl+Q. Settings can turn this off.
 - **Play buttons tell you what is happening.** A pressed play button spins
-  until Spotify reacts — the app is never silently "stuck".
+  until Spotify reacts, so the app is never silently "stuck".
 - **The keyboard does everything.** Space plays and pauses, Ctrl+F or `/`
   searches, `Q` opens the queue; Ctrl+/ lists all of it.
 - **Right-click is everywhere.** Every song, playlist, album, and artist has

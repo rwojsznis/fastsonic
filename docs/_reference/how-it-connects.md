@@ -9,18 +9,18 @@ nav_order: 1
 Fastpotify talks to Spotify in two distinct ways, and Spotify issues
 credentials for them separately:
 
-1. **The Web API** — your library, search, playlists, devices. Fastpotify
+1. **The Web API** covers your library, search, playlists, and devices. Fastpotify
    uses the standard Authorization Code + PKCE flow in your browser, as a
    registered Spotify application. The refresh token is stored locally and
    renewed automatically; your password never touches the app.
-2. **Streaming** — actually playing audio on this computer, through
+2. **Streaming** is actually playing audio on this computer, through
    [librespot](https://github.com/librespot-org/librespot). This runs the
    same browser flow once against Spotify's streaming client identity, after
    which librespot stores its own reusable credential. Premium is required,
    because that is what Spotify's streaming protocol requires.
 
 Why not one grant? Because Spotify throttles Web API calls made with
-streaming-identity tokens — measured during development: every endpoint
+streaming-identity tokens. Measured during development, every endpoint
 answers `429` within the first request. Two narrow grants are what actually
 works, and each one happens exactly once per machine.
 

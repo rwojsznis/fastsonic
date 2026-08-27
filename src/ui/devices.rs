@@ -56,7 +56,7 @@ fn enable_playback_row(app: &mut App, ui: &mut egui::Ui) {
         if authorizing {
             "Setting up…"
         } else {
-            "Play here — set up once"
+            "Play here, set up once"
         },
         theme::regular(12.0),
         palette.accent,

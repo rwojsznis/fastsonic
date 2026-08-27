@@ -69,9 +69,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .and_then(|user| user.product.clone())
                     .map(|product| match product.as_str() {
                         "premium" => "Spotify Premium".to_string(),
-                        "free" | "open" => {
-                            "Spotify Free — local playback needs Premium".to_string()
-                        }
+                        "free" | "open" => "Spotify Free, local playback needs Premium".to_string(),
                         other => other.to_string(),
                     })
                     .unwrap_or_default();

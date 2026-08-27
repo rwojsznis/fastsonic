@@ -11,7 +11,7 @@ podcast pages, on cards when you hover them, and on every row. Double-click
 a row to play from that song within its playlist or album. The shuffle
 button next to a page's play button starts the whole thing shuffled.
 
-The player bar at the bottom always shows what is playing — on this
+The player bar at the bottom always shows what is playing, on this
 computer *or* on any other device. Click the title to open its album, the
 artist to open the artist, the heart to save it.
 
@@ -29,8 +29,8 @@ followed and unfollowed.
 
 ## Search
 
-Ctrl+F (or `/`) focuses search from anywhere. Results come grouped — a top
-result, songs, artists, albums, playlists, podcasts, episodes — and the
+Ctrl+F (or `/`) focuses search from anywhere. Results come grouped (a top
+result, songs, artists, albums, playlists, podcasts, episodes) and the
 chips narrow to one kind. Your recent searches wait on the empty search
 page.
 

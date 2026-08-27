@@ -67,4 +67,4 @@ from the bundled `packaging/` directory if you want it in your launcher.
 Runtime needs are the ordinary desktop libraries: ALSA, PulseAudio or
 PipeWire, and Wayland or X11.
 
-Or build from source — see [Getting Started](/getting-started/).
+Or build from source: see [Getting Started](/getting-started/).
