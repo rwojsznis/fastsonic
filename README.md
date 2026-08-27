@@ -24,6 +24,10 @@ as one ordinary desktop application rather than a shell plugin.
 - **Controls every other device.** Move playback to a speaker, a phone, or
   another computer from the device picker, and keep controlling it: play,
   pause, skip, seek, shuffle, repeat, volume.
+- **Finds speakers on your network.** A librespot, spotifyd, or hardware
+  receiver waiting on the LAN is invisible to Spotify's API until it has an
+  account. Fastpotify discovers those over mDNS and connects them for you,
+  after which they behave like any other Spotify Connect device.
 - **Your whole library.** Playlists, Liked Songs, saved albums, followed
   artists, podcasts, and saved episodes, filterable in the sidebar and as
   full pages.

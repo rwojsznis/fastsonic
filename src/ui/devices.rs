@@ -86,6 +86,62 @@ fn enable_playback_row(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(4.0);
 }
 
+/// A receiver announced on the local network but not yet in the account.
+/// Choosing it hands over the account, after which it behaves like any other
+/// Spotify Connect device.
+fn receiver_row(app: &mut App, ui: &mut egui::Ui, receiver: &crate::zeroconf::Receiver) {
+    use egui::{Rect, Sense, Vec2, pos2, vec2};
+    let palette = app.palette;
+    let activating = app.activating_receiver.as_deref() == Some(receiver.name.as_str());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::click());
+    if response.hovered() && !activating {
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(6), palette.surface_hover);
+    }
+    let icon_rect =
+        Rect::from_center_size(pos2(rect.left() + 24.0, rect.center().y), Vec2::splat(22.0));
+    Icon::Speaker
+        .image(palette.text, 22.0)
+        .paint_at(ui, icon_rect);
+    let painter = ui.painter().with_clip_rect(rect);
+    painter.text(
+        pos2(rect.left() + 48.0, rect.center().y - 9.0),
+        egui::Align2::LEFT_CENTER,
+        &receiver.name,
+        theme::medium(14.0),
+        palette.text,
+    );
+    painter.text(
+        pos2(rect.left() + 48.0, rect.center().y + 10.0),
+        egui::Align2::LEFT_CENTER,
+        if activating {
+            "Connecting…"
+        } else {
+            "On your network, tap to connect"
+        },
+        theme::regular(12.0),
+        palette.secondary,
+    );
+    if activating {
+        let mut spin = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(Rect::from_center_size(
+                    pos2(rect.right() - 18.0, rect.center().y),
+                    Vec2::splat(20.0),
+                ))
+                .layout(egui::Layout::centered_and_justified(
+                    egui::Direction::LeftToRight,
+                )),
+        );
+        theme::spinner(&mut spin, 16.0, palette.accent);
+    }
+    if response.clicked() && !activating {
+        app.actions
+            .push(Action::ActivateReceiver(Box::new(receiver.clone())));
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand);
+}
+
 pub fn popup(app: &mut App, ctx: &egui::Context) {
     if !app.show_devices {
         return;
@@ -153,10 +209,22 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     crate::app::Target::Remote(id) => id,
                 };
                 devices.sort_by_key(|device| device.id != active_id);
+
+                // Receivers on the network that Spotify has not listed yet.
+                // They are real speakers the user can see in the official
+                // client, so offering them here is the whole point.
+                let listed: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
+                let waiting: Vec<crate::zeroconf::Receiver> = app
+                    .receivers
+                    .iter()
+                    .filter(|receiver| !listed.iter().any(|name| name == &receiver.name))
+                    .cloned()
+                    .collect();
+
                 if !app.local_ready {
                     enable_playback_row(app, ui);
                 }
-                if devices.is_empty() && app.local_ready {
+                if devices.is_empty() && waiting.is_empty() && app.local_ready {
                     ui.add_space(8.0);
                     theme::subtle(
                         ui,
@@ -165,6 +233,7 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     );
                     ui.add_space(8.0);
                 }
+
                 for device in &devices {
                     let is_local = device.id.is_some() && device.id == local_id;
                     let active = device.id.is_some() && device.id == active_id;
@@ -229,6 +298,9 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                         app.actions.push(Action::Transfer(id.clone()));
                     }
                     response.on_hover_cursor(egui::CursorIcon::PointingHand);
+                }
+                for receiver in &waiting {
+                    receiver_row(app, ui, receiver);
                 }
             });
         });

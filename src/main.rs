@@ -2,31 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod api;
-mod app;
-mod auth;
-mod backend;
-#[cfg(any(test, feature = "demo"))]
-mod demo;
-mod images;
-mod model;
-#[cfg(target_os = "linux")]
-mod mpris;
-#[cfg(not(target_os = "linux"))]
-#[path = "mpris_stub.rs"]
-mod mpris;
-mod paths;
-mod player;
-mod settings;
-mod single_instance;
-mod theme;
-#[cfg(target_os = "linux")]
-mod tray;
-#[cfg(not(target_os = "linux"))]
-#[path = "tray_stub.rs"]
-mod tray;
-mod ui;
-mod util;
+use fastpotify::{app, backend, paths, settings, single_instance, util};
 
 use clap::Parser;
 
@@ -109,8 +85,8 @@ fn main() -> eframe::Result<()> {
     }
     #[cfg(feature = "demo")]
     if cli.demo {
-        demo::populate(&mut app);
-        demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
+        fastpotify::demo::populate(&mut app);
+        fastpotify::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
     }
     let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(app)));
 

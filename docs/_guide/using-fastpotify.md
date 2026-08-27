@@ -44,6 +44,24 @@ is coming out of something across the room.
 The queue lives behind the list icon, as a side panel or a full page. Add
 anything to it from a row's context menu.
 
+### Speakers Spotify has not noticed yet
+
+A receiver running librespot or spotifyd, and some hardware speakers, only
+appear in Spotify's own device list once an account has been handed to them.
+Until then the Web API cannot see them at all, however plainly they show up
+in the official client.
+
+Fastpotify looks for those on your local network whenever you open the
+device picker, and lists them under the devices Spotify already knows about,
+marked *on your network*. Choose one and Fastpotify hands it your account
+over the local network, encrypted so that only that receiver can read it.
+A moment later it joins Spotify Connect properly and playback moves there,
+and from then on it is an ordinary device to every Spotify client you own.
+
+This uses the credential stored for playing on this computer, so enable
+playback here first (see [Getting Started](/getting-started/)). Receivers
+that ask for a different kind of login are not connected this way yet.
+
 ## The tray
 
 Closing the window keeps the music playing: Fastpotify stays in the system

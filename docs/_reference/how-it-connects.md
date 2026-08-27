@@ -47,6 +47,23 @@ when a conversation with Spotify takes longer than a moment. Spotify also
 reshapes endpoints over time; the client detects several of these shapes at
 runtime and falls back to the older form where one still exists.
 
+## Receivers on the local network
+
+Spotify's device list contains only receivers already logged in to the
+account. Anything waiting to be given one, which is the normal state for a
+self-hosted librespot or spotifyd, is invisible to the Web API.
+
+Those receivers announce themselves over mDNS as `_spotify-connect._tcp` and
+answer a small HTTP interface. Fastpotify asks a receiver to describe itself,
+then hands over the reusable credential librespot already stores, wrapped
+twice: once in a key derived from the receiver's own device id, and again in
+a key both sides derive from a Diffie-Hellman exchange with the public key
+that receiver just published. A blob captured from the network is useless to
+anything else, and the credential is never written anywhere new.
+
+The receiver logs in with it, appears in the ordinary device list, and
+everything after that is the plain Web API.
+
 ## The engine
 
 Playback runs on a dedicated runtime: librespot maintains the Spotify

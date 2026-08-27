@@ -469,6 +469,8 @@ pub enum Action {
     },
     DeletePlaylist(String),
     Transfer(String),
+    /// Hand the account to a receiver found on the local network.
+    ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
     RefreshQueue,
     CopyLink(String),

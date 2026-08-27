@@ -119,6 +119,11 @@ pub struct App {
     remote_polled_at: Instant,
     remote_poll_pending: bool,
     pub devices: Vec<Device>,
+    /// Receivers seen on the local network. Spotify lists a receiver only
+    /// once it has an account, so these are the ones it cannot see yet.
+    pub receivers: Vec<crate::zeroconf::Receiver>,
+    /// The receiver currently being handed the account, by name.
+    pub activating_receiver: Option<String>,
     pub devices_loading: bool,
     devices_fetched_at: Option<Instant>,
     pub selected_device: Option<String>,
@@ -156,6 +161,9 @@ pub struct App {
     /// A play request made while the local engine was still connecting; it
     /// starts the moment the engine reports ready.
     queued_play: Option<PlayRequest>,
+    /// A receiver just activated, waiting for Spotify to list it so playback
+    /// can move there.
+    pending_transfer_to: Option<(String, Instant)>,
     pub seek_preview: Option<f32>,
     pub volume_preview: Option<f32>,
     last_eviction: Instant,
@@ -220,6 +228,8 @@ impl App {
             remote_polled_at: Instant::now() - REMOTE_POLL_IDLE,
             remote_poll_pending: false,
             devices: Vec::new(),
+            receivers: Vec::new(),
+            activating_receiver: None,
             devices_loading: false,
             devices_fetched_at: None,
             selected_device: None,
@@ -249,6 +259,7 @@ impl App {
             pending_play_keys: Vec::new(),
             pending_play_at: None,
             queued_play: None,
+            pending_transfer_to: None,
             seek_preview: None,
             volume_preview: None,
             last_eviction: Instant::now(),
@@ -525,6 +536,20 @@ impl App {
             match event {
                 Event::Auth(status) => self.handle_auth(status),
                 Event::Playback(status) => self.handle_playback(status),
+                Event::Receivers(receivers) => self.receivers = receivers,
+                Event::ReceiverActivated { name, result } => {
+                    self.activating_receiver = None;
+                    match result {
+                        Ok(()) => {
+                            self.toast(format!("{name} is ready"));
+                            // It takes a moment to appear in the device list.
+                            self.pending_transfer_to = Some((name, Instant::now()));
+                            self.devices_fetched_at = None;
+                            self.refresh_devices();
+                        }
+                        Err(error) => self.toast_error(format!("{name}: {error}")),
+                    }
+                }
                 Event::Local(state) => self.handle_local(*state),
                 Event::Api(response) => self.handle_api(*response),
                 Event::Accent { url, color } => {
@@ -1185,6 +1210,21 @@ impl App {
                 match result {
                     Ok(devices) => {
                         self.devices = devices;
+                        if let Some((name, since)) = self.pending_transfer_to.clone() {
+                            let matching = self
+                                .devices
+                                .iter()
+                                .find(|device| device.name == name)
+                                .and_then(|device| device.id.clone());
+                            if let Some(id) = matching {
+                                self.pending_transfer_to = None;
+                                self.transfer(id);
+                            } else if since.elapsed() > Duration::from_secs(20) {
+                                self.pending_transfer_to = None;
+                            } else {
+                                self.devices_fetched_at = None;
+                            }
+                        }
                         if let Some(selected) = &self.selected_device
                             && !self
                                 .devices
@@ -2340,9 +2380,16 @@ impl App {
                     .api(ApiRequest::FollowPlaylist { id, follow: false });
             }
             Action::Transfer(device_id) => self.transfer(device_id),
+            Action::ActivateReceiver(receiver) => {
+                if self.activating_receiver.is_none() {
+                    self.activating_receiver = Some(receiver.name.clone());
+                    self.backend.send(Command::ActivateReceiver(receiver));
+                }
+            }
             Action::RefreshDevices => {
                 self.devices_fetched_at = None;
                 self.refresh_devices();
+                self.backend.send(Command::DiscoverReceivers);
             }
             Action::RefreshQueue => self.refresh_queue(true),
             Action::CopyLink(uri) => {
@@ -2415,6 +2462,9 @@ impl App {
                 self.show_devices = !self.show_devices;
                 if self.show_devices {
                     self.refresh_devices();
+                    // Receivers waiting on the network are invisible to the
+                    // Web API, so look for them ourselves.
+                    self.backend.send(Command::DiscoverReceivers);
                 }
             }
             Action::SettingsChanged => {

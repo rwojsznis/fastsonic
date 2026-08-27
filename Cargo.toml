@@ -9,6 +9,14 @@ repository = "https://github.com/crmne/fastpotify"
 keywords = ["spotify", "music", "egui", "librespot", "player"]
 categories = ["multimedia::audio"]
 
+[lib]
+name = "fastpotify"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fastpotify"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1"
 thiserror = "2"
@@ -41,7 +49,7 @@ librespot-playback = { version = "0.8", default-features = false, features = ["r
 librespot-connect = { version = "0.8", default-features = false }
 librespot-metadata = { version = "0.8", default-features = false }
 librespot-protocol = { version = "0.8", default-features = false }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "gzip", "http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "gzip", "http2", "blocking"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 sha1 = "0.10"
 sha2 = "0.10"
@@ -51,6 +59,11 @@ open = "5"
 percent-encoding = "2"
 urlencoding = "2"
 jiff = "0.2"
+mdns-sd = "0.21"
+hmac = "0.12"
+pbkdf2 = "0.12"
+aes = "0.8"
+ctr = "0.9"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", features = ["blocking"] }
