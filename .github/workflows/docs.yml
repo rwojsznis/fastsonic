@@ -38,6 +38,10 @@ jobs:
 
       - name: Build site
         working-directory: docs
+        env:
+          # Analytics is only included in production builds, so a local
+          # `jekyll serve` does not report visits.
+          JEKYLL_ENV: production
         run: bundle exec jekyll build --destination ./_site
 
       - uses: actions/upload-pages-artifact@v5
