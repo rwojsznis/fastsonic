@@ -57,7 +57,14 @@ as one ordinary desktop application rather than a shell plugin.
 
 ## Install
 
-Fastpotify is a single binary. Build it with a stable Rust toolchain
+On Arch Linux, Fastpotify is in the AUR:
+
+```bash
+yay -S fastpotify          # the released build
+yay -S fastpotify-git      # built from the latest commit
+```
+
+Everywhere else it is a single binary. Build it with a stable Rust toolchain
 (1.95 or newer):
 
 ```bash

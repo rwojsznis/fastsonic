@@ -48,6 +48,17 @@ publisher on first run; choose More info, then Run anyway.
 
 ## Linux
 
+### Arch Linux
+
+Fastpotify is in the AUR, with the desktop entry and icon installed for you:
+
+```sh
+yay -S fastpotify          # the released build
+yay -S fastpotify-git      # built from the latest commit
+```
+
+### Other distributions
+
 - [fastpotify-v{{ v }}-x86_64-unknown-linux-gnu.tar.gz]({{ base }}/fastpotify-v{{ v }}-x86_64-unknown-linux-gnu.tar.gz)
 - [fastpotify-v{{ v }}-aarch64-unknown-linux-gnu.tar.gz]({{ base }}/fastpotify-v{{ v }}-aarch64-unknown-linux-gnu.tar.gz)
 
