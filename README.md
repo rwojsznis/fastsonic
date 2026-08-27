@@ -77,7 +77,7 @@ and on Debian or Ubuntu:
 sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev
 ```
 
-A desktop entry is provided in `packaging/fastpotify.desktop`.
+A desktop entry is provided in `packaging/applications/fastpotify.desktop`.
 
 ## Sign in
 

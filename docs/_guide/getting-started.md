@@ -30,7 +30,7 @@ On Debian or Ubuntu:
 sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
 ```
 
-A desktop entry ships in `packaging/fastpotify.desktop`.
+A desktop entry ships in `packaging/applications/fastpotify.desktop`.
 
 ## Sign in
 
