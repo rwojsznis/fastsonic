@@ -52,6 +52,14 @@ brings the window back. On Linux it is a standard status-notifier item, so
 it works in any bar that shows tray icons, and MPRIS keeps `playerctl`,
 media keys, and your desktop's players widget working the whole time.
 
+## One window, one instance
+
+Starting Fastpotify while it is already running does not open a second copy.
+The launch hands the request to the instance already there, which brings its
+window forward, and then gets out of the way. Two copies would mean two
+Spotify Connect devices with the same name and two players arguing over your
+media keys, so there is only ever one.
+
 ## Keyboard shortcuts
 
 | Shortcut | What it does |

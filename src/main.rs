@@ -18,6 +18,7 @@ mod mpris;
 mod paths;
 mod player;
 mod settings;
+mod single_instance;
 mod theme;
 #[cfg(target_os = "linux")]
 mod tray;
@@ -82,8 +83,30 @@ fn main() -> eframe::Result<()> {
     // a new one when the tray or MPRIS asks for it. Plain window lifecycle,
     // portable across desktops.
     let waker = backend::Waker::default();
+
+    // A second launch surfaces the instance already running instead of
+    // starting a rival one. Held for the lifetime of the process.
+    #[cfg(feature = "demo")]
+    let guarded = !cli.demo;
+    #[cfg(not(feature = "demo"))]
+    let guarded = true;
+    let instance = if guarded {
+        match single_instance::acquire(&waker) {
+            single_instance::Outcome::Only(guard) => Some(guard),
+            single_instance::Outcome::Surfaced => {
+                log::info!("Fastpotify is already running; asked it to show its window");
+                return Ok(());
+            }
+        }
+    } else {
+        None
+    };
+
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, app::AppOptions::default());
+    if let Some(guard) = &instance {
+        app.set_show_requests(guard.show_requests());
+    }
     #[cfg(feature = "demo")]
     if cli.demo {
         demo::populate(&mut app);

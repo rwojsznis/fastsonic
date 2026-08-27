@@ -52,6 +52,8 @@ as one ordinary desktop application rather than a shell plugin.
   quiet indicator appears in the top bar whenever the app is talking to
   Spotify for more than a moment, and if Spotify asks the app to back off
   you see that it is waiting, instead of an unexplained pause.
+- **One instance.** Launching it again surfaces the window that is already
+  open instead of starting a rival copy, on every platform.
 - **Desktop integration.** MPRIS on Linux, so media keys, the shell, and
   `playerctl` see Fastpotify like any other player.
 

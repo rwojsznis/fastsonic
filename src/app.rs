@@ -100,6 +100,9 @@ pub struct App {
     /// A hidden app was asked to show itself; the outer loop recreates the
     /// window.
     pub wants_show: bool,
+    /// Set by a second launch that wants this window brought forward, on the
+    /// platforms where that request does not arrive through MPRIS.
+    show_requests: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Sample data is loaded and nothing is asked of Spotify.
     pub offline: bool,
     pub palette: Palette,
@@ -203,6 +206,7 @@ impl App {
             window_hidden: false,
             hide_intent: false,
             wants_show: false,
+            show_requests: None,
             offline: false,
             palette: Palette::dark(),
             applied_dark: None,
@@ -258,6 +262,11 @@ impl App {
         };
         app.local.volume = app.settings.volume;
         app
+    }
+
+    /// Watches the flag a second launch sets to ask for this window.
+    pub fn set_show_requests(&mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        self.show_requests = Some(flag);
     }
 
     /// Per-window setup: fonts, icons, loaders, theme. Called every time a
@@ -2512,6 +2521,11 @@ impl App {
     /// headless loop in `main` drives this with a windowless context while
     /// the app lives in the tray.
     pub fn background_frame(&mut self, ctx: &egui::Context) {
+        if let Some(flag) = &self.show_requests
+            && flag.swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            self.actions.push(Action::ShowWindow);
+        }
         self.handle_events();
         self.handle_mpris();
         self.handle_tray();
