@@ -173,7 +173,8 @@ feature and start it with sample data:
 cargo run --features demo -- --demo --demo-page playlist:pl1 --demo-show queue
 ```
 
-Demo mode never contacts Spotify and never writes settings.
+Demo mode never writes settings. `--demo-shot <PATH>` writes the window to a
+PNG and exits, which is how the screenshot above is made.
 
 ## Acknowledgements
 
