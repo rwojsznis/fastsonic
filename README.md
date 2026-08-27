@@ -14,7 +14,7 @@ as one ordinary desktop application rather than a shell plugin.
 
 ![Fastpotify showing a playlist, with the queue open and a track playing on a remote speaker](docs/screenshot.png)
 
-**Documentation:** [crmne.github.io/fastpotify](https://crmne.github.io/fastpotify/): what it is, getting started, everyday use, and how it connects to Spotify.
+**Documentation:** [fastpotify.rocks](https://fastpotify.rocks/): what it is, getting started, everyday use, and how it connects to Spotify.
 
 ## What it does
 

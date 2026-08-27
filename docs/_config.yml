@@ -3,8 +3,8 @@ fastpotify_version: "0.1.1"
 description: A fast, native Spotify client for Linux, macOS, and Windows, written in Rust.
 lang: en-US
 timezone: Europe/Berlin
-url: https://crmne.github.io
-baseurl: /fastpotify
+url: https://fastpotify.rocks
+baseurl: ""
 logo: /assets/images/logo.svg
 image: /screenshot.png
 
