@@ -183,7 +183,19 @@ pub struct App {
     last_now_playing_uri: Option<String>,
     pub playlist_busy: bool,
     pub quit_requested: bool,
+    /// The axis a scroll gesture settled on, and when it last moved.
+    scroll_lock: Option<(ScrollAxis, Instant)>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScrollAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// A trackpad gesture that pauses this long has ended; the next movement
+/// picks its axis afresh.
+const SCROLL_GESTURE_GAP: Duration = Duration::from_millis(150);
 
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, settings: Settings, options: AppOptions) -> Self {
@@ -280,6 +292,7 @@ impl App {
             last_now_playing_uri: None,
             playlist_busy: false,
             quit_requested: false,
+            scroll_lock: None,
         };
         app.local.volume = app.settings.volume;
         app
@@ -2629,6 +2642,7 @@ impl App {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
         self.apply_theme(ctx);
+        self.lock_scroll_axis(ctx);
         crate::ui::show(self, ui);
         self.apply_actions(ctx);
         self.sync_mpris();
@@ -2656,6 +2670,47 @@ impl App {
             // tricks: this works the same on every desktop.
             self.hide_intent = true;
         }
+    }
+
+    /// Keeps a scroll gesture on one axis.
+    ///
+    /// A trackpad reports a little of the other axis during a one-axis
+    /// gesture, so a page whose rows scroll sideways drifted diagonally. The
+    /// axis is chosen from the first movement of a gesture and held until it
+    /// pauses, the way the platforms' own scrolling behaves.
+    fn lock_scroll_axis(&mut self, ctx: &egui::Context) {
+        let raw = ctx.input(|input| {
+            input
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::MouseWheel { delta, .. } => Some(*delta),
+                    _ => None,
+                })
+                .fold(egui::Vec2::ZERO, |sum, delta| sum + delta)
+        });
+        let now = Instant::now();
+        let held = self
+            .scroll_lock
+            .filter(|(_, at)| now.duration_since(*at) < SCROLL_GESTURE_GAP)
+            .map(|(axis, _)| axis);
+        let moved = raw != egui::Vec2::ZERO;
+        let axis = match held {
+            Some(axis) => axis,
+            None if moved && raw.x.abs() > raw.y.abs() * 1.2 => ScrollAxis::Horizontal,
+            None if moved => ScrollAxis::Vertical,
+            None => {
+                self.scroll_lock = None;
+                return;
+            }
+        };
+        if moved {
+            self.scroll_lock = Some((axis, now));
+        }
+        ctx.input_mut(|input| match axis {
+            ScrollAxis::Horizontal => input.smooth_scroll_delta.y = 0.0,
+            ScrollAxis::Vertical => input.smooth_scroll_delta.x = 0.0,
+        });
     }
 
     /// Persist state when a window closes (to the tray or for good).
