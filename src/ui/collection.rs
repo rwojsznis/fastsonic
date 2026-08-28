@@ -491,7 +491,29 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
         Loadable::Loaded(playlist) => {
             let items = items_of(&page.items);
             let count = playlist.track_total().max(items.len() as u32);
+            // The legacy collaborative flag covers only old-style secret
+            // collaborations; a playlist made together today is recognised
+            // by who added its songs.
+            let owner_id = playlist.owner.id.as_deref();
+            let others: std::collections::HashSet<&str> = page
+                .items
+                .items
+                .iter()
+                .filter_map(|item| item.added_by.as_ref()?.id.as_deref())
+                .filter(|id| Some(*id) != owner_id)
+                .collect();
+            let made_together = playlist.collaborative || !others.is_empty();
             let mut byline = vec![(playlist.owner_name().to_string(), None)];
+            if !others.is_empty() {
+                byline.push((
+                    if others.len() == 1 {
+                        "and 1 other".to_string()
+                    } else {
+                        format!("and {} others", others.len())
+                    },
+                    None,
+                ));
+            }
             let count_text = if page.items.is_complete() {
                 format!(
                     "{} songs, {}",
@@ -508,7 +530,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 Hero {
                     image: pick_image(&playlist.images, 300),
                     liked: false,
-                    kind: if playlist.collaborative {
+                    kind: if made_together {
                         "Collaborative Playlist"
                     } else if playlist.public == Some(true) {
                         "Public Playlist"

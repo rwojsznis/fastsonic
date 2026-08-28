@@ -445,11 +445,20 @@ pub struct PlaylistItem {
     #[serde(default)]
     pub added_at: Option<String>,
     #[serde(default)]
+    pub added_by: Option<UserRef>,
+    #[serde(default)]
     pub is_local: bool,
     #[serde(default)]
     pub item: Option<PlayableItem>,
     #[serde(default)]
     pub track: Option<PlayableItem>,
+}
+
+/// A bare user reference, as `added_by` carries it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct UserRef {
+    #[serde(default)]
+    pub id: Option<String>,
 }
 
 impl PlaylistItem {
