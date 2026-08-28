@@ -120,6 +120,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 show_cover: true,
                 show_album: !compact,
                 added_at: None,
+                added_by: None,
+                show_added_by: false,
                 compact,
             },
         );
@@ -161,6 +163,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 show_cover: true,
                 show_album: !compact,
                 added_at: None,
+                added_by: None,
+                show_added_by: false,
                 compact,
             },
         );

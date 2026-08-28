@@ -356,6 +356,8 @@ fn track_list(
                 show_cover: true,
                 show_album: true,
                 added_at: None,
+                added_by: None,
+                show_added_by: false,
                 compact: false,
             },
         );

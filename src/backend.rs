@@ -395,6 +395,8 @@ pub enum Command {
         snapshot: String,
         items: Vec<PlaylistItem>,
     },
+    /// Resolve user ids to display names through the streaming session.
+    UserNames(Vec<String>),
 }
 
 pub struct LyricsRequest {
@@ -434,6 +436,11 @@ pub enum Event {
         id: String,
         snapshot: String,
         items: Vec<PlaylistItem>,
+    },
+    /// A user id resolved to a display name (`None` when nothing answers).
+    UserName {
+        id: String,
+        name: Option<String>,
     },
     /// The Web API application the current sign-in belongs to.
     WebApp {
@@ -700,6 +707,7 @@ impl Worker {
                     snapshot,
                     items,
                 } => self.store_playlist_cache(id, snapshot, items),
+                Command::UserNames(ids) => self.fetch_user_names(ids),
                 Command::SwitchWebApp(client_id) => self.switch_web_app(client_id),
             }
         }
@@ -1164,6 +1172,23 @@ impl Worker {
             }
             if let Ok(text) = serde_json::to_string(&CachedPlaylist { snapshot, items }) {
                 let _ = tokio::fs::write(&path, text).await;
+            }
+        });
+    }
+
+    /// Ask Spotify who is behind each user id. Only the streaming session
+    /// can ask; without one the interface shows the bare ids.
+    fn fetch_user_names(&self, ids: Vec<String>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::spawn(async move {
+            for id in ids {
+                let name = engine.user_display_name(&id).await;
+                let _ = events.send(Event::UserName { id, name });
+                waker.wake();
             }
         });
     }

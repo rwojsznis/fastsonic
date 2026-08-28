@@ -382,6 +382,7 @@ pub enum SortColumn {
     Album,
     Added,
     Duration,
+    AddedBy,
 }
 
 /// One of the things a track row can be part of, for playback context and

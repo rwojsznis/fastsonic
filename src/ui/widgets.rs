@@ -464,6 +464,9 @@ pub struct TrackRow<'a> {
     pub show_cover: bool,
     pub show_album: bool,
     pub added_at: Option<&'a str>,
+    /// Who put the song here, on playlists made together.
+    pub added_by: Option<&'a str>,
+    pub show_added_by: bool,
     pub compact: bool,
 }
 
@@ -472,6 +475,7 @@ struct Columns {
     number: f32,
     cover: f32,
     album: f32,
+    added_by: f32,
     added: f32,
     heart: f32,
     duration: f32,
@@ -479,6 +483,7 @@ struct Columns {
 }
 
 fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
+    let extra_wide = width > 920.0;
     let wide = width > 760.0;
     let medium = width > 560.0;
     Columns {
@@ -486,6 +491,11 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         cover: if row.show_cover { 52.0 } else { 0.0 },
         album: if row.show_album && medium {
             (width * 0.28).clamp(140.0, 360.0)
+        } else {
+            0.0
+        },
+        added_by: if row.show_added_by && extra_wide {
+            130.0
         } else {
             0.0
         },
@@ -595,7 +605,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
         x += cols.cover;
     }
     let right_fixed = cols.heart + cols.duration + cols.more + 8.0;
-    let text_right = rect.right() - right_fixed - cols.added - cols.album;
+    let text_right = rect.right() - right_fixed - cols.added - cols.added_by - cols.album;
     let title_rect =
         Rect::from_min_max(pos2(x, rect.top()), pos2(text_right - 12.0, rect.bottom()));
 
@@ -687,6 +697,24 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
             }
         }
         x += cols.album;
+    }
+    // Added by.
+    if cols.added_by > 0.0 {
+        if let Some(adder) = row.added_by {
+            let cell = Rect::from_min_max(
+                pos2(x, rect.top()),
+                pos2(x + cols.added_by - 12.0, rect.bottom()),
+            );
+            let clipped = painter.with_clip_rect(cell.intersect(ui.clip_rect()));
+            clipped.text(
+                pos2(cell.left(), cell.center().y),
+                egui::Align2::LEFT_CENTER,
+                adder,
+                theme::regular(13.0),
+                palette.secondary,
+            );
+        }
+        x += cols.added_by;
     }
     // Date added.
     if cols.added > 0.0 {
@@ -810,11 +838,13 @@ pub fn explicit_badge(ui: &mut Ui, palette: &Palette) {
 /// The header row above a track table.
 /// The column headings above a track table. Answers with the heading that
 /// was clicked, so the table can sort by it.
+#[expect(clippy::fn_params_excessive_bools)]
 pub fn table_header(
     ui: &mut Ui,
     palette: &Palette,
     show_album: bool,
     show_added: bool,
+    show_added_by: bool,
     show_cover: bool,
     sort: Option<crate::model::TableSort>,
 ) -> Option<crate::model::SortColumn> {
@@ -890,11 +920,21 @@ pub fn table_header(
         0.0
     };
     let added_width = if show_added && wide { 120.0 } else { 0.0 };
+    let extra_wide = width > 920.0;
+    let added_by_width = if show_added_by && extra_wide {
+        130.0
+    } else {
+        0.0
+    };
     let right_fixed = 36.0 + 56.0 + 36.0 + 8.0;
-    let mut cx = rect.right() - right_fixed - added_width - album_width;
+    let mut cx = rect.right() - right_fixed - added_width - added_by_width - album_width;
     if album_width > 0.0 {
         heading(ui, cx, "ALBUM", SortColumn::Album);
         cx += album_width;
+    }
+    if added_by_width > 0.0 {
+        heading(ui, cx, "ADDED BY", SortColumn::AddedBy);
+        cx += added_by_width;
     }
     if added_width > 0.0 {
         heading(ui, cx, "DATE ADDED", SortColumn::Added);

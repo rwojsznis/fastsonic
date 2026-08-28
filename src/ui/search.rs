@@ -331,6 +331,8 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
                 show_cover: true,
                 show_album: limit == usize::MAX,
                 added_at: None,
+                added_by: None,
+                show_added_by: false,
                 compact: limit != usize::MAX,
             },
         );

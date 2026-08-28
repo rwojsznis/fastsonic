@@ -119,6 +119,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 show_cover: true,
                                 show_album: false,
                                 added_at: None,
+                                added_by: None,
+                                show_added_by: false,
                                 compact: false,
                             },
                         );

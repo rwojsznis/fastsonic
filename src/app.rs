@@ -243,6 +243,9 @@ pub struct App {
     scroll_last_event: Option<Instant>,
     /// How each table is sorted, per page, for as long as the app runs.
     pub table_sorts: HashMap<Page, TableSort>,
+    /// User ids resolved to display names; `None` while unknown, so an id
+    /// is asked about only once per run.
+    pub user_names: HashMap<String, Option<String>>,
     /// Context URIs most recently played, newest first: the sidebar's
     /// order. Kept with the session, so it survives a restart.
     pub recent_contexts: Vec<String>,
@@ -387,6 +390,7 @@ impl App {
             glide: None,
             scroll_last_event: None,
             table_sorts: HashMap::new(),
+            user_names: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
             resume_context: session.last_context.clone(),
             resume_track: session.last_track.clone(),
@@ -763,6 +767,9 @@ impl App {
                         page.pending_cache = Some((snapshot, items));
                     }
                     self.try_adopt_playlist_cache(&id);
+                }
+                Event::UserName { id, name } => {
+                    self.user_names.insert(id, name);
                 }
                 Event::WebApp { client_id } => self.web_app = Some(client_id),
                 Event::UpdateAvailable { version, url } => {
@@ -1515,6 +1522,21 @@ impl App {
     }
 
     /// Asks Spotify whether these items are in the library, in batches.
+    /// Resolve adder ids that have no known name yet.
+    pub fn request_user_names(&mut self, ids: Vec<String>) {
+        let unknown: Vec<String> = ids
+            .into_iter()
+            .filter(|id| !self.user_names.contains_key(id))
+            .collect();
+        if unknown.is_empty() {
+            return;
+        }
+        for id in &unknown {
+            self.user_names.insert(id.clone(), None);
+        }
+        self.backend.send(Command::UserNames(unknown));
+    }
+
     pub fn request_contains(&mut self, uris: Vec<String>) {
         let Some(user_id) = self.user_id().map(str::to_string) else {
             return;
@@ -1820,6 +1842,7 @@ impl App {
             }
             ApiResponse::PlaylistItems { id, offset, result } => {
                 let mut uris = Vec::new();
+                let mut adders: Vec<String> = Vec::new();
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
                     match result {
                         Ok(_) if page.cache_complete => {
@@ -1833,12 +1856,12 @@ impl App {
                                 .filter_map(|item| item.playable())
                                 .map(|item| item.uri().to_string())
                                 .collect();
-                            page.contributors.extend(
-                                items
-                                    .items
-                                    .iter()
-                                    .filter_map(|item| item.added_by.as_ref()?.id.clone()),
-                            );
+                            adders = items
+                                .items
+                                .iter()
+                                .filter_map(|item| item.added_by.as_ref()?.id.clone())
+                                .collect();
+                            page.contributors.extend(adders.iter().cloned());
                             page.items.absorb(offset, items);
                             // The rows load from the top, and songs a friend
                             // added often sit at the end; look there once.
@@ -1859,6 +1882,7 @@ impl App {
                     }
                 }
                 self.request_contains(uris);
+                self.request_user_names(adders);
                 // The whole list is here; remember it under its snapshot.
                 if let Some(page) = self.playlist_pages.get(&id)
                     && page.items.is_complete()
@@ -1880,16 +1904,18 @@ impl App {
                 }
             }
             ApiResponse::PlaylistSample { id, result } => {
+                let mut adders: Vec<String> = Vec::new();
                 if let Ok(items) = result
                     && let Some(page) = self.playlist_pages.get_mut(&id)
                 {
-                    page.contributors.extend(
-                        items
-                            .items
-                            .iter()
-                            .filter_map(|item| item.added_by.as_ref()?.id.clone()),
-                    );
+                    adders = items
+                        .items
+                        .iter()
+                        .filter_map(|item| item.added_by.as_ref()?.id.clone())
+                        .collect();
+                    page.contributors.extend(adders.iter().cloned());
                 }
+                self.request_user_names(adders);
             }
             ApiResponse::PlaylistCreated(result) => {
                 self.playlist_busy = false;
@@ -2475,6 +2501,7 @@ impl App {
     /// discarded, never shown.
     fn try_adopt_playlist_cache(&mut self, id: &str) {
         let mut uris = Vec::new();
+        let mut adders: Vec<String> = Vec::new();
         if let Some(page) = self.playlist_pages.get_mut(id) {
             let Some(snapshot_now) = page
                 .playlist
@@ -2504,11 +2531,11 @@ impl App {
                 .filter_map(|item| item.playable())
                 .map(|item| item.uri().to_string())
                 .collect();
-            page.contributors.extend(
-                items
-                    .iter()
-                    .filter_map(|item| item.added_by.as_ref()?.id.clone()),
-            );
+            adders = items
+                .iter()
+                .filter_map(|item| item.added_by.as_ref()?.id.clone())
+                .collect();
+            page.contributors.extend(adders.iter().cloned());
             page.items.total = Some(items.len() as u32);
             page.items.items = items;
             page.items.next_offset = None;
@@ -2518,6 +2545,7 @@ impl App {
             page.cache_complete = true;
         }
         self.request_contains(uris);
+        self.request_user_names(adders);
     }
 
     /// Play what was playing when the app last closed. `false` when

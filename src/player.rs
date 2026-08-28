@@ -352,6 +352,21 @@ impl Engine {
         }
     }
 
+    /// The display name behind a user id, from the profile view Spotify's
+    /// clients read; `None` when nothing answers.
+    pub async fn user_display_name(&self, user_id: &str) -> Option<String> {
+        let bytes = self
+            .session
+            .spclient()
+            .get_user_profile(user_id, Some(0), Some(0))
+            .await
+            .ok()?;
+        let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        json.get("name")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    }
+
     pub fn shutdown(&self) {
         self.shutting_down
             .store(true, std::sync::atomic::Ordering::SeqCst);
