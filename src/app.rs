@@ -353,6 +353,10 @@ impl App {
         if let Some(tray) = &mut self.tray {
             tray.attach();
         }
+        // egui's consensus wheel speed is 40 points per line, about a third
+        // of what every other player scrolls per notch; trackpads report
+        // pixels and are unaffected (#32).
+        ctx.options_mut(|options| options.input_options.line_scroll_speed = 120.0);
     }
 
     /// The window is gone but the process stays: audio, the tray, and the
