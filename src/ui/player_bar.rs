@@ -414,7 +414,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
             // Local volume is cheap to apply continuously; remote goes on release.
             if now.is_none_or(|now| now.local) {
                 app.actions
-                    .push(Action::SetVolume((value * 100.0).round() as u8));
+                    .push(Action::PreviewVolume((value * 100.0).round() as u8));
             }
         }
         SliderEvent::Committed(value) => {

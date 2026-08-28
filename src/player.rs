@@ -26,7 +26,7 @@ use librespot_metadata::audio::{AudioItem, UniqueFields};
 use librespot_playback::{
     audio_backend::{self, Sink},
     config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig},
-    mixer::{self, MixerConfig},
+    mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
 use sha1::{Digest, Sha1};
@@ -200,7 +200,12 @@ pub enum PlayerCommand {
     Next,
     Previous,
     Seek(u32),
+    /// The volume to keep: applied at once and told to Spotify Connect.
     Volume(u16),
+    /// The slider mid-drag: applied at once, nothing sent. Every Connect
+    /// update costs a round trip to Spotify, and librespot makes them one
+    /// after another, so dragging through fifty values lagged by seconds.
+    VolumePreview(u16),
     Shuffle(bool),
     Repeat(RepeatMode),
     Load(LoadSpec),
@@ -218,6 +223,7 @@ pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 pub struct Engine {
     player: Arc<Player>,
     spirc: Arc<Spirc>,
+    mixer: Arc<dyn Mixer>,
     device_id: String,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -255,12 +261,9 @@ impl Engine {
             ..LocalState::default()
         }));
         let session = Session::new(session_config, Some(cache));
-        let player = Player::new(
-            player_config,
-            session.clone(),
-            mixer.get_soft_volume(),
-            sink_builder(config, Arc::clone(&state), Arc::clone(&notify)),
-        );
+        let (sink_builder, volume) =
+            sink_builder(config, Arc::clone(&state), Arc::clone(&notify), &mixer);
+        let player = Player::new(player_config, session.clone(), volume, sink_builder);
         let events = player.get_player_event_channel();
         tokio::spawn(run_events(events, Arc::clone(&state), Arc::clone(&notify)));
 
@@ -310,6 +313,7 @@ impl Engine {
         Ok(Self {
             player,
             spirc: Arc::new(spirc),
+            mixer,
             device_id,
             shutting_down,
         })
@@ -333,7 +337,11 @@ impl Engine {
             PlayerCommand::Next => spirc.next()?,
             PlayerCommand::Previous => spirc.prev()?,
             PlayerCommand::Seek(position_ms) => spirc.set_position_ms(position_ms)?,
-            PlayerCommand::Volume(volume) => spirc.set_volume(volume)?,
+            PlayerCommand::Volume(volume) => {
+                self.mixer.set_volume(volume);
+                spirc.set_volume(volume)?;
+            }
+            PlayerCommand::VolumePreview(volume) => self.mixer.set_volume(volume),
             PlayerCommand::Shuffle(enabled) => spirc.shuffle(enabled)?,
             PlayerCommand::Repeat(mode) => match mode {
                 RepeatMode::Off => {
@@ -383,17 +391,25 @@ impl Engine {
     }
 }
 
-/// The audio sink for a new player.
+/// The audio sink for a new player, and where the volume is applied.
 ///
 /// The default is this crate's own sink, which opens the output device when
-/// playback starts and reports failure instead of panicking. librespot's
-/// other backends (PulseAudio on Linux) stay available to whoever chose one
-/// in Settings.
+/// playback starts and reports failure instead of panicking. It also sets
+/// the volume at the output rather than in the player: the player scales
+/// samples before they queue in the sink, so a change there was heard only
+/// once the queue had drained. librespot's other backends (PulseAudio on
+/// Linux) stay available to whoever chose one in Settings, volume and all.
+type SinkAndVolume = (
+    Box<dyn FnOnce() -> Box<dyn Sink> + Send>,
+    Box<dyn VolumeGetter + Send>,
+);
+
 fn sink_builder(
     config: &EngineConfig,
     state: Arc<Mutex<LocalState>>,
     notify: Notify,
-) -> Box<dyn FnOnce() -> Box<dyn Sink> + Send> {
+    mixer: &Arc<dyn Mixer>,
+) -> SinkAndVolume {
     let device = config.audio_device.clone();
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
@@ -409,11 +425,20 @@ fn sink_builder(
         .filter(|name| *name != crate::sink::NAME)
     {
         match audio_backend::find(Some(name.to_string())) {
-            Some(builder) => return Box::new(move || builder(device, AudioFormat::S16)),
+            Some(builder) => {
+                return (
+                    Box::new(move || builder(device, AudioFormat::S16)),
+                    mixer.get_soft_volume(),
+                );
+            }
             None => log::warn!("audio backend {name:?} is unavailable; using the default"),
         }
     }
-    Box::new(move || Box::new(RodioSink::new(device, report)) as Box<dyn Sink>)
+    let volume = mixer.get_soft_volume();
+    (
+        Box::new(move || Box::new(RodioSink::new(device, report, volume)) as Box<dyn Sink>),
+        Box::new(NoOpVolume),
+    )
 }
 
 async fn run_events(

@@ -19,6 +19,7 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
+use librespot_playback::mixer::VolumeGetter;
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 
 /// The backend name Settings uses for this sink.
@@ -28,9 +29,10 @@ pub const NAME: &str = "rodio";
 pub type ErrorHook = Arc<dyn Fn(String) + Send + Sync>;
 
 /// How many chunks may wait in rodio's queue before `write` blocks. Chunks
-/// run from a few hundred to a few thousand samples; this is about half a
-/// second of audio.
-const QUEUE_LIMIT: usize = 26;
+/// run from a few hundred to a few thousand samples; this is about a fifth
+/// of a second, which is also how long a pause takes to be heard, since
+/// librespot lets the queue play out first.
+const QUEUE_LIMIT: usize = 12;
 
 /// How long `stop` lets the queue play out before pausing regardless.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -40,6 +42,10 @@ pub struct RodioSink {
     device: Option<String>,
     output: Option<Output>,
     on_error: ErrorHook,
+    /// The player's volume, applied here at the output so a change is heard
+    /// at once instead of after the queue drains.
+    volume: Box<dyn VolumeGetter + Send>,
+    applied_volume: f32,
 }
 
 struct Output {
@@ -56,11 +62,27 @@ impl Output {
 }
 
 impl RodioSink {
-    pub fn new(device: Option<String>, on_error: ErrorHook) -> Self {
+    pub fn new(
+        device: Option<String>,
+        on_error: ErrorHook,
+        volume: Box<dyn VolumeGetter + Send>,
+    ) -> Self {
         Self {
             device,
             output: None,
             on_error,
+            volume,
+            applied_volume: -1.0,
+        }
+    }
+
+    fn apply_volume(&mut self) {
+        let factor = self.volume.attenuation_factor() as f32;
+        if let Some(output) = &self.output
+            && factor != self.applied_volume
+        {
+            output.sink.set_volume(factor);
+            self.applied_volume = factor;
         }
     }
 
@@ -76,6 +98,7 @@ impl RodioSink {
         match open_output(self.device.as_deref()) {
             Ok(output) => {
                 self.output = Some(output);
+                self.applied_volume = -1.0;
                 Ok(())
             }
             Err(error) => {
@@ -91,6 +114,7 @@ impl RodioSink {
 impl Sink for RodioSink {
     fn start(&mut self) -> SinkResult<()> {
         self.ensure_open()?;
+        self.apply_volume();
         if let Some(output) = &self.output {
             output.sink.play();
         }
@@ -115,6 +139,7 @@ impl Sink for RodioSink {
             .map_err(|error| SinkError::OnWrite(error.to_string()))?;
         let samples = converter.f64_to_f32(samples);
         self.ensure_open()?;
+        self.apply_volume();
         let Some(output) = &self.output else {
             return Err(SinkError::NotConnected(
                 "the audio output is not open".into(),
@@ -207,6 +232,7 @@ mod tests {
         let mut sink = RodioSink::new(
             Some("no such device".into()),
             Arc::new(move |message| *store.lock().unwrap() = Some(message)),
+            Box::new(librespot_playback::mixer::NoOpVolume),
         );
         match sink.start() {
             Ok(()) => assert!(reported.lock().unwrap().is_none()),

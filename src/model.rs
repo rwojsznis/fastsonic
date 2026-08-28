@@ -429,6 +429,8 @@ pub enum Action {
     Seek(u32),
     SeekBy(i64),
     SetVolume(u8),
+    /// The slider mid-drag: heard at once, told to Spotify on release.
+    PreviewVolume(u8),
     VolumeBy(i8),
     ToggleMute,
     ToggleShuffle,
