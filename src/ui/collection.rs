@@ -130,12 +130,8 @@ pub fn actions_row(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         if let Some(uri) = &actions.play_uri {
-            let now_playing_here = app.now_playing().is_some_and(|now| now.playing)
-                && app
-                    .remote
-                    .as_ref()
-                    .and_then(|remote| remote.state.context.as_ref())
-                    .is_some_and(|context| context.uri == *uri);
+            let now_playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
+                && app.believed_playing();
             let icon = if now_playing_here {
                 Icon::PauseFilled
             } else {

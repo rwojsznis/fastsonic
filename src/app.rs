@@ -33,8 +33,10 @@ const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
 
 /// How long a context the app just started is shown as playing while
-/// Spotify's state catches up.
-const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(10);
+/// Spotify's state catches up. During a local takeover the cluster can
+/// report the old context, then the new, then the old again; the whole
+/// dance settles well inside this window, so no early hand-back.
+const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(8);
 /// How long the interface trusts its own play/pause over a polled state that
 /// has not caught up yet. Spotify can take a moment to report a command it
 /// has already carried out, and a button that springs back looks broken.
@@ -144,6 +146,8 @@ pub struct App {
     pub remote: Option<RemoteSnapshot>,
     remote_polled_at: Instant,
     remote_poll_pending: bool,
+    /// Serial of the newest playback poll sent; older answers are stale.
+    remote_poll_seq: u64,
     pub devices: Vec<Device>,
     /// Receivers seen on the local network. Spotify lists a receiver only
     /// once it has an account, so these are the ones it cannot see yet.
@@ -319,6 +323,7 @@ impl App {
             remote: None,
             remote_polled_at: Instant::now() - REMOTE_POLL_IDLE,
             remote_poll_pending: false,
+            remote_poll_seq: 0,
             devices: Vec::new(),
             receivers: Vec::new(),
             activating_receiver: None,
@@ -501,6 +506,17 @@ impl App {
 
     /// Whether the playing context shuffles, honouring a shuffle the
     /// interface just asked for ahead of Spotify's state.
+    /// Whether something plays, as the interface should show it: what it
+    /// just asked for, before any state reports back.
+    pub fn believed_playing(&self) -> bool {
+        if let Some((playing, at)) = self.optimistic_playing
+            && at.elapsed() < PLAYBACK_HOLD
+        {
+            return playing;
+        }
+        self.now_playing().is_some_and(|now| now.playing)
+    }
+
     pub fn playing_context_shuffle(&self) -> bool {
         if let Some(assumed) = &self.assumed_context
             && assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD
@@ -1426,7 +1442,10 @@ impl App {
         }
         self.remote_poll_pending = true;
         self.remote_polled_at = Instant::now();
-        self.backend.api(ApiRequest::PlaybackState);
+        self.remote_poll_seq += 1;
+        self.backend.api(ApiRequest::PlaybackState {
+            seq: self.remote_poll_seq,
+        });
     }
 
     fn refresh_devices(&mut self) {
@@ -1558,7 +1577,11 @@ impl App {
                     Err(error) => self.toast_error(format!("Couldn't list devices: {error}")),
                 }
             }
-            ApiResponse::PlaybackState(result) => {
+            ApiResponse::PlaybackState { seq, result } => {
+                if seq != self.remote_poll_seq {
+                    // An older poll finishing late describes the past.
+                    return;
+                }
                 self.remote_poll_pending = false;
                 match result {
                     Ok(state) => {
@@ -1579,22 +1602,16 @@ impl App {
                             .and_then(|remote| remote.state.context.as_ref())
                             .map(|context| context.uri.clone())
                         {
-                            self.note_recent_context(&context);
-                        }
-                        if let Some(assumed) = &self.assumed_context
-                            && self
-                                .remote
-                                .as_ref()
-                                .and_then(|remote| remote.state.context.as_ref())
-                                .is_some_and(|context| context.uri == assumed.uri)
-                            && assumed.shuffle.is_none_or(|shuffle| {
-                                self.remote
-                                    .as_ref()
-                                    .is_some_and(|remote| remote.state.shuffle_state == shuffle)
-                            })
-                        {
-                            // Spotify's state agrees; it takes over.
-                            self.assumed_context = None;
+                            // Mid-takeover the cluster still names the old
+                            // context; noting that would dance the sidebar
+                            // back and forth.
+                            let stale = self.assumed_context.as_ref().is_some_and(|assumed| {
+                                assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD
+                                    && assumed.uri != context
+                            });
+                            if !stale {
+                                self.note_recent_context(&context);
+                            }
                         }
                         let uri = self.remote.as_ref().and_then(|remote| {
                             remote
@@ -2309,13 +2326,20 @@ impl App {
         if let Some(offset) = &request.offset_uri {
             keys.push(offset.clone());
         }
-        if let Some(first) = request.uris.first() {
-            keys.push(first.clone());
-        }
-        if let Some(position) = request.offset_position
-            && let Some(uri) = request.uris.get(position as usize)
-        {
-            keys.push(uri.clone());
+        match request.offset_position {
+            // The play starts at a chosen row; only that row is starting.
+            Some(position) => {
+                if let Some(uri) = request.uris.get(position as usize) {
+                    keys.push(uri.clone());
+                }
+            }
+            // No chosen row: the list starts at its first song.
+            None if request.offset_uri.is_none() => {
+                if let Some(first) = request.uris.first() {
+                    keys.push(first.clone());
+                }
+            }
+            None => {}
         }
         self.set_play_pending(keys);
         if let Some(context) = request.context_uri.clone() {

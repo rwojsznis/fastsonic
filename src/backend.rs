@@ -48,7 +48,9 @@ pub enum RemoteAction {
 pub enum ApiRequest {
     Me,
     Devices,
-    PlaybackState,
+    PlaybackState {
+        seq: u64,
+    },
     Queue,
     RecentlyPlayed,
     TopTracks {
@@ -200,7 +202,10 @@ pub enum ApiRequest {
 pub enum ApiResponse {
     Me(ApiResult<User>),
     Devices(ApiResult<Vec<Device>>),
-    PlaybackState(ApiResult<Option<PlaybackState>>),
+    PlaybackState {
+        seq: u64,
+        result: ApiResult<Option<PlaybackState>>,
+    },
     Queue(ApiResult<Queue>),
     RecentlyPlayed(ApiResult<Vec<PlayHistory>>),
     TopTracks {
@@ -1165,7 +1170,10 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
     match request {
         ApiRequest::Me => ApiResponse::Me(api.me().await),
         ApiRequest::Devices => ApiResponse::Devices(api.devices().await),
-        ApiRequest::PlaybackState => ApiResponse::PlaybackState(api.playback_state().await),
+        ApiRequest::PlaybackState { seq } => ApiResponse::PlaybackState {
+            seq,
+            result: api.playback_state().await,
+        },
         ApiRequest::Queue => ApiResponse::Queue(api.queue().await),
         ApiRequest::RecentlyPlayed => {
             ApiResponse::RecentlyPlayed(api.recently_played(50).await.map(|page| page.items))
