@@ -16,6 +16,7 @@ Fastpotify follows each platform's conventions. On Linux:
 | Last session | `~/.local/state/fastpotify/session.json` | Yes |
 | Audio cache | `~/.cache/fastpotify/audio/` | Always |
 | Artwork cache | `~/.cache/fastpotify/art/` | Always |
+| Lyrics cache | `~/.cache/fastpotify/lyrics/` | Always |
 | Last run's log | `~/.local/state/fastpotify/fastpotify.log` | Always |
 | Crash log | `~/.local/state/fastpotify/panic.log` | Always |
 

@@ -68,6 +68,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::S, Action::ToggleShuffle);
             key(Modifiers::NONE, Key::R, Action::CycleRepeat);
             key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
+            key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
         }
     });
@@ -112,6 +113,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("S", "Toggle shuffle"),
     ("R", "Cycle repeat"),
     ("Q", "Show the queue"),
+    ("L", "Show the lyrics"),
     ("Ctrl+F  or  /", "Search"),
     ("Alt+←  /  Alt+→", "Back or forward"),
     (

@@ -7,6 +7,7 @@ pub mod backend;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
 pub mod images;
+pub mod lyrics;
 pub mod model;
 #[cfg(target_os = "linux")]
 pub mod mpris;

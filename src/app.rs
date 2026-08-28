@@ -10,8 +10,8 @@ use crate::api::models::{
     ArtistRef, Device, PlayableItem, PlaybackState, Playlist, Queue, Track, User, pick_image,
 };
 use crate::backend::{
-    ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, RemoteAction,
-    Waker,
+    ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
+    RemoteAction, Waker,
 };
 use crate::model::*;
 use crate::mpris::{MprisCommand, MprisService, MprisState, MprisTrack};
@@ -157,6 +157,17 @@ pub struct App {
 
     pub dialog: Option<Dialog>,
     pub show_queue_panel: bool,
+    pub show_lyrics_panel: bool,
+    /// The track the lyrics below are for.
+    pub lyrics_uri: Option<String>,
+    /// `Loaded(None)` when nobody has transcribed the track.
+    pub lyrics: Loadable<Option<crate::lyrics::Lyrics>>,
+    /// Whether the panel scrolls to the line being sung. Off once the
+    /// reader scrolls by hand, on again with the Follow button or a new
+    /// track.
+    pub lyrics_following: bool,
+    /// The line the panel last scrolled to, so it scrolls once per line.
+    pub lyrics_line_shown: Option<usize>,
     pub show_devices: bool,
     pub toasts: Vec<Toast>,
     pub actions: Vec<Action>,
@@ -280,6 +291,11 @@ impl App {
             accent_pending: HashSet::new(),
             dialog: None,
             show_queue_panel: false,
+            show_lyrics_panel: false,
+            lyrics_uri: None,
+            lyrics: Loadable::NotLoaded,
+            lyrics_following: true,
+            lyrics_line_shown: None,
             show_devices: false,
             toasts: Vec::new(),
             actions: Vec::new(),
@@ -605,6 +621,14 @@ impl App {
                     self.accents.insert(url, tint);
                 }
                 Event::Error(message) => self.toast_error(message),
+                Event::Lyrics { uri, result } => {
+                    if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
+                        self.lyrics = match result {
+                            Ok(found) => Loadable::Loaded(found),
+                            Err(error) => Loadable::Failed(error),
+                        };
+                    }
+                }
                 Event::UpdateAvailable { version, url } => {
                     let notice = crate::updates::Release { version, url };
                     if self.update.as_ref() != Some(&notice) {
@@ -744,6 +768,43 @@ impl App {
         if matches!(self.page(), Page::Queue) || self.show_queue_panel {
             self.refresh_queue(true);
         }
+        if self.show_lyrics_panel {
+            self.request_lyrics();
+        }
+    }
+
+    /// Asks for the playing track's lyrics unless they are here or on the
+    /// way. Podcasts have no lyrics to ask for.
+    pub fn request_lyrics(&mut self) {
+        let Some(now) = self.now_playing() else {
+            return;
+        };
+        if self.lyrics_uri.as_deref() == Some(now.uri.as_str())
+            && !matches!(self.lyrics, Loadable::NotLoaded | Loadable::Failed(_))
+        {
+            return;
+        }
+        self.lyrics_uri = Some(now.uri.clone());
+        self.lyrics_following = true;
+        self.lyrics_line_shown = None;
+        if now.is_episode || self.offline {
+            self.lyrics = Loadable::Loaded(None);
+            return;
+        }
+        self.lyrics = Loadable::Loading;
+        self.backend.send(Command::Lyrics(Box::new(LyricsRequest {
+            uri: now.uri,
+            query: crate::lyrics::Query {
+                artist: now
+                    .artists
+                    .first()
+                    .map(|artist| artist.name.clone())
+                    .unwrap_or_default(),
+                title: now.title,
+                album: now.album_name,
+                duration_ms: now.duration_ms,
+            },
+        })));
     }
 
     fn tick(&mut self, ctx: &egui::Context) {
@@ -2569,7 +2630,16 @@ impl App {
             Action::ToggleQueuePanel => {
                 self.show_queue_panel = !self.show_queue_panel;
                 if self.show_queue_panel {
+                    self.show_lyrics_panel = false;
                     self.refresh_queue(true);
+                }
+            }
+            Action::ToggleLyricsPanel => {
+                self.show_lyrics_panel = !self.show_lyrics_panel;
+                if self.show_lyrics_panel {
+                    self.show_queue_panel = false;
+                    self.lyrics_following = true;
+                    self.request_lyrics();
                 }
             }
             Action::ToggleDevicesPopup => {

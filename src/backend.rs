@@ -352,6 +352,14 @@ pub enum Command {
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     /// Ask GitHub whether a newer release exists.
     CheckForUpdates,
+    /// The words of a track, from LRCLIB.
+    Lyrics(Box<LyricsRequest>),
+}
+
+pub struct LyricsRequest {
+    /// The track the answer is for, so a stale one is ignored.
+    pub uri: String,
+    pub query: crate::lyrics::Query,
 }
 
 pub enum Event {
@@ -374,6 +382,11 @@ pub enum Event {
     UpdateAvailable {
         version: String,
         url: String,
+    },
+    /// The words of a track, or `None` when nobody has transcribed it.
+    Lyrics {
+        uri: String,
+        result: Result<Option<crate::lyrics::Lyrics>, String>,
     },
 }
 
@@ -629,6 +642,7 @@ impl Worker {
                 Command::DiscoverReceivers => self.discover_receivers(),
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
                 Command::CheckForUpdates => self.check_for_updates(),
+                Command::Lyrics(request) => self.fetch_lyrics(*request),
             }
         }
         if let Some(engine) = self.engine.take() {
@@ -1016,6 +1030,23 @@ impl Worker {
                 Ok(None) => log::debug!("this is the newest release"),
                 Err(error) => log::debug!("could not check for a newer release: {error:#}"),
             }
+        });
+    }
+
+    fn fetch_lyrics(&self, request: LyricsRequest) {
+        let http = self.http.clone();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let cache_dir = self.dirs.lyrics_cache_dir();
+        tokio::spawn(async move {
+            let result = crate::lyrics::fetch(&http, &cache_dir, &request.query)
+                .await
+                .map_err(|error| format!("{error:#}"));
+            let _ = events.send(Event::Lyrics {
+                uri: request.uri,
+                result,
+            });
+            waker.wake();
         });
     }
 

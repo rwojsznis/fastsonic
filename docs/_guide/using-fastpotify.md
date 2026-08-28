@@ -62,6 +62,17 @@ This uses the credential stored for playing on this computer, so enable
 playback here first (see [Getting Started](/getting-started/)). Receivers
 that ask for a different kind of login are not connected this way yet.
 
+## Lyrics
+
+The microphone button in the player bar (or `L`) opens the words of the
+playing track beside the page. When the lyrics are timed, the line being
+sung is highlighted and the panel follows along; click any line to jump the
+song there. Scrolling by hand stops the following, and **Follow** in the
+panel's header picks the song back up. Lyrics come from
+[LRCLIB](https://lrclib.net), an open database that needs no account, so
+they work for whatever is playing, on this computer or another device;
+podcasts and tracks nobody has transcribed say so.
+
 ## The tray
 
 Closing the window keeps the music playing: Fastpotify stays in the system

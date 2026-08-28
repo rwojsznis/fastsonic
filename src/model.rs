@@ -494,6 +494,7 @@ pub enum Action {
     CancelSignIn,
     SignOut,
     ToggleQueuePanel,
+    ToggleLyricsPanel,
     ToggleDevicesPopup,
     SettingsChanged,
     RestartEngine,
