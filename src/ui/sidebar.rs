@@ -235,7 +235,17 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             }
             match &app.library.playlists {
                 Loadable::Loaded(playlists) => {
-                    for (index, playlist) in playlists.iter().enumerate() {
+                    // Recently played first, the way Spotify orders its own
+                    // sidebar; the rest keep the library's order.
+                    let rank = |uri: &str| {
+                        app.recent_contexts
+                            .iter()
+                            .position(|held| held == uri)
+                            .unwrap_or(usize::MAX)
+                    };
+                    let mut ordered: Vec<_> = playlists.iter().enumerate().collect();
+                    ordered.sort_by_key(|(index, playlist)| (rank(&playlist.uri), *index));
+                    for (index, playlist) in ordered {
                         if !needle.is_empty() && !playlist.name.to_lowercase().contains(&needle) {
                             continue;
                         }

@@ -142,6 +142,8 @@ impl Settings {
 #[serde(default)]
 pub struct SessionState {
     pub last_page: Option<String>,
+    /// Context URIs most recently played, newest first.
+    pub recent_contexts: Vec<String>,
 }
 
 impl SessionState {

@@ -26,6 +26,9 @@ time to return to the list's own order.
 
 ## Your Library
 
+The sidebar keeps the playlists you played most recently on top,
+wherever you played them, and remembers that order between runs.
+
 The sidebar is your library: filter it by Playlists, Albums, Artists, or
 Podcasts with the chips, or search it with the magnifier. Liked Songs is
 pinned on top. The current page is highlighted; the playlist that is playing

@@ -215,6 +215,9 @@ pub struct App {
     scroll_from_trackpad: bool,
     /// How each table is sorted, per page, for as long as the app runs.
     pub table_sorts: HashMap<Page, TableSort>,
+    /// Context URIs most recently played, newest first: the sidebar's
+    /// order. Kept with the session, so it survives a restart.
+    pub recent_contexts: Vec<String>,
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
@@ -336,6 +339,7 @@ impl App {
             scroll_lock: None,
             scroll_from_trackpad: false,
             table_sorts: HashMap::new(),
+            recent_contexts: session.recent_contexts.clone(),
             update: None,
             last_update_check: None,
         };
@@ -1504,6 +1508,14 @@ impl App {
                             state,
                             received_at: Instant::now(),
                         });
+                        if let Some(context) = self
+                            .remote
+                            .as_ref()
+                            .and_then(|remote| remote.state.context.as_ref())
+                            .map(|context| context.uri.clone())
+                        {
+                            self.note_recent_context(&context);
+                        }
                         let uri = self.remote.as_ref().and_then(|remote| {
                             remote
                                 .state
@@ -1547,6 +1559,17 @@ impl App {
                 }
             }
             ApiResponse::RecentlyPlayed(result) => {
+                if let Ok(history) = &result {
+                    // Oldest first, so the newest ends up at the front.
+                    let contexts: Vec<String> = history
+                        .iter()
+                        .rev()
+                        .filter_map(|play| play.context.as_ref().map(|context| context.uri.clone()))
+                        .collect();
+                    for context in contexts {
+                        self.note_recent_context(&context);
+                    }
+                }
                 self.home.recently_played = Loadable::from_result(result);
             }
             ApiResponse::TopTracks {
@@ -2148,6 +2171,17 @@ impl App {
         });
     }
 
+    /// Remembers `uri` as the most recently played context, for the
+    /// sidebar's order.
+    fn note_recent_context(&mut self, uri: &str) {
+        if !uri.contains(":playlist:") && !uri.contains(":album:") && !uri.contains(":collection") {
+            return;
+        }
+        self.recent_contexts.retain(|held| held != uri);
+        self.recent_contexts.insert(0, uri.to_string());
+        self.recent_contexts.truncate(60);
+    }
+
     /// With `shuffle_first`, shuffle is turned on before playback starts,
     /// in one ordered exchange: two independent requests race, and shuffle
     /// sometimes lost.
@@ -2168,6 +2202,9 @@ impl App {
             keys.push(uri.clone());
         }
         self.set_play_pending(keys);
+        if let Some(context) = request.context_uri.clone() {
+            self.note_recent_context(&context);
+        }
         match self.target() {
             Target::Local => {
                 self.queued_play = None;
@@ -3008,6 +3045,7 @@ impl App {
         if !self.offline {
             SessionState {
                 last_page: Some(self.page().encode()),
+                recent_contexts: self.recent_contexts.clone(),
             }
             .save(&self.dirs.session_file());
         }
