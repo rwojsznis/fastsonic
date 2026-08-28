@@ -13,6 +13,7 @@
 
   outputs =
     {
+      self,
       nixpkgs,
       rust-overlay,
       ...
@@ -76,6 +77,73 @@
             )
           );
         };
+      });
+
+      packages = forAllSystems (pkgs: rec {
+        default = fastpotify;
+        fastpotify =
+          let
+            toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+            rustPlatform = pkgs.makeRustPlatform {
+              cargo = toolchain;
+              rustc = toolchain;
+            };
+            runtimeLibs =
+              pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
+                with pkgs;
+                [
+                  libxkbcommon
+                  wayland
+                  libGL
+                  xorg.libX11
+                  xorg.libXcursor
+                  xorg.libXi
+                  xorg.libXrandr
+                ]
+              );
+          in
+          rustPlatform.buildRustPackage {
+            pname = "fastpotify";
+            version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
+            src = self;
+            cargoLock.lockFile = ./Cargo.lock;
+
+            nativeBuildInputs =
+              with pkgs;
+              [
+                pkg-config
+              ]
+              ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ makeWrapper ];
+            buildInputs =
+              pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
+                with pkgs;
+                [
+                  alsa-lib
+                  libpulseaudio
+                ]
+              )
+              ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.apple-sdk ];
+
+            # The GUI dlopens its Wayland, X11 and GL libraries at run time.
+            postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              wrapProgram $out/bin/fastpotify \
+                --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath runtimeLibs}
+            '';
+
+            postInstall = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              install -Dm644 packaging/applications/fastpotify.desktop \
+                $out/share/applications/fastpotify.desktop
+              install -Dm644 packaging/icons/fastpotify.svg \
+                $out/share/icons/hicolor/scalable/apps/fastpotify.svg
+            '';
+
+            meta = {
+              description = "Fast native Spotify client with local playback and Spotify Connect";
+              homepage = "https://fastpotify.rocks";
+              license = pkgs.lib.licenses.mit;
+              mainProgram = "fastpotify";
+            };
+          };
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
