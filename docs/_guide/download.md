@@ -38,6 +38,8 @@ double-click. This step disappears once notarized builds ship.
 
 ## Windows
 
+{% comment %}0.1.3 shipped as a zip only; the guard goes when the version bumps.{% endcomment %}
+{% if v == "0.1.3" %}
 Almost every PC wants the first one; the second is for Windows on ARM:
 
 - [fastpotify-v{{ v }}-x86_64-pc-windows-msvc.zip]({{ base }}/fastpotify-v{{ v }}-x86_64-pc-windows-msvc.zip)
@@ -45,6 +47,23 @@ Almost every PC wants the first one; the second is for Windows on ARM:
 
 Unpack and run `fastpotify.exe`. SmartScreen may warn about an unknown
 publisher on first run; choose More info, then Run anyway.
+{% else %}
+The installer adds Fastpotify to the Start menu and needs no administrator
+rights. Almost every PC wants the first one; the second is for Windows on
+ARM:
+
+- [fastpotify-v{{ v }}-x86_64-pc-windows-msvc-setup.exe]({{ base }}/fastpotify-v{{ v }}-x86_64-pc-windows-msvc-setup.exe)
+- [fastpotify-v{{ v }}-aarch64-pc-windows-msvc-setup.exe]({{ base }}/fastpotify-v{{ v }}-aarch64-pc-windows-msvc-setup.exe)
+
+If you would rather not install anything, the same program comes as a zip:
+unpack it and run `fastpotify.exe`.
+
+- [fastpotify-v{{ v }}-x86_64-pc-windows-msvc.zip]({{ base }}/fastpotify-v{{ v }}-x86_64-pc-windows-msvc.zip)
+- [fastpotify-v{{ v }}-aarch64-pc-windows-msvc.zip]({{ base }}/fastpotify-v{{ v }}-aarch64-pc-windows-msvc.zip)
+
+Either way, SmartScreen may warn about an unknown publisher on first run;
+choose More info, then Run anyway.
+{% endif %}
 
 ## Linux
 
