@@ -211,6 +211,8 @@ pub struct App {
     pub quit_requested: bool,
     /// The axis a scroll gesture settled on, and when it last moved.
     scroll_lock: Option<(ScrollAxis, Instant)>,
+    /// Whether the current scroll gesture comes from a trackpad.
+    scroll_from_trackpad: bool,
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
@@ -330,6 +332,7 @@ impl App {
             playlist_busy: false,
             quit_requested: false,
             scroll_lock: None,
+            scroll_from_trackpad: false,
             update: None,
             last_update_check: None,
         };
@@ -2952,16 +2955,26 @@ impl App {
     /// axis is chosen from the first movement of a gesture and held until it
     /// pauses, the way the platforms' own scrolling behaves.
     fn lock_scroll_axis(&mut self, ctx: &egui::Context) {
-        let raw = ctx.input(|input| {
-            input
-                .events
-                .iter()
-                .filter_map(|event| match event {
-                    egui::Event::MouseWheel { delta, .. } => Some(*delta),
-                    _ => None,
-                })
-                .fold(egui::Vec2::ZERO, |sum, delta| sum + delta)
+        let (raw, from_trackpad) = ctx.input(|input| {
+            let mut sum = egui::Vec2::ZERO;
+            let mut pointish = false;
+            for event in &input.events {
+                if let egui::Event::MouseWheel { unit, delta, .. } = event {
+                    sum += *delta;
+                    pointish |= *unit == egui::MouseWheelUnit::Point;
+                }
+            }
+            (sum, pointish)
         });
+        if raw != egui::Vec2::ZERO {
+            self.scroll_from_trackpad = from_trackpad;
+        }
+        // Linux compositors hand touchpad deltas through unscaled and they
+        // land well short of what other players scroll; wheels arrive as
+        // lines and are scaled already. macOS feels right as delivered.
+        if cfg!(target_os = "linux") && self.scroll_from_trackpad {
+            ctx.input_mut(|input| input.smooth_scroll_delta *= 1.8);
+        }
         let now = Instant::now();
         let held = self
             .scroll_lock
