@@ -20,6 +20,8 @@ use crate::player::{Engine, EngineConfig, EngineEvent, LocalState, PlayerCommand
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
+const PREMIUM_NEEDED: &str = "Local playback needs Spotify Premium.";
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum AuthStatus {
     Starting,
@@ -328,6 +330,11 @@ pub enum Command {
     WebSignedIn(Box<crate::auth::StoredToken>),
     /// Internal: a browser flow ended (success or not).
     SignInEnded,
+    /// Internal: the Web API said which plan the account is on (`None` when
+    /// it could not tell).
+    AccountChecked {
+        premium: Option<bool>,
+    },
     /// Internal: the playback grant produced a streaming access token.
     PlaybackAuthorized {
         access_token: String,
@@ -530,6 +537,8 @@ struct Worker {
     /// second attempt does not pile up.
     engine_busy: bool,
     signed_in: bool,
+    /// The plan, once the Web API has answered.
+    premium: Option<bool>,
     cancel_signin: Option<watch::Sender<bool>>,
     reconnects: Vec<Instant>,
 }
@@ -560,6 +569,7 @@ impl Worker {
             engine: None,
             engine_busy: false,
             signed_in: false,
+            premium: None,
             cancel_signin: None,
             reconnects: Vec::new(),
         }
@@ -607,6 +617,7 @@ impl Worker {
                     self.on_engine_connected(*engine, error)
                 }
                 Command::SignInEnded => self.cancel_signin = None,
+                Command::AccountChecked { premium } => self.on_account_checked(premium),
                 Command::Reconnect => self.reconnect_engine(),
                 Command::DiscoverReceivers => self.discover_receivers(),
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
@@ -619,10 +630,17 @@ impl Worker {
 
     // ---- Web API sign-in --------------------------------------------------
 
-    /// On startup, resume a saved Web API grant and, if a playback credential
-    /// was stored before, bring the local engine back too.
+    /// On startup, resume a saved Web API grant. The local engine follows
+    /// once the plan is known (`on_account_checked`), never before.
     fn restore_session(&mut self) {
         match crate::auth::StoredToken::load(&self.dirs.web_token_file()) {
+            Some(token) if !token.has_scopes(crate::auth::WEB_SCOPES) => {
+                // Granted before a scope this version relies on; only the
+                // browser can widen it.
+                self.emit(Event::Auth(AuthStatus::Failed(
+                    "Fastpotify needs one more Spotify permission. Please sign in again.".into(),
+                )));
+            }
             Some(token) => {
                 self.activate_web_token(token);
                 self.emit(Event::Auth(AuthStatus::Connecting));
@@ -631,7 +649,6 @@ impl Worker {
                 self.emit(Event::Auth(AuthStatus::Connected {
                     username: String::new(),
                 }));
-                self.resume_engine();
             }
             None => self.emit(Event::Auth(AuthStatus::SignedOut)),
         }
@@ -654,7 +671,6 @@ impl Worker {
             username: String::new(),
         }));
         self.dispatch(ApiRequest::Me);
-        self.resume_engine();
     }
 
     fn sign_in(&mut self) {
@@ -736,7 +752,7 @@ impl Worker {
     /// Bring the engine up from a credential stored by a previous playback
     /// authorization, if there is one. Silent when there is nothing to resume.
     fn resume_engine(&mut self) {
-        if self.engine.is_some() || self.engine_busy {
+        if self.engine.is_some() || self.engine_busy || self.premium == Some(false) {
             return;
         }
         let credentials = self
@@ -767,6 +783,10 @@ impl Worker {
             return;
         }
         self.reconnects.push(now);
+        log::info!(
+            "local playback session ended; reconnecting ({} of 6 in ten minutes)",
+            self.reconnects.len()
+        );
         self.resume_engine();
     }
 
@@ -775,6 +795,12 @@ impl Worker {
     /// client identity, the one librespot can play with.
     fn authorize_playback(&mut self) {
         if self.engine_busy || self.cancel_signin.is_some() {
+            return;
+        }
+        if self.premium == Some(false) {
+            self.emit(Event::Playback(LocalPlayback::Failed(
+                PREMIUM_NEEDED.into(),
+            )));
             return;
         }
         let grant = crate::auth::Grant::playback();
@@ -822,6 +848,12 @@ impl Worker {
     /// credential itself, so authorizing once is enough.
     fn connect_engine(&mut self, credentials: Credentials) {
         if self.engine_busy {
+            return;
+        }
+        if self.premium == Some(false) {
+            self.emit(Event::Playback(LocalPlayback::Failed(
+                PREMIUM_NEEDED.into(),
+            )));
             return;
         }
         self.cancel_signin = None;
@@ -887,6 +919,33 @@ impl Worker {
         }
     }
 
+    /// The plan gates the engine because librespot 0.8 calls `exit(1)` from
+    /// inside its session the moment Spotify tells it the account is not
+    /// Premium; no error path of ours can catch that, so a Free account must
+    /// never reach it. When the API cannot say, the engine comes back as it
+    /// always did.
+    fn on_account_checked(&mut self, premium: Option<bool>) {
+        self.premium = premium;
+        if premium == Some(false) {
+            if let Some(engine) = self.engine.take() {
+                engine.shutdown();
+            }
+            let credential_stored = self
+                .engine_config
+                .open_cache()
+                .ok()
+                .and_then(|cache| cache.credentials())
+                .is_some();
+            if credential_stored {
+                self.emit(Event::Playback(LocalPlayback::Failed(
+                    PREMIUM_NEEDED.into(),
+                )));
+            }
+            return;
+        }
+        self.resume_engine();
+    }
+
     // ---- receivers on the local network -----------------------------------
 
     /// Browses for receivers Spotify's device list does not know about. The
@@ -939,8 +998,17 @@ impl Worker {
         let api = Arc::clone(&self.api);
         let events = self.events.clone();
         let waker = self.waker.clone();
+        let commands = self.commands.clone();
         tokio::spawn(async move {
             let response = handle(&api, request).await;
+            if let ApiResponse::Me(result) = &response {
+                let premium = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|user| user.product.as_deref())
+                    .map(|product| product == "premium");
+                let _ = commands.send(Command::AccountChecked { premium });
+            }
             let _ = events.send(Event::Api(Box::new(response)));
             waker.wake();
         });
@@ -971,7 +1039,7 @@ fn friendly_connect_error(error: &anyhow::Error) -> String {
     if lower.contains("badcredentials") || lower.contains("bad credentials") {
         "Spotify rejected the saved sign-in. Please sign in again.".to_string()
     } else if lower.contains("premium") {
-        "Local playback needs Spotify Premium.".to_string()
+        PREMIUM_NEEDED.to_string()
     } else if lower.contains("dns") || lower.contains("connect") || lower.contains("resolve") {
         format!("Couldn't reach Spotify: {text}")
     } else {

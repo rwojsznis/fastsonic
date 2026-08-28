@@ -50,7 +50,9 @@ pub const PLAYBACK_SCOPES: &[&str] = &[
     "user-read-private",
 ];
 
-/// Web API: only what visible features use; no profile or email.
+/// Web API: what visible features use, plus `user-read-private` for the
+/// plan (Free or Premium), which decides whether local playback is offered
+/// at all; no email.
 pub const WEB_SCOPES: &[&str] = &[
     "playlist-modify-private",
     "playlist-modify-public",
@@ -63,6 +65,7 @@ pub const WEB_SCOPES: &[&str] = &[
     "user-modify-playback-state",
     "user-read-playback-position",
     "user-read-playback-state",
+    "user-read-private",
     "user-read-recently-played",
     "user-top-read",
 ];
@@ -333,6 +336,13 @@ impl StoredToken {
         now_secs() + REFRESH_MARGIN.as_secs() >= self.expires_at
     }
 
+    /// Whether the grant covers every scope in `scopes`. A grant cannot be
+    /// widened by a refresh, only by the browser.
+    pub fn has_scopes(&self, scopes: &[&str]) -> bool {
+        let granted: Vec<&str> = self.scope.split_whitespace().collect();
+        scopes.iter().all(|scope| granted.contains(scope))
+    }
+
     pub fn load(path: &Path) -> Option<Self> {
         let text = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&text).ok()
@@ -457,6 +467,8 @@ mod tests {
         };
         let token = StoredToken::from_response("id", response, None).unwrap();
         assert!(!token.needs_refresh());
+        assert!(token.has_scopes(&["x"]));
+        assert!(!token.has_scopes(&["x", "y"]));
         let expired = StoredToken {
             expires_at: now_secs() + 10,
             ..token.clone()

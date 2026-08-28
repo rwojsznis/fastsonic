@@ -2524,7 +2524,14 @@ impl App {
                 }
             }
             Action::EnablePlayback => {
-                if !self.local_ready
+                let free = self
+                    .user
+                    .as_ref()
+                    .and_then(|user| user.product.as_deref())
+                    .is_some_and(|product| product != "premium");
+                if free {
+                    self.toast_error("Local playback needs Spotify Premium");
+                } else if !self.local_ready
                     && !matches!(
                         self.local_playback,
                         LocalPlayback::Authorizing | LocalPlayback::Connecting
