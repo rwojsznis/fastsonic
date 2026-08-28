@@ -73,6 +73,8 @@ panel's header picks the song back up. Lyrics come from
 they work for whatever is playing, on this computer or another device;
 podcasts and tracks nobody has transcribed say so.
 
+![The lyrics panel beside a playlist, following the song](/assets/images/lyrics.png)
+
 ## The tray
 
 Closing the window keeps the music playing: Fastpotify stays in the system

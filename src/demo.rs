@@ -519,6 +519,38 @@ pub fn populate(app: &mut App) {
     }
 }
 
+/// Words to go with the sample track, timed so that the one being sung
+/// sits mid-panel at the demo's playback position.
+fn sample_lyrics() -> crate::lyrics::Lyrics {
+    let lines = [
+        (40_000, "Streetlights blinking down the river road"),
+        (46_500, "Every window holding someone's evening"),
+        (53_000, "I keep the radio low so you can sleep"),
+        (59_500, "Counting mile markers like a rosary"),
+        (66_000, "We left the city with the tank half full"),
+        (72_500, "And a map that only shows the way back"),
+        (79_000, "But the night is wide and the road is long"),
+        (85_500, "And there's nowhere I would rather be"),
+        (92_000, "Coffee going cold in the cup holder"),
+        (98_500, "Your hand asleep on the gear stick"),
+        (105_000, "Somewhere past the county line"),
+        (111_500, "The stars come out to see us through"),
+        (118_000, "Still the night is wide and the road is long"),
+        (124_500, "And there's nowhere I would rather be"),
+    ];
+    crate::lyrics::Lyrics {
+        lines: lines
+            .iter()
+            .map(|(at_ms, text)| crate::lyrics::Line {
+                at_ms: Some(*at_ms),
+                text: (*text).to_string(),
+            })
+            .collect(),
+        synced: true,
+        instrumental: false,
+    }
+}
+
 /// Applies `--demo-page` and `--demo-show`.
 #[cfg(feature = "demo")]
 pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
@@ -540,6 +572,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "light" => {
                 app.settings.theme = crate::settings::ThemeChoice::Light;
                 app.actions.push(Action::SettingsChanged);
+            }
+            "lyrics" => {
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+                app.lyrics_following = true;
+                app.show_lyrics_panel = true;
+            }
+            // A Spotify app of one's own, in use.
+            "faster" => {
+                let id = "8f2c1d0e4a6b4c3d9e7f5a1b2c3d4e5f".to_string();
+                app.settings.web_client_id = Some(id.clone());
+                app.web_app = Some(id);
             }
             _ => {}
         }

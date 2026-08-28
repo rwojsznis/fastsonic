@@ -43,6 +43,8 @@ now**.
 4. Tick **Web API**, accept the terms, and save.
 5. The app's page shows its **Client ID**. Copy it.
 
+![Settings, with a personal Spotify app in use](/assets/images/make-it-even-faster.png)
+
 ## Use it in Fastpotify
 
 1. Open **Settings**, find **Make it even faster**, and paste the
