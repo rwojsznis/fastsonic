@@ -17,6 +17,16 @@ An app of your own has that limit to itself. Fastpotify cannot ship one
 for everyone (Spotify allows a new app only a handful of users), but
 making yours is free and takes five minutes.
 
+## What a personal app cannot do
+
+Spotify keeps a personal app in Development Mode, and since February 2026
+that mode reads only the playlists you own or collaborate on. Anyone
+else's public playlist, and Spotify's own editorial ones, show their name
+and cover but not their songs; artist top tracks and browsing are gone
+too. The shared app has none of these limits, so this is reach traded for
+speed. Switching back is one click: clear the field and press **Switch
+now**.
+
 ## Make a Spotify app
 
 1. Open the [Spotify developer dashboard](https://developer.spotify.com/dashboard)

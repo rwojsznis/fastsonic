@@ -97,7 +97,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Make it even faster",
-            "Fastpotify is quick; Spotify's API rate limits are not. Everyone shares one Spotify app by default, so requests queue behind other people's. An app of your own has a limit to itself. Paste its Client ID here.",
+            "Fastpotify is quick; Spotify's API rate limits are not. Everyone shares one Spotify app by default, so requests queue behind other people's. An app of your own has a limit to itself, though Spotify lets it open only the playlists you own or collaborate on. Paste its Client ID here.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)

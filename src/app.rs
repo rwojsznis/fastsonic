@@ -416,6 +416,14 @@ impl App {
         }
     }
 
+    /// Whether the Web API sign-in belongs to an app of the user's own
+    /// rather than the shared one.
+    pub fn own_web_app(&self) -> bool {
+        self.web_app
+            .as_deref()
+            .is_some_and(|id| id != crate::auth::DEFAULT_WEB_CLIENT_ID)
+    }
+
     pub fn now_playing(&self) -> Option<NowPlaying> {
         if self.local.is_active() {
             let track = self.local.track.as_ref()?;
@@ -1331,6 +1339,7 @@ impl App {
     // ---- api responses -------------------------------------------------------
 
     fn handle_api(&mut self, response: ApiResponse) {
+        let own_app = self.own_web_app();
         match response {
             ApiResponse::Me(result) => match result {
                 Ok(user) => {
@@ -1543,7 +1552,7 @@ impl App {
                                 .collect();
                             page.items.absorb(offset, items);
                         }
-                        Err(error) => page.items.fail(friendly_page_error(&error)),
+                        Err(error) => page.items.fail(friendly_page_error(&error, own_app)),
                     }
                 }
                 self.request_contains(uris);
@@ -2932,8 +2941,14 @@ fn remote_action_label(action: RemoteAction) -> &'static str {
     }
 }
 
-fn friendly_page_error(error: &crate::api::ApiError) -> String {
+/// Since February 2026 a personal app (Development Mode) may read only the
+/// playlists its user owns or collaborates on; the shared app predates
+/// that and reads anything public.
+fn friendly_page_error(error: &crate::api::ApiError, own_app: bool) -> String {
     match error.status() {
+        Some(403) | Some(404) if own_app => {
+            "Spotify lets a personal app open only the playlists you own or collaborate on. Switch back to the shared app in Settings to open this one.".to_string()
+        }
         Some(403) | Some(404) => {
             "Spotify doesn't make this playlist's songs available to third-party apps.".to_string()
         }
