@@ -87,7 +87,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                                     // user here with Settings out of reach.
                                     app.settings.web_client_id = None;
                                     app.mark_settings_dirty();
-                                    app.actions.push(Action::SwitchWebApp);
+                                    app.actions.push(Action::ConfigurePersonalWebApp);
                                 }
                             }
                         }
@@ -120,7 +120,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                                 {
                                     app.settings.web_client_id = None;
                                     app.mark_settings_dirty();
-                                    app.actions.push(Action::SwitchWebApp);
+                                    app.actions.push(Action::ConfigurePersonalWebApp);
                                 }
                             }
                         }
