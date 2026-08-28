@@ -97,7 +97,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Make it even faster",
-            "Fastpotify is quick; Spotify's API rate limits are not. Everyone shares one Spotify app by default, so requests queue behind other people's. An app of your own has a limit to itself, though Spotify lets it open only the playlists you own or collaborate on. Paste its Client ID here.",
+            "Spotify limits each app, and everyone shares this one. An app of your own has its own limit, but opens only playlists you own. Paste its Client ID here.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -151,7 +151,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui,
                 &palette,
                 "Your app is in use",
-                "Requests go through a limit that is yours alone.",
+                "Requests go through your own limit.",
                 |ui| {
                     theme::text(ui, "In use", theme::medium(13.0), palette.accent);
                 },
@@ -160,12 +160,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let (title, detail) = if own {
                 (
                     "Ready to switch to your app",
-                    "Fastpotify signs in again with it; your browser opens once. Playing music on this computer is not affected.",
+                    "Fastpotify signs in again with it; your browser opens once.",
                 )
             } else {
                 (
                     "Back to the shared app?",
-                    "Fastpotify signs in again with the shared app; your browser opens once.",
+                    "Fastpotify signs in again with it; your browser opens once.",
                 )
             };
             widgets::setting_row(ui, &palette, title, detail, |ui| {
