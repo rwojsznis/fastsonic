@@ -10,12 +10,14 @@ pub mod images;
 pub mod lyrics;
 #[cfg(target_os = "macos")]
 pub mod mac_menu;
-pub mod model;
+pub mod media;
 #[cfg(target_os = "linux")]
-pub mod mpris;
+#[path = "mpris.rs"]
+pub mod media_controls;
 #[cfg(not(target_os = "linux"))]
 #[path = "media_native.rs"]
-pub mod mpris;
+pub mod media_controls;
+pub mod model;
 pub mod paths;
 pub mod player;
 pub mod settings;
