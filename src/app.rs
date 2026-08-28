@@ -754,6 +754,16 @@ impl App {
                         };
                     }
                 }
+                Event::PlaylistCache {
+                    id,
+                    snapshot,
+                    items,
+                } => {
+                    if let Some(page) = self.playlist_pages.get_mut(&id) {
+                        page.pending_cache = Some((snapshot, items));
+                    }
+                    self.try_adopt_playlist_cache(&id);
+                }
                 Event::WebApp { client_id } => self.web_app = Some(client_id),
                 Event::UpdateAvailable { version, url } => {
                     let notice = crate::updates::Release { version, url };
@@ -1246,6 +1256,10 @@ impl App {
                         id: id.clone(),
                         offset: 0,
                     });
+                    // The disk may hold the whole list already; it is
+                    // adopted only if Spotify's snapshot still matches.
+                    self.backend
+                        .send(Command::LoadPlaylistCache { id: id.clone() });
                 }
                 self.request_contains(vec![format!("spotify:playlist:{id}")]);
             }
@@ -1802,11 +1816,16 @@ impl App {
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
                     page.playlist = Loadable::from_result(result);
                 }
+                self.try_adopt_playlist_cache(&id);
             }
             ApiResponse::PlaylistItems { id, offset, result } => {
                 let mut uris = Vec::new();
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
                     match result {
+                        Ok(_) if page.cache_complete => {
+                            // A page in flight from before the cache
+                            // adopted; the list is already whole.
+                        }
                         Ok(items) => {
                             uris = items
                                 .items
@@ -1840,6 +1859,21 @@ impl App {
                     }
                 }
                 self.request_contains(uris);
+                // The whole list is here; remember it under its snapshot.
+                if let Some(page) = self.playlist_pages.get(&id)
+                    && page.items.is_complete()
+                    && !page.cache_complete
+                    && let Some(snapshot) = page
+                        .playlist
+                        .get()
+                        .and_then(|playlist| playlist.snapshot_id.clone())
+                {
+                    self.backend.send(Command::StorePlaylistCache {
+                        id: id.clone(),
+                        snapshot,
+                        items: page.items.items.clone(),
+                    });
+                }
                 // A sorted table means the whole list, not the loaded part.
                 if self.table_sorts.contains_key(&Page::Playlist(id.clone())) {
                     self.load_more(Page::Playlist(id));
@@ -1918,6 +1952,8 @@ impl App {
                             page.items.reset();
                             page.contributors.clear();
                             page.tail_checked = false;
+                            page.cache_complete = false;
+                            page.pending_cache = None;
                         }
                         if matches!(self.page(), Page::Playlist(current) if *current == id) {
                             self.ensure_loaded(Page::Playlist(id.clone()));
@@ -1935,6 +1971,8 @@ impl App {
                             page.items.reset();
                             page.contributors.clear();
                             page.tail_checked = false;
+                            page.cache_complete = false;
+                            page.pending_cache = None;
                         }
                         self.ensure_loaded(Page::Playlist(id));
                     }
@@ -2430,6 +2468,56 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Adopt a playlist's disk cache once both it and the live playlist
+    /// are here and Spotify's snapshot still matches; a stale cache is
+    /// discarded, never shown.
+    fn try_adopt_playlist_cache(&mut self, id: &str) {
+        let mut uris = Vec::new();
+        if let Some(page) = self.playlist_pages.get_mut(id) {
+            let Some(snapshot_now) = page
+                .playlist
+                .get()
+                .and_then(|playlist| playlist.snapshot_id.clone())
+            else {
+                return;
+            };
+            match &page.pending_cache {
+                Some((held, _)) if *held == snapshot_now => {}
+                Some(_) => {
+                    // The playlist changed since; the cache is history.
+                    page.pending_cache = None;
+                    return;
+                }
+                None => return,
+            }
+            if page.items.is_complete() || page.cache_complete {
+                page.pending_cache = None;
+                return;
+            }
+            let Some((_, items)) = page.pending_cache.take() else {
+                return;
+            };
+            uris = items
+                .iter()
+                .filter_map(|item| item.playable())
+                .map(|item| item.uri().to_string())
+                .collect();
+            page.contributors.extend(
+                items
+                    .iter()
+                    .filter_map(|item| item.added_by.as_ref()?.id.clone()),
+            );
+            page.items.total = Some(items.len() as u32);
+            page.items.items = items;
+            page.items.next_offset = None;
+            page.items.loading = false;
+            page.items.loaded_once = true;
+            page.items.error = None;
+            page.cache_complete = true;
+        }
+        self.request_contains(uris);
     }
 
     /// Play what was playing when the app last closed. `false` when

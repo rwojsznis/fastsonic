@@ -82,6 +82,10 @@ impl AppDirs {
         self.cache.join("lyrics")
     }
 
+    pub fn playlist_cache_dir(&self) -> PathBuf {
+        self.cache.join("playlists")
+    }
+
     pub fn ensure(&self) -> std::io::Result<()> {
         for dir in [&self.config, &self.state, &self.cache] {
             std::fs::create_dir_all(dir)?;

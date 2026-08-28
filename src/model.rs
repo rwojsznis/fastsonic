@@ -309,6 +309,10 @@ pub struct PlaylistPage {
     pub contributors: std::collections::BTreeSet<String>,
     /// Whether the tail was sampled for who added its songs.
     pub tail_checked: bool,
+    /// The whole list came from disk and matches the live snapshot.
+    pub cache_complete: bool,
+    /// Items read from disk, waiting for the live snapshot to confirm.
+    pub pending_cache: Option<(String, Vec<PlaylistItem>)>,
 }
 
 #[derive(Default)]

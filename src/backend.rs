@@ -385,6 +385,16 @@ pub enum Command {
     /// Sign in again with another Web API application (`None` for the
     /// shared one). Local playback keeps its own grant.
     SwitchWebApp(Option<String>),
+    /// Read a playlist's cached items from disk.
+    LoadPlaylistCache {
+        id: String,
+    },
+    /// Remember a fully loaded playlist on disk under its snapshot.
+    StorePlaylistCache {
+        id: String,
+        snapshot: String,
+        items: Vec<PlaylistItem>,
+    },
 }
 
 pub struct LyricsRequest {
@@ -418,6 +428,12 @@ pub enum Event {
     Lyrics {
         uri: String,
         result: Result<Option<crate::lyrics::Lyrics>, String>,
+    },
+    /// A playlist's items as last cached, with the snapshot they belong to.
+    PlaylistCache {
+        id: String,
+        snapshot: String,
+        items: Vec<PlaylistItem>,
     },
     /// The Web API application the current sign-in belongs to.
     WebApp {
@@ -678,6 +694,12 @@ impl Worker {
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
                 Command::CheckForUpdates => self.check_for_updates(),
                 Command::Lyrics(request) => self.fetch_lyrics(*request),
+                Command::LoadPlaylistCache { id } => self.load_playlist_cache(id),
+                Command::StorePlaylistCache {
+                    id,
+                    snapshot,
+                    items,
+                } => self.store_playlist_cache(id, snapshot, items),
                 Command::SwitchWebApp(client_id) => self.switch_web_app(client_id),
             }
         }
@@ -1111,6 +1133,41 @@ impl Worker {
         });
     }
 
+    /// Hand the interface a playlist's cached items, if any are on disk.
+    /// Whether they are still true is the interface's call: it compares
+    /// the snapshot against the live playlist before adopting them.
+    fn load_playlist_cache(&self, id: String) {
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let path = self.dirs.playlist_cache_dir().join(format!("{id}.json"));
+        tokio::spawn(async move {
+            let Ok(text) = tokio::fs::read_to_string(&path).await else {
+                return;
+            };
+            let Ok(cached) = serde_json::from_str::<CachedPlaylist>(&text) else {
+                return;
+            };
+            let _ = events.send(Event::PlaylistCache {
+                id,
+                snapshot: cached.snapshot,
+                items: cached.items,
+            });
+            waker.wake();
+        });
+    }
+
+    fn store_playlist_cache(&self, id: String, snapshot: String, items: Vec<PlaylistItem>) {
+        let path = self.dirs.playlist_cache_dir().join(format!("{id}.json"));
+        tokio::spawn(async move {
+            if let Some(parent) = path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            if let Ok(text) = serde_json::to_string(&CachedPlaylist { snapshot, items }) {
+                let _ = tokio::fs::write(&path, text).await;
+            }
+        });
+    }
+
     // ---- api ----------------------------------------------------------------
 
     fn dispatch(&self, request: ApiRequest) {
@@ -1441,4 +1498,11 @@ async fn spotify_lyrics(
             None
         }
     }
+}
+
+/// A playlist's items on disk, valid for exactly one snapshot.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CachedPlaylist {
+    snapshot: String,
+    items: Vec<PlaylistItem>,
 }
