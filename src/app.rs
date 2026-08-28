@@ -213,8 +213,13 @@ pub struct App {
     scroll_lock: Option<(ScrollAxis, Instant)>,
     /// Whether the current scroll gesture comes from a trackpad.
     scroll_from_trackpad: bool,
-    /// The gesture's speed, for gliding on after the fingers lift.
-    scroll_velocity: egui::Vec2,
+    /// Recent scroll positions, to read the gesture's speed when it ends.
+    scroll_history: egui::util::History<egui::Vec2>,
+    /// Where the gesture has scrolled to so far, for the history.
+    scroll_accum: egui::Vec2,
+    /// The speed still carrying the page after the fingers lifted.
+    glide: Option<egui::Vec2>,
+    /// When the last scroll event arrived, for lifts nobody announces.
     scroll_last_event: Option<Instant>,
     /// How each table is sorted, per page, for as long as the app runs.
     pub table_sorts: HashMap<Page, TableSort>,
@@ -239,9 +244,11 @@ const SCROLL_GESTURE_GAP: Duration = Duration::from_millis(150);
 /// How far short Linux trackpad deltas land of what other players scroll.
 const TRACKPAD_SCALE: f32 = 1.8;
 
-/// The glide's half-life-ish decay, and the speed at which it stops,
-/// points per second.
+/// The glide's exponential decay time, in seconds; the speed below which a
+/// lift starts no glide; and the speed at which a glide stops, points per
+/// second.
 const GLIDE_DECAY: f32 = 0.35;
+const GLIDE_START: f32 = 120.0;
 const GLIDE_STOP: f32 = 40.0;
 
 impl App {
@@ -349,7 +356,9 @@ impl App {
             quit_requested: false,
             scroll_lock: None,
             scroll_from_trackpad: false,
-            scroll_velocity: egui::Vec2::ZERO,
+            scroll_history: egui::util::History::new(2..16, 0.1),
+            scroll_accum: egui::Vec2::ZERO,
+            glide: None,
             scroll_last_event: None,
             table_sorts: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
@@ -3008,16 +3017,21 @@ impl App {
     /// axis is chosen from the first movement of a gesture and held until it
     /// pauses, the way the platforms' own scrolling behaves.
     fn lock_scroll_axis(&mut self, ctx: &egui::Context) {
-        let (raw, from_trackpad) = ctx.input(|input| {
+        let (raw, from_trackpad, ended) = ctx.input(|input| {
             let mut sum = egui::Vec2::ZERO;
             let mut pointish = false;
+            let mut ended = false;
             for event in &input.events {
-                if let egui::Event::MouseWheel { unit, delta, .. } = event {
+                if let egui::Event::MouseWheel {
+                    unit, delta, phase, ..
+                } = event
+                {
                     sum += *delta;
                     pointish |= *unit == egui::MouseWheelUnit::Point;
+                    ended |= matches!(phase, egui::TouchPhase::End | egui::TouchPhase::Cancel);
                 }
             }
-            (sum, pointish)
+            (sum, pointish, ended)
         });
         let now = Instant::now();
         if raw != egui::Vec2::ZERO {
@@ -3031,40 +3045,48 @@ impl App {
             ctx.input_mut(|input| input.smooth_scroll_delta *= TRACKPAD_SCALE);
         }
         // macOS glides after the fingers lift; Linux hands over raw deltas
-        // that stop dead. Measure the gesture's speed and keep it going,
-        // decaying, the way every native scroll view here feels.
+        // that stop dead. While the fingers move, remember where the gesture
+        // has been; the frame it ends, carry its speed of the last tenth of
+        // a second on, decaying, the way native scroll views here feel.
         if trackpad_here && raw != egui::Vec2::ZERO {
-            let dt = self
-                .scroll_last_event
-                .map(|at| now.duration_since(at).as_secs_f32())
-                .unwrap_or(1.0)
-                .clamp(0.004, 0.1);
-            let instant = raw * TRACKPAD_SCALE / dt;
-            let continuing = self
-                .scroll_last_event
-                .is_some_and(|at| now.duration_since(at).as_secs_f32() < 0.1);
-            self.scroll_velocity = if continuing {
-                self.scroll_velocity * 0.3 + instant * 0.7
-            } else {
-                instant
-            };
+            self.glide = None;
+            self.scroll_accum += raw * TRACKPAD_SCALE;
+            self.scroll_history
+                .add(ctx.input(|input| input.time), self.scroll_accum);
             self.scroll_last_event = Some(now);
+            // Wayland announces the lift; where nothing does, the quiet-gap
+            // check below needs a frame to run in.
+            ctx.request_repaint_after(Duration::from_millis(60));
         } else if raw != egui::Vec2::ZERO || ctx.input(|input| input.pointer.any_down()) {
-            // A wheel or a press takes over; nothing left to glide.
-            self.scroll_velocity = egui::Vec2::ZERO;
+            // A wheel takes over, or a press catches the page.
+            self.glide = None;
+            self.scroll_history.clear();
             self.scroll_last_event = None;
-        } else if let Some(at) = self.scroll_last_event {
-            let since = now.duration_since(at).as_secs_f32();
-            if (0.04..1.5).contains(&since) && self.scroll_velocity.length() > GLIDE_STOP {
-                let dt = ctx.input(|input| input.stable_dt).clamp(0.002, 0.05);
-                let step = self.scroll_velocity * dt;
-                ctx.input_mut(|input| input.smooth_scroll_delta += step);
-                self.scroll_velocity *= (-dt / GLIDE_DECAY).exp();
-                ctx.request_repaint();
-            } else if since >= 1.5 || self.scroll_velocity.length() <= GLIDE_STOP {
-                self.scroll_velocity = egui::Vec2::ZERO;
-                self.scroll_last_event = None;
+        }
+        let quiet = self
+            .scroll_last_event
+            .is_some_and(|at| now.duration_since(at).as_secs_f32() > 0.15);
+        if ended || quiet {
+            let mut velocity = self.scroll_history.velocity().unwrap_or(egui::Vec2::ZERO);
+            if let Some((axis, _)) = self.scroll_lock {
+                match axis {
+                    ScrollAxis::Horizontal => velocity.y = 0.0,
+                    ScrollAxis::Vertical => velocity.x = 0.0,
+                }
             }
+            self.glide = (velocity.length() > GLIDE_START).then_some(velocity);
+            self.scroll_history.clear();
+            self.scroll_accum = egui::Vec2::ZERO;
+            self.scroll_last_event = None;
+        }
+        if let Some(velocity) = self.glide {
+            if raw == egui::Vec2::ZERO {
+                let dt = ctx.input(|input| input.stable_dt).clamp(0.001, 0.05);
+                ctx.input_mut(|input| input.smooth_scroll_delta += velocity * dt);
+                let slower = velocity * (-dt / GLIDE_DECAY).exp();
+                self.glide = (slower.length() > GLIDE_STOP).then_some(slower);
+            }
+            ctx.request_repaint();
         }
         let held = self
             .scroll_lock
