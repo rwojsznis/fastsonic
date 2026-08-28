@@ -491,21 +491,19 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             // collaborations; a playlist made together today is recognised
             // by who added its songs.
             let owner_id = playlist.owner.id.as_deref();
-            let others: std::collections::HashSet<&str> = page
-                .items
-                .items
+            let others = page
+                .contributors
                 .iter()
-                .filter_map(|item| item.added_by.as_ref()?.id.as_deref())
-                .filter(|id| Some(*id) != owner_id)
-                .collect();
-            let made_together = playlist.collaborative || !others.is_empty();
+                .filter(|id| Some(id.as_str()) != owner_id)
+                .count();
+            let made_together = playlist.collaborative || others > 0;
             let mut byline = vec![(playlist.owner_name().to_string(), None)];
-            if !others.is_empty() {
+            if others > 0 {
                 byline.push((
-                    if others.len() == 1 {
+                    if others == 1 {
                         "and 1 other".to_string()
                     } else {
-                        format!("and {} others", others.len())
+                        format!("and {others} others")
                     },
                     None,
                 ));

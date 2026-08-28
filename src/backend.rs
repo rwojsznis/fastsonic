@@ -73,6 +73,12 @@ pub enum ApiRequest {
         id: String,
         offset: u32,
     },
+    /// A slice of a playlist read only for who added its songs; the rows
+    /// on screen stay untouched.
+    PlaylistSample {
+        id: String,
+        offset: u32,
+    },
     CreatePlaylist {
         user_id: String,
         name: String,
@@ -219,6 +225,10 @@ pub enum ApiResponse {
     PlaylistItems {
         id: String,
         offset: u32,
+        result: ApiResult<Page<PlaylistItem>>,
+    },
+    PlaylistSample {
+        id: String,
         result: ApiResult<Page<PlaylistItem>>,
     },
     PlaylistCreated(ApiResult<Playlist>),
@@ -1190,6 +1200,10 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
             result: api.playlist_items(&id, offset, 100).await,
             id,
             offset,
+        },
+        ApiRequest::PlaylistSample { id, offset } => ApiResponse::PlaylistSample {
+            result: api.playlist_items(&id, offset, 100).await,
+            id,
         },
         ApiRequest::CreatePlaylist {
             user_id,

@@ -304,6 +304,11 @@ pub struct PlaylistPage {
     pub playlist: Loadable<Playlist>,
     pub items: PagedList<PlaylistItem>,
     pub filter: String,
+    /// Ids of everyone who added songs, from the pages seen so far and one
+    /// look at the tail.
+    pub contributors: std::collections::BTreeSet<String>,
+    /// Whether the tail was sampled for who added its songs.
+    pub tail_checked: bool,
 }
 
 #[derive(Default)]

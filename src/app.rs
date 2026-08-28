@@ -1785,12 +1785,44 @@ impl App {
                                 .filter_map(|item| item.playable())
                                 .map(|item| item.uri().to_string())
                                 .collect();
+                            page.contributors.extend(
+                                items
+                                    .items
+                                    .iter()
+                                    .filter_map(|item| item.added_by.as_ref()?.id.clone()),
+                            );
                             page.items.absorb(offset, items);
+                            // The rows load from the top, and songs a friend
+                            // added often sit at the end; look there once.
+                            if !page.tail_checked {
+                                page.tail_checked = true;
+                                let loaded = page.items.items.len() as u32;
+                                if let Some(total) =
+                                    page.items.total.filter(|total| *total > loaded)
+                                {
+                                    self.backend.api(ApiRequest::PlaylistSample {
+                                        id: id.clone(),
+                                        offset: total.saturating_sub(100),
+                                    });
+                                }
+                            }
                         }
                         Err(error) => page.items.fail(friendly_page_error(&error, own_app)),
                     }
                 }
                 self.request_contains(uris);
+            }
+            ApiResponse::PlaylistSample { id, result } => {
+                if let Ok(items) = result
+                    && let Some(page) = self.playlist_pages.get_mut(&id)
+                {
+                    page.contributors.extend(
+                        items
+                            .items
+                            .iter()
+                            .filter_map(|item| item.added_by.as_ref()?.id.clone()),
+                    );
+                }
             }
             ApiResponse::PlaylistCreated(result) => {
                 self.playlist_busy = false;
@@ -1851,6 +1883,8 @@ impl App {
                                 playlist.snapshot_id = snapshot;
                             }
                             page.items.reset();
+                            page.contributors.clear();
+                            page.tail_checked = false;
                         }
                         if matches!(self.page(), Page::Playlist(current) if *current == id) {
                             self.ensure_loaded(Page::Playlist(id.clone()));
@@ -1866,6 +1900,8 @@ impl App {
                         self.toast_error(format!("Playlist change failed: {error}"));
                         if let Some(page) = self.playlist_pages.get_mut(&id) {
                             page.items.reset();
+                            page.contributors.clear();
+                            page.tail_checked = false;
                         }
                         self.ensure_loaded(Page::Playlist(id));
                     }
