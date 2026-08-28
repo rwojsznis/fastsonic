@@ -162,6 +162,12 @@ pub struct SessionState {
     pub shuffle_on: bool,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
+    /// Last window inner size, to restore on next launch.
+    pub window_size: Option<[f32; 2]>,
+    /// Last window outer position, to restore on next launch.
+    pub window_pos: Option<[f32; 2]>,
+    /// Whether the queue panel was open.
+    pub queue_open: Option<bool>,
 }
 
 impl SessionState {
