@@ -355,7 +355,19 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             }
         }
     }
-    let context = table.context.clone();
+    // What is displayed is what plays: a sorted view plays in its own
+    // order, as a plain list of tracks, and its rows cannot edit server
+    // positions that no longer match the screen.
+    let context = if sort.is_some() {
+        RowContext::Uris(
+            visible
+                .iter()
+                .map(|&index| table.items[index].0.uri().to_string())
+                .collect(),
+        )
+    } else {
+        table.context.clone()
+    };
     let sorted = sort.is_some();
     widgets::virtual_rows(ui, visible.len(), theme::ROW_HEIGHT, |ui, row| {
         let index = visible[row];
@@ -364,7 +376,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             ui,
             app,
             TrackRow {
-                index,
+                index: if sorted { row } else { index },
                 number: Some(if sorted { row + 1 } else { index + 1 }),
                 item,
                 context: &context,

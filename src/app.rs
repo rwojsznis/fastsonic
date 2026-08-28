@@ -2737,6 +2737,7 @@ impl App {
                 if uris.is_empty() {
                     return;
                 }
+                let (uris, index) = cap_uris(uris, index);
                 let request = PlayRequest::tracks(uris).starting_at_index(index);
                 self.play_request(request, false);
             }
@@ -2752,6 +2753,7 @@ impl App {
                     self.play_request(request, false);
                 }
                 RowContext::Uris(uris) => {
+                    let (uris, index) = cap_uris(uris, index);
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
                     self.play_request(request, false);
                 }
@@ -3369,6 +3371,18 @@ fn friendly_page_error(error: &crate::api::ApiError, own_app: bool) -> String {
         }
         _ => error.to_string(),
     }
+}
+
+/// Spotify balks at gigantic track lists, so a play that starts deep in
+/// one keeps the five hundred songs from its start onward.
+fn cap_uris(uris: Vec<String>, index: u32) -> (Vec<String>, u32) {
+    const MAX: usize = 500;
+    if uris.len() <= MAX {
+        return (uris, index);
+    }
+    let start = (index as usize).min(uris.len() - 1);
+    let end = (start + MAX).min(uris.len());
+    (uris[start..end].to_vec(), 0)
 }
 
 #[cfg(test)]
