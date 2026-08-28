@@ -8,6 +8,16 @@ use crate::theme::{self, Icon};
 
 use super::widgets;
 
+const LINE_SIZE: f32 = 19.0;
+const LINE_GAP: f32 = 10.0;
+/// How long a line takes to light up or fade.
+const LIGHT_UP_SECONDS: f32 = 0.22;
+
+fn blend(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
+    let t = t.clamp(0.0, 1.0);
+    egui::Color32::from(egui::Rgba::from(from) * (1.0 - t) + egui::Rgba::from(to) * t)
+}
+
 pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     egui::Panel::right("lyrics-panel")
@@ -103,6 +113,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
 
     let active = lyrics.active_line(now.position_ms);
     let follow = app.lyrics_following && app.lyrics_line_shown != active;
+    // The line being sung is bold and in the accent colour; every other
+    // line is quiet, regular text, the same before and after it has been
+    // sung. A line takes 220 ms to light up or fade, as in omarchy-lyrics.
+    let quiet = palette.text.gamma_multiply(0.45);
     let scroll = egui::ScrollArea::vertical()
         .id_salt("lyrics-scroll")
         .auto_shrink([false, false])
@@ -110,22 +124,20 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             ui.add_space(12.0);
             for (index, line) in lyrics.lines.iter().enumerate() {
                 let is_active = active == Some(index);
-                let sung = lyrics.synced && active.is_some_and(|active| index < active);
-                let color = if is_active {
-                    palette.text
-                } else if sung {
-                    palette.dim
+                let lit = ui.ctx().animate_bool_with_time(
+                    egui::Id::new("lyric-line").with(index),
+                    is_active,
+                    LIGHT_UP_SECONDS,
+                );
+                let color = blend(quiet, palette.accent, lit);
+                let font = if lit > 0.5 {
+                    theme::bold(LINE_SIZE)
                 } else {
-                    palette.secondary
-                };
-                let font = if is_active {
-                    theme::bold(21.0)
-                } else {
-                    theme::semibold(21.0)
+                    theme::regular(LINE_SIZE)
                 };
                 // A timed line with no words is the band playing on.
                 let text = if line.text.is_empty() && lyrics.synced {
-                    "♪"
+                    "\u{266a}"
                 } else {
                     line.text.as_str()
                 };
@@ -151,7 +163,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 if is_active && follow {
                     ui.scroll_to_rect(rect, Some(Align::Center));
                 }
-                ui.add_space(8.0);
+                ui.add_space(LINE_GAP);
             }
             ui.add_space(60.0);
         });
