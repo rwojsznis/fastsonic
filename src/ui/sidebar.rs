@@ -352,6 +352,25 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
+    // Pinned entries sit on top, in the order they were pinned; Liked
+    // Songs stays above them, and everyone else keeps their order.
+    let pin_rank = |uri: &str| {
+        app.settings
+            .pinned_contexts
+            .iter()
+            .position(|held| held == uri)
+            .unwrap_or(usize::MAX)
+    };
+    entries.sort_by_key(|entry| {
+        if entry.liked {
+            (0, 0)
+        } else {
+            match pin_rank(&entry.uri) {
+                usize::MAX => (2, 0),
+                rank => (1, rank),
+            }
+        }
+    });
     let playing_context = app.playing_context_uri();
     let current_page = app.page().clone();
 
@@ -382,6 +401,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 let active = entry.page == current_page;
                 let playing =
                     !entry.uri.is_empty() && playing_context.as_deref() == Some(entry.uri.as_str());
+                let pinned =
+                    !entry.uri.is_empty() && app.settings.pinned_contexts.contains(&entry.uri);
                 let (rect, response) =
                     ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
                 if ui.is_rect_visible(rect) {
@@ -412,7 +433,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         );
                     }
                     let text_left = cover_rect.right() + 12.0;
-                    let text_right = rect.right() - if playing { 28.0 } else { 8.0 };
+                    let text_right = rect.right() - if playing || pinned { 28.0 } else { 8.0 };
                     let painter = ui.painter().with_clip_rect(Rect::from_min_max(
                         pos2(text_left, rect.top()),
                         pos2(text_right, rect.bottom()),
@@ -444,6 +465,63 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         Icon::Volume2
                             .image(palette.accent, 16.0)
                             .paint_at(ui, icon_rect);
+                    } else if pinned {
+                        let icon_rect = Rect::from_center_size(
+                            pos2(rect.right() - 16.0, rect.center().y),
+                            Vec2::splat(13.0),
+                        );
+                        Icon::BookmarkFilled
+                            .image(palette.secondary, 13.0)
+                            .paint_at(ui, icon_rect);
+                    }
+                    // Hovering the art offers to play right from here.
+                    let can_play = !entry.uri.is_empty() || entry.liked;
+                    let play_response = can_play.then(|| {
+                        ui.interact(
+                            cover_rect,
+                            ui.id().with(("sidebar-play", index)),
+                            Sense::click(),
+                        )
+                    });
+                    let play_hover = play_response.as_ref().is_some_and(|play| play.hovered());
+                    if play_hover || (response.hovered() && can_play) {
+                        ui.painter().rect_filled(
+                            cover_rect,
+                            CornerRadius::same(if entry.round { 22 } else { 6 }),
+                            egui::Color32::from_black_alpha(120),
+                        );
+                        Icon::PlayFilled
+                            .image(
+                                if play_hover {
+                                    palette.accent
+                                } else {
+                                    egui::Color32::WHITE
+                                },
+                                18.0,
+                            )
+                            .paint_at(
+                                ui,
+                                Rect::from_center_size(cover_rect.center(), Vec2::splat(18.0)),
+                            );
+                        if let Some(play) = &play_response {
+                            play.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                        }
+                    }
+                    if play_response.is_some_and(|play| play.clicked()) {
+                        let uri = if entry.liked {
+                            app.user
+                                .as_ref()
+                                .map(|user| format!("spotify:user:{}:collection", user.id))
+                        } else {
+                            Some(entry.uri.clone())
+                        };
+                        if let Some(uri) = uri {
+                            app.actions.push(Action::PlayContext {
+                                uri,
+                                offset_uri: None,
+                                offset_index: None,
+                            });
+                        }
                     }
                 }
                 if response.clicked() {
@@ -471,6 +549,26 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                                 &entry.name,
                                 owned_playlist.as_ref(),
                             );
+                            let pinned = app.settings.pinned_contexts.contains(&entry.uri);
+                            if super::widgets::menu_item(
+                                ui,
+                                &palette,
+                                Some(if pinned {
+                                    Icon::Bookmark
+                                } else {
+                                    Icon::BookmarkFilled
+                                }),
+                                if pinned { "Unpin" } else { "Pin to top" },
+                            ) {
+                                if pinned {
+                                    app.settings
+                                        .pinned_contexts
+                                        .retain(|held| held != &entry.uri);
+                                } else {
+                                    app.settings.pinned_contexts.push(entry.uri.clone());
+                                }
+                                app.mark_settings_dirty();
+                            }
                         });
                 } else if entry.liked {
                     egui::Popup::context_menu(&response)

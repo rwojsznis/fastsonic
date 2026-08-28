@@ -58,6 +58,8 @@ pub struct Settings {
     pub keep_playing_in_background: bool,
     /// Ask GitHub once a day whether a newer release exists.
     pub check_for_updates: bool,
+    /// Context URIs pinned to the top of the sidebar, in pin order.
+    pub pinned_contexts: Vec<String>,
 }
 
 impl Default for Settings {
@@ -82,6 +84,7 @@ impl Default for Settings {
             playback_authorized: false,
             keep_playing_in_background: true,
             check_for_updates: true,
+            pinned_contexts: Vec::new(),
         }
     }
 }

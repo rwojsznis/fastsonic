@@ -993,6 +993,11 @@ impl App {
         }
     }
 
+    /// Note that a setting changed, so the file is saved shortly.
+    pub fn mark_settings_dirty(&mut self) {
+        self.settings_dirty = true;
+    }
+
     fn save_settings(&mut self) {
         self.settings_dirty = false;
         self.last_settings_save = Instant::now();
