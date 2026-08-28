@@ -352,13 +352,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    let playing_context = app.remote.as_ref().and_then(|remote| {
-        remote
-            .state
-            .context
-            .as_ref()
-            .map(|context| context.uri.clone())
-    });
+    let playing_context = app.playing_context_uri();
     let current_page = app.page().clone();
 
     egui::ScrollArea::vertical()

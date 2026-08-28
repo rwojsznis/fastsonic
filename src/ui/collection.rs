@@ -164,12 +164,8 @@ pub fn actions_row(
                     });
                 }
             }
-            let context_here = app
-                .remote
-                .as_ref()
-                .and_then(|remote| remote.state.context.as_ref())
-                .is_some_and(|context| context.uri == *uri);
-            let shuffling_here = context_here && app.now_playing().is_some_and(|now| now.shuffle);
+            let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
+            let shuffling_here = context_here && app.playing_context_shuffle();
             if theme::icon_button(
                 ui,
                 Icon::Shuffle,

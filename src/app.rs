@@ -31,6 +31,10 @@ const DEVICES_FRESH: Duration = Duration::from_secs(12);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
+
+/// How long a context the app just started is shown as playing while
+/// Spotify's state catches up.
+const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(10);
 /// How long the interface trusts its own play/pause over a polled state that
 /// has not caught up yet. Spotify can take a moment to report a command it
 /// has already carried out, and a button that springs back looks broken.
@@ -43,6 +47,15 @@ const CONTAINS_BATCH: usize = 50;
 pub struct RemoteSnapshot {
     pub state: PlaybackState,
     pub received_at: Instant,
+}
+
+/// A context the interface asked Spotify to play and shows as playing
+/// before any state says so.
+struct AssumedContext {
+    uri: String,
+    /// `Some` when the play asked for shuffle too.
+    shuffle: Option<bool>,
+    at: Instant,
 }
 
 /// The playing item as the interface sees it, whichever device plays it.
@@ -206,6 +219,9 @@ pub struct App {
     /// every second, so a snapshot must not undo the change on its way past.
     pending_local_volume: Option<(u16, Instant)>,
     optimistic_playing: Option<(bool, Instant)>,
+    /// The context the interface just started, shown as playing until
+    /// Spotify's own state says the same thing.
+    assumed_context: Option<AssumedContext>,
     last_now_playing_uri: Option<String>,
     pub playlist_busy: bool,
     pub quit_requested: bool,
@@ -351,6 +367,7 @@ impl App {
             pending_remote_volume: None,
             pending_local_volume: None,
             optimistic_playing: None,
+            assumed_context: None,
             last_now_playing_uri: None,
             playlist_busy: false,
             quit_requested: false,
@@ -466,6 +483,32 @@ impl App {
         self.web_app
             .as_deref()
             .is_some_and(|id| id != crate::auth::DEFAULT_WEB_CLIENT_ID)
+    }
+
+    /// The context playing as the interface should show it: the one just
+    /// asked for until Spotify's state confirms it, then Spotify's own.
+    pub fn playing_context_uri(&self) -> Option<String> {
+        if let Some(assumed) = &self.assumed_context
+            && assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD
+        {
+            return Some(assumed.uri.clone());
+        }
+        self.remote
+            .as_ref()
+            .and_then(|remote| remote.state.context.as_ref())
+            .map(|context| context.uri.clone())
+    }
+
+    /// Whether the playing context shuffles, honouring a shuffle the
+    /// interface just asked for ahead of Spotify's state.
+    pub fn playing_context_shuffle(&self) -> bool {
+        if let Some(assumed) = &self.assumed_context
+            && assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD
+            && let Some(shuffle) = assumed.shuffle
+        {
+            return shuffle;
+        }
+        self.now_playing().is_some_and(|now| now.shuffle)
     }
 
     pub fn now_playing(&self) -> Option<NowPlaying> {
@@ -1538,6 +1581,21 @@ impl App {
                         {
                             self.note_recent_context(&context);
                         }
+                        if let Some(assumed) = &self.assumed_context
+                            && self
+                                .remote
+                                .as_ref()
+                                .and_then(|remote| remote.state.context.as_ref())
+                                .is_some_and(|context| context.uri == assumed.uri)
+                            && assumed.shuffle.is_none_or(|shuffle| {
+                                self.remote
+                                    .as_ref()
+                                    .is_some_and(|remote| remote.state.shuffle_state == shuffle)
+                            })
+                        {
+                            // Spotify's state agrees; it takes over.
+                            self.assumed_context = None;
+                        }
                         let uri = self.remote.as_ref().and_then(|remote| {
                             remote
                                 .state
@@ -2226,6 +2284,13 @@ impl App {
         self.set_play_pending(keys);
         if let Some(context) = request.context_uri.clone() {
             self.note_recent_context(&context);
+            // Light the page and the sidebar up at once; Spotify's own
+            // state takes a poll or two to say the same thing.
+            self.assumed_context = Some(AssumedContext {
+                uri: context,
+                shuffle: shuffle_first.then_some(true),
+                at: Instant::now(),
+            });
         }
         match self.target() {
             Target::Local => {
@@ -2402,6 +2467,9 @@ impl App {
     }
 
     fn set_shuffle(&mut self, shuffle: bool) {
+        if let Some(assumed) = &mut self.assumed_context {
+            assumed.shuffle = Some(shuffle);
+        }
         match self.target() {
             Target::Local => {
                 self.local.shuffle = shuffle;
