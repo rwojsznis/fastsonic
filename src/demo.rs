@@ -288,6 +288,7 @@ pub fn populate(app: &mut App) {
                         1 + index % 27
                     )),
                     is_local: false,
+                    added_by: None,
                     item: Some(PlayableItem::Track(track.clone())),
                     track: None,
                 })
@@ -309,6 +310,7 @@ pub fn populate(app: &mut App) {
                 .map(|track| PlaylistItem {
                     added_at: Some("2026-08-24T05:00:00Z".into()),
                     is_local: false,
+                    added_by: None,
                     item: Some(PlayableItem::Track(track.clone())),
                     track: None,
                 })
