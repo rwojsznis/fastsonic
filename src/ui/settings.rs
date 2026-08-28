@@ -96,8 +96,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Your own Spotify app",
-            "The shared app's allowance is split among everyone using it; one of your own is yours alone. Paste its Client ID here, then sign out and back in. Blank uses the shared app.",
+            "Use your own Spotify app",
+            "Everyone shares one Spotify app by default, so requests can queue behind other people's. An app of your own answers only to you. Paste its Client ID here, then sign out and back in.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -106,7 +106,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut client_id)
-                                .hint_text(egui::RichText::new("shared app").color(palette.dim))
+                                .hint_text(egui::RichText::new("Client ID").color(palette.dim))
                                 .font(theme::regular(13.0))
                                 .frame(egui::Frame::NONE)
                                 .desired_width(200.0),
@@ -123,10 +123,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "How to make one",
-            "Five minutes in Spotify's developer dashboard; the guide walks through it.",
+            "Don't have one?",
+            "It's free and takes five minutes in Spotify's developer dashboard.",
             |ui| {
-                if theme::pill_button(ui, &palette, "Open the guide", false).clicked() {
+                if theme::pill_button(ui, &palette, "Show me how", false).clicked() {
                     app.actions.push(Action::OpenUrl(
                         "https://fastpotify.rocks/make-it-faster/".into(),
                     ));
