@@ -246,6 +246,10 @@ pub struct App {
     /// Context URIs most recently played, newest first: the sidebar's
     /// order. Kept with the session, so it survives a restart.
     pub recent_contexts: Vec<String>,
+    /// What was playing when the app last closed, to resume from cold.
+    resume_context: Option<String>,
+    resume_track: Option<String>,
+    resume_position_ms: u32,
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
@@ -384,6 +388,9 @@ impl App {
             scroll_last_event: None,
             table_sorts: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
+            resume_context: session.last_context.clone(),
+            resume_track: session.last_track.clone(),
+            resume_position_ms: session.last_position_ms,
             update: None,
             last_update_check: None,
         };
@@ -2425,6 +2432,21 @@ impl App {
         }
     }
 
+    /// Play what was playing when the app last closed. `false` when
+    /// nothing is known to resume.
+    fn resume_last(&mut self) -> bool {
+        let Some(track) = self.resume_track.clone() else {
+            return false;
+        };
+        let mut request = match self.resume_context.clone() {
+            Some(context) => PlayRequest::context(context).starting_at_uri(track),
+            None => PlayRequest::tracks(vec![track]),
+        };
+        request.position_ms = self.resume_position_ms;
+        self.play_request(request, false);
+        true
+    }
+
     fn toggle_play(&mut self) {
         let playing = self.now_playing().map(|now| now.playing);
         match self.target() {
@@ -2450,10 +2472,14 @@ impl App {
                         self.play_request(request, false);
                         return;
                     }
-                    self.toast("Pick something to play");
+                    if !self.resume_last() {
+                        self.toast("Pick something to play");
+                    }
                     return;
                 } else {
-                    self.toast("Pick something to play");
+                    if !self.resume_last() {
+                        self.toast("Pick something to play");
+                    }
                     return;
                 }
             }
@@ -3261,10 +3287,18 @@ impl App {
     /// Persist state when a window closes (to the tray or for good).
     pub fn save_state(&mut self) {
         self.save_settings();
+        if let Some(now) = self.now_playing() {
+            self.resume_context = self.playing_context_uri();
+            self.resume_track = Some(now.uri.clone());
+            self.resume_position_ms = now.position_ms;
+        }
         if !self.offline {
             SessionState {
                 last_page: Some(self.page().encode()),
                 recent_contexts: self.recent_contexts.clone(),
+                last_context: self.resume_context.clone(),
+                last_track: self.resume_track.clone(),
+                last_position_ms: self.resume_position_ms,
             }
             .save(&self.dirs.session_file());
         }

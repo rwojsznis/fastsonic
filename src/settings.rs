@@ -147,6 +147,10 @@ pub struct SessionState {
     pub last_page: Option<String>,
     /// Context URIs most recently played, newest first.
     pub recent_contexts: Vec<String>,
+    /// What was playing when the app closed, to resume from a cold start.
+    pub last_context: Option<String>,
+    pub last_track: Option<String>,
+    pub last_position_ms: u32,
 }
 
 impl SessionState {
