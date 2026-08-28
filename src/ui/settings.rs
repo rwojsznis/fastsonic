@@ -96,8 +96,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Use your own Spotify app",
-            "Fastpotify is quick; Spotify's API rate limits are not. Everyone shares one Spotify app by default, so requests queue behind other people's. An app of your own has a limit to itself. Paste its Client ID here, then sign out and back in.",
+            "Make it even faster",
+            "Fastpotify is quick; Spotify's API rate limits are not. Everyone shares one Spotify app by default, so requests queue behind other people's. An app of your own has a limit to itself. Paste its Client ID here.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -133,6 +133,47 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        // Whether the app named above is the one signed in with. Switching
+        // means one more trip through the browser, so it is a button, not a
+        // side effect of typing.
+        let wanted = app
+            .settings
+            .web_client_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .unwrap_or(crate::auth::DEFAULT_WEB_CLIENT_ID)
+            .to_string();
+        let own = wanted != crate::auth::DEFAULT_WEB_CLIENT_ID;
+        let in_use = app.web_app.as_deref() == Some(wanted.as_str());
+        if in_use && own {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Your app is in use",
+                "Requests go through a limit that is yours alone.",
+                |ui| {
+                    theme::text(ui, "In use", theme::medium(13.0), palette.accent);
+                },
+            );
+        } else if !in_use && app.web_app.is_some() {
+            let (title, detail) = if own {
+                (
+                    "Ready to switch to your app",
+                    "Fastpotify signs in again with it; your browser opens once. Playing music on this computer is not affected.",
+                )
+            } else {
+                (
+                    "Back to the shared app?",
+                    "Fastpotify signs in again with the shared app; your browser opens once.",
+                )
+            };
+            widgets::setting_row(ui, &palette, title, detail, |ui| {
+                if theme::pill_button(ui, &palette, "Switch now", true).clicked() {
+                    app.actions.push(Action::SwitchWebApp);
+                }
+            });
+        }
     });
 
     section(ui, &palette, "Playback on this computer", |ui| {

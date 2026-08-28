@@ -354,6 +354,9 @@ pub enum Command {
     CheckForUpdates,
     /// The words of a track, from LRCLIB.
     Lyrics(Box<LyricsRequest>),
+    /// Sign in again with another Web API application (`None` for the
+    /// shared one). Local playback keeps its own grant.
+    SwitchWebApp(Option<String>),
 }
 
 pub struct LyricsRequest {
@@ -387,6 +390,10 @@ pub enum Event {
     Lyrics {
         uri: String,
         result: Result<Option<crate::lyrics::Lyrics>, String>,
+    },
+    /// The Web API application the current sign-in belongs to.
+    WebApp {
+        client_id: String,
     },
 }
 
@@ -643,6 +650,7 @@ impl Worker {
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
                 Command::CheckForUpdates => self.check_for_updates(),
                 Command::Lyrics(request) => self.fetch_lyrics(*request),
+                Command::SwitchWebApp(client_id) => self.switch_web_app(client_id),
             }
         }
         if let Some(engine) = self.engine.take() {
@@ -677,6 +685,9 @@ impl Worker {
     }
 
     fn activate_web_token(&self, token: crate::auth::StoredToken) {
+        self.emit(Event::WebApp {
+            client_id: token.client_id.clone(),
+        });
         let tokens = WebTokens::new(self.http.clone(), token, self.dirs.web_token_file());
         self.api
             .set_token_provider(Some(TokenProvider::Web(tokens)));
@@ -737,6 +748,21 @@ impl Worker {
                 }
             }
         });
+    }
+
+    /// Signs in again with another Web API application, without a restart.
+    /// Only the Web API grant changes hands: the browser opens once for the
+    /// new application, and local playback keeps its own credential.
+    fn switch_web_app(&mut self, client_id: Option<String>) {
+        if let Some(cancel) = self.cancel_signin.take() {
+            let _ = cancel.send(true);
+        }
+        self.web_client_id = client_id;
+        self.api.set_token_provider(None);
+        crate::auth::StoredToken::remove(&self.dirs.web_token_file());
+        self.signed_in = false;
+        self.emit(Event::Auth(AuthStatus::SignedOut));
+        self.sign_in();
     }
 
     fn sign_out(&mut self) {

@@ -35,9 +35,11 @@ making yours is free and takes five minutes.
 
 ## Use it in Fastpotify
 
-1. Open **Settings**, find **Use your own Spotify app**, and paste the
+1. Open **Settings**, find **Make it even faster**, and paste the
    Client ID.
-2. Sign out from the account menu at the top right, then sign in again.
+2. Click **Switch now**. Your browser opens Spotify's sign-in for your
+   app; approve it and you are back in Fastpotify, which now says
+   **Your app is in use**.
 
 That is all. Playing music on this computer is unaffected. To go back to
-the shared app, clear the field and sign in again.
+the shared app, clear the field and click **Switch now** again.

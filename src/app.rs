@@ -191,6 +191,9 @@ pub struct App {
     pub volume_preview: Option<f32>,
     last_eviction: Instant,
     pub sign_in_url: Option<String>,
+    /// The Web API application the current sign-in belongs to, so Settings
+    /// can say whether the one named there is in use yet.
+    pub web_app: Option<String>,
     pending_remote_position: Option<(u32, Instant)>,
     pending_remote_volume: Option<(u8, Instant)>,
     /// A local volume set here that the engine has not echoed back yet. It
@@ -312,6 +315,7 @@ impl App {
             volume_preview: None,
             last_eviction: Instant::now(),
             sign_in_url: None,
+            web_app: None,
             pending_remote_position: None,
             pending_remote_volume: None,
             pending_local_volume: None,
@@ -632,6 +636,7 @@ impl App {
                         };
                     }
                 }
+                Event::WebApp { client_id } => self.web_app = Some(client_id),
                 Event::UpdateAvailable { version, url } => {
                     let notice = crate::updates::Release { version, url };
                     if self.update.as_ref() != Some(&notice) {
@@ -655,6 +660,7 @@ impl App {
             AuthStatus::WaitingForBrowser { url } => self.sign_in_url = Some(url.clone()),
             AuthStatus::SignedOut => {
                 self.sign_in_url = None;
+                self.web_app = None;
                 self.user = None;
                 self.local = LocalState::default();
                 self.local_ready = false;
@@ -2628,6 +2634,11 @@ impl App {
                 self.backend.send(Command::CancelSignIn);
                 self.sign_in_url = None;
                 self.auth = AuthStatus::SignedOut;
+            }
+            Action::SwitchWebApp => {
+                self.save_settings();
+                self.backend
+                    .send(Command::SwitchWebApp(self.settings.web_client_id.clone()));
             }
             Action::SignOut => {
                 self.backend.send(Command::SignOut);
