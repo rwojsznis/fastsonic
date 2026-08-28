@@ -46,13 +46,13 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                     {
                         app.actions.push(Action::ToggleLyricsPanel);
                     }
-                    let synced =
-                        matches!(&app.lyrics, Loadable::Loaded(Some(lyrics)) if lyrics.synced);
-                    if synced
+                    let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
+                    if loaded
                         && !app.lyrics_following
                         && theme::pill_button(ui, &palette, "Follow", false).clicked()
                     {
                         app.lyrics_following = true;
+                        app.lyrics_line_shown = None;
                     }
                 });
             });
@@ -112,7 +112,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     };
 
     let active = lyrics.active_line(now.position_ms);
-    let follow = app.lyrics_following && app.lyrics_line_shown != active;
+    let follow = app.lyrics_following && app.lyrics_line_shown != Some(active);
     // The line being sung is bold and in the accent colour; every other
     // line is quiet, regular text, the same before and after it has been
     // sung. A line takes 220 ms to light up or fade, as in omarchy-lyrics.
@@ -121,6 +121,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         .id_salt("lyrics-scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            // Before the first line there is nothing to highlight, so the
+            // panel sits at the top rather than wherever it was left.
+            if follow && lyrics.synced && active.is_none() {
+                let top = ui.cursor().min;
+                ui.scroll_to_rect(
+                    egui::Rect::from_min_size(top, egui::vec2(1.0, 1.0)),
+                    Some(Align::Min),
+                );
+            }
             ui.add_space(12.0);
             for (index, line) in lyrics.lines.iter().enumerate() {
                 let is_active = active == Some(index);
@@ -165,15 +174,29 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 }
                 ui.add_space(LINE_GAP);
             }
+            // Words without timing can only be followed by the clock: sit
+            // at the part of the text the song is probably at.
+            if app.lyrics_following && !lyrics.synced && now.duration_ms > 0 {
+                let fraction =
+                    (f64::from(now.position_ms) / f64::from(now.duration_ms)).clamp(0.0, 1.0);
+                let content = ui.min_rect();
+                let y = content.top() + content.height() * fraction as f32;
+                ui.scroll_to_rect(
+                    egui::Rect::from_min_max(
+                        egui::pos2(content.left(), y),
+                        egui::pos2(content.right(), y + 1.0),
+                    ),
+                    Some(Align::Center),
+                );
+            }
             ui.add_space(60.0);
         });
     // Scrolling by hand means the reader wants to look elsewhere; the
     // Follow button in the header picks the song back up.
-    if lyrics.synced
-        && ui.rect_contains_pointer(scroll.inner_rect)
+    if ui.rect_contains_pointer(scroll.inner_rect)
         && ui.input(|input| input.smooth_scroll_delta.y != 0.0)
     {
         app.lyrics_following = false;
     }
-    app.lyrics_line_shown = active;
+    app.lyrics_line_shown = Some(active);
 }

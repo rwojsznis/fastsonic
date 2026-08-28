@@ -166,8 +166,10 @@ pub struct App {
     /// reader scrolls by hand, on again with the Follow button or a new
     /// track.
     pub lyrics_following: bool,
-    /// The line the panel last scrolled to, so it scrolls once per line.
-    pub lyrics_line_shown: Option<usize>,
+    /// The line the panel last positioned itself for (`Some(None)` before
+    /// the first line), so it moves once per change; `None` until it has
+    /// positioned itself at all for this track.
+    pub lyrics_line_shown: Option<Option<usize>>,
     pub show_devices: bool,
     pub toasts: Vec<Toast>,
     pub actions: Vec<Action>,
