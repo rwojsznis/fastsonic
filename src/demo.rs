@@ -578,6 +578,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.theme = crate::settings::ThemeChoice::Light;
                 app.actions.push(Action::SettingsChanged);
             }
+            "focus" => app.settings.sidebar_visible = false,
             "lyrics" => {
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
                 app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
@@ -726,6 +727,9 @@ mod tests {
             }
             assert_eq!(app.page(), &page);
         }
+        app.settings.sidebar_visible = false;
+        frame(&ctx, &mut app);
+        app.settings.sidebar_visible = true;
         app.show_queue_panel = true;
         app.show_devices = true;
         frame(&ctx, &mut app);
