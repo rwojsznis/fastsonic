@@ -508,7 +508,9 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 Hero {
                     image: pick_image(&playlist.images, 300),
                     liked: false,
-                    kind: if playlist.public == Some(true) {
+                    kind: if playlist.collaborative {
+                        "Collaborative Playlist"
+                    } else if playlist.public == Some(true) {
                         "Public Playlist"
                     } else {
                         "Playlist"
