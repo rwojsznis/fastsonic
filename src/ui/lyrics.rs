@@ -94,7 +94,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 Icon::Mic,
                 "No lyrics",
-                "Nobody has transcribed this one yet.",
+                "No lyrics found for this one.",
             );
             return;
         }
