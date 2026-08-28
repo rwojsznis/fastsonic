@@ -193,9 +193,20 @@ pub fn menu_item_enabled(
             .paint_at(ui, icon_rect);
             x += 26.0;
         }
-        let galley = ui
-            .painter()
-            .layout_no_wrap(label.to_string(), theme::regular(13.5), color);
+        // A playlist can be named a paragraph; the label ends at the menu's
+        // edge instead of running past it.
+        let mut job = egui::text::LayoutJob::simple_singleline(
+            label.to_string(),
+            theme::regular(13.5),
+            color,
+        );
+        job.wrap = egui::text::TextWrapping {
+            max_width: (rect.right() - 10.0 - x).max(0.0),
+            max_rows: 1,
+            break_anywhere: true,
+            overflow_character: Some('\u{2026}'),
+        };
+        let galley = ui.painter().layout_job(job);
         ui.painter().galley(
             pos2(x, rect.center().y - galley.size().y / 2.0),
             galley,
@@ -245,7 +256,8 @@ pub fn item_menu(
     index: Option<usize>,
 ) {
     let palette = app.palette;
-    ui.set_min_width(240.0);
+    ui.set_min_width(220.0);
+    ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
     if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
@@ -267,6 +279,7 @@ pub fn item_menu(
         let playlists = app.editable_playlists();
         ui.menu_button("Add to playlist", |ui| {
             ui.set_min_width(220.0);
+            ui.set_max_width(300.0);
             if menu_item(ui, &palette, Some(Icon::Plus), "New playlist") {
                 app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
                     name: String::new(),
@@ -382,7 +395,8 @@ pub fn context_menu_items(
     owned_playlist: Option<&Playlist>,
 ) {
     let palette = app.palette;
-    ui.set_min_width(220.0);
+    ui.set_min_width(200.0);
+    ui.set_max_width(300.0);
     let kind = util::uri_kind(uri).unwrap_or("");
     if menu_item(ui, &palette, Some(Icon::Play), "Play") {
         app.actions.push(Action::PlayContext {
