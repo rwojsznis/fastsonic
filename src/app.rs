@@ -185,6 +185,9 @@ pub struct App {
     pub quit_requested: bool,
     /// The axis a scroll gesture settled on, and when it last moved.
     scroll_lock: Option<(ScrollAxis, Instant)>,
+    /// A newer release than this build, once GitHub has said so.
+    pub update: Option<crate::updates::Release>,
+    last_update_check: Option<Instant>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -293,6 +296,8 @@ impl App {
             playlist_busy: false,
             quit_requested: false,
             scroll_lock: None,
+            update: None,
+            last_update_check: None,
         };
         app.local.volume = app.settings.volume;
         app
@@ -581,6 +586,13 @@ impl App {
                     self.accents.insert(url, tint);
                 }
                 Event::Error(message) => self.toast_error(message),
+                Event::UpdateAvailable { version, url } => {
+                    let notice = crate::updates::Release { version, url };
+                    if self.update.as_ref() != Some(&notice) {
+                        self.toast(format!("Fastpotify {} is out", notice.version));
+                    }
+                    self.update = Some(notice);
+                }
             }
         }
     }
@@ -715,6 +727,16 @@ impl App {
         let now = Instant::now();
         self.toasts
             .retain(|toast| toast.created.elapsed() < TOAST_LIFETIME);
+
+        if self.settings.check_for_updates
+            && !self.offline
+            && self
+                .last_update_check
+                .is_none_or(|at| at.elapsed() >= crate::updates::CHECK_INTERVAL)
+        {
+            self.last_update_check = Some(now);
+            self.backend.send(Command::CheckForUpdates);
+        }
 
         if self.is_connected() && !self.offline {
             let interval = match self.target() {
@@ -2564,6 +2586,7 @@ impl App {
                     self.toast("Opening Spotify to enable playback here");
                 }
             }
+            Action::OpenUrl(url) => ctx.open_url(egui::OpenUrl::new_tab(url)),
             Action::ClearArtCache => match self.backend.art().clear_disk_cache() {
                 Ok(bytes) => {
                     ctx.forget_all_images();

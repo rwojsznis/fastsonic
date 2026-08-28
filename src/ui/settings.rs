@@ -260,6 +260,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Tell me when a new version is out",
+            "Asks GitHub once a day. Nothing about you is sent.",
+            |ui| {
+                if widgets::switch(ui, &palette, &mut app.settings.check_for_updates).changed() {
+                    changed = true;
+                }
+            },
+        );
         if cfg!(target_os = "linux") {
             widgets::setting_row(
                 ui,

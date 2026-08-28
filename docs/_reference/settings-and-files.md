@@ -47,6 +47,7 @@ One readable JSON file, written atomically. The interesting fields:
 | `theme` | `dark` | `dark`, `light`, or `system` |
 | `accent_from_art` | `true` | Tint pages with album art |
 | `keep_playing_in_background` | `true` | Close to tray |
+| `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Your own Spotify app id, if you set one |
 
 ## Command line

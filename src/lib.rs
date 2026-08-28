@@ -26,5 +26,6 @@ pub mod tray;
 #[path = "tray_stub.rs"]
 pub mod tray;
 pub mod ui;
+pub mod updates;
 pub mod util;
 pub mod zeroconf;

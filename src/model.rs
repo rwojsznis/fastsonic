@@ -476,6 +476,8 @@ pub enum Action {
     RefreshDevices,
     RefreshQueue,
     CopyLink(String),
+    /// A web page, in the browser.
+    OpenUrl(String),
     OpenInSpotify(String),
     Search(String),
     SetSearchFilter(SearchFilter),

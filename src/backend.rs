@@ -350,6 +350,8 @@ pub enum Command {
     DiscoverReceivers,
     /// Hand the account to a receiver so it joins Spotify Connect.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
+    /// Ask GitHub whether a newer release exists.
+    CheckForUpdates,
 }
 
 pub enum Event {
@@ -368,6 +370,11 @@ pub enum Event {
         color: [u8; 3],
     },
     Error(String),
+    /// A newer release than this build exists.
+    UpdateAvailable {
+        version: String,
+        url: String,
+    },
 }
 
 /// The state of playback on this computer, independent of Web API sign-in.
@@ -621,6 +628,7 @@ impl Worker {
                 Command::Reconnect => self.reconnect_engine(),
                 Command::DiscoverReceivers => self.discover_receivers(),
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
+                Command::CheckForUpdates => self.check_for_updates(),
             }
         }
         if let Some(engine) = self.engine.take() {
@@ -989,6 +997,25 @@ impl Worker {
             })();
             let _ = events.send(Event::ReceiverActivated { name, result });
             waker.wake();
+        });
+    }
+
+    fn check_for_updates(&self) {
+        let http = self.http.clone();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::spawn(async move {
+            match crate::updates::newer_release(&http).await {
+                Ok(Some(release)) => {
+                    let _ = events.send(Event::UpdateAvailable {
+                        version: release.version,
+                        url: release.url,
+                    });
+                    waker.wake();
+                }
+                Ok(None) => log::debug!("this is the newest release"),
+                Err(error) => log::debug!("could not check for a newer release: {error:#}"),
+            }
         });
     }
 
