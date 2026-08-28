@@ -17,6 +17,7 @@ pub mod paths;
 pub mod player;
 pub mod settings;
 pub mod single_instance;
+pub mod sink;
 pub mod theme;
 #[cfg(target_os = "linux")]
 pub mod tray;

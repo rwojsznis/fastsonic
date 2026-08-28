@@ -24,12 +24,14 @@ use librespot_core::{
 };
 use librespot_metadata::audio::{AudioItem, UniqueFields};
 use librespot_playback::{
-    audio_backend,
+    audio_backend::{self, Sink},
     config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig},
     mixer::{self, MixerConfig},
     player::{Player, PlayerEvent},
 };
 use sha1::{Digest, Sha1};
+
+use crate::sink::{ErrorHook, RodioSink};
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
@@ -244,30 +246,21 @@ impl Engine {
             ..PlayerConfig::default()
         };
 
-        let backend_name = config.backend.clone();
-        let sink_builder = audio_backend::find(backend_name.clone())
-            .or_else(|| {
-                log::warn!("audio backend {backend_name:?} is unavailable; using the default");
-                audio_backend::find(None)
-            })
-            .ok_or_else(|| anyhow!("no audio backend was compiled in"))?;
         let mixer_builder =
             mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
         let mixer = mixer_builder(MixerConfig::default()).context("unable to create the mixer")?;
-
-        let session = Session::new(session_config, Some(cache));
-        let audio_device = config.audio_device.clone();
-        let player = Player::new(
-            player_config,
-            session.clone(),
-            mixer.get_soft_volume(),
-            move || sink_builder(audio_device.clone(), AudioFormat::S16),
-        );
 
         let state = Arc::new(Mutex::new(LocalState {
             volume: config.initial_volume,
             ..LocalState::default()
         }));
+        let session = Session::new(session_config, Some(cache));
+        let player = Player::new(
+            player_config,
+            session.clone(),
+            mixer.get_soft_volume(),
+            sink_builder(config, Arc::clone(&state), Arc::clone(&notify)),
+        );
         let events = player.get_player_event_channel();
         tokio::spawn(run_events(events, Arc::clone(&state), Arc::clone(&notify)));
 
@@ -388,6 +381,39 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+/// The audio sink for a new player.
+///
+/// The default is this crate's own sink, which opens the output device when
+/// playback starts and reports failure instead of panicking. librespot's
+/// other backends (PulseAudio on Linux) stay available to whoever chose one
+/// in Settings.
+fn sink_builder(
+    config: &EngineConfig,
+    state: Arc<Mutex<LocalState>>,
+    notify: Notify,
+) -> Box<dyn FnOnce() -> Box<dyn Sink> + Send> {
+    let device = config.audio_device.clone();
+    let report: ErrorHook = Arc::new(move |message: String| {
+        let snapshot = {
+            let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
+            current.error = Some(message);
+            current.clone()
+        };
+        notify(EngineEvent::State(snapshot));
+    });
+    if let Some(name) = config
+        .backend
+        .as_deref()
+        .filter(|name| *name != crate::sink::NAME)
+    {
+        match audio_backend::find(Some(name.to_string())) {
+            Some(builder) => return Box::new(move || builder(device, AudioFormat::S16)),
+            None => log::warn!("audio backend {name:?} is unavailable; using the default"),
+        }
+    }
+    Box::new(move || Box::new(RodioSink::new(device, report)) as Box<dyn Sink>)
 }
 
 async fn run_events(
