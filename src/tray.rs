@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::time::Duration;
 
 use ksni::blocking::TrayMethods;
 
@@ -145,4 +146,16 @@ impl TrayService {
             self.handle.update(|tray| tray.playing = playing);
         }
     }
+
+    /// Nothing to do: the item lives on its own thread from the start.
+    pub fn attach(&mut self) {}
+
+    /// Nothing to do either; see `attach`.
+    pub fn hidden(&mut self) {}
+}
+
+/// Waits while the app lives in the tray without a window. Linux has
+/// nothing to pump here: the tray and MPRIS run on their own threads.
+pub fn idle(duration: Duration) {
+    std::thread::sleep(duration);
 }

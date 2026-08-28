@@ -11,7 +11,7 @@ pub mod model;
 #[cfg(target_os = "linux")]
 pub mod mpris;
 #[cfg(not(target_os = "linux"))]
-#[path = "mpris_stub.rs"]
+#[path = "media_native.rs"]
 pub mod mpris;
 pub mod paths;
 pub mod player;
@@ -23,7 +23,7 @@ pub mod theme;
 #[cfg(target_os = "linux")]
 pub mod tray;
 #[cfg(not(target_os = "linux"))]
-#[path = "tray_stub.rs"]
+#[path = "tray_native.rs"]
 pub mod tray;
 pub mod ui;
 pub mod updates;

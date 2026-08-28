@@ -322,6 +322,20 @@ impl App {
         self.window_hidden = false;
         self.hide_intent = false;
         self.wants_show = false;
+        if let Some(tray) = &mut self.tray {
+            tray.attach();
+        }
+    }
+
+    /// The window is gone but the process stays: audio, the tray, and the
+    /// media controls keep running until Show or Quit.
+    pub fn window_gone(&mut self) {
+        self.window_hidden = true;
+        self.hide_intent = false;
+        self.wants_show = false;
+        if let Some(tray) = &mut self.tray {
+            tray.hidden();
+        }
     }
 
     // ---- derived state -----------------------------------------------------

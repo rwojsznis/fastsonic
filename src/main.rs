@@ -175,13 +175,11 @@ fn main() -> eframe::Result<()> {
         // Tray life: no window, but audio, MPRIS, the tray, and polling all
         // keep running until Show or Quit.
         let headless = egui::Context::default();
-        {
-            let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-            let app = guard.as_mut().expect("application state present");
-            app.window_hidden = true;
-            app.hide_intent = false;
-            app.wants_show = false;
-        }
+        slot.lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_mut()
+            .expect("application state present")
+            .window_gone();
         loop {
             {
                 let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
@@ -191,7 +189,7 @@ fn main() -> eframe::Result<()> {
                     break;
                 }
             }
-            std::thread::sleep(std::time::Duration::from_millis(150));
+            fastpotify::tray::idle(std::time::Duration::from_millis(150));
         }
         let quit = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
