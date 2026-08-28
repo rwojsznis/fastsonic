@@ -1,0 +1,63 @@
+name: Bug report
+description: Something does not work, or the app crashed or vanished.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Without the log, most reports cannot be acted on, so please include it. Fastpotify writes the log of its last run to:
+
+        - Linux: `~/.local/state/fastpotify/fastpotify.log`
+        - macOS: `~/Library/Application Support/me.paolino.fastpotify/fastpotify.log`
+        - Windows: `%LOCALAPPDATA%\paolino\fastpotify\data\fastpotify.log`
+
+        If the app crashed or vanished, `panic.log` in the same folder says where it died; include that too. Version 0.1.3 kept no log file: run `fastpotify -v` from a terminal (on Windows, `fastpotify.exe -v` from PowerShell) and paste what it prints instead.
+  - type: input
+    id: version
+    attributes:
+      label: Fastpotify version and how you installed it
+      placeholder: "0.1.4 from the AUR / the DMG / the Windows installer / Homebrew / FlatPark"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: os_details
+    attributes:
+      label: System details
+      description: Distribution and desktop on Linux, or the OS version.
+      placeholder: "Arch, Hyprland, PipeWire / macOS 15.6 / Windows 11 24H2"
+    validations:
+      required: true
+  - type: dropdown
+    id: plan
+    attributes:
+      label: Spotify plan
+      options:
+        - Premium
+        - Free
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you do, and what happened instead?
+      placeholder: "1. Signed in. 2. Pressed play on a playlist. 3. Nothing played; the button kept spinning."
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: fastpotify.log
+      description: Reproduce the problem, quit the app, then paste the whole file here (and panic.log, if there is one). Paths are above.
+      render: text
+    validations:
+      required: true
