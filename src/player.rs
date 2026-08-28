@@ -25,7 +25,7 @@ use librespot_core::{
 use librespot_metadata::audio::{AudioItem, UniqueFields};
 use librespot_playback::{
     audio_backend::{self, Sink},
-    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig},
+    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
@@ -254,7 +254,15 @@ impl Engine {
 
         let mixer_builder =
             mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
-        let mixer = mixer_builder(MixerConfig::default()).context("unable to create the mixer")?;
+        // librespot's default curve spans 60 dB logarithmically, which puts
+        // half the slider below -30 dB and every level anyone wants in its
+        // top quarter. The cubic curve reaches -16 dB at the middle and -7 dB
+        // at three quarters, spreading the useful range across the slider.
+        let mixer = mixer_builder(MixerConfig {
+            volume_ctrl: VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE),
+            ..MixerConfig::default()
+        })
+        .context("unable to create the mixer")?;
 
         let state = Arc::new(Mutex::new(LocalState {
             volume: config.initial_volume,
