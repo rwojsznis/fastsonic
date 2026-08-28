@@ -37,6 +37,8 @@ already carry faces for the common ones, and on Linux `noto-fonts` and
 `noto-fonts-cjk` (Arch) or `fonts-noto` and `fonts-noto-cjk` (Debian or
 Ubuntu) turn empty boxes back into characters.
 
+![Japanese, Chinese, and Korean titles in a playlist](/assets/images/scripts.png)
+
 A desktop entry ships in `packaging/applications/fastpotify.desktop`.
 
 ## Sign in
