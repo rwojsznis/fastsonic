@@ -826,17 +826,14 @@ pub fn table_header(
     let mut clicked = None;
     let mut heading = |ui: &mut Ui, x: f32, text: &str, column: SortColumn| {
         let active = sort.filter(|sort| sort.column == column);
-        let label = match active {
-            Some(sort) if sort.ascending => format!("{text} \u{25b4}"),
-            Some(_) => format!("{text} \u{25be}"),
-            None => text.to_string(),
-        };
-        let galley = ui
-            .painter()
-            .layout_no_wrap(label, font.clone(), egui::Color32::PLACEHOLDER);
+        let galley =
+            ui.painter()
+                .layout_no_wrap(text.to_string(), font.clone(), egui::Color32::PLACEHOLDER);
         let size = galley.size();
+        let arrow_room = if active.is_some() { 13.0 } else { 0.0 };
         let top_left = pos2(x, rect.center().y - size.y / 2.0);
-        let head = Rect::from_min_size(top_left, size).expand2(vec2(4.0, 8.0));
+        let head =
+            Rect::from_min_size(top_left, size + vec2(arrow_room, 0.0)).expand2(vec2(4.0, 8.0));
         let response = ui.interact(head, ui.id().with(("table-header", text)), Sense::click());
         let color = if active.is_some() {
             palette.accent
@@ -846,6 +843,25 @@ pub fn table_header(
             color
         };
         ui.painter().galley(top_left, galley, color);
+        if let Some(sort) = active {
+            // Drawn, not typed: an arrow glyph relies on the loaded fonts
+            // and rendered as a hollow box on some machines.
+            let center = pos2(top_left.x + size.x + 8.0, rect.center().y);
+            let (wing, tip) = if sort.ascending {
+                (2.8, -3.2)
+            } else {
+                (-2.8, 3.2)
+            };
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![
+                    center + vec2(-4.0, wing),
+                    center + vec2(4.0, wing),
+                    center + vec2(0.0, tip),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
         if response
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .clicked()

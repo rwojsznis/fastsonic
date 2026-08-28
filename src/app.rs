@@ -1828,6 +1828,10 @@ impl App {
                     }
                 }
                 self.request_contains(uris);
+                // A sorted table means the whole list, not the loaded part.
+                if self.table_sorts.contains_key(&Page::Playlist(id.clone())) {
+                    self.load_more(Page::Playlist(id));
+                }
             }
             ApiResponse::PlaylistSample { id, result } => {
                 if let Ok(items) = result
@@ -1949,15 +1953,21 @@ impl App {
                     self.toast_error(format!("Couldn't update the playlist: {error}"));
                 }
             },
-            ApiResponse::SavedTracks { offset, result } => match result {
-                Ok(page) => {
-                    for item in &page.items {
-                        self.saved.insert(item.track.uri.clone(), true);
+            ApiResponse::SavedTracks { offset, result } => {
+                match result {
+                    Ok(page) => {
+                        for item in &page.items {
+                            self.saved.insert(item.track.uri.clone(), true);
+                        }
+                        self.library.liked.absorb(offset, page);
                     }
-                    self.library.liked.absorb(offset, page);
+                    Err(error) => self.library.liked.fail(error.to_string()),
                 }
-                Err(error) => self.library.liked.fail(error.to_string()),
-            },
+                // A sorted table means the whole list, not the loaded part.
+                if self.table_sorts.contains_key(&Page::LikedSongs) {
+                    self.load_more(Page::LikedSongs);
+                }
+            }
             ApiResponse::SavedAlbums { offset, result } => match result {
                 Ok(page) => {
                     for item in &page.items {
@@ -2174,6 +2184,10 @@ impl App {
                     }
                 }
                 self.request_contains(uris);
+                // A sorted table means the whole list, not the loaded part.
+                if self.table_sorts.contains_key(&Page::Album(id.clone())) {
+                    self.load_more(Page::Album(id));
+                }
             }
             ApiResponse::Show { id, result } => {
                 if let Ok(show) = &result
