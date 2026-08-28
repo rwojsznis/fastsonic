@@ -24,7 +24,12 @@ Open it and drag **Fastpotify** to Applications. Or, with
 brew install --cask crmne/tap/fastpotify
 ```
 
-Add `--no-quarantine` and the first-open steps below are not needed.
+Homebrew installs it like any download, so the first-open steps below
+apply once. To skip them, clear the quarantine flag instead:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Fastpotify.app
+```
 
 ### First open on macOS
 
