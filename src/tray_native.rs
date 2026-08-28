@@ -57,7 +57,12 @@ struct Item {
 /// Builds the item on the current thread and routes its events to `sender`.
 fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::error::Error>> {
     let size = 32u32;
+    #[cfg(not(target_os = "macos"))]
     let icon = Icon::from_rgba(crate::util::app_icon_rgba(size as usize), size, size)?;
+    // macOS draws template images itself, black or white to match the menu
+    // bar, so the item looks native in either theme.
+    #[cfg(target_os = "macos")]
+    let icon = Icon::from_rgba(crate::util::tray_template_rgba(size as usize), size, size)?;
     let menu = Menu::new();
     let play_pause = MenuItem::with_id(PLAY_PAUSE, play_pause_label(false), true, None);
     menu.append_items(&[
@@ -69,11 +74,17 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
         &PredefinedMenuItem::separator(),
         &MenuItem::with_id(QUIT, "Quit", true, None),
     ])?;
-    let icon = TrayIconBuilder::new()
+    let builder = TrayIconBuilder::new()
         .with_icon(icon)
         .with_tooltip("Fastpotify")
-        .with_menu(Box::new(menu))
-        .build()?;
+        .with_menu(Box::new(menu));
+    // A plain click shows or hides the window on every platform; the menu
+    // stays on right click.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .with_icon_as_template(true)
+        .with_menu_on_left_click(false);
+    let icon = builder.build()?;
 
     let menu_sender = sender.clone();
     let menu_wake = Arc::clone(&wake);
@@ -84,9 +95,6 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
             menu_wake();
         }
     }));
-    // A plain click on the icon shows or hides the window. On macOS a click
-    // opens the menu instead, which has the same entry.
-    #[cfg(windows)]
     tray_icon::TrayIconEvent::set_event_handler(Some(move |event: tray_icon::TrayIconEvent| {
         if let tray_icon::TrayIconEvent::Click {
             button: tray_icon::MouseButton::Left,
@@ -98,8 +106,6 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
             wake();
         }
     }));
-    #[cfg(not(windows))]
-    drop((sender, wake));
 
     Ok(Item {
         _icon: icon,

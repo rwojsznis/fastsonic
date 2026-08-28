@@ -99,6 +99,23 @@ pub fn open_spotify_url(uri: &str) -> Option<String> {
 
 /// The application icon, drawn at runtime: a green disc with a play mark.
 /// Shared by the window icon and the tray pixmap.
+/// The menu-bar shape for macOS: the circle with the play triangle punched
+/// out. macOS template images use only the alpha channel and paint the
+/// shape themselves, black in a light menu bar and white in a dark one.
+pub fn tray_template_rgba(size: usize) -> Vec<u8> {
+    let mut rgba = app_icon_rgba(size);
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        // The triangle is the dark colour; make it a hole instead.
+        if pixel[1] < 128 {
+            pixel[3] = 0;
+        }
+        pixel[0] = 0;
+        pixel[1] = 0;
+        pixel[2] = 0;
+    }
+    rgba
+}
+
 pub fn app_icon_rgba(size: usize) -> Vec<u8> {
     let mut rgba = vec![0u8; size * size * 4];
     let center = size as f32 / 2.0;
