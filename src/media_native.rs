@@ -143,7 +143,8 @@ impl Bridge {
     }
 }
 
-/// What the app sends to the controls.
+/// What the app sends to the controls' thread.
+#[cfg(windows)]
 enum Update {
     State(MediaState),
     Seeked(u32),

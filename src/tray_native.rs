@@ -286,16 +286,14 @@ mod host {
         let app = NSApplication::sharedApplication(mtm);
         let deadline = NSDate::dateWithTimeIntervalSinceNow(duration.as_secs_f64());
         loop {
-            let event = unsafe {
-                app.nextEventMatchingMask_untilDate_inMode_dequeue(
-                    NSEventMask::Any,
-                    Some(&deadline),
-                    NSDefaultRunLoopMode,
-                    true,
-                )
-            };
+            let event = app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                NSEventMask::Any,
+                Some(&deadline),
+                NSDefaultRunLoopMode,
+                true,
+            );
             match event {
-                Some(event) => unsafe { app.sendEvent(&event) },
+                Some(event) => app.sendEvent(&event),
                 None => break,
             }
         }
