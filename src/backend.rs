@@ -1087,10 +1087,17 @@ impl Worker {
         let events = self.events.clone();
         let waker = self.waker.clone();
         let cache_dir = self.dirs.lyrics_cache_dir();
+        let engine = self.engine.clone();
         tokio::spawn(async move {
-            let result = crate::lyrics::fetch(&http, &cache_dir, &request.query)
-                .await
-                .map_err(|error| format!("{error:#}"));
+            // Spotify's own words go first: they follow the recording
+            // exactly. Everything else, a signed-out session included,
+            // falls back to LRCLIB.
+            let result = match spotify_lyrics(engine, &request.uri, &cache_dir).await {
+                Some(found) => Ok(Some(found)),
+                None => crate::lyrics::fetch(&http, &cache_dir, &request.query)
+                    .await
+                    .map_err(|error| format!("{error:#}")),
+            };
             let _ = events.send(Event::Lyrics {
                 uri: request.uri,
                 result,
@@ -1399,5 +1406,31 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
             result: api.add_to_queue(&uri, device_id.as_deref()).await,
             label,
         },
+    }
+}
+
+/// Spotify's transcription of the track, when the local session can ask for
+/// one. Answers are cached like LRCLIB's, "none" included; `None` falls
+/// back to LRCLIB.
+async fn spotify_lyrics(
+    engine: Option<Arc<Engine>>,
+    uri: &str,
+    cache_dir: &std::path::Path,
+) -> Option<crate::lyrics::Lyrics> {
+    let id = uri.strip_prefix("spotify:track:")?;
+    let path = cache_dir.join(format!("spotify-{id}.json"));
+    if let Some(cached) = crate::lyrics::cached(&path) {
+        return cached;
+    }
+    match engine?.lyrics_json(uri).await {
+        Ok(json) => {
+            let found = json.as_ref().and_then(crate::lyrics::from_spotify);
+            crate::lyrics::store(&path, &found);
+            found
+        }
+        Err(error) => {
+            log::debug!("spotify lyrics unavailable: {error:#}");
+            None
+        }
     }
 }

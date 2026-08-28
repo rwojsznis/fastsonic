@@ -39,8 +39,9 @@ how, in five minutes.
 - Lyrics, in the cache directory, for a month.
 - Nothing else. There is no telemetry, no analytics, and no server of ours.
   Besides Spotify (and its album art CDN), the app talks to
-  [lrclib.net](https://lrclib.net) while the lyrics panel is open, sending
-  the playing track's artist, title, album, and length, and to
+  [lrclib.net](https://lrclib.net) while the lyrics panel is open and
+  Spotify itself has no words for the track, sending the track's artist,
+  title, album, and length, and to
   api.github.com once a day to learn whether a newer release exists, which
   Settings can turn off.
 

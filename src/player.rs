@@ -20,7 +20,9 @@ use librespot_core::{
     authentication::Credentials,
     cache::Cache,
     config::{DeviceType, SessionConfig},
+    error::ErrorKind,
     session::Session,
+    spotify_id::SpotifyId,
 };
 use librespot_metadata::audio::{AudioItem, UniqueFields};
 use librespot_playback::{
@@ -223,6 +225,7 @@ pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 pub struct Engine {
     player: Arc<Player>,
     spirc: Arc<Spirc>,
+    session: Session,
     mixer: Arc<dyn Mixer>,
     device_id: String,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
@@ -321,6 +324,7 @@ impl Engine {
         Ok(Self {
             player,
             spirc: Arc::new(spirc),
+            session,
             mixer,
             device_id,
             shutting_down,
@@ -329,6 +333,23 @@ impl Engine {
 
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+
+    /// Spotify's own transcription of a track, as the raw JSON its clients
+    /// read; `Ok(None)` when Spotify has none, an error when asking failed.
+    pub async fn lyrics_json(&self, track_uri: &str) -> Result<Option<serde_json::Value>> {
+        let Some(id) = track_uri
+            .rsplit(':')
+            .next()
+            .and_then(|id| SpotifyId::from_base62(id).ok())
+        else {
+            return Ok(None);
+        };
+        match self.session.spclient().get_lyrics(&id).await {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+            Err(error) if error.kind == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(anyhow!("spotify lyrics: {error}")),
+        }
     }
 
     pub fn shutdown(&self) {
