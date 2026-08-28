@@ -96,8 +96,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Web API application (advanced)",
-            "Blank uses the shared public app. Set your own Spotify app's Client ID to raise rate limits; add http://127.0.0.1:8989/login as a redirect URI, then sign out and back in.",
+            "Your own Spotify app",
+            "The shared app's allowance is split among everyone using it; one of your own is yours alone. Paste its Client ID here, then sign out and back in. Blank uses the shared app.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -117,6 +117,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     let trimmed = client_id.trim().to_string();
                     app.settings.web_client_id = (!trimmed.is_empty()).then_some(trimmed);
                     changed = true;
+                }
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "How to make one",
+            "Five minutes in Spotify's developer dashboard; the guide walks through it.",
+            |ui| {
+                if theme::pill_button(ui, &palette, "Open the guide", false).clicked() {
+                    app.actions.push(Action::OpenUrl(
+                        "https://fastpotify.rocks/your-own-spotify-app/".into(),
+                    ));
                 }
             },
         );

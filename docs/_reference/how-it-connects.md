@@ -25,10 +25,10 @@ answers `429` within the first request. Two narrow grants are what actually
 works, and each one happens exactly once per machine.
 
 By default the Web API uses the shared public application also used by
-spotify-player, ncspot, and Omarchy Spotify. If you ever hit its rate
-limits, create your own (free) application in Spotify's developer
-dashboard, add `http://127.0.0.1:8989/login` as its redirect URI, and paste
-its Client ID into Settings → Account.
+spotify-player, ncspot, and Omarchy Spotify, whose allowance Spotify
+divides among everyone running any of them. An application of your own
+gets one to itself; [Your Own Spotify App](/your-own-spotify-app/) shows
+how, in five minutes.
 
 ## What the client stores
 
@@ -36,8 +36,13 @@ its Client ID into Settings → Account.
   in the state directory ([where](/settings-and-files/)).
 - Downloaded audio and artwork, in the cache directory, within the budget
   you set.
-- Nothing else. There is no telemetry, no analytics, and no server of ours:
-  the only host Fastpotify talks to is Spotify (plus your album art CDN).
+- Lyrics, in the cache directory, for a month.
+- Nothing else. There is no telemetry, no analytics, and no server of ours.
+  Besides Spotify (and its album art CDN), the app talks to
+  [lrclib.net](https://lrclib.net) while the lyrics panel is open, sending
+  the playing track's artist, title, album, and length, and to
+  api.github.com once a day to learn whether a newer release exists, which
+  Settings can turn off.
 
 ## When Spotify pushes back
 

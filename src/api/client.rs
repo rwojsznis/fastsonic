@@ -31,7 +31,9 @@ pub enum ApiError {
     NotSignedIn,
     #[error("{message}")]
     Status { status: u16, message: String },
-    #[error("Spotify is busy right now, try again in a moment")]
+    #[error(
+        "Spotify is rate limiting the shared app; try again in a moment, or use your own app (Settings)"
+    )]
     RateLimited,
     #[error("your Spotify sign-in expired; please sign in again")]
     SignInExpired(String),
