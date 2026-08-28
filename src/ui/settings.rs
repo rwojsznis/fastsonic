@@ -128,7 +128,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             |ui| {
                 if theme::pill_button(ui, &palette, "Open the guide", false).clicked() {
                     app.actions.push(Action::OpenUrl(
-                        "https://fastpotify.rocks/your-own-spotify-app/".into(),
+                        "https://fastpotify.rocks/make-it-faster/".into(),
                     ));
                 }
             },

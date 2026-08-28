@@ -1,6 +1,6 @@
 ---
-title: Your Own Spotify App
-description: Why Fastpotify sometimes waits on Spotify, and how five minutes in Spotify's developer dashboard give you an allowance of your own.
+title: Make It Faster
+description: Why pages sometimes take a while to fill, and the five-minute fix: a Spotify app of your own, with an allowance nobody else shares.
 nav_order: 4
 ---
 
