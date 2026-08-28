@@ -56,13 +56,23 @@ fn main() -> eframe::Result<()> {
     } else {
         "warn,fastpotify=info"
     };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
-        .init();
-
     let dirs = paths::AppDirs::discover();
-    if let Err(error) = dirs.ensure() {
+    let dirs_ready = dirs.ensure();
+    let mut logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter));
+    // Launched from a desktop, stderr goes nowhere; keep the run's log where
+    // a bug report can find it.
+    match std::fs::File::create(dirs.log_file()) {
+        Ok(file) => {
+            logger.target(env_logger::Target::Pipe(Box::new(Tee(file))));
+        }
+        Err(error) => eprintln!("not keeping a log file: {error}"),
+    }
+    logger.init();
+    if let Err(error) = dirs_ready {
         log::warn!("unable to create the application directories: {error}");
     }
+    log_panics(dirs.panic_log());
     let mut settings = settings::Settings::load(&dirs.settings_file());
     if let Some(name) = cli.device_name {
         settings.device_name = name;
@@ -199,6 +209,48 @@ fn main() -> eframe::Result<()> {
         app.shutdown();
     }
     Ok(())
+}
+
+/// Every log line goes to stderr and to the log file.
+struct Tee(std::fs::File);
+
+impl std::io::Write for Tee {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = std::io::stderr().write_all(buf);
+        self.0.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = std::io::stderr().flush();
+        self.0.flush()
+    }
+}
+
+/// Records every panic in `path` before the process dies of it.
+///
+/// Release builds abort on panic and, on Windows, have no console, so a
+/// crash would otherwise leave nothing behind to put in a bug report.
+fn log_panics(path: std::path::PathBuf) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        previous(info);
+        let thread = std::thread::current();
+        let entry = format!(
+            "{} fastpotify {} on thread {:?}: {info}\n",
+            jiff::Timestamp::now(),
+            env!("CARGO_PKG_VERSION"),
+            thread.name().unwrap_or("unnamed"),
+        );
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path);
+        if let Ok(mut file) = file {
+            use std::io::Write;
+            let _ = file.write_all(entry.as_bytes());
+        }
+    }));
 }
 
 fn native_options(fullscreen: bool) -> eframe::NativeOptions {

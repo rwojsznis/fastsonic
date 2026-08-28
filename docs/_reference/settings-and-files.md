@@ -16,11 +16,20 @@ Fastpotify follows each platform's conventions. On Linux:
 | Last session | `~/.local/state/fastpotify/session.json` | Yes |
 | Audio cache | `~/.cache/fastpotify/audio/` | Always |
 | Artwork cache | `~/.cache/fastpotify/art/` | Always |
+| Last run's log | `~/.local/state/fastpotify/fastpotify.log` | Always |
+| Crash log | `~/.local/state/fastpotify/panic.log` | Always |
 
 Clearing caches never signs you out; credentials live in *state*, not
 *cache*, precisely so cleanup tools cannot log you out. Both credential
 files are written with owner-only permissions. Signing out from Settings
 deletes both.
+
+On macOS, settings, state, and the logs are in
+`~/Library/Application Support/me.paolino.fastpotify` and the caches in
+`~/Library/Caches/me.paolino.fastpotify`. On Windows, settings are in
+`%APPDATA%\paolino\fastpotify\config`, state and the logs in
+`%LOCALAPPDATA%\paolino\fastpotify\data`, and the caches in
+`%LOCALAPPDATA%\paolino\fastpotify\cache`.
 
 ## settings.json
 
@@ -49,7 +58,10 @@ fastpotify [OPTIONS]
   -v, --verbose         More logs from librespot and the API client
 ```
 
-`fastpotify -v` output is what to attach to a bug report.
+`fastpotify.log` in the state directory is what to attach to a bug report:
+it holds the last run's output, the same lines `fastpotify -v` prints, so a
+run with `-v` says the most. If the app vanished, `panic.log` next to it
+says where it died; attach that too.
 
 ## Demo mode
 

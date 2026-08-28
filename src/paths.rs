@@ -52,6 +52,16 @@ impl AppDirs {
         self.state.join("web_api_token.json")
     }
 
+    /// The log of the current run, replaced at every start.
+    pub fn log_file(&self) -> PathBuf {
+        self.state.join("fastpotify.log")
+    }
+
+    /// Where a panic is recorded before the process dies of it.
+    pub fn panic_log(&self) -> PathBuf {
+        self.state.join("panic.log")
+    }
+
     pub fn credentials_dir(&self) -> PathBuf {
         self.state.join("credentials")
     }
