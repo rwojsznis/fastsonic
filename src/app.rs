@@ -1033,6 +1033,7 @@ impl App {
         }
         match page {
             Page::Home => self.load_home(false),
+            Page::TopSongs => self.load_top_songs(false),
             Page::Search => {}
             Page::LikedSongs => {
                 if !self.library.liked.loaded_once {
@@ -1144,7 +1145,10 @@ impl App {
         self.home.top_tracks = Loadable::Loading;
         self.backend.api(ApiRequest::RecentlyPlayed);
         self.backend.api(ApiRequest::TopArtists);
-        self.backend.api(ApiRequest::TopTracks);
+        self.backend.api(ApiRequest::TopTracks {
+            offset: 0,
+            full: false,
+        });
         for term in DISCOVER_TERMS {
             self.home
                 .discover
@@ -1153,6 +1157,19 @@ impl App {
                 term: (*term).to_string(),
             });
         }
+    }
+
+    fn load_top_songs(&mut self, force: bool) {
+        if self.home.top_songs_loading || (!force && self.home.top_songs_complete) {
+            return;
+        }
+        self.home.top_songs = Loadable::Loading;
+        self.home.top_songs_loading = true;
+        self.home.top_songs_complete = false;
+        self.backend.api(ApiRequest::TopTracks {
+            offset: 0,
+            full: true,
+        });
     }
 
     pub fn load_more(&mut self, page: Page) {
@@ -1233,6 +1250,7 @@ impl App {
     fn reload(&mut self, page: Page) {
         match &page {
             Page::Home => self.load_home(true),
+            Page::TopSongs => self.load_top_songs(true),
             Page::LikedSongs => self.library.liked.reset(),
             Page::Albums => self.library.albums.reset(),
             Page::Artists => self.library.artists.reset(),
@@ -1454,8 +1472,41 @@ impl App {
             ApiResponse::RecentlyPlayed(result) => {
                 self.home.recently_played = Loadable::from_result(result);
             }
-            ApiResponse::TopTracks(result) => {
-                if let Ok(tracks) = &result {
+            ApiResponse::TopTracks {
+                offset,
+                full,
+                result,
+            } => {
+                if full {
+                    match result {
+                        Ok(page) => {
+                            let received = page.items.len() as u32;
+                            let tracks = page.items;
+                            let uris: Vec<String> =
+                                tracks.iter().map(|track| track.uri.clone()).collect();
+                            self.request_contains(uris);
+                            if offset == 0 {
+                                self.home.top_songs = Loadable::Loaded(tracks);
+                            } else if let Some(current) = self.home.top_songs.get_mut() {
+                                current.extend(tracks);
+                            }
+                            if page.next.is_some() && received > 0 && offset + received < 100 {
+                                self.backend.api(ApiRequest::TopTracks {
+                                    offset: offset + received,
+                                    full: true,
+                                });
+                            } else {
+                                self.home.top_songs_loading = false;
+                                self.home.top_songs_complete = true;
+                            }
+                        }
+                        Err(error) => {
+                            self.home.top_songs = Loadable::Failed(error.to_string());
+                            self.home.top_songs_loading = false;
+                        }
+                    }
+                } else if let Ok(page) = result {
+                    let tracks = page.items;
                     let seeds: Vec<String> = tracks
                         .iter()
                         .filter_map(|track| track.id.clone())
@@ -1470,8 +1521,12 @@ impl App {
                     }
                     let uris: Vec<String> = tracks.iter().map(|track| track.uri.clone()).collect();
                     self.request_contains(uris);
+                    self.home.top_tracks = Loadable::Loaded(tracks);
+                } else if offset == 0
+                    && let Err(error) = result
+                {
+                    self.home.top_tracks = Loadable::Failed(error.to_string());
                 }
-                self.home.top_tracks = Loadable::from_result(result);
             }
             ApiResponse::TopArtists(result) => {
                 self.home.top_artists = Loadable::from_result(result);
