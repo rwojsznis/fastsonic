@@ -97,7 +97,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Use your own Spotify app",
-            "Everyone shares one Spotify app by default, so requests can queue behind other people's. An app of your own answers only to you. Paste its Client ID here, then sign out and back in.",
+            "Fastpotify is quick; Spotify's API rate limits are not. Everyone shares one Spotify app by default, so requests queue behind other people's. An app of your own has a limit to itself. Paste its Client ID here, then sign out and back in.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -128,7 +128,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             |ui| {
                 if theme::pill_button(ui, &palette, "Show me how", false).clicked() {
                     app.actions.push(Action::OpenUrl(
-                        "https://fastpotify.rocks/make-it-faster/".into(),
+                        "https://fastpotify.rocks/make-it-even-faster/".into(),
                     ));
                 }
             },

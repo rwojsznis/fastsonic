@@ -27,8 +27,8 @@ works, and each one happens exactly once per machine.
 By default the Web API uses the shared public application also used by
 spotify-player, ncspot, and Omarchy Spotify, whose allowance Spotify
 divides among everyone running any of them. An application of your own
-gets one to itself; [Make It Faster](/make-it-faster/) shows how, in five
-minutes.
+gets one to itself; [Make It Even Faster](/make-it-even-faster/) shows
+how, in five minutes.
 
 ## What the client stores
 

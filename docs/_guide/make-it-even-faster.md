@@ -1,16 +1,17 @@
 ---
-title: Make It Faster
-description: If pages take a while to fill, a Spotify app of your own fixes it in five minutes.
+title: Make It Even Faster
+description: "Fastpotify is quick; Spotify's API rate limits are not. A Spotify app of your own lifts them in five minutes."
 nav_order: 4
 ---
 
-## Why it waits
+## The bottleneck is API rate limits
 
 Everything Fastpotify shows you comes from Spotify's Web API, and Spotify
-lets each *app* make only so many requests. Out of the box Fastpotify uses
-a public app it shares with other open-source players, so at busy times
-its requests queue behind everyone else's. That is the spinner in the top
-bar, and pages that take a while to fill.
+rate-limits that API per *app*: each app may make only so many requests a
+minute. Out of the box Fastpotify uses a public app it shares with other
+open-source players, so at busy times its requests queue behind everyone
+else's. That is the spinner in the top bar, and pages that take a while
+to fill.
 
 An app of your own has that limit to itself. Fastpotify cannot ship one
 for everyone (Spotify allows a new app only a handful of users), but
