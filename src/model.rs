@@ -360,6 +360,21 @@ pub struct ShowPage {
     pub episodes: PagedList<Episode>,
 }
 
+/// A table's sort, chosen by clicking a column heading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableSort {
+    pub column: SortColumn,
+    pub ascending: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SortColumn {
+    Title,
+    Album,
+    Added,
+    Duration,
+}
+
 /// One of the things a track row can be part of, for playback context and
 /// for the actions the row offers.
 #[derive(Clone, Debug, PartialEq)]

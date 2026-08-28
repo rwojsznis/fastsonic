@@ -794,20 +794,53 @@ pub fn explicit_badge(ui: &mut Ui, palette: &Palette) {
 }
 
 /// The header row above a track table.
+/// The column headings above a track table. Answers with the heading that
+/// was clicked, so the table can sort by it.
 pub fn table_header(
     ui: &mut Ui,
     palette: &Palette,
     show_album: bool,
     show_added: bool,
     show_cover: bool,
-) {
+    sort: Option<crate::model::TableSort>,
+) -> Option<crate::model::SortColumn> {
+    use crate::model::SortColumn;
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
-    let painter = ui.painter();
     let font = theme::regular(12.0);
     let color = palette.secondary;
+    let mut clicked = None;
+    let mut heading = |ui: &mut Ui, x: f32, text: &str, column: SortColumn| {
+        let active = sort.filter(|sort| sort.column == column);
+        let label = match active {
+            Some(sort) if sort.ascending => format!("{text} \u{25b4}"),
+            Some(_) => format!("{text} \u{25be}"),
+            None => text.to_string(),
+        };
+        let galley = ui
+            .painter()
+            .layout_no_wrap(label, font.clone(), egui::Color32::PLACEHOLDER);
+        let size = galley.size();
+        let top_left = pos2(x, rect.center().y - size.y / 2.0);
+        let head = Rect::from_min_size(top_left, size).expand2(vec2(4.0, 8.0));
+        let response = ui.interact(head, ui.id().with(("table-header", text)), Sense::click());
+        let color = if active.is_some() {
+            palette.accent
+        } else if response.hovered() {
+            palette.text
+        } else {
+            color
+        };
+        ui.painter().galley(top_left, galley, color);
+        if response
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+        {
+            clicked = Some(column);
+        }
+    };
     let mut x = rect.left() + 8.0;
-    painter.text(
+    ui.painter().text(
         pos2(x + 22.0, rect.center().y),
         egui::Align2::CENTER_CENTER,
         "#",
@@ -818,13 +851,7 @@ pub fn table_header(
     if show_cover {
         x += 52.0;
     }
-    painter.text(
-        pos2(x, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        "TITLE",
-        font.clone(),
-        color,
-    );
+    heading(ui, x, "TITLE", SortColumn::Title);
     let medium = width > 560.0;
     let wide = width > 760.0;
     let album_width = if show_album && medium {
@@ -836,35 +863,44 @@ pub fn table_header(
     let right_fixed = 36.0 + 56.0 + 36.0 + 8.0;
     let mut cx = rect.right() - right_fixed - added_width - album_width;
     if album_width > 0.0 {
-        painter.text(
-            pos2(cx, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            "ALBUM",
-            font.clone(),
-            color,
-        );
+        heading(ui, cx, "ALBUM", SortColumn::Album);
         cx += album_width;
     }
     if added_width > 0.0 {
-        painter.text(
-            pos2(cx, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            "DATE ADDED",
-            font.clone(),
-            color,
-        );
+        heading(ui, cx, "DATE ADDED", SortColumn::Added);
     }
     let clock = Rect::from_center_size(
         pos2(rect.right() - 36.0 - 56.0 / 2.0 - 6.0, rect.center().y),
         Vec2::splat(15.0),
     );
-    Icon::Clock.image(color, 15.0).paint_at(ui, clock);
+    let duration_active = sort.is_some_and(|sort| sort.column == SortColumn::Duration);
+    let response = ui.interact(
+        clock.expand(8.0),
+        ui.id().with("table-header-duration"),
+        Sense::click(),
+    );
+    let clock_color = if duration_active {
+        palette.accent
+    } else if response.hovered() {
+        palette.text
+    } else {
+        color
+    };
+    Icon::Clock.image(clock_color, 15.0).paint_at(ui, clock);
+    if response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Sort by duration")
+        .clicked()
+    {
+        clicked = Some(SortColumn::Duration);
+    }
     ui.painter().hline(
         rect.x_range().shrink(8.0),
         rect.bottom() - 0.5,
         Stroke::new(1.0, palette.outline),
     );
     ui.add_space(6.0);
+    clicked
 }
 
 /// Lays out text limited to `max_rows` lines, ending with an ellipsis.

@@ -4,7 +4,7 @@ use egui::{Align, Layout, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::{Album, PlayableItem, Playlist, pick_image};
 use crate::app::App;
-use crate::model::{Action, Dialog, Loadable, Page, PagedList, RowContext};
+use crate::model::{Action, Dialog, Loadable, Page, PagedList, RowContext, SortColumn, TableSort};
 use crate::theme::{self, Icon, Palette};
 use crate::util;
 
@@ -295,16 +295,74 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         .map(|(index, _)| index)
         .collect();
 
-    if !table.items.is_empty() {
-        widgets::table_header(
+    let sort = app.table_sorts.get(&table.page).copied();
+    let mut visible = visible;
+    if let Some(sort) = sort {
+        let album_of = |item: &PlayableItem| match item {
+            PlayableItem::Track(track) => track
+                .album
+                .as_ref()
+                .map(|album| album.name.to_lowercase())
+                .unwrap_or_default(),
+            PlayableItem::Episode(_) => String::new(),
+        };
+        let duration_of = |item: &PlayableItem| match item {
+            PlayableItem::Track(track) => track.duration_ms,
+            PlayableItem::Episode(episode) => episode.duration_ms,
+        };
+        visible.sort_by(|a, b| {
+            let (item_a, added_a) = &table.items[*a];
+            let (item_b, added_b) = &table.items[*b];
+            let ordering = match sort.column {
+                SortColumn::Title => item_a
+                    .name()
+                    .to_lowercase()
+                    .cmp(&item_b.name().to_lowercase()),
+                SortColumn::Album => album_of(item_a).cmp(&album_of(item_b)),
+                SortColumn::Added => added_a.cmp(added_b),
+                SortColumn::Duration => duration_of(item_a).cmp(&duration_of(item_b)),
+            };
+            if sort.ascending {
+                ordering
+            } else {
+                ordering.reverse()
+            }
+        });
+    }
+
+    if !table.items.is_empty()
+        && let Some(column) = widgets::table_header(
             ui,
             &palette,
             table.show_album,
             table.show_added,
             table.show_cover,
-        );
+            sort,
+        )
+    {
+        // Ascending, descending, back to the list's own order.
+        let next = match sort {
+            Some(sort) if sort.column == column && sort.ascending => Some(TableSort {
+                column,
+                ascending: false,
+            }),
+            Some(sort) if sort.column == column => None,
+            _ => Some(TableSort {
+                column,
+                ascending: true,
+            }),
+        };
+        match next {
+            Some(sort) => {
+                app.table_sorts.insert(table.page.clone(), sort);
+            }
+            None => {
+                app.table_sorts.remove(&table.page);
+            }
+        }
     }
     let context = table.context.clone();
+    let sorted = sort.is_some();
     widgets::virtual_rows(ui, visible.len(), theme::ROW_HEIGHT, |ui, row| {
         let index = visible[row];
         let (item, added_at) = &table.items[index];
@@ -313,7 +371,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             app,
             TrackRow {
                 index,
-                number: Some(index + 1),
+                number: Some(if sorted { row + 1 } else { index + 1 }),
                 item,
                 context: &context,
                 show_cover: table.show_cover,

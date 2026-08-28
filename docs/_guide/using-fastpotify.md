@@ -20,6 +20,10 @@ artist to open the artist, the heart to save it.
 Home previews your most-played songs. Select **Your top songs** or **Show
 more top songs** to open the complete ranked list.
 
+Track tables sort by their column headings: click **Title**, **Album**,
+**Date added**, or the clock to sort by it, again to reverse, and a third
+time to return to the list's own order.
+
 ## Your Library
 
 The sidebar is your library: filter it by Playlists, Albums, Artists, or

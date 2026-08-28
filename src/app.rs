@@ -213,6 +213,8 @@ pub struct App {
     scroll_lock: Option<(ScrollAxis, Instant)>,
     /// Whether the current scroll gesture comes from a trackpad.
     scroll_from_trackpad: bool,
+    /// How each table is sorted, per page, for as long as the app runs.
+    pub table_sorts: HashMap<Page, TableSort>,
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
@@ -333,6 +335,7 @@ impl App {
             quit_requested: false,
             scroll_lock: None,
             scroll_from_trackpad: false,
+            table_sorts: HashMap::new(),
             update: None,
             last_update_check: None,
         };
