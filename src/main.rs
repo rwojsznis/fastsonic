@@ -386,6 +386,32 @@ impl eframe::App for Shell {
                         ));
                         continue;
                     }
+                    // Editing goes through egui, which owns the text field
+                    // and the clipboard.
+                    MenuCommand::Cut => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestCut);
+                        continue;
+                    }
+                    MenuCommand::Copy => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestCopy);
+                        continue;
+                    }
+                    MenuCommand::Paste => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                        continue;
+                    }
+                    MenuCommand::SelectAll => {
+                        ctx.input_mut(|input| {
+                            input.events.push(egui::Event::Key {
+                                key: egui::Key::A,
+                                physical_key: None,
+                                pressed: true,
+                                repeat: false,
+                                modifiers: egui::Modifiers::COMMAND,
+                            });
+                        });
+                        continue;
+                    }
                 };
                 app.actions.push(action);
             }

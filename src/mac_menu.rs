@@ -21,6 +21,10 @@ pub enum MenuCommand {
     Back,
     Forward,
     OpenRepo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -177,6 +181,31 @@ mod mac_impl {
             fn open_repo(&self, _sender: &NSObject) {
                 push_command(MenuCommand::OpenRepo);
             }
+
+            // The Edit items answer to this handler rather than to the
+            // responder chain: winit's view implements none of the standard
+            // editing selectors, so a menu item aimed there does nothing,
+            // while its key equivalent still takes the chord away from the
+            // window. Routed through egui, the same item and chord work.
+            #[unsafe(method(editCut:))]
+            fn edit_cut(&self, _sender: &NSObject) {
+                push_command(MenuCommand::Cut);
+            }
+
+            #[unsafe(method(editCopy:))]
+            fn edit_copy(&self, _sender: &NSObject) {
+                push_command(MenuCommand::Copy);
+            }
+
+            #[unsafe(method(editPaste:))]
+            fn edit_paste(&self, _sender: &NSObject) {
+                push_command(MenuCommand::Paste);
+            }
+
+            #[unsafe(method(editSelectAll:))]
+            fn edit_select_all(&self, _sender: &NSObject) {
+                push_command(MenuCommand::SelectAll);
+            }
         }
     );
 
@@ -261,56 +290,41 @@ mod mac_impl {
         ));
         menubar.addItem(&file_item);
 
-        // 3. Edit menu
+        // 3. Edit menu. No Undo and Redo: egui's text fields handle Cmd+Z
+        // themselves, and a menu item holding that chord would take it
+        // from them.
         let (edit_item, edit_menu) = create_menu(mtm, ns_string!("Edit"));
         edit_menu.addItem(&create_item(
             mtm,
-            ns_string!("Undo"),
-            Some(sel!(undo:)),
-            ns_string!("z"),
-            None,
-            None,
-        ));
-        edit_menu.addItem(&create_item(
-            mtm,
-            ns_string!("Redo"),
-            Some(sel!(redo:)),
-            ns_string!("Z"),
-            Some(NSEventModifierFlags::Command | NSEventModifierFlags::Shift),
-            None,
-        ));
-        edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
-        edit_menu.addItem(&create_item(
-            mtm,
             ns_string!("Cut"),
-            Some(sel!(cut:)),
+            Some(sel!(editCut:)),
             ns_string!("x"),
             None,
-            None,
+            Some(target),
         ));
         edit_menu.addItem(&create_item(
             mtm,
             ns_string!("Copy"),
-            Some(sel!(copy:)),
+            Some(sel!(editCopy:)),
             ns_string!("c"),
             None,
-            None,
+            Some(target),
         ));
         edit_menu.addItem(&create_item(
             mtm,
             ns_string!("Paste"),
-            Some(sel!(paste:)),
+            Some(sel!(editPaste:)),
             ns_string!("v"),
             None,
-            None,
+            Some(target),
         ));
         edit_menu.addItem(&create_item(
             mtm,
             ns_string!("Select All"),
-            Some(sel!(selectAll:)),
+            Some(sel!(editSelectAll:)),
             ns_string!("a"),
             None,
-            None,
+            Some(target),
         ));
         menubar.addItem(&edit_item);
 
