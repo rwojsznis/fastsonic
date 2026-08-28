@@ -47,6 +47,7 @@ pub struct Settings {
     pub volume: u16,
     pub sidebar_width: f32,
     pub lyrics_width: f32,
+    pub queue_width: f32,
     pub search_history: Vec<String>,
     pub show_shortcut_hints: bool,
     /// A personal Spotify Web API application id, if the user registered one.
@@ -82,6 +83,7 @@ impl Default for Settings {
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_width: 250.0,
             lyrics_width: 360.0,
+            queue_width: 360.0,
             search_history: Vec::new(),
             show_shortcut_hints: true,
             web_client_id: None,
