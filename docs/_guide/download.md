@@ -17,7 +17,14 @@ One download for both Apple Silicon and Intel:
 
 - [fastpotify-v{{ v }}-macos-universal.dmg]({{ base }}/fastpotify-v{{ v }}-macos-universal.dmg)
 
-Open it and drag **Fastpotify** to Applications.
+Open it and drag **Fastpotify** to Applications. Or, with
+[Homebrew](https://brew.sh):
+
+```sh
+brew install --cask crmne/tap/fastpotify
+```
+
+Add `--no-quarantine` and the first-open steps below are not needed.
 
 ### First open on macOS
 
@@ -74,6 +81,16 @@ Fastpotify is in the AUR, with the desktop entry and icon installed for you:
 ```sh
 yay -S fastpotify          # the released build
 yay -S fastpotify-git      # built from the latest commit
+```
+
+### Flatpak
+
+[FlatPark](https://flatpark.org/apps/rocks.fastpotify.Fastpotify) packages
+each Linux release as a sandboxed Flatpak and follows every new version:
+
+```sh
+flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
+flatpak install flatpark rocks.fastpotify.Fastpotify
 ```
 
 ### Other distributions

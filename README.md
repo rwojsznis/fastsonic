@@ -70,6 +70,12 @@ yay -S fastpotify          # the released build
 yay -S fastpotify-git      # built from the latest commit
 ```
 
+On macOS, with [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask crmne/tap/fastpotify
+```
+
 Everywhere else it is a single binary. Build it with a stable Rust toolchain
 (1.95 or newer):
 
