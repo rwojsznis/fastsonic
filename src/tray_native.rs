@@ -285,11 +285,13 @@ mod host {
         };
         let app = NSApplication::sharedApplication(mtm);
         let deadline = NSDate::dateWithTimeIntervalSinceNow(duration.as_secs_f64());
+        // Safety: reading an extern static AppKit defines and never changes.
+        let mode = unsafe { NSDefaultRunLoopMode };
         loop {
             let event = app.nextEventMatchingMask_untilDate_inMode_dequeue(
                 NSEventMask::Any,
                 Some(&deadline),
-                NSDefaultRunLoopMode,
+                mode,
                 true,
             );
             match event {
