@@ -8,6 +8,8 @@ pub mod backend;
 pub mod demo;
 pub mod images;
 pub mod lyrics;
+#[cfg(target_os = "macos")]
+pub mod mac_menu;
 pub mod model;
 #[cfg(target_os = "linux")]
 pub mod mpris;
