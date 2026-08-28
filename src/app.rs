@@ -704,7 +704,7 @@ impl App {
                 self.local_device_id = Some(device_id.clone());
                 self.local_ready = true;
                 if let Some(request) = self.queued_play.take() {
-                    self.play_request(request);
+                    self.play_request(request, false);
                 }
             }
             LocalPlayback::Unavailable => {
@@ -2142,7 +2142,10 @@ impl App {
         });
     }
 
-    fn play_request(&mut self, request: PlayRequest) {
+    /// With `shuffle_first`, shuffle is turned on before playback starts,
+    /// in one ordered exchange: two independent requests race, and shuffle
+    /// sometimes lost.
+    fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
         let mut keys: Vec<String> = Vec::new();
         if let Some(context) = &request.context_uri {
             keys.push(context.clone());
@@ -2169,21 +2172,28 @@ impl App {
                     offset_index: request.offset_position,
                     position_ms: request.position_ms,
                     play: true,
-                    shuffle: None,
+                    shuffle: shuffle_first.then_some(true),
                 }));
                 self.optimistic_playing = Some((true, Instant::now()));
             }
             Target::Remote(Some(device_id)) => {
                 self.queued_play = None;
-                self.backend.api(ApiRequest::Remote {
-                    action: RemoteAction::Play,
-                    device_id: Some(device_id),
-                    play: Some(request),
-                    position_ms: 0,
-                    percent: 0,
-                    flag: false,
-                    repeat: String::new(),
-                });
+                if shuffle_first {
+                    self.backend.api(ApiRequest::ShufflePlay {
+                        device_id: Some(device_id),
+                        play: request,
+                    });
+                } else {
+                    self.backend.api(ApiRequest::Remote {
+                        action: RemoteAction::Play,
+                        device_id: Some(device_id),
+                        play: Some(request),
+                        position_ms: 0,
+                        percent: 0,
+                        flag: false,
+                        repeat: String::new(),
+                    });
+                }
                 self.optimistic_playing = Some((true, Instant::now()));
             }
             Target::Remote(None) => {
@@ -2228,7 +2238,7 @@ impl App {
                             _ => PlayRequest::tracks(vec![uri]),
                         };
                         request.position_ms = position;
-                        self.play_request(request);
+                        self.play_request(request, false);
                         return;
                     }
                     self.toast("Pick something to play");
@@ -2483,14 +2493,14 @@ impl App {
                 let mut request = PlayRequest::context(uri);
                 request.offset_uri = offset_uri;
                 request.offset_position = offset_index;
-                self.play_request(request);
+                self.play_request(request, false);
             }
             Action::PlayUris { uris, index } => {
                 if uris.is_empty() {
                     return;
                 }
                 let request = PlayRequest::tracks(uris).starting_at_index(index);
-                self.play_request(request);
+                self.play_request(request, false);
             }
             Action::PlayFromRow {
                 context,
@@ -2501,40 +2511,16 @@ impl App {
                     uri: context_uri, ..
                 } => {
                     let request = PlayRequest::context(context_uri).starting_at_uri(uri);
-                    self.play_request(request);
+                    self.play_request(request, false);
                 }
                 RowContext::Uris(uris) => {
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
-                    self.play_request(request);
+                    self.play_request(request, false);
                 }
             },
-            Action::ShufflePlay(uri) => match self.target() {
-                Target::Local => {
-                    self.set_play_pending(vec![uri.clone()]);
-                    self.backend.player(PlayerCommand::Load(LoadSpec {
-                        context_uri: Some(uri),
-                        uris: Vec::new(),
-                        offset_uri: None,
-                        offset_index: None,
-                        position_ms: 0,
-                        play: true,
-                        shuffle: Some(true),
-                    }));
-                    self.optimistic_playing = Some((true, Instant::now()));
-                }
-                Target::Remote(device_id) => {
-                    self.backend.api(ApiRequest::Remote {
-                        action: RemoteAction::Shuffle,
-                        device_id: device_id.clone(),
-                        play: None,
-                        position_ms: 0,
-                        percent: 0,
-                        flag: true,
-                        repeat: String::new(),
-                    });
-                    self.play_request(PlayRequest::context(uri));
-                }
-            },
+            Action::ShufflePlay(uri) => {
+                self.play_request(PlayRequest::context(uri), true);
+            }
             Action::TogglePlay => self.toggle_play(),
             Action::Next => match self.target() {
                 Target::Local => self.backend.player(PlayerCommand::Next),

@@ -164,17 +164,37 @@ pub fn actions_row(
                     });
                 }
             }
+            let context_here = app
+                .remote
+                .as_ref()
+                .and_then(|remote| remote.state.context.as_ref())
+                .is_some_and(|context| context.uri == *uri);
+            let shuffling_here = context_here && app.now_playing().is_some_and(|now| now.shuffle);
             if theme::icon_button(
                 ui,
                 Icon::Shuffle,
                 26.0,
-                palette.secondary,
+                if shuffling_here {
+                    palette.accent
+                } else {
+                    palette.secondary
+                },
                 palette.text,
-                "Shuffle play",
+                if shuffling_here {
+                    "Shuffle off"
+                } else if context_here {
+                    "Shuffle"
+                } else {
+                    "Shuffle play"
+                },
             )
             .clicked()
             {
-                app.actions.push(Action::ShufflePlay(uri.clone()));
+                if context_here {
+                    app.actions.push(Action::SetShuffle(!shuffling_here));
+                } else {
+                    app.actions.push(Action::ShufflePlay(uri.clone()));
+                }
             }
         }
         if let Some((uri, saved)) = &actions.saved {

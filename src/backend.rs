@@ -177,6 +177,12 @@ pub enum ApiRequest {
         device_id: String,
         play: bool,
     },
+    /// Shuffle on, then start the context, one after the other: sent as two
+    /// independent requests they race, and shuffle sometimes lost.
+    ShufflePlay {
+        device_id: Option<String>,
+        play: PlayRequest,
+    },
     AddToQueue {
         uri: String,
         device_id: Option<String>,
@@ -1355,6 +1361,17 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
                 RemoteAction::Repeat => api.set_repeat(&repeat, device).await,
             };
             ApiResponse::Remote { action, result }
+        }
+        ApiRequest::ShufflePlay { device_id, play } => {
+            let device = device_id.as_deref();
+            let result = match api.set_shuffle(true, device).await {
+                Ok(()) => api.play(device, Some(&play)).await,
+                Err(error) => Err(error),
+            };
+            ApiResponse::Remote {
+                action: RemoteAction::Play,
+                result,
+            }
         }
         ApiRequest::Transfer { device_id, play } => ApiResponse::Transferred {
             result: api.transfer(&device_id, play).await,
