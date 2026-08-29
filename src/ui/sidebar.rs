@@ -503,7 +503,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             )
                             .paint_at(
                                 ui,
-                                Rect::from_center_size(cover_rect.center(), Vec2::splat(18.0)),
+                                Rect::from_center_size(
+                                    cover_rect.center()
+                                        + theme::play_glyph_offset(Icon::PlayFilled, 18.0),
+                                    Vec2::splat(18.0),
+                                ),
                             );
                         if let Some(play) = &play_response {
                             play.clone().on_hover_cursor(egui::CursorIcon::PointingHand);

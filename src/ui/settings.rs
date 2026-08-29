@@ -484,15 +484,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     section(ui, &palette, "About", |ui| {
         ui.horizontal(|ui| {
             let (logo, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
-            ui.painter()
-                .circle_filled(logo.center(), 20.0, palette.accent);
-            let icon_rect = egui::Rect::from_center_size(
-                logo.center() + Vec2::new(2.0, 0.0),
-                Vec2::splat(18.0),
-            );
-            Icon::PlayFilled
-                .image(palette.on_accent, 18.0)
-                .paint_at(ui, icon_rect);
+            theme::logo(ui, logo.center(), 40.0, palette.accent, palette.on_accent);
             ui.vertical(|ui| {
                 theme::text(
                     ui,

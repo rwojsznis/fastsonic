@@ -5,7 +5,7 @@ use egui::{Align, CornerRadius, Frame, Layout, Margin, Stroke, Vec2};
 use crate::app::App;
 use crate::backend::AuthStatus;
 use crate::model::Action;
-use crate::theme::{self, Icon};
+use crate::theme;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
     let palette = app.palette;
@@ -35,16 +35,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                     ui.set_width(card_width - 72.0);
                     ui.spacing_mut().item_spacing.y = 8.0;
                     let (logo, _) = ui.allocate_exact_size(Vec2::splat(72.0), egui::Sense::hover());
-                    ui.painter().circle_filled(logo.center(), 36.0, palette.accent);
-                    // The same optical correction as theme::circle_button:
-                    // Lucide bakes a right shift into the play glyph, so a
-                    // hand-tuned rightward nudge doubled it and the triangle
-                    // sat visibly off the disc's centre.
-                    let icon_rect = egui::Rect::from_center_size(
-                        logo.center() + Vec2::new(32.0 * (0.03 - 1.0 / 24.0), 0.0),
-                        Vec2::splat(32.0),
-                    );
-                    Icon::PlayFilled.image(palette.on_accent, 32.0).paint_at(ui, icon_rect);
+                    theme::logo(ui, logo.center(), 72.0, palette.accent, palette.on_accent);
                     ui.add_space(6.0);
                     theme::text(ui, "Fastpotify", theme::bold(30.0), palette.text);
                     theme::text(ui, "A fast, native Spotify client.", theme::regular(14.5), palette.secondary);
