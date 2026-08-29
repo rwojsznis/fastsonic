@@ -1519,6 +1519,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "env_logger",
+ "flate2",
  "hmac",
  "image",
  "jiff",
