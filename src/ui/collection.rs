@@ -563,11 +563,17 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             // Spotify's collaborative flag covers secret collaborations; a
             // playlist made together today is recognised by who added songs.
             let owner_id = playlist.owner.id.as_deref();
-            let others = page
-                .contributors
-                .iter()
-                .filter(|id| Some(id.as_str()) != owner_id)
-                .count();
+            // Spotify's own playlists carry adder ids of their machinery;
+            // nothing about them is a collaboration.
+            let editorial = owner_id == Some("spotify");
+            let others = if editorial {
+                0
+            } else {
+                page.contributors
+                    .iter()
+                    .filter(|id| !id.is_empty() && Some(id.as_str()) != owner_id)
+                    .count()
+            };
             let made_together = playlist.collaborative || others > 0;
             let mut byline = vec![(playlist.owner_name().to_string(), None)];
             if others > 0 {

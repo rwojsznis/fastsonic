@@ -2207,6 +2207,7 @@ impl App {
                                 .items
                                 .iter()
                                 .filter_map(|item| item.added_by.as_ref()?.id.clone())
+                                .filter(|id| !id.is_empty())
                                 .collect();
                             page.contributors.extend(adders.iter().cloned());
                             page.items.absorb(offset, items);
@@ -2271,6 +2272,7 @@ impl App {
                         .items
                         .iter()
                         .filter_map(|item| item.added_by.as_ref()?.id.clone())
+                        .filter(|id| !id.is_empty())
                         .collect();
                     page.contributors.extend(adders.iter().cloned());
                 }
@@ -2966,6 +2968,7 @@ impl App {
             adders = items
                 .iter()
                 .filter_map(|item| item.added_by.as_ref()?.id.clone())
+                .filter(|id| !id.is_empty())
                 .collect();
             page.contributors.extend(adders.iter().cloned());
             page.items.total = Some(items.len() as u32);
