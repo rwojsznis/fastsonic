@@ -148,6 +148,10 @@ pub struct App {
     remote_poll_pending: bool,
     /// Serial of the newest playback poll sent; older answers are stale.
     remote_poll_seq: u64,
+    /// The restorable session (sorts, recents, resume point) changed and
+    /// should be written shortly, not only at exit.
+    session_dirty: bool,
+    last_session_save: Instant,
     pub devices: Vec<Device>,
     /// Receivers seen on the local network. Spotify lists a receiver only
     /// once it has an account, so these are the ones it cannot see yet.
@@ -340,6 +344,8 @@ impl App {
             remote_polled_at: Instant::now() - REMOTE_POLL_IDLE,
             remote_poll_pending: false,
             remote_poll_seq: 0,
+            session_dirty: false,
+            last_session_save: Instant::now(),
             devices: Vec::new(),
             receivers: Vec::new(),
             activating_receiver: None,
@@ -1077,11 +1083,19 @@ impl App {
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
         }
+        if self.session_dirty && self.last_session_save.elapsed() > Duration::from_secs(2) {
+            self.save_session();
+        }
     }
 
     /// Note that a setting changed, so the file is saved shortly.
     pub fn mark_settings_dirty(&mut self) {
         self.settings_dirty = true;
+    }
+
+    /// Note that the restorable session changed, so it is saved shortly.
+    pub fn note_session_change(&mut self) {
+        self.session_dirty = true;
     }
 
     fn save_settings(&mut self) {
@@ -2477,6 +2491,7 @@ impl App {
     /// Remembers `uri` as the most recently played context, for the
     /// sidebar's order.
     fn note_recent_context(&mut self, uri: &str) {
+        self.session_dirty = true;
         if !uri.contains(":playlist:") && !uri.contains(":album:") && !uri.contains(":collection") {
             return;
         }
@@ -2839,6 +2854,7 @@ impl App {
     fn set_shuffle(&mut self, shuffle: bool) {
         self.shuffle_wanted = shuffle;
         self.shuffle_set_at = Some(Instant::now());
+        self.session_dirty = true;
         if let Some(assumed) = &mut self.assumed_context {
             assumed.shuffle = Some(shuffle);
         }
@@ -3573,6 +3589,13 @@ impl App {
     /// Persist state when a window closes (to the tray or for good).
     pub fn save_state(&mut self) {
         self.save_settings();
+        self.save_session();
+    }
+
+    /// Write the restorable session: page, recents, resume point, sorts.
+    fn save_session(&mut self) {
+        self.session_dirty = false;
+        self.last_session_save = Instant::now();
         if let Some(now) = self.now_playing() {
             self.resume_context = self.playing_context_uri();
             self.resume_track = Some(now.uri.clone());

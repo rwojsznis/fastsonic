@@ -306,11 +306,13 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         match next {
             Some(sort) => {
                 app.table_sorts.insert(table.page.clone(), sort);
+                app.note_session_change();
                 // A sort covers the whole list, so the rest must load.
                 app.actions.push(Action::LoadMore(table.page.clone()));
             }
             None => {
                 app.table_sorts.remove(&table.page);
+                app.note_session_change();
             }
         }
     }
