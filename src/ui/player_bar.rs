@@ -116,17 +116,11 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             app.actions.push(Action::Open(Page::Show(id.clone())));
         }
     }
-    // The playing thing answers the same right-click menu as a table row.
-    if let Some(item) = app.now_playing_item() {
-        egui::Popup::context_menu(&cover_response)
-            .frame(super::widgets::menu_frame(&palette))
-            .show(|ui| super::widgets::item_menu(ui, app, &item, None, None));
-    }
-
     let heart_width = if now.is_episode { 0.0 } else { 42.0 };
     let text_left = cover_rect.right() + 12.0;
     let text_width = (region.right() - text_left - heart_width).max(40.0);
     let text_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
+    let info_response = ui.interact(text_rect, egui::Id::new("now-playing-info"), Sense::click());
     let mut text_ui = ui.new_child(
         UiBuilder::new()
             .max_rect(text_rect)
@@ -134,25 +128,39 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     );
     text_ui.set_clip_rect(text_rect.intersect(ui.clip_rect()));
     text_ui.spacing_mut().item_spacing.y = 2.0;
-    if theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text).clicked() {
+    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text);
+    if title_response.clicked() {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
         } else if let Some(id) = &now.show_id {
             app.actions.push(Action::Open(Page::Show(id.clone())));
         }
     }
-    if theme::link(
+    let subtitle_response = theme::link(
         &mut text_ui,
         &now.subtitle,
         theme::regular(12.0),
         palette.secondary,
-    )
-    .clicked()
-    {
+    );
+    if subtitle_response.clicked() {
         if let Some(id) = now.artists.first().and_then(|artist| artist.id.clone()) {
             app.actions.push(Action::Open(Page::Artist(id)));
         } else if let Some(id) = &now.show_id {
             app.actions.push(Action::Open(Page::Show(id.clone())));
+        }
+    }
+    // The playing thing answers the same right-click menu as a table row,
+    // from the cover, the empty space around the words, or the words.
+    if let Some(item) = app.now_playing_item() {
+        for response in [
+            &cover_response,
+            &info_response,
+            &title_response,
+            &subtitle_response,
+        ] {
+            egui::Popup::context_menu(response)
+                .frame(super::widgets::menu_frame(&palette))
+                .show(|ui| super::widgets::item_menu(ui, app, &item, None, None));
         }
     }
 
