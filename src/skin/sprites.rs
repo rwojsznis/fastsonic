@@ -33,10 +33,12 @@ pub enum Sheet {
     Text,
     /// The playlist editor's frame and buttons.
     PlEdit,
+    /// The equalizer window.
+    EqMain,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 13] = [
+    pub const ALL: [Sheet; 14] = [
         Sheet::Main,
         Sheet::CButtons,
         Sheet::TitleBar,
@@ -50,6 +52,7 @@ impl Sheet {
         Sheet::NumsEx,
         Sheet::Text,
         Sheet::PlEdit,
+        Sheet::EqMain,
     ];
 
     /// The file's name without its extension, in lower case.
@@ -68,6 +71,7 @@ impl Sheet {
             Sheet::NumsEx => "nums_ex",
             Sheet::Text => "text",
             Sheet::PlEdit => "pledit",
+            Sheet::EqMain => "eqmain",
         }
     }
 }
@@ -227,6 +231,44 @@ sprites! {
     PLAYLIST_SHADE_TILE = (PlEdit, 72, 57, 25, 14);
     PLAYLIST_SHADE_RIGHT = (PlEdit, 99, 57, 50, 14);
     PLAYLIST_SHADE_RIGHT_ACTIVE = (PlEdit, 99, 42, 50, 14);
+
+    EQ_BACKGROUND = (EqMain, 0, 0, 275, 116);
+    EQ_TITLE_BAR_ACTIVE = (EqMain, 0, 134, 275, 14);
+    EQ_TITLE_BAR_INACTIVE = (EqMain, 0, 149, 275, 14);
+    EQ_CLOSE_BUTTON = (EqMain, 0, 116, 9, 9);
+    EQ_CLOSE_BUTTON_PRESSED = (EqMain, 0, 125, 9, 9);
+    EQ_ON_OFF = (EqMain, 10, 119, 26, 12);
+    EQ_ON_OFF_PRESSED = (EqMain, 128, 119, 26, 12);
+    EQ_ON_ON = (EqMain, 69, 119, 26, 12);
+    EQ_ON_ON_PRESSED = (EqMain, 187, 119, 26, 12);
+    EQ_AUTO_OFF = (EqMain, 36, 119, 32, 12);
+    EQ_AUTO_OFF_PRESSED = (EqMain, 154, 119, 32, 12);
+    EQ_AUTO_ON = (EqMain, 95, 119, 32, 12);
+    EQ_AUTO_ON_PRESSED = (EqMain, 213, 119, 32, 12);
+    EQ_PRESETS = (EqMain, 224, 164, 44, 12);
+    EQ_PRESETS_PRESSED = (EqMain, 224, 176, 44, 12);
+    EQ_GRAPH = (EqMain, 0, 294, 113, 19);
+    /// One pixel wide: the colour the curve takes at each row.
+    EQ_GRAPH_LINE = (EqMain, 115, 294, 1, 19);
+    EQ_PREAMP_LINE = (EqMain, 0, 314, 113, 1);
+    EQ_THUMB = (EqMain, 0, 164, 11, 11);
+    EQ_THUMB_PRESSED = (EqMain, 0, 176, 11, 11);
+}
+
+/// How many steps an equalizer slider's track is drawn in.
+pub const EQ_SLIDER_FRAMES: u32 = 28;
+
+/// An equalizer slider's track at a given position, `frame` from 0 (all
+/// the way down) to 27: two rows of fourteen, fifteen pixels apart.
+pub fn eq_slider_frame(frame: u32) -> Sprite {
+    let frame = frame.min(EQ_SLIDER_FRAMES - 1);
+    Sprite::new(
+        Sheet::EqMain,
+        13 + (frame % 14) * 15,
+        164 + (frame / 14) * 65,
+        14,
+        63,
+    )
 }
 
 /// How many steps the volume and balance sliders are drawn in.
@@ -285,6 +327,15 @@ mod tests {
         assert_eq!(digit(9).x, 81);
         assert_eq!(digit(12).x, 81);
         assert_eq!(digit_ex(0).sheet, Sheet::NumsEx);
+        assert_eq!(
+            eq_slider_frame(0),
+            Sprite::new(Sheet::EqMain, 13, 164, 14, 63)
+        );
+        assert_eq!(
+            eq_slider_frame(14),
+            Sprite::new(Sheet::EqMain, 13, 229, 14, 63)
+        );
+        assert_eq!(eq_slider_frame(27).x, 13 + 13 * 15);
         assert_eq!(glyph(2, 30), Sprite::new(Sheet::Text, 150, 12, 5, 6));
     }
 }

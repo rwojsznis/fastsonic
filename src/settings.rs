@@ -106,6 +106,14 @@ pub struct Settings {
     pub playlist_open: bool,
     /// How tall the playlist window is, in skin pixels.
     pub playlist_height: u32,
+    /// The equalizer window is open under the mini player.
+    pub eq_open: bool,
+    /// The equalizer shapes local playback.
+    pub eq_on: bool,
+    /// The preamp, in decibels, never above zero.
+    pub eq_preamp_db: f32,
+    /// The ten bands, in decibels, 60 Hz to 16 kHz.
+    pub eq_bands_db: [f32; 10],
 }
 
 impl Default for Settings {
@@ -143,6 +151,10 @@ impl Default for Settings {
             vis: VisMode::default(),
             playlist_open: false,
             playlist_height: 174,
+            eq_open: false,
+            eq_on: false,
+            eq_preamp_db: 0.0,
+            eq_bands_db: [0.0; 10],
         }
     }
 }
@@ -218,6 +230,8 @@ mod tests {
         assert_eq!(settings.vis, super::VisMode::Bars);
         assert!(!settings.playlist_open);
         assert_eq!(settings.playlist_height, 174);
+        assert!(!settings.eq_on);
+        assert_eq!(settings.eq_bands_db, [0.0; 10]);
     }
 
     #[test]

@@ -88,6 +88,8 @@ pub struct WinampState {
     /// The sound on its way out, for the visualiser.
     pub tap: Arc<AudioTap>,
     pub analyser: Analyser,
+    /// The equalizer as the player's thread reads it.
+    pub eq: crate::eq::SharedEq,
     /// The playlist window: its first visible row, the row clicked, the
     /// wheel's leftover, and the corner drag's leftover.
     pub playlist_scroll: usize,
@@ -99,7 +101,7 @@ pub struct WinampState {
 }
 
 impl WinampState {
-    pub fn new(restore_pos: Option<[f32; 2]>, tap: Arc<AudioTap>) -> Self {
+    pub fn new(restore_pos: Option<[f32; 2]>, tap: Arc<AudioTap>, eq: crate::eq::SharedEq) -> Self {
         Self {
             skin: Skin::builtin(),
             worn: None,
@@ -115,6 +117,7 @@ impl WinampState {
             last_pos: None,
             tap,
             analyser: Analyser::default(),
+            eq,
             playlist_scroll: 0,
             playlist_selected: None,
             playlist_wheel: 0.0,
@@ -366,7 +369,7 @@ mod tests {
 
     #[test]
     fn a_short_title_sits_still_and_a_long_one_scrolls() {
-        let mut state = WinampState::new(None, AudioTap::new());
+        let mut state = WinampState::new(None, AudioTap::new(), crate::eq::shared());
         let start = Instant::now();
         assert_eq!(state.marquee("Fastpotify", start), "Fastpotify");
         assert!(!state.marquee_scrolling());

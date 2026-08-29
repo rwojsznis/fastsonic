@@ -105,10 +105,12 @@ impl AudioTap {
     }
 }
 
-/// A sink that hands the tap every sample on its way to the real one.
+/// A sink that runs the equalizer over every sample and hands the tap
+/// the result on its way to the real one, so the bars show what is heard.
 pub struct Tapped {
     inner: Box<dyn Sink>,
     tap: Arc<AudioTap>,
+    eq: crate::eq::Processor,
     /// Undoes the volume the player already applied to the samples, so the
     /// bars show the music, not the volume knob. `None` when the sink
     /// applies the volume itself, after the tap.
@@ -120,10 +122,12 @@ impl Tapped {
         inner: Box<dyn Sink>,
         tap: Arc<AudioTap>,
         applied_volume: Option<Box<dyn VolumeGetter + Send>>,
+        eq: crate::eq::SharedEq,
     ) -> Self {
         Self {
             inner,
             tap,
+            eq: crate::eq::Processor::new(eq),
             applied_volume,
         }
     }
@@ -140,17 +144,22 @@ impl Sink for Tapped {
     }
 
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
-        if let Ok(samples) = packet.samples() {
-            let gain = self.applied_volume.as_ref().map_or(1.0, |volume| {
-                let attenuation = volume.attenuation_factor() as f32;
-                if attenuation > 0.001 {
-                    1.0 / attenuation
-                } else {
-                    1.0
-                }
-            });
-            self.tap.push(samples, gain);
-        }
+        let packet = match packet {
+            AudioPacket::Samples(mut samples) => {
+                self.eq.process(&mut samples);
+                let gain = self.applied_volume.as_ref().map_or(1.0, |volume| {
+                    let attenuation = volume.attenuation_factor() as f32;
+                    if attenuation > 0.001 {
+                        1.0 / attenuation
+                    } else {
+                        1.0
+                    }
+                });
+                self.tap.push(&samples, gain);
+                AudioPacket::Samples(samples)
+            }
+            raw => raw,
+        };
         self.inner.write(packet, converter)
     }
 }

@@ -6,6 +6,7 @@ pub mod auth;
 pub mod backend;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
+pub mod eq;
 pub mod images;
 pub mod lyrics;
 #[cfg(target_os = "macos")]

@@ -46,9 +46,13 @@ application rather than a shell plugin.
   of what you are looking at or listening to. Turn it off in Settings.
 - **Light and dark**, or follow the system.
 - **Winamp mini player.** `Ctrl+M` turns the window into a tiny player that
-  wears classic `.wsz` skins, drawn pixel for pixel at 1x to 4x; the logo in
-  the skin brings the big window back. Drop a skin from the
-  [Winamp Skin Museum](https://skins.webamp.org) on either window to add it.
+  wears classic `.wsz` skins, drawn pixel for pixel at 1x to 4x, with the
+  spectrum analyser, the playlist, and the equalizer hanging under it as
+  they did; the logo in the skin brings the big window back. Drop a skin
+  from the [Winamp Skin Museum](https://skins.webamp.org) on either window
+  to add it.
+- **Equalizer.** Winamp's ten bands and presets over the music played on
+  this computer, in Settings and in the skin.
 - **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists
   them).
 - **Keeps playing when you close the window.** The window closes for real,

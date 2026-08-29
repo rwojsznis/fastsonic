@@ -594,6 +594,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.skin = None;
             }
             "playlist" => app.settings.playlist_open = true,
+            "eq" => {
+                app.settings.eq_open = true;
+                app.settings.eq_on = true;
+                app.settings.eq_bands_db = crate::eq::PRESETS[13].bands_db;
+            }
             "pins" => {
                 app.settings.pinned_contexts =
                     vec!["spotify:playlist:pl2".into(), "spotify:playlist:pl4".into()];

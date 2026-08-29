@@ -588,6 +588,50 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
     });
 
+    section(ui, &palette, "Equalizer", |ui| {
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Equalizer",
+            "Ten bands over the music played on this computer. Speakers and phones across the room play what Spotify sends them.",
+            |ui| {
+                let mut on = app.settings.eq_on;
+                if widgets::switch(ui, &palette, &mut on).changed() {
+                    app.actions.push(Action::ToggleEq);
+                }
+            },
+        );
+        let names: Vec<(usize, &str)> = crate::eq::PRESETS
+            .iter()
+            .enumerate()
+            .map(|(index, preset)| (index, preset.name))
+            .collect();
+        let current = crate::eq::PRESETS
+            .iter()
+            .position(|preset| preset.bands_db == app.settings.eq_bands_db)
+            .unwrap_or(usize::MAX);
+        if let Some(picked) = widgets::chips(ui, &palette, &names, current) {
+            app.actions.push(Action::ApplyEqPreset(picked));
+        }
+        ui.add_space(10.0);
+        eq_curve(ui, &palette, &crate::app::eq_settings(&app.settings));
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 14.0;
+            let mut preamp = app.settings.eq_preamp_db;
+            if eq_slider(ui, &palette, "Pre", &mut preamp, -crate::eq::RANGE_DB..=0.0) {
+                app.actions.push(Action::SetEqPreamp(preamp));
+            }
+            for (band, hz) in crate::eq::BANDS.iter().enumerate() {
+                let mut gain = app.settings.eq_bands_db[band];
+                let range = -crate::eq::RANGE_DB..=crate::eq::RANGE_DB;
+                if eq_slider(ui, &palette, &hertz(*hz), &mut gain, range) {
+                    app.actions.push(Action::SetEqBand(band, gain));
+                }
+            }
+        });
+    });
+
     section(ui, &palette, "Storage", |ui| {
         widgets::setting_row(
             ui,
@@ -660,5 +704,87 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.data_mut(|data| data.insert_temp(dirty_id, playback_dirty));
     if changed {
         app.actions.push(Action::SettingsChanged);
+    }
+}
+
+/// A band's frequency the short way: 60, 170, 1K, 16K.
+fn hertz(hz: f32) -> String {
+    if hz >= 1000.0 {
+        format!("{}K", (hz / 1000.0).round() as u32)
+    } else {
+        format!("{}", hz.round() as u32)
+    }
+}
+
+/// One vertical slider with its label under it; whether it moved.
+fn eq_slider(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    label: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+) -> bool {
+    ui.vertical(|ui| {
+        ui.spacing_mut().slider_width = 90.0;
+        let changed = ui
+            .add(
+                egui::Slider::new(value, range)
+                    .vertical()
+                    .show_value(false)
+                    .trailing_fill(false),
+            )
+            .changed();
+        theme::text(ui, label, theme::regular(11.5), palette.secondary);
+        changed
+    })
+    .inner
+}
+
+/// The equalizer's response over the audible range, the bands marked on
+/// it: the shape says what a row of numbers cannot.
+fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettings) {
+    use egui::{Shape, Stroke, pos2, vec2};
+    let width = ui.available_width().min(720.0);
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 120.0), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, theme::RADIUS as f32, palette.surface);
+    let plot = rect.shrink2(vec2(10.0, 12.0));
+    let (low, high) = (20f32.log10(), 20_000f32.log10());
+    let x_of = |hz: f32| plot.left() + (hz.log10() - low) / (high - low) * plot.width();
+    let y_of = |db: f32| {
+        plot.center().y
+            - db.clamp(-crate::eq::RANGE_DB, crate::eq::RANGE_DB) / crate::eq::RANGE_DB
+                * plot.height()
+                / 2.0
+    };
+    for db in [-12.0, -6.0, 0.0, 6.0, 12.0] {
+        let color = if db == 0.0 {
+            palette.dim
+        } else {
+            palette.outline
+        };
+        painter.hline(plot.x_range(), y_of(db), Stroke::new(1.0, color));
+    }
+    for hz in crate::eq::BANDS {
+        painter.vline(x_of(hz), plot.y_range(), Stroke::new(1.0, palette.outline));
+    }
+    let points: Vec<egui::Pos2> = (0..=240)
+        .map(|step| {
+            let t = step as f32 / 240.0;
+            let hz = 10f32.powf(low + t * (high - low));
+            pos2(
+                plot.left() + t * plot.width(),
+                y_of(settings.response_db(hz)),
+            )
+        })
+        .collect();
+    let color = if settings.on {
+        palette.accent
+    } else {
+        palette.dim
+    };
+    painter.add(Shape::line(points, Stroke::new(2.0, color)));
+    for (hz, db) in crate::eq::BANDS.iter().zip(settings.bands_db) {
+        painter.circle_filled(pos2(x_of(*hz), y_of(db + settings.preamp_db)), 3.0, color);
     }
 }

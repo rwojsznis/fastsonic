@@ -58,6 +58,10 @@ main fields are:
 | `vis` | `bars` | The mini player's visualiser: `bars`, `scope`, or `off` |
 | `playlist_open` | `false` | The playlist window is open under the mini player |
 | `playlist_height` | `174` | The playlist window's height in skin pixels |
+| `eq_open` | `false` | The equalizer window is open under the mini player |
+| `eq_on` | `false` | The equalizer shapes local playback |
+| `eq_preamp_db` | `0` | The preamp, in decibels, never above zero |
+| `eq_bands_db` | ten zeros | The bands from 60 Hz to 16 kHz, in decibels, -12 to 12 |
 | `keep_playing_in_background` | `true` | Close to tray |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Optional personal Spotify app id used alongside shared coverage |
@@ -84,8 +88,8 @@ interface work. Demo mode never writes settings.
 
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
-`queue`, `devices`, `shortcuts`, `create`, `light`, `focus`, `winamp`, and
-`playlist`.
+`queue`, `devices`, `shortcuts`, `create`, `light`, `focus`, `winamp`,
+`playlist`, and `eq`.
 
 `--demo-shot <PATH>` writes the window to a PNG and exits, which is how the
 screenshots in these pages are made:

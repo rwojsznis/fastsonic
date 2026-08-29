@@ -604,6 +604,75 @@ fn pledit_sheet() -> Canvas {
     c
 }
 
+/// The equalizer window and its parts: the sliders' 28 frames, the
+/// thumbs, the buttons in their states, the graph and the colour the
+/// curve takes at each of its rows, and the preamp's line.
+fn eqmain_sheet() -> Canvas {
+    let mut c = Canvas::new(275, 315, PANEL);
+    c.frame((0, 0, 275, 116), OUTLINE);
+    c.text(46, 37, "+12", DIM);
+    c.text(56, 65, "0", DIM);
+    c.text(46, 96, "-12", DIM);
+    c.text(9, 104, "PREAMP", DIM);
+    let labels = [
+        "60", "170", "310", "600", "1K", "3K", "6K", "12K", "14K", "16K",
+    ];
+    for (band, label) in labels.iter().enumerate() {
+        let centre = 78 + 18 * band as i64 + 7;
+        let width = 5 * label.len() as i64 - 1;
+        c.text(centre - width / 2, 104, label, DIM);
+    }
+    for (y, color) in [(134, TEXT), (149, DIM)] {
+        c.rect(0, y, 275, 14, SURFACE);
+        c.frame((0, y, 275, 14), OUTLINE);
+        c.text_centred((0, y + 1, 275, 12), "EQUALIZER", color);
+    }
+    c.rect(0, 116, 9, 9, SURFACE);
+    c.glyph_centred((0, 116, 9, 9), CLOSE, SECONDARY, 0);
+    c.rect(0, 125, 9, 9, SURFACE_ACTIVE);
+    c.glyph_centred((0, 125, 9, 9), CLOSE, ACCENT, 0);
+    // ON and AUTO: off, on, off pressed, on pressed, left to right.
+    for (x, pressed, on) in [
+        (10, false, false),
+        (69, false, true),
+        (128, true, false),
+        (187, true, true),
+    ] {
+        label_button(&mut c, (x, 119, 26, 12), pressed, on, "ON");
+        label_button(&mut c, (x + 26, 119, 32, 12), pressed, on, "AUTO");
+    }
+    // The sliders: a groove with the level filled from the centre.
+    for frame in 0..28i64 {
+        let x = 13 + (frame % 14) * 15;
+        let y = 164 + (frame / 14) * 65;
+        display(&mut c, (x, y, 14, 63));
+        c.rect(x + 5, y + 31, 4, 1, DIM);
+        let level = ((27 - frame) * 62 + 13) / 27;
+        if level < 31 {
+            c.rect(x + 5, y + level, 4, 31 - level + 1, ACCENT);
+        } else if level > 31 {
+            c.rect(x + 5, y + 31, 4, level - 31 + 1, ACCENT_DARK);
+        }
+    }
+    thumb(&mut c, (0, 164, 11, 11), false);
+    thumb(&mut c, (0, 176, 11, 11), true);
+    label_button(&mut c, (224, 164, 44, 12), false, false, "PRESETS");
+    label_button(&mut c, (224, 176, 44, 12), true, true, "PRESETS");
+    display(&mut c, (0, 294, 113, 19));
+    c.rect(1, 303, 111, 1, OUTLINE);
+    for row in 0..19i64 {
+        let t = row as f32 / 18.0;
+        let mix = |channel: usize| {
+            let from = f32::from(ACCENT[channel]);
+            let to = f32::from(ACCENT_DARK[channel]);
+            (from + (to - from) * t).round() as u8
+        };
+        c.set(115, 294 + row, [mix(0), mix(1), mix(2)]);
+    }
+    c.rect(0, 314, 113, 1, DIM);
+    c
+}
+
 const PLEDIT_TXT: &str = "[Text]\r\nNormal=#A9B1BC\r\nCurrent=#1ED760\r\nNormalBG=#0F1114\r\nSelectedBG=#2F353F\r\nFont=Inter\r\n";
 
 /// Background, grid, sixteen spectrum bands from the top down, the
@@ -717,7 +786,7 @@ fn preview(skin: &Skin) -> image::RgbaImage {
 
 fn main() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/skins/fastpotify.wsz");
-    let sheets: [(Sheet, Canvas); 13] = [
+    let sheets: [(Sheet, Canvas); 14] = [
         (Sheet::Main, main_sheet()),
         (Sheet::CButtons, cbuttons_sheet()),
         (Sheet::TitleBar, titlebar_sheet()),
@@ -731,6 +800,7 @@ fn main() {
         (Sheet::NumsEx, numbers_sheet(true)),
         (Sheet::Text, text_sheet()),
         (Sheet::PlEdit, pledit_sheet()),
+        (Sheet::EqMain, eqmain_sheet()),
     ];
     let mut files: Vec<(String, Vec<u8>)> = sheets
         .iter()

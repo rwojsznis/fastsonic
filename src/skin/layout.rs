@@ -109,6 +109,21 @@ pub const PLAYLIST_GRIP: u32 = 20;
 pub const PLAYLIST_RUNNING_TIME: (u32, u32) = (132, 10);
 pub const PLAYLIST_TRACK_TIME: (u32, u32) = (191, 23);
 
+/// The equalizer window, between the main window and the playlist.
+pub const EQ_HEIGHT: u32 = 116;
+pub const EQ_TITLE_BAR: Area = Area::new(0, 0, 275, 14);
+pub const EQ_CLOSE: Area = Area::new(264, 3, 9, 9);
+pub const EQ_ON: Area = Area::new(14, 18, 26, 12);
+pub const EQ_AUTO: Area = Area::new(40, 18, 32, 12);
+pub const EQ_PRESETS_BUTTON: Area = Area::new(217, 18, 44, 12);
+pub const EQ_GRAPH: Area = Area::new(86, 17, 113, 19);
+pub const EQ_PREAMP: Area = Area::new(21, 38, 14, 63);
+
+/// The slider of a band, the ten of them eighteen pixels apart.
+pub const fn eq_band(band: usize) -> Area {
+    Area::new(78 + 18 * band as u32, 38, 14, 63)
+}
+
 /// The digit cells of the time display, left to right.
 pub const TIME_DIGITS: [Area; 4] = [MINUTE_TENS, MINUTE_ONES, SECOND_TENS, SECOND_ONES];
 

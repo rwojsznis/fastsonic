@@ -594,5 +594,13 @@ pub enum Action {
     ToggleWinampPlaylist,
     /// The playlist window's height, in skin pixels.
     SetPlaylistHeight(u32),
+    /// Open or close the equalizer window under the mini player.
+    ToggleWinampEq,
+    /// Switch the equalizer's effect on the sound on or off.
+    ToggleEq,
+    SetEqBand(usize, f32),
+    SetEqPreamp(f32),
+    /// One of Winamp's presets, by its place in the list.
+    ApplyEqPreset(usize),
     Quit,
 }

@@ -52,6 +52,8 @@ pub struct EngineConfig {
     pub audio_cache_limit: Option<u64>,
     /// Where the samples on their way out are copied for the visualiser.
     pub tap: Arc<AudioTap>,
+    /// The equalizer's settings, shared with the window that sets them.
+    pub eq: crate::eq::SharedEq,
 }
 
 impl EngineConfig {
@@ -459,6 +461,7 @@ fn sink_builder(
 ) -> SinkAndVolume {
     let device = config.audio_device.clone();
     let tap = Arc::clone(&config.tap);
+    let eq = Arc::clone(&config.eq);
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -480,7 +483,7 @@ fn sink_builder(
                 return (
                     Box::new(move || {
                         let sink = builder(device, AudioFormat::S16);
-                        Box::new(Tapped::new(sink, tap, Some(applied))) as Box<dyn Sink>
+                        Box::new(Tapped::new(sink, tap, Some(applied), eq)) as Box<dyn Sink>
                     }),
                     mixer.get_soft_volume(),
                 );
@@ -492,7 +495,7 @@ fn sink_builder(
     (
         Box::new(move || {
             let sink = Box::new(RodioSink::new(device, report, volume));
-            Box::new(Tapped::new(sink, tap, None)) as Box<dyn Sink>
+            Box::new(Tapped::new(sink, tap, None, eq)) as Box<dyn Sink>
         }),
         Box::new(NoOpVolume),
     )
@@ -721,6 +724,7 @@ mod tests {
     fn device_id_is_stable_hex() {
         let config = EngineConfig {
             tap: AudioTap::new(),
+            eq: crate::eq::shared(),
             device_name: "Fastpotify".into(),
             bitrate_kbps: 320,
             normalisation: false,

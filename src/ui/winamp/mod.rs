@@ -31,6 +31,7 @@ use crate::winamp::{MAX_SCALE, WinampState};
 
 use super::widgets::SliderEvent;
 
+mod equalizer;
 mod pixel_text;
 mod playlist;
 
@@ -43,6 +44,9 @@ const VIS_FRAME: Duration = Duration::from_micros(16_667);
 /// under it when it is open.
 fn stack_height(settings: &crate::settings::Settings) -> u32 {
     let mut height = layout::WINDOW_HEIGHT;
+    if settings.eq_open {
+        height += layout::EQ_HEIGHT;
+    }
     if settings.playlist_open {
         height += settings
             .playlist_height
@@ -308,10 +312,23 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         app.actions.push(Action::ToggleWinampWindow);
     }
 
+    // The other windows hang under this one in Winamp's order.
+    let mut below_y = layout::WINDOW_HEIGHT;
+    if app.settings.eq_open {
+        let mut below = View {
+            ui: view.ui,
+            origin: origin + vec2(0.0, below_y as f32 * unit),
+            unit,
+            skin: &skin,
+            textures: &textures,
+        };
+        equalizer::show(app, &mut below, focused);
+        below_y += layout::EQ_HEIGHT;
+    }
     if app.settings.playlist_open {
         let mut below = View {
             ui: view.ui,
-            origin: origin + vec2(0.0, layout::WINDOW_HEIGHT as f32 * unit),
+            origin: origin + vec2(0.0, below_y as f32 * unit),
             unit,
             skin: &skin,
             textures: &textures,
@@ -804,10 +821,19 @@ fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     view.sprite_at(thumb, thumb_x, layout::POSITION.y);
 }
 
-/// The EQ and PL toggles. There is no equalizer, so EQ rests; PL opens
-/// the playlist under this window.
+/// The EQ and PL toggles, each lit while its window hangs below.
 fn windows_buttons(app: &mut App, view: &mut View) {
-    view.sprite(sprites::EQ_OFF, layout::EQ_BUTTON);
+    let (normal, pressed) = if app.settings.eq_open {
+        (sprites::EQ_ON, sprites::EQ_ON_PRESSED)
+    } else {
+        (sprites::EQ_OFF, sprites::EQ_OFF_PRESSED)
+    };
+    if view
+        .button(layout::EQ_BUTTON, normal, pressed, "equalizer")
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampEq);
+    }
     let (normal, pressed) = if app.settings.playlist_open {
         (sprites::PLAYLIST_ON, sprites::PLAYLIST_ON_PRESSED)
     } else {
@@ -978,5 +1004,7 @@ mod tests {
         assert_eq!(initial_size(&settings), vec2(275.0, 116.0));
         settings.playlist_open = true;
         assert_eq!(initial_size(&settings), vec2(275.0, 290.0));
+        settings.eq_open = true;
+        assert_eq!(initial_size(&settings), vec2(275.0, 406.0));
     }
 }

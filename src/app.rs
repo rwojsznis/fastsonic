@@ -318,7 +318,16 @@ const GLIDE_STOP: f32 = 40.0;
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, settings: Settings, options: AppOptions) -> Self {
         let tap = crate::vis::AudioTap::new();
-        let engine_config = engine_config(&dirs, &settings, std::sync::Arc::clone(&tap));
+        let eq = crate::eq::shared();
+        if let Ok(mut shared) = eq.lock() {
+            *shared = eq_settings(&settings);
+        }
+        let engine_config = engine_config(
+            &dirs,
+            &settings,
+            std::sync::Arc::clone(&tap),
+            std::sync::Arc::clone(&eq),
+        );
         let backend = Backend::spawn(
             dirs.clone(),
             engine_config,
@@ -455,7 +464,7 @@ impl App {
             resume_position_ms: session.last_position_ms,
             update: None,
             last_update_check: None,
-            winamp: crate::winamp::WinampState::new(session.winamp_pos, tap),
+            winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
         };
         app.local.volume = app.settings.volume;
         app
@@ -1274,6 +1283,15 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Hands the equalizer settings to the player's thread and marks them
+    /// for saving.
+    fn push_eq(&mut self) {
+        if let Ok(mut shared) = self.winamp.eq.lock() {
+            *shared = eq_settings(&self.settings);
+        }
+        self.settings_dirty = true;
     }
 
     /// Note that a setting changed, so the file is saved shortly.
@@ -3730,6 +3748,7 @@ impl App {
                     &self.dirs,
                     &self.settings,
                     std::sync::Arc::clone(&self.winamp.tap),
+                    std::sync::Arc::clone(&self.winamp.eq),
                 );
                 self.backend.send(Command::RestartEngine(config));
                 if self.local_ready {
@@ -3823,6 +3842,31 @@ impl App {
                     crate::skin::layout::PLAYLIST_MAX_HEIGHT,
                 );
                 self.settings_dirty = true;
+            }
+            Action::ToggleWinampEq => {
+                self.settings.eq_open = !self.settings.eq_open;
+                self.settings_dirty = true;
+            }
+            Action::ToggleEq => {
+                self.settings.eq_on = !self.settings.eq_on;
+                self.push_eq();
+            }
+            Action::SetEqBand(band, gain_db) => {
+                if let Some(slot) = self.settings.eq_bands_db.get_mut(band) {
+                    *slot = gain_db.clamp(-crate::eq::RANGE_DB, crate::eq::RANGE_DB);
+                    self.push_eq();
+                }
+            }
+            Action::SetEqPreamp(gain_db) => {
+                self.settings.eq_preamp_db = gain_db.clamp(-crate::eq::RANGE_DB, 0.0);
+                self.push_eq();
+            }
+            Action::ApplyEqPreset(index) => {
+                if let Some(preset) = crate::eq::PRESETS.get(index) {
+                    self.settings.eq_bands_db = preset.bands_db;
+                    self.settings.eq_on = true;
+                    self.push_eq();
+                }
             }
             Action::CycleVisualiser => {
                 self.settings.vis = self.settings.vis.next();
@@ -4100,9 +4144,11 @@ pub fn engine_config(
     dirs: &AppDirs,
     settings: &Settings,
     tap: std::sync::Arc<crate::vis::AudioTap>,
+    eq: crate::eq::SharedEq,
 ) -> EngineConfig {
     EngineConfig {
         tap,
+        eq,
         device_name: settings.device_name.trim().to_string(),
         bitrate_kbps: settings.bitrate,
         normalisation: settings.normalisation,
@@ -4119,6 +4165,16 @@ pub fn engine_config(
         audio_cache_dir: settings.audio_cache.then(|| dirs.audio_cache_dir()),
         audio_cache_limit: Some(settings.audio_cache_mb.max(64) * 1024 * 1024),
     }
+}
+
+/// The equalizer as the settings describe it.
+pub fn eq_settings(settings: &Settings) -> crate::eq::EqSettings {
+    crate::eq::EqSettings {
+        on: settings.eq_on,
+        preamp_db: settings.eq_preamp_db,
+        bands_db: settings.eq_bands_db,
+    }
+    .clamped()
 }
 
 pub fn volume_to_percent(volume: u16) -> u8 {
