@@ -298,9 +298,11 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 ascending: false,
             }),
             Some(sort) if sort.column == column => None,
+            // Ascending by # is the list's own order, a click that would
+            // change nothing; the first click on # reverses instead.
             _ => Some(TableSort {
                 column,
-                ascending: true,
+                ascending: column != SortColumn::Index,
             }),
         };
         match next {
@@ -434,6 +436,7 @@ fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> V
                     .cmp(&item_b.name().to_lowercase()),
                 SortColumn::Album => album_of(item_a).cmp(&album_of(item_b)),
                 SortColumn::Added => added_a.cmp(added_b),
+                SortColumn::Index => a.cmp(b),
                 SortColumn::AddedBy => adder_a
                     .as_deref()
                     .unwrap_or_default()

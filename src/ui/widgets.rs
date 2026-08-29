@@ -903,14 +903,51 @@ pub fn table_header(
             clicked = Some(column);
         }
     };
+    let mut number_clicked = false;
     let mut x = rect.left() + 8.0;
-    ui.painter().text(
-        pos2(x + 22.0, rect.center().y),
-        egui::Align2::CENTER_CENTER,
-        "#",
-        font.clone(),
-        color,
-    );
+    {
+        let number = Rect::from_center_size(pos2(x + 22.0, rect.center().y), vec2(30.0, 22.0));
+        let active = sort.filter(|sort| sort.column == SortColumn::Index);
+        let response = ui.interact(number, ui.id().with("table-header-number"), Sense::click());
+        let number_color = if active.is_some() {
+            palette.accent
+        } else if response.hovered() {
+            palette.text
+        } else {
+            color
+        };
+        ui.painter().text(
+            number.center(),
+            egui::Align2::CENTER_CENTER,
+            "#",
+            font.clone(),
+            number_color,
+        );
+        if let Some(sort) = active {
+            let center = pos2(number.center().x + 12.0, rect.center().y);
+            let (wing, tip) = if sort.ascending {
+                (2.8, -3.2)
+            } else {
+                (-2.8, 3.2)
+            };
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![
+                    center + vec2(-4.0, wing),
+                    center + vec2(4.0, wing),
+                    center + vec2(0.0, tip),
+                ],
+                number_color,
+                egui::Stroke::NONE,
+            ));
+        }
+        if response
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text("The list's own order, reversed")
+            .clicked()
+        {
+            number_clicked = true;
+        }
+    }
     x += 44.0;
     if show_cover {
         x += 52.0;
@@ -943,6 +980,9 @@ pub fn table_header(
     if added_width > 0.0 {
         heading(ui, cx, "DATE ADDED", SortColumn::Added);
     }
+    if number_clicked {
+        clicked = Some(SortColumn::Index);
+    }
     let clock = Rect::from_center_size(
         pos2(rect.right() - 36.0 - 56.0 / 2.0 - 6.0, rect.center().y),
         Vec2::splat(15.0),
@@ -961,6 +1001,23 @@ pub fn table_header(
         color
     };
     Icon::Clock.image(clock_color, 15.0).paint_at(ui, clock);
+    if let Some(sort) = sort.filter(|sort| sort.column == SortColumn::Duration) {
+        let center = pos2(clock.right() + 9.0, rect.center().y);
+        let (wing, tip) = if sort.ascending {
+            (2.8, -3.2)
+        } else {
+            (-2.8, 3.2)
+        };
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![
+                center + vec2(-4.0, wing),
+                center + vec2(4.0, wing),
+                center + vec2(0.0, tip),
+            ],
+            clock_color,
+            egui::Stroke::NONE,
+        ));
+    }
     if response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text("Sort by duration")

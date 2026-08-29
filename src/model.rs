@@ -383,6 +383,8 @@ pub enum SortColumn {
     Added,
     Duration,
     AddedBy,
+    /// The list's own order, for playing it reversed from the # heading.
+    Index,
 }
 
 /// One of the things a track row can be part of, for playback context and
