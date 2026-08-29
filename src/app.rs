@@ -1035,8 +1035,23 @@ impl App {
         if track_changed {
             self.on_now_playing_changed();
         }
-        if reconnected && let Some(request) = self.queued_play.take() {
-            self.play_request(request, false);
+        if reconnected {
+            if let Some(request) = self.queued_play.take() {
+                self.play_request(request, false);
+            }
+            // Names asked about before the session existed never got an
+            // answer and showed as bare ids; ask again now that someone
+            // can answer.
+            let unresolved: Vec<String> = self
+                .user_names
+                .iter()
+                .filter(|(_, name)| name.is_none())
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in &unresolved {
+                self.user_names.remove(id);
+            }
+            self.request_user_names(unresolved);
         }
     }
 
