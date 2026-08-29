@@ -734,7 +734,12 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     }
     // Date added.
     if cols.added > 0.0 {
-        if let Some(added) = row.added_at {
+        // Spotify stamps the epoch on dates it never recorded; an empty
+        // cell is truer than January 1970.
+        if let Some(added) = row
+            .added_at
+            .filter(|added| !added.starts_with("1970-01-01"))
+        {
             let cell = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.added, row_height));
             painter.text(
                 pos2(cell.left(), cell.center().y),
