@@ -138,6 +138,15 @@ pub const fn eq_band(band: usize) -> Area {
     Area::new(78 + 18 * band as u32, 38, 14, 63)
 }
 
+/// The equalizer rolled up to its title bar, with the volume and balance
+/// along it as tiny sliders, and the button that rolls it up or down.
+pub const EQ_SHADE_HEIGHT: u32 = 14;
+pub const EQ_SHADE: Area = Area::new(254, 3, 9, 9);
+pub const EQ_SHADE_VOLUME: Area = Area::new(61, 4, 97, 7);
+pub const EQ_SHADE_BALANCE: Area = Area::new(164, 4, 43, 7);
+/// The mini sliders' thumbs are three pixels wide.
+pub const EQ_SHADE_THUMB: u32 = 3;
+
 /// Shade mode: the main window as one title bar.
 pub const SHADE_TIME: Area = Area::new(127, 4, 30, 6);
 pub const SHADE_PREVIOUS: Area = Area::new(169, 2, 7, 10);

@@ -689,7 +689,7 @@ fn eqmain_sheet() -> Canvas {
         let width = 5 * label.len() as i64 - 1;
         c.text(centre - width / 2, 104, label, DIM);
     }
-    for (y, color) in [(134, TEXT), (149, DIM)] {
+    for (y, color, button) in [(134, TEXT, SECONDARY), (149, DIM, DIM)] {
         c.rect(0, y, 275, 14, SURFACE);
         c.frame((0, y, 275, 14), OUTLINE);
         c.text_centred((0, y + 1, 275, 12), "EQUALIZER", color);
@@ -697,6 +697,8 @@ fn eqmain_sheet() -> Canvas {
         let start = (275 - width) / 2;
         title_lines(&mut c, 18, start - 8, y + 5);
         title_lines(&mut c, start + width + 8, 241, y + 5);
+        // The shade button rests in the bar itself; the X is a sprite.
+        c.glyph_centred((254, y + 3, 9, 9), SHADE, button, 0);
     }
     c.rect(0, 116, 9, 9, SURFACE);
     c.glyph_centred((0, 116, 9, 9), CLOSE, SECONDARY, 0);
@@ -741,6 +743,52 @@ fn eqmain_sheet() -> Canvas {
         c.set(115, 294 + row, [mix(0), mix(1), mix(2)]);
     }
     c.rect(0, 314, 113, 1, DIM);
+    c
+}
+
+/// The equalizer rolled up, as Winamp 2.9 added it: the bar active and
+/// inactive with sunken strips for the volume and balance, the three looks
+/// of each mini slider's thumb, and the shade, unshade, and close buttons.
+fn eq_ex_sheet() -> Canvas {
+    let mut c = Canvas::new(275, 56, PANEL);
+    for (y, color, button) in [(0, TEXT, SECONDARY), (15, DIM, DIM)] {
+        c.rect(0, y, 275, 14, SURFACE);
+        c.frame((0, y, 275, 14), OUTLINE);
+        c.text(8, y + 4, "EQUALIZER", color);
+        for (x, width) in [(61, 97), (164, 43)] {
+            display(&mut c, (x, y + 3, width, 9));
+            c.rect(x + 2, y + 7, width - 4, 1, SURFACE_HOVER);
+        }
+        c.text(212, y + 4, "VOL", DIM);
+        c.text(231, y + 4, "BAL", DIM);
+        c.glyph_centred((254, y + 3, 9, 9), UNSHADE, button, 0);
+    }
+    // Six thumbs, three pixels wide: low, middle, high for the volume,
+    // then left, middle, right for the balance. The high and outer looks
+    // light up, the way Winamp's base skin coloured them.
+    for (index, x) in [1, 4, 7, 11, 14, 17].into_iter().enumerate() {
+        let lit = matches!(index, 2 | 3 | 5);
+        let (fill, light) = if lit {
+            (ACCENT_DARK, ACCENT)
+        } else {
+            (SURFACE_HOVER, SURFACE_ACTIVE)
+        };
+        c.bevel((x, 30, 3, 7), fill, light, WINDOW);
+    }
+    for (x, y, rows, pressed) in [
+        (1, 38, SHADE, true),
+        (1, 47, UNSHADE, true),
+        (11, 38, CLOSE, false),
+        (11, 47, CLOSE, true),
+    ] {
+        let (fill, color) = if pressed {
+            (SURFACE_ACTIVE, ACCENT)
+        } else {
+            (SURFACE, SECONDARY)
+        };
+        c.rect(x, y, 9, 9, fill);
+        c.glyph_centred((x, y, 9, 9), rows, color, 0);
+    }
     c
 }
 
@@ -857,7 +905,7 @@ fn preview(skin: &Skin) -> image::RgbaImage {
 
 fn main() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/skins/fastpotify.wsz");
-    let sheets: [(Sheet, Canvas); 14] = [
+    let sheets: [(Sheet, Canvas); 15] = [
         (Sheet::Main, main_sheet()),
         (Sheet::CButtons, cbuttons_sheet()),
         (Sheet::TitleBar, titlebar_sheet()),
@@ -872,6 +920,7 @@ fn main() {
         (Sheet::Text, text_sheet()),
         (Sheet::PlEdit, pledit_sheet()),
         (Sheet::EqMain, eqmain_sheet()),
+        (Sheet::EqEx, eq_ex_sheet()),
     ];
     let mut files: Vec<(String, Vec<u8>)> = sheets
         .iter()

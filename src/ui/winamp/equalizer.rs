@@ -5,14 +5,19 @@
 //! the curve. AUTO loaded a preset per song from a file Fastpotify has no
 //! equivalent of, so it stays painted and off. The sound itself is shaped
 //! in `eq`, on the player's thread; this only moves the numbers.
+//!
+//! Its shade button rolls it up to a bar that keeps the volume and balance
+//! on it as tiny sliders, the way Winamp 2.9 drew it from `eq_ex.bmp`.
 
 use egui::Sense;
 
-use crate::app::App;
+use crate::app::{App, NowPlaying};
 use crate::eq::{self, EqSettings, RANGE_DB};
 use crate::model::Action;
 use crate::skin::layout::{self, Area};
+use crate::skin::sprites::Sprite;
 use crate::skin::{Sheet, sprites};
+use crate::ui::widgets::SliderEvent;
 
 use super::View;
 
@@ -23,7 +28,11 @@ const TRAVEL: u32 = layout::EQ_PREAMP.height - THUMB;
 const GRAPH_STEP: u32 = 12;
 const GRAPH_PAD: u32 = 2;
 
-pub(super) fn show(app: &mut App, view: &mut View, focused: bool) {
+pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, focused: bool) {
+    if app.settings.eq_shaded {
+        shade(app, view, now, focused);
+        return;
+    }
     view.sprite(
         sprites::EQ_BACKGROUND,
         Area::new(0, 0, layout::WINDOW_WIDTH, layout::EQ_HEIGHT),
@@ -39,6 +48,21 @@ pub(super) fn show(app: &mut App, view: &mut View, focused: bool) {
         view.ui
             .ctx()
             .send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if title.double_clicked() {
+        app.actions.push(Action::ToggleWinampEqShade);
+    }
+    if view
+        .lamp_button(
+            layout::EQ_SHADE,
+            sprites::EQ_SHADE_BUTTON_PRESSED,
+            false,
+            "eq-shade",
+        )
+        .on_hover_text("Roll the equalizer up")
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampEqShade);
     }
     if view
         .button(
@@ -86,6 +110,132 @@ pub(super) fn show(app: &mut App, view: &mut View, focused: bool) {
         if let Some(value) = slider(view, area, &format!("eq-band-{band}"), fraction(gain_db)) {
             app.actions.push(Action::SetEqBand(band, decibels(value)));
         }
+    }
+}
+
+/// The equalizer rolled up: its bar, with the volume and balance riding
+/// along it. Each slider is only its thumb, which takes one of three looks
+/// as it goes, as the skin's frames say.
+fn shade(app: &mut App, view: &mut View, now: Option<&NowPlaying>, focused: bool) {
+    let bar = if focused {
+        sprites::EQ_SHADE_BAR_ACTIVE
+    } else {
+        sprites::EQ_SHADE_BAR_INACTIVE
+    };
+    let area = Area::new(0, 0, layout::WINDOW_WIDTH, layout::EQ_SHADE_HEIGHT);
+    view.sprite(bar, area);
+    let title = view.interact(area, "eq-shade-title", Sense::click_and_drag());
+    if title.drag_started() {
+        view.ui
+            .ctx()
+            .send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if title.double_clicked() {
+        app.actions.push(Action::ToggleWinampEqShade);
+    }
+
+    // Volume, as the main window's slider does it.
+    let volume = now
+        .map(|now| now.volume_percent)
+        .unwrap_or_else(|| crate::app::volume_to_percent(app.local.volume));
+    let track = layout::EQ_SHADE_VOLUME;
+    let (_, event) = view.slider(track, "eq-shade-volume", layout::EQ_SHADE_THUMB);
+    match event {
+        SliderEvent::Dragging(value) => {
+            app.volume_preview = Some(value);
+            if now.is_none_or(|now| now.local) {
+                app.actions
+                    .push(Action::PreviewVolume((value * 100.0).round() as u8));
+            }
+        }
+        SliderEvent::Committed(value) => {
+            app.volume_preview = None;
+            app.actions
+                .push(Action::SetVolume((value * 100.0).round() as u8));
+        }
+        SliderEvent::None => {}
+    }
+    let shown = match app.volume_preview {
+        Some(fraction) => (fraction * 100.0).round() as u32,
+        None => u32::from(volume),
+    };
+    let thumb = look(
+        shown as f32 / 100.0,
+        [
+            sprites::EQ_SHADE_VOLUME_THUMB_LOW,
+            sprites::EQ_SHADE_VOLUME_THUMB_MIDDLE,
+            sprites::EQ_SHADE_VOLUME_THUMB_HIGH,
+        ],
+    );
+    let travel = track.width - layout::EQ_SHADE_THUMB;
+    view.sprite_at(thumb, track.x + (shown * travel + 50) / 100, track.y);
+
+    // Balance, with the same snap to the centre.
+    let track = layout::EQ_SHADE_BALANCE;
+    let (_, event) = view.slider(track, "eq-shade-balance", layout::EQ_SHADE_THUMB);
+    match event {
+        SliderEvent::Dragging(value) => {
+            let balance = super::balance_of(value);
+            app.winamp.balance_preview = Some(balance);
+            app.actions.push(Action::SetBalance(balance));
+        }
+        SliderEvent::Committed(value) => {
+            app.winamp.balance_preview = None;
+            app.actions
+                .push(Action::SetBalance(super::balance_of(value)));
+        }
+        SliderEvent::None => {}
+    }
+    let balance = app.winamp.balance_preview.unwrap_or(app.settings.balance);
+    let fraction = (balance + 1.0) / 2.0;
+    let thumb = look(
+        fraction,
+        [
+            sprites::EQ_SHADE_BALANCE_THUMB_LEFT,
+            sprites::EQ_SHADE_BALANCE_THUMB_MIDDLE,
+            sprites::EQ_SHADE_BALANCE_THUMB_RIGHT,
+        ],
+    );
+    let travel = track.width - layout::EQ_SHADE_THUMB;
+    view.sprite_at(
+        thumb,
+        track.x + (fraction * travel as f32).round() as u32,
+        track.y,
+    );
+
+    if view
+        .lamp_button(
+            layout::EQ_SHADE,
+            sprites::EQ_UNSHADE_BUTTON_PRESSED,
+            false,
+            "eq-unshade",
+        )
+        .on_hover_text("Roll the equalizer down")
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampEqShade);
+    }
+    if view
+        .button(
+            layout::EQ_CLOSE,
+            sprites::EQ_SHADE_CLOSE_BUTTON,
+            sprites::EQ_SHADE_CLOSE_BUTTON_PRESSED,
+            "eq-shade-close",
+        )
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampEq);
+    }
+}
+
+/// Which of a mini slider's three looks goes with a value from 0 to 1.
+fn look(value: f32, looks: [Sprite; 3]) -> Sprite {
+    if value < 1.0 / 3.0 {
+        looks[0]
+    } else if value < 2.0 / 3.0 {
+        looks[1]
+    } else {
+        looks[2]
     }
 }
 
@@ -210,6 +360,20 @@ mod tests {
         assert_eq!(fraction(0.0), 0.5);
         assert_eq!(fraction(RANGE_DB), 1.0);
         assert!((decibels(fraction(3.0)) - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_mini_slider_changes_its_look_by_thirds() {
+        let looks = [
+            sprites::EQ_SHADE_VOLUME_THUMB_LOW,
+            sprites::EQ_SHADE_VOLUME_THUMB_MIDDLE,
+            sprites::EQ_SHADE_VOLUME_THUMB_HIGH,
+        ];
+        assert_eq!(look(0.0, looks), looks[0]);
+        assert_eq!(look(0.3, looks), looks[0]);
+        assert_eq!(look(0.5, looks), looks[1]);
+        assert_eq!(look(0.7, looks), looks[2]);
+        assert_eq!(look(1.0, looks), looks[2]);
     }
 
     #[test]

@@ -35,10 +35,13 @@ pub enum Sheet {
     PlEdit,
     /// The equalizer window.
     EqMain,
+    /// The equalizer rolled up: its bar, mini sliders, and buttons. Skins
+    /// from Winamp 2.9 on ship this; older ones borrow the built-in one.
+    EqEx,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 14] = [
+    pub const ALL: [Sheet; 15] = [
         Sheet::Main,
         Sheet::CButtons,
         Sheet::TitleBar,
@@ -53,6 +56,7 @@ impl Sheet {
         Sheet::Text,
         Sheet::PlEdit,
         Sheet::EqMain,
+        Sheet::EqEx,
     ];
 
     /// The file's name without its extension, in lower case.
@@ -72,6 +76,7 @@ impl Sheet {
             Sheet::Text => "text",
             Sheet::PlEdit => "pledit",
             Sheet::EqMain => "eqmain",
+            Sheet::EqEx => "eq_ex",
         }
     }
 }
@@ -253,6 +258,21 @@ sprites! {
     EQ_PREAMP_LINE = (EqMain, 0, 314, 113, 1);
     EQ_THUMB = (EqMain, 0, 164, 11, 11);
     EQ_THUMB_PRESSED = (EqMain, 0, 176, 11, 11);
+    /// The equalizer's shade bar, the three looks of each mini slider's
+    /// thumb (low, middle, high), and the bar's buttons. The shade
+    /// button's resting look is part of the bars themselves.
+    EQ_SHADE_BAR_ACTIVE = (EqEx, 0, 0, 275, 14);
+    EQ_SHADE_BAR_INACTIVE = (EqEx, 0, 15, 275, 14);
+    EQ_SHADE_VOLUME_THUMB_LOW = (EqEx, 1, 30, 3, 7);
+    EQ_SHADE_VOLUME_THUMB_MIDDLE = (EqEx, 4, 30, 3, 7);
+    EQ_SHADE_VOLUME_THUMB_HIGH = (EqEx, 7, 30, 3, 7);
+    EQ_SHADE_BALANCE_THUMB_LEFT = (EqEx, 11, 30, 3, 7);
+    EQ_SHADE_BALANCE_THUMB_MIDDLE = (EqEx, 14, 30, 3, 7);
+    EQ_SHADE_BALANCE_THUMB_RIGHT = (EqEx, 17, 30, 3, 7);
+    EQ_SHADE_BUTTON_PRESSED = (EqEx, 1, 38, 9, 9);
+    EQ_UNSHADE_BUTTON_PRESSED = (EqEx, 1, 47, 9, 9);
+    EQ_SHADE_CLOSE_BUTTON = (EqEx, 11, 38, 9, 9);
+    EQ_SHADE_CLOSE_BUTTON_PRESSED = (EqEx, 11, 47, 9, 9);
 }
 
 /// How many steps an equalizer slider's track is drawn in.

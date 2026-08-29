@@ -609,6 +609,8 @@ pub enum Action {
     ToggleMono,
     /// Roll the playlist window up to its title bar, or down again.
     ToggleWinampPlaylistShade,
+    /// Roll the equalizer window up to its title bar, or down again.
+    ToggleWinampEqShade,
     /// Roll the main window up to its title bar, or down again.
     ToggleWinampShade,
     Quit,

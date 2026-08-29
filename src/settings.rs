@@ -120,6 +120,8 @@ pub struct Settings {
     pub mono: bool,
     /// The playlist window is rolled up to its title bar.
     pub playlist_shaded: bool,
+    /// The equalizer window is rolled up to its title bar.
+    pub eq_shaded: bool,
     /// The main window is rolled up to its title bar.
     pub winamp_shaded: bool,
 }
@@ -166,6 +168,7 @@ impl Default for Settings {
             balance: 0.0,
             mono: false,
             playlist_shaded: false,
+            eq_shaded: false,
             winamp_shaded: false,
         }
     }
@@ -247,6 +250,7 @@ mod tests {
         assert_eq!(settings.balance, 0.0);
         assert!(!settings.mono);
         assert!(!settings.playlist_shaded);
+        assert!(!settings.eq_shaded);
         assert!(!settings.winamp_shaded);
     }
 

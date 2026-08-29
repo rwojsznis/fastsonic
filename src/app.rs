@@ -3906,6 +3906,10 @@ impl App {
                 self.settings.playlist_shaded = !self.settings.playlist_shaded;
                 self.settings_dirty = true;
             }
+            Action::ToggleWinampEqShade => {
+                self.settings.eq_shaded = !self.settings.eq_shaded;
+                self.settings_dirty = true;
+            }
             Action::CycleVisualiser => {
                 self.settings.vis = self.settings.vis.next();
                 self.settings_dirty = true;

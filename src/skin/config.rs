@@ -93,6 +93,7 @@ pub struct Regions {
     pub normal: Option<Mask>,
     pub shade: Option<Mask>,
     pub equalizer: Option<Mask>,
+    pub equalizer_shade: Option<Mask>,
 }
 
 /// Reads `region.txt`: sections named for the windows, each with a
@@ -112,6 +113,7 @@ pub fn parse_regions(text: &str) -> Regions {
             "normal" => (275, 116, &mut regions.normal),
             "windowshade" => (275, 14, &mut regions.shade),
             "equalizer" => (275, 116, &mut regions.equalizer),
+            "equalizerws" => (275, 14, &mut regions.equalizer_shade),
             _ => return,
         };
         let pairs: Vec<(i32, i32)> = points

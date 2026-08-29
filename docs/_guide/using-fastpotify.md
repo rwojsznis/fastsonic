@@ -149,7 +149,9 @@ control, so that slider is drawn but does nothing.
 Click the time to count down instead of up. The balance slider moves the
 sound between the speakers and the MONO and STEREO lamps are a switch,
 both for music played on this computer. The playlist's own shade button
-rolls it up to a title bar and down again. The display's left box is the
+rolls it up to a title bar and down again, and the equalizer's rolls it up
+to a bar that keeps the volume and balance on it as tiny sliders, as Winamp
+2.9 drew it; skins from before then wear the built-in bar for that. The display's left box is the
 spectrum analyser, peaks and all, in the skin's own colours; click it, or
 **V**, for the oscilloscope, and again for nothing. It shows the sound
 leaving this computer, so a device across the room leaves it flat. Modern

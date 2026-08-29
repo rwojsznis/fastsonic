@@ -49,7 +49,11 @@ fn stack_height(settings: &crate::settings::Settings) -> u32 {
         layout::WINDOW_HEIGHT
     };
     if settings.eq_open {
-        height += layout::EQ_HEIGHT;
+        height += if settings.eq_shaded {
+            layout::EQ_SHADE_HEIGHT
+        } else {
+            layout::EQ_HEIGHT
+        };
     }
     if settings.playlist_open {
         height += if settings.playlist_shaded {
@@ -356,16 +360,25 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         layout::WINDOW_HEIGHT
     };
     if app.settings.eq_open {
+        let eq_shaded = app.settings.eq_shaded;
         let mut below = View {
             ui: view.ui,
             origin: origin + vec2(0.0, below_y as f32 * unit),
             unit,
             skin: &skin,
             textures: &textures,
-            mask: skin.regions.equalizer.as_ref(),
+            mask: if eq_shaded {
+                skin.regions.equalizer_shade.as_ref()
+            } else {
+                skin.regions.equalizer.as_ref()
+            },
         };
-        equalizer::show(app, &mut below, focused);
-        below_y += layout::EQ_HEIGHT;
+        equalizer::show(app, &mut below, now.as_ref(), focused);
+        below_y += if eq_shaded {
+            layout::EQ_SHADE_HEIGHT
+        } else {
+            layout::EQ_HEIGHT
+        };
     }
     if app.settings.playlist_open {
         let mut below = View {
@@ -1404,5 +1417,7 @@ mod tests {
         assert_eq!(initial_size(&settings), vec2(275.0, 290.0));
         settings.eq_open = true;
         assert_eq!(initial_size(&settings), vec2(275.0, 406.0));
+        settings.eq_shaded = true;
+        assert_eq!(initial_size(&settings), vec2(275.0, 304.0));
     }
 }
