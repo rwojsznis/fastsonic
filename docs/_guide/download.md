@@ -28,8 +28,12 @@ Homebrew installs the same unnotarized build, so the first-open steps below
 still apply. To skip them, clear the quarantine flag instead:
 
 ```sh
-xattr -d com.apple.quarantine /Applications/Fastpotify.app
+xattr -dr com.apple.quarantine /Applications/Fastpotify.app
 ```
+
+The `-r` matters: it clears the flag from the files inside the bundle too.
+macOS 26 leaves the app bouncing in the Dock forever when only the top level
+is cleared.
 
 ### First open on macOS
 
