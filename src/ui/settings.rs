@@ -618,14 +618,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 14.0;
+            let on = app.settings.eq_on;
             let mut preamp = app.settings.eq_preamp_db;
-            if eq_slider(ui, &palette, "Pre", &mut preamp, -crate::eq::RANGE_DB..=0.0) {
+            if eq_slider(ui, &palette, "Pre", &mut preamp, 0.0, on) {
                 app.actions.push(Action::SetEqPreamp(preamp));
             }
             for (band, hz) in crate::eq::BANDS.iter().enumerate() {
                 let mut gain = app.settings.eq_bands_db[band];
-                let range = -crate::eq::RANGE_DB..=crate::eq::RANGE_DB;
-                if eq_slider(ui, &palette, &hertz(*hz), &mut gain, range) {
+                if eq_slider(
+                    ui,
+                    &palette,
+                    &hertz(*hz),
+                    &mut gain,
+                    crate::eq::RANGE_DB,
+                    on,
+                ) {
                     app.actions.push(Action::SetEqBand(band, gain));
                 }
             }
@@ -716,24 +723,66 @@ fn hertz(hz: f32) -> String {
     }
 }
 
-/// One vertical slider with its label under it; whether it moved.
+/// One vertical slider in the app's own style: the track filled from
+/// 0 dB, the handle in the middle when flat, a double-click to put it
+/// back there. Returns whether it moved.
 fn eq_slider(
     ui: &mut egui::Ui,
     palette: &Palette,
     label: &str,
     value: &mut f32,
-    range: std::ops::RangeInclusive<f32>,
+    ceiling: f32,
+    on: bool,
 ) -> bool {
+    use egui::{Rect, Stroke, pos2, vec2};
+    let range = crate::eq::RANGE_DB;
     ui.vertical(|ui| {
-        ui.spacing_mut().slider_width = 90.0;
-        let changed = ui
-            .add(
-                egui::Slider::new(value, range)
-                    .vertical()
-                    .show_value(false)
-                    .trailing_fill(false),
-            )
-            .changed();
+        let (rect, response) =
+            ui.allocate_exact_size(vec2(30.0, 118.0), egui::Sense::click_and_drag());
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let track = Rect::from_center_size(rect.center(), vec2(4.0, rect.height() - 20.0));
+        let y_of = |db: f32| track.bottom() - (db + range) / (2.0 * range) * track.height();
+        let mut changed = false;
+        if response.double_clicked() {
+            *value = 0.0;
+            changed = true;
+        } else if (response.dragged() || response.clicked())
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            let db = (track.bottom() - pos.y) / track.height() * 2.0 * range - range;
+            let db = (db.clamp(-range, ceiling) * 10.0).round() / 10.0;
+            if db != *value {
+                *value = db;
+                changed = true;
+            }
+        }
+        if ui.is_rect_visible(rect) {
+            let painter = ui.painter();
+            painter.rect_filled(track, 2.0, palette.surface_active);
+            let fill = if on { palette.accent } else { palette.dim };
+            let (top, bottom) = (y_of(value.max(0.0)), y_of(value.min(0.0)));
+            painter.rect_filled(
+                Rect::from_min_max(pos2(track.left(), top), pos2(track.right(), bottom)),
+                2.0,
+                fill,
+            );
+            painter.hline(
+                (track.left() - 3.0)..=(track.right() + 3.0),
+                y_of(0.0),
+                Stroke::new(1.0, palette.dim),
+            );
+            let handle = pos2(track.center().x, y_of(*value));
+            painter.circle_filled(handle, 7.0, palette.text);
+            if response.hovered() || response.dragged() {
+                painter.text(
+                    pos2(track.center().x, rect.top() + 2.0),
+                    egui::Align2::CENTER_TOP,
+                    format!("{value:+.1}"),
+                    theme::regular(11.0),
+                    palette.secondary,
+                );
+            }
+        }
         theme::text(ui, label, theme::regular(11.5), palette.secondary);
         changed
     })
