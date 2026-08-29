@@ -342,12 +342,24 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
         .interact(area, "playlist-list", Sense::hover())
         .contains_pointer();
     if hovered {
-        let delta = view.ui.ctx().input(|input| input.smooth_scroll_delta.y);
         let row_points = layout::PLAYLIST_TRACK_HEIGHT as f32 * view.unit;
-        app.winamp.playlist_wheel -= delta;
-        let rows_moved = (app.winamp.playlist_wheel / row_points).trunc();
+        let (lines, points, pages) = view.ui.ctx().input(|input| {
+            input
+                .events
+                .iter()
+                .fold((0.0, 0.0, 0.0), |sum, event| match event {
+                    egui::Event::MouseWheel { unit, delta, .. } => match unit {
+                        egui::MouseWheelUnit::Line => (sum.0 + delta.y, sum.1, sum.2),
+                        egui::MouseWheelUnit::Point => (sum.0, sum.1 + delta.y, sum.2),
+                        egui::MouseWheelUnit::Page => (sum.0, sum.1, sum.2 + delta.y),
+                    },
+                    _ => sum,
+                })
+        });
+        app.winamp.playlist_wheel += rows_for_wheel(lines, points, pages, row_points, visible);
+        let rows_moved = app.winamp.playlist_wheel.trunc();
         if rows_moved != 0.0 {
-            app.winamp.playlist_wheel -= rows_moved * row_points;
+            app.winamp.playlist_wheel -= rows_moved;
             let scroll = app.winamp.playlist_scroll as i64 + rows_moved as i64;
             app.winamp.playlist_scroll = scroll.clamp(0, most as i64) as usize;
         }
@@ -425,6 +437,15 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
             color,
         );
     }
+}
+
+/// How many rows a frame's wheel moves the list, positive downwards. A
+/// notch scrolls three rows, the Windows default Winamp's list followed;
+/// a trackpad's points scroll a row per row's height; a page is the rows
+/// in view. egui's deltas are positive when the content moves down, which
+/// is scrolling up.
+fn rows_for_wheel(lines: f32, points: f32, pages: f32, row_points: f32, visible: usize) -> f32 {
+    -(lines * 3.0 + points / row_points + pages * visible as f32)
 }
 
 /// Text cut to a width, with an ellipsis when it had to be.
@@ -548,6 +569,14 @@ mod tests {
     fn rows_are_numbered_the_way_winamp_did() {
         assert_eq!(label(1, "Bonobo", "Rosewood"), "1. Bonobo - Rosewood");
         assert_eq!(label(12, "", "Episode 12"), "12. Episode 12");
+    }
+
+    #[test]
+    fn a_notch_scrolls_three_rows_as_windows_did() {
+        assert_eq!(rows_for_wheel(-1.0, 0.0, 0.0, 20.0, 8), 3.0);
+        assert_eq!(rows_for_wheel(2.0, 0.0, 0.0, 20.0, 8), -6.0);
+        assert_eq!(rows_for_wheel(0.0, -40.0, 0.0, 20.0, 8), 2.0);
+        assert_eq!(rows_for_wheel(0.0, 0.0, -1.0, 20.0, 8), 8.0);
     }
 
     #[test]
