@@ -64,6 +64,9 @@ pub struct Settings {
     pub check_for_updates: bool,
     /// Context URIs pinned to the top of the sidebar, in pin order.
     pub pinned_contexts: Vec<String>,
+    /// The sidebar's own playlist order, set by dragging rows. Empty means
+    /// the automatic order: the pinned block first, then recently played.
+    pub sidebar_order: Vec<String>,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
 }
@@ -94,6 +97,7 @@ impl Default for Settings {
             keep_playing_in_background: true,
             check_for_updates: true,
             pinned_contexts: Vec::new(),
+            sidebar_order: Vec::new(),
             zoom: 1.0,
         }
     }

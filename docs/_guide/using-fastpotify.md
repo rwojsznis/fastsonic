@@ -26,13 +26,21 @@ time to return to the list's own order.
 
 ## Your Library
 
-The sidebar sorts playlists by when you last played them and preserves that
-order between runs.
+The sidebar starts out sorting playlists by when you last played them,
+and preserves that order between runs. Pinned entries sit in a block
+right under Liked Songs: pin one from its context menu.
 
-Pinned entries sit in a block right under Liked Songs: pin one from its
-context menu, or drag a row into the block to pin it where you drop it.
-Dragging within the block reorders it, and dragging a pinned row below
-the block unpins it.
+Drag a playlist to a new place and the sidebar switches to your own
+order instead. Rows then stay exactly where you drop them, the pins no
+longer apply to playlists, and new playlists appear just under Liked
+Songs until you place them. Choose **Sort by recently played** from any
+playlist's context menu to go back; dragging a row switches to your own
+order again.
+
+On the Albums, Artists, and Podcasts shelves, dragging still pins: drag
+a row into the pinned block to pin it where you drop it, drag within
+the block to reorder it, and drag a pinned row below the block to
+unpin it.
 
 Use the chips to filter the sidebar by Playlists, Albums, Artists, or Podcasts,
 or use the magnifier to search it. Liked Songs stays at the top. The current

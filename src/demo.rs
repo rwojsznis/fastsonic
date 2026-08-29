@@ -839,10 +839,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// Dragging a pinned sidebar row to the top of the pinned block
-    /// rewrites the pin order behind the same setting the pin menu uses.
+    /// The first drop of a sidebar row switches the playlists shelf to a
+    /// custom order: the order on screen is snapshotted, the pinned block
+    /// first, and the dropped row sits where it landed. The pins
+    /// themselves stay untouched for the automatic order to come back to.
     #[test]
-    fn dragging_a_sidebar_row_reorders_the_pinned_block() {
+    fn dragging_a_sidebar_row_leaves_the_pinned_block_alone() {
         let root =
             std::env::temp_dir().join(format!("fastpotify-reorder-test-{}", std::process::id()));
         let dirs = AppDirs {
@@ -870,17 +872,17 @@ mod tests {
             frame(&ctx, &mut app);
         }
 
-        // Sweep from the top: the first slot inside the list pins the
-        // dragged row first. Where the list begins depends on the loaded
-        // fonts, so the sweep does not hardcode it.
-        let mut reordered = false;
+        // Sweep from the top: the first slot inside the list drops the
+        // dragged row right under Liked Songs. Where the list begins
+        // depends on the loaded fonts, so the sweep does not hardcode it.
+        let mut dropped = false;
         for step in 0..40 {
             let pos = egui::pos2(120.0, 100.0 + step as f32 * 10.0);
             egui::DragAndDrop::set_payload(
                 &ctx,
                 DragEntry {
                     uri: "spotify:playlist:pl4".into(),
-                    title: "Deep Focus".into(),
+                    title: "Release Radar".into(),
                     image: None,
                 },
             );
@@ -896,22 +898,125 @@ mod tests {
                 }],
             );
             egui::DragAndDrop::clear_payload(&ctx);
-            if app.settings.pinned_contexts.first().map(String::as_str)
-                == Some("spotify:playlist:pl4")
-            {
-                reordered = true;
+            if !app.settings.sidebar_order.is_empty() {
+                dropped = true;
                 break;
             }
         }
-        assert!(reordered, "no sweep position landed in the pinned block");
+        assert!(dropped, "no sweep position landed below Liked Songs");
+        // The snapshot shows the shelf as it stood, pinned block first,
+        // with the dragged row moved to where it was dropped.
+        let uris = |indices: &[usize]| -> Vec<String> {
+            indices
+                .iter()
+                .map(|index| format!("spotify:playlist:pl{index}"))
+                .collect()
+        };
+        assert_eq!(
+            app.settings.sidebar_order,
+            uris(&[4, 2, 0, 1, 3, 5, 6, 7, 8, 9]),
+        );
         assert_eq!(
             app.settings.pinned_contexts,
             vec![
-                "spotify:playlist:pl4".to_string(),
                 "spotify:playlist:pl2".to_string(),
+                "spotify:playlist:pl4".to_string(),
             ],
         );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A drop between two unpinned playlists creates the custom order too:
+    /// nothing was pinned, so the snapshot is simply the shelf as shown
+    /// with the moved row in its new place.
+    #[test]
+    fn dropping_between_unpinned_playlists_creates_the_custom_order() {
+        let root =
+            std::env::temp_dir().join(format!("fastpotify-unpinned-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        assert!(app.settings.pinned_contexts.is_empty());
+        assert!(app.settings.sidebar_order.is_empty());
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+
+        // Sweep from the top; the first slot inside the list is the one
+        // right under Liked Songs, between what were the first two
+        // unpinned playlists.
+        let mut dropped = false;
+        for step in 0..40 {
+            let pos = egui::pos2(120.0, 100.0 + step as f32 * 10.0);
+            egui::DragAndDrop::set_payload(
+                &ctx,
+                DragEntry {
+                    uri: "spotify:playlist:pl4".into(),
+                    title: "Release Radar".into(),
+                    image: None,
+                },
+            );
+            frame_events(&ctx, &mut app, vec![egui::Event::PointerMoved(pos)]);
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            egui::DragAndDrop::clear_payload(&ctx);
+            if !app.settings.sidebar_order.is_empty() {
+                dropped = true;
+                break;
+            }
+        }
+        assert!(dropped, "no sweep position landed below Liked Songs");
+        let expected: Vec<String> = std::iter::once(4)
+            .chain((0..PLAYLISTS.len()).filter(|index| *index != 4))
+            .map(|index| format!("spotify:playlist:pl{index}"))
+            .collect();
+        assert_eq!(app.settings.sidebar_order, expected);
+        assert!(app.settings.pinned_contexts.is_empty());
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The custom order is a setting like any other: it survives the trip
+    /// through the settings file, and older files without it stay in the
+    /// automatic order.
+    #[test]
+    fn custom_sidebar_order_round_trips_through_settings() {
+        let settings = Settings {
+            sidebar_order: vec![
+                "spotify:playlist:pl4".to_string(),
+                "spotify:playlist:pl0".to_string(),
+            ],
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.sidebar_order, settings.sidebar_order);
+        let older: Settings = serde_json::from_str("{}").unwrap();
+        assert!(older.sidebar_order.is_empty());
     }
 }
