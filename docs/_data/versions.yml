@@ -2,9 +2,11 @@ current: v0.3.0
 items:
   - id: v0.3.0
     title: v0.3.0 (latest)
+    url: /download/
   - id: v0.2.0
     title: v0.2.0
-    url: /download/
+    url: https://github.com/crmne/fastpotify/releases/tag/v0.2.0
+    external: true
   - title: All releases
     url: https://github.com/crmne/fastpotify/releases
     external: true
