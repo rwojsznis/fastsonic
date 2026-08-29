@@ -223,6 +223,12 @@ cargo run --features demo -- --demo --demo-page playlist:pl1 --demo-show queue
 Demo mode never writes settings. `--demo-shot <PATH>` writes the window to a
 PNG and exits, which is how the screenshot above is made.
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull
+request. It describes the project's design principles, product boundaries,
+and the complete local checks that every change must pass.
+
 ## Acknowledgements
 
 Fastpotify stands on [librespot](https://github.com/librespot-org/librespot),

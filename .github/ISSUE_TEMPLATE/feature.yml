@@ -2,17 +2,34 @@ name: Feature request
 description: Something Fastpotify should do.
 labels: [enhancement]
 body:
-  - type: textarea
-    id: what
+  - type: checkboxes
+    id: checks
     attributes:
-      label: What should it do?
-      placeholder: "Show the lyrics of the playing song, synced when Spotify has them."
+      label: Before requesting
+      options:
+        - label: I searched open and closed issues for this request.
+          required: true
+        - label: I read the project boundaries in CONTRIBUTING.md.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should Fastpotify solve?
+      description: Describe the workflow and pain, not only the name of a feature.
+      placeholder: "When I ..., I cannot ..., so I currently have to ..."
     validations:
       required: true
   - type: textarea
-    id: why
+    id: proposal
     attributes:
-      label: Why does it matter to you?
-      description: What you do today instead, and how often it comes up.
+      label: What would a good solution look like?
+      description: Include alternatives you considered and how often this comes up.
+    validations:
+      required: true
+  - type: textarea
+    id: fit
+    attributes:
+      label: Why does this fit Fastpotify?
+      description: Explain how it preserves a small, native, cross-platform Spotify client.
     validations:
       required: true
