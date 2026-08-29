@@ -124,8 +124,14 @@ The buttons do what they say, with a few translations. **Stop** pauses and
 rewinds, **I** opens the playing album in the big window, and repeat is on
 or off. **PL** opens the playlist window under the player, in the skin's
 own frame and colours and the small unsmoothed lettering of the time: what
-is playing, then the queue; double-click a song to play from there, drag
-the corner to make it taller, and its X or PL again closes it. **EQ** opens the equalizer between the player and the playlist: Winamp's
+is playing, then the queue; double-click a
+song to play from there, Ctrl-click to select several, drag the corner to
+make it taller, and its X or PL again closes it. Its buttons do what
+Spotify allows of what Winamp's did: ADD finds music, SEL picks rows,
+MISC opens the song's pages, LIST OPTS plays one of your playlists or
+saves the queue as a new one, and REM only explains that no app can take
+from Spotify's queue. Notices that the big window shows as toasts scroll
+through the marquee here. **EQ** opens the equalizer between the player and the playlist: Winamp's
 ten bands and its presets, shaping the music played on this computer (a
 speaker across the room plays what Spotify sends it). The preamp only
 turns down, and AUTO, which loaded a preset per song, stays off. The same

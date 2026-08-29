@@ -113,6 +113,15 @@ pub const PLAYLIST_TRACK_TIME: (u32, u32) = (191, 23);
 /// The little transport along the bottom: six ten-pixel cells from here,
 /// previous to eject.
 pub const PLAYLIST_MINI_TRANSPORT: (u32, u32) = (128, 22);
+/// The menus along the bottom, each 22 by 18 from eight rows down, by
+/// name and x.
+pub const PLAYLIST_MENUS: [(&str, u32); 5] = [
+    ("add", 14),
+    ("rem", 43),
+    ("sel", 72),
+    ("misc", 101),
+    ("list", 231),
+];
 
 /// The equalizer window, between the main window and the playlist.
 pub const EQ_HEIGHT: u32 = 116;

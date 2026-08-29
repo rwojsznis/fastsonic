@@ -422,14 +422,7 @@ fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool)
 /// The menu behind a right-click on the title bar and the O of the
 /// clutter bar, sized to the skin so it fits inside the window.
 fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
-    let font = (5.0 * unit).clamp(9.0, 14.0);
-    for style in [egui::TextStyle::Body, egui::TextStyle::Button] {
-        ui.style_mut()
-            .text_styles
-            .insert(style, egui::FontId::proportional(font));
-    }
-    ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
-    ui.spacing_mut().button_padding = vec2(6.0, 2.0);
+    let font = menu_style(ui, unit);
     ui.set_min_width(font * 11.0);
     let scale = WinampState::scale(&app.settings, ui.ctx().pixels_per_point());
     ui.horizontal(|ui| {
@@ -457,6 +450,20 @@ fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
     if ui.button("Quit").clicked() {
         app.actions.push(Action::Quit);
     }
+}
+
+/// Sizes a menu to the skin, so it fits inside the window at any scale;
+/// returns the font size it settled on.
+pub(super) fn menu_style(ui: &mut Ui, unit: f32) -> f32 {
+    let font = (5.0 * unit).clamp(9.0, 14.0);
+    for style in [egui::TextStyle::Body, egui::TextStyle::Button] {
+        ui.style_mut()
+            .text_styles
+            .insert(style, egui::FontId::proportional(font));
+    }
+    ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
+    ui.spacing_mut().button_padding = vec2(6.0, 2.0);
+    font
 }
 
 /// The O A I D V strip: options, always on top, info, double size, and
@@ -740,6 +747,7 @@ pub fn marquee_text(
     seek_preview: Option<f32>,
     volume_preview: Option<f32>,
     balance_preview: Option<f32>,
+    notice: Option<&str>,
 ) -> String {
     if let Some(balance) = balance_preview {
         let percent = (balance.abs() * 100.0).round() as u32;
@@ -751,6 +759,11 @@ pub fn marquee_text(
     }
     if let Some(volume) = volume_preview {
         return format!("Volume: {}%", (volume * 100.0).round() as u32);
+    }
+    // The app's notices (a skin added, a playlist saved, an error) have
+    // no toast to live in here; Winamp used the marquee for its own.
+    if let Some(notice) = notice {
+        return notice.to_string();
     }
     let Some(now) = now else {
         return "Fastpotify".to_string();
@@ -778,11 +791,13 @@ pub fn marquee_text(
 }
 
 fn marquee(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
+    let notice = app.toasts.last().map(|toast| toast.message.clone());
     let text = marquee_text(
         now,
         app.seek_preview,
         app.volume_preview,
         app.winamp.balance_preview,
+        notice.as_deref(),
     );
     let shown = app.winamp.marquee(&text, Instant::now());
     view.text(&shown, layout::MARQUEE);
@@ -1068,13 +1083,13 @@ mod tests {
     fn the_marquee_names_the_song_the_way_winamp_did() {
         let playing = now("Karma Police", "Radiohead", 264_000);
         assert_eq!(
-            marquee_text(Some(&playing), None, None, None),
+            marquee_text(Some(&playing), None, None, None, None),
             "Radiohead - Karma Police (4:24)"
         );
-        assert_eq!(marquee_text(None, None, None, None), "Fastpotify");
+        assert_eq!(marquee_text(None, None, None, None, None), "Fastpotify");
         let untitled = now("Episode 12", "", 0);
         assert_eq!(
-            marquee_text(Some(&untitled), None, None, None),
+            marquee_text(Some(&untitled), None, None, None, None),
             "Episode 12"
         );
     }
@@ -1083,7 +1098,7 @@ mod tests {
     fn a_seek_in_progress_says_where_it_is_going() {
         let playing = now("Karma Police", "Radiohead", 264_000);
         assert_eq!(
-            marquee_text(Some(&playing), Some(0.5), None, None),
+            marquee_text(Some(&playing), Some(0.5), None, None, None),
             "Seek to: 2:12/4:24 (50%)"
         );
     }
@@ -1092,14 +1107,27 @@ mod tests {
     fn sliders_announce_themselves_while_they_move() {
         let playing = now("Karma Police", "Radiohead", 264_000);
         assert_eq!(
-            marquee_text(Some(&playing), None, Some(0.57), None),
+            marquee_text(Some(&playing), None, Some(0.57), None, None),
             "Volume: 57%"
         );
         assert_eq!(
-            marquee_text(Some(&playing), None, None, Some(-0.25)),
+            marquee_text(Some(&playing), None, None, Some(-0.25), None),
             "Balance: 25% left"
         );
-        assert_eq!(marquee_text(None, None, None, Some(0.0)), "Balance: center");
+        assert_eq!(
+            marquee_text(None, None, None, Some(0.0), None),
+            "Balance: center"
+        );
+        assert_eq!(
+            marquee_text(
+                Some(&playing),
+                None,
+                None,
+                None,
+                Some("Added the Zaxon skin")
+            ),
+            "Added the Zaxon skin"
+        );
         assert_eq!(balance_of(0.5), 0.0);
         assert_eq!(balance_of(0.52), 0.0);
         assert!((balance_of(1.0) - 1.0).abs() < 1e-6);

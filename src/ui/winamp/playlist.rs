@@ -12,7 +12,7 @@ use egui::{Color32, Sense};
 
 use crate::api::models::PlayableItem;
 use crate::app::{App, NowPlaying};
-use crate::model::{Action, RowContext};
+use crate::model::{Action, Page, RowContext};
 use crate::skin::layout::{self, Area};
 use crate::skin::sprites;
 use crate::util;
@@ -27,6 +27,9 @@ struct Row {
     current: bool,
     /// Where the song sits in the queue, when it is queued rather than on.
     queued: Option<usize>,
+    /// The pages the MISC menu can open for it.
+    album_id: Option<String>,
+    artist_id: Option<String>,
 }
 
 /// The whole panel, `height` skin pixels tall, drawn into a view whose
@@ -79,8 +82,9 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     list(app, view, &rows, &queue_uris, height);
     scrollbar(app, view, rows.len(), height);
     grip(app, view, height);
-    times(view, now, &rows, height);
+    times(app, view, now, &rows, height);
     mini_transport(app, view, now, height);
+    menus(app, view, &rows, &queue_uris, height);
 }
 
 /// The little transport in the bottom right: the same as the big one,
@@ -268,44 +272,48 @@ fn rows_visible(height: u32) -> usize {
 /// playlist. The queue's URIs come along for playing from a row.
 fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
     let queue = app.queue.get();
-    let current: Option<(String, String, String, u32)> = queue
-        .and_then(|queue| queue.currently_playing.as_ref())
-        .map(|item| {
-            (
-                item.uri().to_string(),
-                item.subtitle(),
-                item.name().to_string(),
-                item.duration_ms(),
-            )
-        })
-        .or_else(|| {
-            now.map(|now| {
-                (
-                    now.uri.clone(),
-                    now.subtitle.clone(),
-                    now.title.clone(),
-                    now.duration_ms,
-                )
-            })
-        });
+    let ids = |item: &PlayableItem| match item {
+        PlayableItem::Track(track) => (
+            track.album.as_ref().map(|album| album.id.clone()),
+            track.artists.first().and_then(|artist| artist.id.clone()),
+        ),
+        _ => (None, None),
+    };
     let mut rows = Vec::new();
-    if let Some((uri, subtitle, title, duration_ms)) = current {
+    let current = queue.and_then(|queue| queue.currently_playing.as_ref());
+    if let Some(item) = current {
+        let (album_id, artist_id) = ids(item);
         rows.push(Row {
-            uri,
-            label: label(1, &subtitle, &title),
-            duration_ms,
+            uri: item.uri().to_string(),
+            label: label(1, &item.subtitle(), item.name()),
+            duration_ms: item.duration_ms(),
             current: true,
             queued: None,
+            album_id,
+            artist_id,
+        });
+    } else if let Some(now) = now {
+        rows.push(Row {
+            uri: now.uri.clone(),
+            label: label(1, &now.subtitle, &now.title),
+            duration_ms: now.duration_ms,
+            current: true,
+            queued: None,
+            album_id: now.album_id.clone(),
+            artist_id: now.artists.first().and_then(|artist| artist.id.clone()),
         });
     }
     let queued: &[PlayableItem] = queue.map(|queue| queue.queue.as_slice()).unwrap_or(&[]);
     for (index, item) in queued.iter().enumerate() {
+        let (album_id, artist_id) = ids(item);
         rows.push(Row {
             uri: item.uri().to_string(),
             label: label(rows.len() + 1, &item.subtitle(), item.name()),
             duration_ms: item.duration_ms(),
             current: false,
             queued: Some(index),
+            album_id,
+            artist_id,
         });
     }
     let uris = queued.iter().map(|item| item.uri().to_string()).collect();
@@ -385,7 +393,16 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
             Sense::click(),
         );
         if response.clicked() {
-            app.winamp.playlist_selected = Some(row.uri.clone());
+            let adding = view.ui.ctx().input(|input| input.modifiers.command);
+            let selection = &mut app.winamp.playlist_selection;
+            if adding {
+                if !selection.remove(&row.uri) {
+                    selection.insert(row.uri.clone());
+                }
+            } else {
+                selection.clear();
+                selection.insert(row.uri.clone());
+            }
         }
         if response.double_clicked()
             && let Some(index) = row.queued
@@ -396,7 +413,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
                 index: index as u32,
             });
         }
-        if app.winamp.playlist_selected.as_deref() == Some(row.uri.as_str()) {
+        if app.winamp.playlist_selection.contains(&row.uri) {
             painter.rect_filled(rect, 0.0, rgb(style.selected_background));
         }
         let color = rgb(if row.current {
@@ -535,17 +552,20 @@ fn grip(app: &mut App, view: &mut View, height: u32) {
     }
 }
 
-/// The running time of the song over the queue's total, and the song's
-/// time again where Winamp kept it, in the skin's small font.
-fn times(view: &mut View, now: Option<&NowPlaying>, rows: &[Row], height: u32) {
+/// The selected songs' time over the queue's total, as Winamp's list
+/// showed them, and the song's own time where Winamp kept it, in the
+/// skin's small font.
+fn times(app: &App, view: &mut View, now: Option<&NowPlaying>, rows: &[Row], height: u32) {
     let bottom = height - layout::PLAYLIST_BOTTOM_HEIGHT;
-    let Some(now) = now else {
-        return;
-    };
     let total: u32 = rows.iter().map(|row| row.duration_ms).sum();
+    let selected: u32 = rows
+        .iter()
+        .filter(|row| app.winamp.playlist_selection.contains(&row.uri))
+        .map(|row| row.duration_ms)
+        .sum();
     let running = format!(
         "{}/{}",
-        util::format_duration_ms(now.position_ms),
+        util::format_duration_ms(selected),
         util::format_duration_ms(total)
     );
     let (x, dy) = layout::PLAYLIST_RUNNING_TIME;
@@ -553,12 +573,153 @@ fn times(view: &mut View, now: Option<&NowPlaying>, rows: &[Row], height: u32) {
         &running,
         Area::new(x, bottom + dy, 5 * running.len() as u32, 6),
     );
-    let (x, dy) = layout::PLAYLIST_TRACK_TIME;
-    let elapsed = util::format_duration_ms(now.position_ms);
-    view.text(
-        &elapsed,
-        Area::new(x, bottom + dy, 5 * elapsed.len() as u32, 6),
-    );
+    if let Some(now) = now {
+        let (x, dy) = layout::PLAYLIST_TRACK_TIME;
+        let elapsed = util::format_duration_ms(now.position_ms);
+        view.text(
+            &elapsed,
+            Area::new(x, bottom + dy, 5 * elapsed.len() as u32, 6),
+        );
+    }
+}
+
+/// The five menus along the bottom, each doing what Spotify allows of
+/// what Winamp's did: ADD finds music, REM says why it cannot, SEL picks
+/// rows, MISC opens a song's pages, and LIST OPTS loads a playlist or
+/// saves the queue as one.
+fn menus(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], height: u32) {
+    let bottom = height - layout::PLAYLIST_BOTTOM_HEIGHT;
+    let unit = view.unit;
+    for (name, x) in layout::PLAYLIST_MENUS {
+        let area = Area::new(x, bottom + 8, 22, 18);
+        let button = view
+            .interact(area, &format!("playlist-menu-{name}"), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        egui::Popup::menu(&button).show(|ui| {
+            super::menu_style(ui, unit);
+            match name {
+                "add" => add_menu(app, ui),
+                "rem" => rem_menu(ui),
+                "sel" => sel_menu(app, ui, rows),
+                "misc" => misc_menu(app, ui, rows),
+                _ => list_menu(app, ui, rows, queue_uris),
+            }
+        });
+    }
+}
+
+/// Where a song comes from here: the big window's search or Liked Songs.
+fn add_menu(app: &mut App, ui: &mut egui::Ui) {
+    if ui.button("Search Spotify").clicked() {
+        app.actions.push(Action::FocusSearch);
+        app.actions.push(Action::ToggleWinampWindow);
+    }
+    if ui.button("Liked Songs").clicked() {
+        app.actions.push(Action::Open(Page::LikedSongs));
+        app.actions.push(Action::ToggleWinampWindow);
+    }
+}
+
+fn rem_menu(ui: &mut egui::Ui) {
+    let why = "Spotify keeps its queue; no app can take from it.";
+    for label in ["Remove selected", "Remove all"] {
+        ui.add_enabled(false, egui::Button::new(label))
+            .on_disabled_hover_text(why);
+    }
+}
+
+fn sel_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
+    let selection = &mut app.winamp.playlist_selection;
+    if ui.button("All").clicked() {
+        selection.extend(rows.iter().map(|row| row.uri.clone()));
+    }
+    if ui.button("None").clicked() {
+        selection.clear();
+    }
+    if ui.button("Invert").clicked() {
+        for row in rows {
+            if !selection.remove(&row.uri) {
+                selection.insert(row.uri.clone());
+            }
+        }
+    }
+}
+
+/// The pages of the selected song, or of the one playing.
+fn misc_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
+    let chosen = rows
+        .iter()
+        .find(|row| app.winamp.playlist_selection.contains(&row.uri))
+        .or_else(|| rows.iter().find(|row| row.current));
+    let Some(row) = chosen else {
+        ui.add_enabled(false, egui::Button::new("Song info"));
+        return;
+    };
+    if let Some(album) = &row.album_id
+        && ui.button("Song info").clicked()
+    {
+        app.actions.push(Action::Open(Page::Album(album.clone())));
+        app.actions.push(Action::ToggleWinampWindow);
+    }
+    if let Some(artist) = &row.artist_id
+        && ui.button("Artist").clicked()
+    {
+        app.actions.push(Action::Open(Page::Artist(artist.clone())));
+        app.actions.push(Action::ToggleWinampWindow);
+    }
+}
+
+/// Your playlists to play, and the queue kept as a new one.
+fn list_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row], queue_uris: &[String]) {
+    let playlists: Vec<(String, String)> = app
+        .library
+        .playlists
+        .get()
+        .map(|playlists| {
+            playlists
+                .iter()
+                .map(|playlist| (playlist.name.clone(), playlist.uri.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    ui.menu_button("Load list", |ui| {
+        egui::ScrollArea::vertical()
+            .max_height(220.0)
+            .show(ui, |ui| {
+                if playlists.is_empty() {
+                    ui.add_enabled(false, egui::Button::new("No playlists yet"));
+                }
+                for (name, uri) in &playlists {
+                    if ui.button(name).clicked() {
+                        app.actions.push(Action::PlayContext {
+                            uri: uri.clone(),
+                            offset_uri: None,
+                            offset_index: None,
+                        });
+                        ui.close();
+                    }
+                }
+            });
+    });
+    let saveable = !queue_uris.is_empty() || rows.iter().any(|row| row.current);
+    if ui
+        .add_enabled(saveable, egui::Button::new("Save list"))
+        .on_hover_text("The queue, as a new playlist of yours")
+        .clicked()
+    {
+        let mut uris: Vec<String> = rows
+            .iter()
+            .filter(|row| row.current)
+            .map(|row| row.uri.clone())
+            .collect();
+        uris.extend(queue_uris.iter().cloned());
+        let today = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
+        app.actions.push(Action::CreatePlaylist {
+            name: format!("Queue {today}"),
+            public: false,
+            add_uris: uris,
+        });
+    }
 }
 
 #[cfg(test)]
