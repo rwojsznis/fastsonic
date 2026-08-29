@@ -226,6 +226,12 @@ pub struct App {
     /// The track a play just asked for, marked current at once; the
     /// engine's report (or time) hands back to the reported state.
     intent_track: Option<(String, Instant)>,
+    /// Shuffle as the listener set it: a mode, not a property of one
+    /// context. Every play of a context applies it until turned off.
+    shuffle_wanted: bool,
+    /// When the listener last set shuffle here, so an echo of that same
+    /// change from the engine is not mistaken for another client's toggle.
+    shuffle_set_at: Option<Instant>,
     /// The context the interface just started, shown as playing until
     /// Spotify's own state says the same thing.
     assumed_context: Option<AssumedContext>,
@@ -383,6 +389,8 @@ impl App {
             pending_local_volume: None,
             optimistic_playing: None,
             intent_track: None,
+            shuffle_wanted: session.shuffle_on,
+            shuffle_set_at: None,
             assumed_context: None,
             last_now_playing_uri: None,
             playlist_busy: false,
@@ -892,6 +900,14 @@ impl App {
     fn handle_local(&mut self, state: LocalState) {
         let track_changed = state.track != self.local.track;
         let reconnected = state.connected && !self.local.connected;
+        if state.shuffle != self.local.shuffle
+            && self
+                .shuffle_set_at
+                .is_none_or(|at| at.elapsed() > Duration::from_secs(5))
+        {
+            // Another client toggled it; that is the listener too.
+            self.shuffle_wanted = state.shuffle;
+        }
         if state.playback != self.local.playback {
             self.optimistic_playing = None;
             if matches!(state.playback, Playback::Playing | Playback::Loading) {
@@ -2497,12 +2513,16 @@ impl App {
     }
 
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
-        // Shuffle survives a change of context: starting another playlist
-        // while one already shuffles keeps shuffling, from a random song.
-        // A chosen row is honoured as the start either way.
+        // Shuffle is a mode the listener sets, not a property of one
+        // context: once on, every play shuffles until it is turned off,
+        // whichever playlist it starts. A chosen row still starts the
+        // play; without one, a random song does.
         let mut request = request;
-        let shuffle = shuffle_first
-            || (request.context_uri.is_some() && self.now_playing().is_some_and(|now| now.shuffle));
+        if shuffle_first {
+            self.shuffle_wanted = true;
+            self.shuffle_set_at = Some(Instant::now());
+        }
+        let shuffle = shuffle_first || self.shuffle_wanted;
         if shuffle
             && request.offset_uri.is_none()
             && request.offset_position.is_none()
@@ -2801,6 +2821,8 @@ impl App {
     }
 
     fn set_shuffle(&mut self, shuffle: bool) {
+        self.shuffle_wanted = shuffle;
+        self.shuffle_set_at = Some(Instant::now());
         if let Some(assumed) = &mut self.assumed_context {
             assumed.shuffle = Some(shuffle);
         }
@@ -3547,6 +3569,7 @@ impl App {
                 last_context: self.resume_context.clone(),
                 last_track: self.resume_track.clone(),
                 last_position_ms: self.resume_position_ms,
+                shuffle_on: self.shuffle_wanted,
             }
             .save(&self.dirs.session_file());
         }

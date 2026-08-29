@@ -151,6 +151,8 @@ pub struct SessionState {
     pub last_context: Option<String>,
     pub last_track: Option<String>,
     pub last_position_ms: u32,
+    /// Whether the listener had shuffle on, a mode that outlives contexts.
+    pub shuffle_on: bool,
 }
 
 impl SessionState {
