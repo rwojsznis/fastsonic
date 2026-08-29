@@ -56,23 +56,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         |ui| {
             ui.add_space(super::widgets::PAGE_PADDING);
             ui.spacing_mut().item_spacing.x = 8.0;
-            if theme::icon_button(
-                ui,
-                Icon::PanelLeft,
-                19.0,
-                palette.secondary,
-                palette.text,
-                if app.settings.sidebar_visible {
-                    "Hide sidebar (Cmd+B)"
-                } else {
-                    "Show sidebar (Cmd+B)"
-                },
-            )
-            .clicked()
-            {
-                app.actions.push(Action::ToggleSidebar);
+            if !app.settings.sidebar_visible {
+                if nav_button(ui, &palette, Icon::PanelLeft, true, "Show sidebar (Cmd+B)").clicked()
+                {
+                    app.actions.push(Action::ToggleSidebar);
+                }
+                ui.add_space(2.0);
             }
-            ui.add_space(2.0);
             if !app.settings.sidebar_visible
                 && nav_button(ui, &palette, Icon::House, true, "Home").clicked()
             {

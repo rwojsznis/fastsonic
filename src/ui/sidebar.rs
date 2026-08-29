@@ -114,6 +114,18 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(2.0);
         theme::text(ui, "Your Library", theme::bold(15.0), palette.text);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if theme::icon_button(
+                ui,
+                Icon::PanelLeft,
+                18.0,
+                palette.secondary,
+                palette.text,
+                "Hide sidebar (Cmd+B)",
+            )
+            .clicked()
+            {
+                app.actions.push(Action::ToggleSidebar);
+            }
             let add = theme::icon_button(
                 ui,
                 Icon::Plus,
