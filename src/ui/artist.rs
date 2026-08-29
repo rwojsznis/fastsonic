@@ -122,6 +122,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 added_by: None,
                                 show_added_by: false,
                                 compact: false,
+                                shift: 0.0,
                             },
                         );
                     }

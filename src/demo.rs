@@ -815,6 +815,7 @@ mod tests {
                     uri: "spotify:track:trk0".into(),
                     title: "Fragments".into(),
                     image: None,
+                    from: None,
                 },
             );
             frame_events(&ctx, &mut app, vec![egui::Event::PointerMoved(pos)]);
@@ -997,6 +998,133 @@ mod tests {
             .collect();
         assert_eq!(app.settings.sidebar_order, expected);
         assert!(app.settings.pinned_contexts.is_empty());
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Dragging a row within an owned playlist's table moves it through
+    /// the same MoveInPlaylist action the menu's move items use: the slot
+    /// is Spotify's insert-before, which the handler mirrors locally
+    /// before asking the server.
+    #[test]
+    fn dragging_a_row_within_a_playlist_reorders_it() {
+        let root =
+            std::env::temp_dir().join(format!("fastpotify-move-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        app.open(Page::Playlist("pl1".into()));
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+        let order = |app: &App| -> Vec<String> {
+            app.playlist_pages["pl1"]
+                .items
+                .items
+                .iter()
+                .filter_map(|item| item.playable().map(|playable| playable.uri().to_string()))
+                .collect()
+        };
+        let original = order(&app);
+        let from = 5usize;
+        let held = |from: usize, uri: &str| DragTrack {
+            uri: uri.to_string(),
+            title: "Closer".into(),
+            image: None,
+            from: Some(("pl1".into(), from as u32)),
+        };
+
+        // Sweep the held row down the page; above the table nothing
+        // bites, and the first slot inside it lands the row above its old
+        // place. Where the table begins depends on the loaded fonts, so
+        // the sweep does not hardcode it.
+        let mut landed = None;
+        for step in 0..45 {
+            let pos = egui::pos2(700.0, 120.0 + step as f32 * 15.0);
+            egui::DragAndDrop::set_payload(&ctx, held(from, &original[from]));
+            frame_events(&ctx, &mut app, vec![egui::Event::PointerMoved(pos)]);
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            egui::DragAndDrop::clear_payload(&ctx);
+            if app.playlist_busy {
+                landed = Some(pos);
+                break;
+            }
+        }
+        let landed = landed.expect("no sweep position landed inside the table");
+        let drop_at = |ctx: &egui::Context, app: &mut App, payload: DragTrack| {
+            egui::DragAndDrop::set_payload(ctx, payload);
+            frame_events(ctx, app, vec![egui::Event::PointerMoved(landed)]);
+            frame_events(
+                ctx,
+                app,
+                vec![egui::Event::PointerButton {
+                    pos: landed,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            egui::DragAndDrop::clear_payload(ctx);
+        };
+        // The handler mirrored the move locally: the dragged row moved
+        // up, everything else kept its order.
+        let now = order(&app);
+        let to = now
+            .iter()
+            .position(|uri| *uri == original[from])
+            .expect("the dragged row vanished");
+        assert!(to < from, "the row should have moved up, not to {to}");
+        let mut expected = original.clone();
+        let moved = expected.remove(from);
+        expected.insert(to, moved);
+        assert_eq!(now, expected);
+
+        // Dropping the row on the same slot again moves nothing: the slot
+        // is insert-before, so a row's own edges are a no-op. A slot sent
+        // one row out would move it here.
+        app.playlist_busy = false;
+        drop_at(&ctx, &mut app, held(to, &expected[to]));
+        assert!(!app.playlist_busy, "a row dropped on its own slot moved");
+        assert_eq!(order(&app), expected);
+
+        // A sorted view refuses the move: positions on screen no longer
+        // match the server's.
+        app.table_sorts.insert(
+            Page::Playlist("pl1".into()),
+            TableSort {
+                column: SortColumn::Title,
+                ascending: true,
+            },
+        );
+        frame(&ctx, &mut app);
+        drop_at(&ctx, &mut app, held(to, &expected[to]));
+        assert!(!app.playlist_busy, "a sorted view accepted a move");
+        assert_eq!(order(&app), expected);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }

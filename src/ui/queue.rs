@@ -122,6 +122,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 added_by: None,
                 show_added_by: false,
                 compact,
+                shift: 0.0,
             },
         );
         ui.add_space(14.0);
@@ -165,6 +166,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 added_by: None,
                 show_added_by: false,
                 compact,
+                shift: 0.0,
             },
         );
     });

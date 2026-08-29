@@ -334,6 +334,7 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
                 added_by: None,
                 show_added_by: false,
                 compact: limit != usize::MAX,
+                shift: 0.0,
             },
         );
     }

@@ -468,6 +468,9 @@ pub struct TrackRow<'a> {
     pub added_by: Option<&'a str>,
     pub show_added_by: bool,
     pub compact: bool,
+    /// Vertical offset while rows part around the slot a dragged row
+    /// would land in; 0.0 everywhere else.
+    pub shift: f32,
 }
 
 /// Column widths of the track table, computed from the available width.
@@ -524,6 +527,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     };
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, row_height), Sense::click_and_drag());
+    let rect = rect.translate(vec2(0.0, row.shift));
     if !ui.is_rect_visible(rect) {
         return;
     }
@@ -531,12 +535,23 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     // to catch. egui tells clicks and drags apart by that threshold, so
     // single click, double click, and the context menu stay as they were.
     if row.item.is_track() && response.drag_started_by(egui::PointerButton::Primary) {
+        // A drag that begins on an editable playlist's own row remembers
+        // where, so that playlist's table can move the row while every
+        // other target keeps treating the drop as a copy.
+        let from = match row.context {
+            RowContext::Context {
+                editable_playlist: Some((id, _)),
+                ..
+            } => Some((id.clone(), row.index as u32)),
+            _ => None,
+        };
         egui::DragAndDrop::set_payload(
             ui.ctx(),
             DragTrack {
                 uri: row.item.uri().to_string(),
                 title: row.item.name().to_string(),
                 image: row.item.image(64).map(str::to_string),
+                from,
             },
         );
     }

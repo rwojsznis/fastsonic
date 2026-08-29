@@ -4,7 +4,9 @@ use egui::{Align, Layout, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::{Album, PlayableItem, Playlist, pick_image};
 use crate::app::App;
-use crate::model::{Action, Dialog, Loadable, Page, PagedList, RowContext, SortColumn, TableSort};
+use crate::model::{
+    Action, Dialog, DragTrack, Loadable, Page, PagedList, RowContext, SortColumn, TableSort,
+};
 use crate::theme::{self, Icon, Palette};
 use crate::util;
 
@@ -340,9 +342,51 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         table.context.clone()
     };
     let sorted = sort.is_some();
+    // Dragging a row within an owned playlist moves it, but only while
+    // the rows on screen sit at their server positions: no sort and no
+    // filter, the same rule the menu's move items live by.
+    let move_playlist = (sort.is_none() && needle.is_empty())
+        .then(|| match &table.context {
+            RowContext::Context {
+                editable_playlist: Some((id, _)),
+                ..
+            } => Some(id.clone()),
+            _ => None,
+        })
+        .flatten();
+    // While one of this table's own rows is in hand, the slot nearest the
+    // pointer: neighbours shift before that row draws, so the spot cannot
+    // be discovered row by row, but the fixed row height makes it
+    // arithmetic even through the virtualised rows.
+    let list_top = ui.cursor().top();
+    let move_slot = move_playlist.as_ref().and_then(|playlist_id| {
+        let track = egui::DragAndDrop::payload::<DragTrack>(ui.ctx())?;
+        let (origin, _) = track.from.as_ref()?;
+        if origin != playlist_id {
+            return None;
+        }
+        let pos = ui
+            .ctx()
+            .pointer_latest_pos()
+            .filter(|pos| ui.clip_rect().contains(*pos))?;
+        let row = (pos.y - list_top) / theme::ROW_HEIGHT;
+        (row >= 0.0 && row <= visible.len() as f32)
+            .then(|| (row.round() as usize).min(visible.len()))
+    });
     widgets::virtual_rows(ui, visible.len(), theme::ROW_HEIGHT, |ui, row| {
         let index = visible[row];
         let (item, added_at, added_by) = &table.items[index];
+        // Neighbours part at the slot the dragged row would land in, the
+        // same eased few pixels the sidebar uses, and ease back after.
+        let shift = ui.ctx().animate_value_with_time(
+            ui.id().with(("table-move-shift", row)),
+            match move_slot {
+                Some(slot) if row < slot => -4.0,
+                Some(_) => 4.0,
+                None => 0.0,
+            },
+            0.12,
+        );
         widgets::track_row(
             ui,
             app,
@@ -357,9 +401,38 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 added_by: added_by.as_deref(),
                 show_added_by: table.show_added_by,
                 compact: false,
+                shift,
             },
         );
     });
+    if let Some(slot) = move_slot {
+        // A line in the gap the rows opened, so the eye lands where the
+        // row will.
+        let y = list_top + slot as f32 * theme::ROW_HEIGHT;
+        ui.painter().hline(
+            ui.max_rect().x_range().shrink(8.0),
+            y,
+            egui::Stroke::new(2.0, palette.accent),
+        );
+        // Gated on this table's own payload: taking a payload of the
+        // wrong type, or another list's row, would silently discard it.
+        if ui.input(|input| input.pointer.any_released())
+            && let Some(track) = egui::DragAndDrop::take_payload::<DragTrack>(ui.ctx())
+            && let Some((playlist_id, from)) = track.from.clone()
+        {
+            let to = slot as u32;
+            // The slot is Spotify's insert_before, exactly what the
+            // action's handler sends; a row dropped back on its own
+            // edges moves nothing.
+            if to != from && to != from + 1 {
+                app.actions.push(Action::MoveInPlaylist {
+                    playlist_id,
+                    from,
+                    to,
+                });
+            }
+        }
+    }
     if table.loading {
         ui.add_space(8.0);
         widgets::loading_row(ui, &palette);

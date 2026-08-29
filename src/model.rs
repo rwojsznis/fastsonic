@@ -424,6 +424,10 @@ pub struct DragTrack {
     pub title: String,
     /// Small cover art for the chip that rides the pointer.
     pub image: Option<String>,
+    /// Where the drag began when it began on an editable playlist: that
+    /// playlist's id and the row's real index, so the same table can move
+    /// the row instead of copying it. The sidebar ignores this.
+    pub from: Option<(String, u32)>,
 }
 
 /// A sidebar row in hand while it is dragged to a new place in the

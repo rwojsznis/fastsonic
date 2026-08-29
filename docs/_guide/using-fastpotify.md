@@ -49,7 +49,9 @@ page is highlighted, and the playing playlist has a small speaker icon.
 **Playlists you own** are fully editable: create one with the **+** button,
 add songs from any row's menu or by dragging them onto a playlist in the
 sidebar, remove and reorder from the playlist page, and rename or delete
-from its context menu. Dropping a song on Liked Songs saves it. Playlists
+from its context menu. Reordering works by dragging a row to its new
+place, or from its menu; while the table is sorted or filtered, rows
+keep their place. Dropping a song on Liked Songs saves it. Playlists
 you follow can be followed and unfollowed.
 
 ## Search
