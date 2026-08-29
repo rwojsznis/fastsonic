@@ -484,7 +484,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             pos2(rect.right() - 16.0, rect.center().y),
                             Vec2::splat(13.0),
                         );
-                        Icon::BookmarkFilled
+                        Icon::Pin
                             .image(palette.secondary, 13.0)
                             .paint_at(ui, icon_rect);
                     }
@@ -571,11 +571,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             if super::widgets::menu_item(
                                 ui,
                                 &palette,
-                                Some(if pinned {
-                                    Icon::Bookmark
-                                } else {
-                                    Icon::BookmarkFilled
-                                }),
+                                Some(if pinned { Icon::PinOff } else { Icon::Pin }),
                                 if pinned { "Unpin" } else { "Pin to top" },
                             ) {
                                 if pinned {
