@@ -43,3 +43,21 @@ nearby module tests before changing a state machine or API fallback.
   underlying rule does not apply.
 - Report platform coverage honestly. Do not claim a platform was tested when
   it was only compiled or reasoned about.
+
+## Releases
+
+A release is not the tag alone. Every one of these moves together:
+
+- `Cargo.toml` version (and the lockfile via a build), committed before
+  the tag so the binaries report the right version.
+- The `v*` tag, which triggers the release workflow; replace its
+  generated notes with written ones.
+- `docs/_config.yml` `fastpotify_version` (the download page's links)
+  and `docs/_data/versions.yml` (the version dropdown: the new version
+  becomes `current` and points at `/download/`, the previous one keeps a
+  link to its own GitHub release).
+- The Homebrew cask in the maintainer's tap and the AUR package, both
+  from the release's `checksums.txt`.
+
+Missing any of these ships a release that lies somewhere; the dropdown
+was forgotten once already.
