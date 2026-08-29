@@ -71,6 +71,45 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     scrollbar(app, view, rows.len(), height);
     grip(app, view, height);
     times(view, now, &rows, height);
+    mini_transport(app, view, now, height);
+}
+
+/// The little transport in the bottom right: the same as the big one,
+/// painted into the skin, so these are only places to click.
+fn mini_transport(app: &mut App, view: &mut View, now: Option<&NowPlaying>, height: u32) {
+    let (x, dy) = layout::PLAYLIST_MINI_TRANSPORT;
+    let y = height - layout::PLAYLIST_BOTTOM_HEIGHT + dy;
+    let playing = now.is_some_and(|now| now.playing);
+    for (index, name) in ["previous", "play", "pause", "stop", "next", "eject"]
+        .into_iter()
+        .enumerate()
+    {
+        let cell = Area::new(x + 10 * index as u32, y, 10, 10);
+        let response = view
+            .interact(cell, &format!("playlist-{name}"), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        if !response.clicked() {
+            continue;
+        }
+        match name {
+            "previous" => app.actions.push(Action::Previous),
+            "play" => app.actions.push(if playing {
+                Action::Seek(0)
+            } else {
+                Action::TogglePlay
+            }),
+            "pause" if now.is_some() => app.actions.push(Action::TogglePlay),
+            "stop" if now.is_some() => {
+                if playing {
+                    app.actions.push(Action::TogglePlay);
+                }
+                app.actions.push(Action::Seek(0));
+            }
+            "next" => app.actions.push(Action::Next),
+            "eject" => app.actions.push(Action::ToggleWinampWindow),
+            _ => {}
+        }
+    }
 }
 
 /// The frame: corners and tiles across the top, tiles down the sides

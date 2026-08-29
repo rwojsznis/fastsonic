@@ -104,6 +104,9 @@ const FONT: &[(char, &str)] = &[
 ];
 
 fn art(character: char) -> &'static str {
+    if character == ' ' {
+        return "";
+    }
     let character = character.to_ascii_uppercase();
     FONT.iter()
         .find(|(c, _)| *c == character)
@@ -245,6 +248,14 @@ impl Canvas {
     }
 }
 
+/// The pair of lines Winamp ran either side of a window's title.
+fn title_lines(c: &mut Canvas, x0: i64, x1: i64, y: i64) {
+    if x1 > x0 {
+        c.rect(x0, y, x1 - x0, 1, DIM);
+        c.rect(x0, y + 3, x1 - x0, 1, DIM);
+    }
+}
+
 /// A raised button with pixel art on it.
 fn button(canvas: &mut Canvas, area: Box, pressed: bool, rows: &str) {
     if pressed {
@@ -333,6 +344,10 @@ fn title_bar(c: &mut Canvas, x: i64, y: i64, active: bool, shade: bool) {
         display(c, (x + 226, y + 4, 17, 7));
     } else {
         c.text_centred((x, y + 1, 275, 12), "FASTPOTIFY", color);
+        let width = 5 * 10 - 1;
+        let start = x + (275 - width) / 2;
+        title_lines(c, x + 18, start - 8, y + 5);
+        title_lines(c, start + width + 8, x + 241, y + 5);
     }
 }
 
@@ -559,6 +574,14 @@ fn pledit_sheet() -> Canvas {
         c.rect(0, y, 178, 20, SURFACE);
         c.frame((0, y, 178, 20), OUTLINE);
         c.text_centred((26, y, 100, 20), "PLAYLIST", color);
+        let width = 5 * 8 - 1;
+        let start = 26 + (100 - width) / 2;
+        // Across the left corner, the tiles, and the title on both sides
+        // of its word; the right corner keeps its buttons.
+        title_lines(&mut c, 4, 25, y + 8);
+        title_lines(&mut c, 26, start - 8, y + 8);
+        title_lines(&mut c, start + width + 8, 126, y + 8);
+        title_lines(&mut c, 127, 152, y + 8);
         c.glyph_centred((156, y + 3, 9, 9), SHADE, SECONDARY, 0);
         c.glyph_centred((166, y + 3, 9, 9), CLOSE, SECONDARY, 0);
     }
@@ -591,6 +614,30 @@ fn pledit_sheet() -> Canvas {
     // The bottom: both corners, the tile between them, the visualiser's
     // well, and a grip in the corner for resizing.
     c.frame((0, 72, 276, 38), OUTLINE);
+    // The left half's menus, painted and quiet: Fastpotify has no files
+    // to add, but a bottom without them looks unfinished.
+    for (x, label) in [(14, "ADD"), (43, "REM"), (72, "SEL"), (101, "MISC")] {
+        label_button(&mut c, (x, 80, 22, 18), false, false, label);
+    }
+    // The right half: the running time's box, the little transport, the
+    // song's time, LIST OPTS, and the grip. The sheet's right half is a
+    // pixel over from where it lands in the window.
+    display(&mut c, (130, 78, 64, 12));
+    let mini: [&str; 6] = [
+        "#..#/#.##/####/#.##/#..#",
+        "#..../##.../###../##.../#....",
+        "#.#/#.#/#.#/#.#/#.#",
+        "###/###/###/###/###",
+        "#..#/##.#/####/##.#/#..#",
+        ".#./###/.../###/###",
+    ];
+    for (index, rows) in mini.into_iter().enumerate() {
+        c.glyph_centred((129 + 10 * index as i64, 94, 10, 10), rows, SECONDARY, 0);
+    }
+    display(&mut c, (189, 93, 27, 12));
+    label_button(&mut c, (232, 80, 22, 18), false, false, "");
+    c.text(233, 83, "LIST", DIM);
+    c.text(233, 90, "OPTS", DIM);
     for dy in 0..9 {
         for dx in 0..9 {
             if dx + dy >= 8 && (dx + dy) % 3 == 2 {
@@ -610,9 +657,9 @@ fn pledit_sheet() -> Canvas {
 fn eqmain_sheet() -> Canvas {
     let mut c = Canvas::new(275, 315, PANEL);
     c.frame((0, 0, 275, 116), OUTLINE);
-    c.text(46, 37, "+12", DIM);
-    c.text(56, 65, "0", DIM);
-    c.text(46, 96, "-12", DIM);
+    c.text(43, 37, "+12 DB", DIM);
+    c.text(48, 65, "+0 DB", DIM);
+    c.text(43, 96, "-12 DB", DIM);
     c.text(9, 104, "PREAMP", DIM);
     let labels = [
         "60", "170", "310", "600", "1K", "3K", "6K", "12K", "14K", "16K",
@@ -626,6 +673,10 @@ fn eqmain_sheet() -> Canvas {
         c.rect(0, y, 275, 14, SURFACE);
         c.frame((0, y, 275, 14), OUTLINE);
         c.text_centred((0, y + 1, 275, 12), "EQUALIZER", color);
+        let width = 5 * 9 - 1;
+        let start = (275 - width) / 2;
+        title_lines(&mut c, 18, start - 8, y + 5);
+        title_lines(&mut c, start + width + 8, 241, y + 5);
     }
     c.rect(0, 116, 9, 9, SURFACE);
     c.glyph_centred((0, 116, 9, 9), CLOSE, SECONDARY, 0);

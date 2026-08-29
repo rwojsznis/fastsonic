@@ -108,6 +108,9 @@ pub const PLAYLIST_GRIP: u32 = 20;
 /// top.
 pub const PLAYLIST_RUNNING_TIME: (u32, u32) = (132, 10);
 pub const PLAYLIST_TRACK_TIME: (u32, u32) = (191, 23);
+/// The little transport along the bottom: six ten-pixel cells from here,
+/// previous to eject.
+pub const PLAYLIST_MINI_TRANSPORT: (u32, u32) = (128, 22);
 
 /// The equalizer window, between the main window and the playlist.
 pub const EQ_HEIGHT: u32 = 116;

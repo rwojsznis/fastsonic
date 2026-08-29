@@ -860,8 +860,14 @@ fn transport(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     {
         app.actions.push(Action::Previous);
     }
+    // Play sits pressed in while the music plays, pause while it waits.
+    let play = if playing {
+        sprites::PLAY_PRESSED
+    } else {
+        sprites::PLAY
+    };
     if view
-        .button(layout::PLAY, sprites::PLAY, sprites::PLAY_PRESSED, "play")
+        .button(layout::PLAY, play, sprites::PLAY_PRESSED, "play")
         .clicked()
     {
         // Play on a playing song starts it over, as it did.
@@ -871,13 +877,13 @@ fn transport(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
             app.actions.push(Action::TogglePlay);
         }
     }
+    let pause = if now.is_some() && !playing {
+        sprites::PAUSE_PRESSED
+    } else {
+        sprites::PAUSE
+    };
     if view
-        .button(
-            layout::PAUSE,
-            sprites::PAUSE,
-            sprites::PAUSE_PRESSED,
-            "pause",
-        )
+        .button(layout::PAUSE, pause, sprites::PAUSE_PRESSED, "pause")
         .clicked()
         && now.is_some()
     {
