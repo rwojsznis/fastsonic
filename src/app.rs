@@ -559,13 +559,7 @@ impl App {
     }
 
     pub fn playing_context_shuffle(&self) -> bool {
-        if let Some(assumed) = &self.assumed_context
-            && assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD
-            && let Some(shuffle) = assumed.shuffle
-        {
-            return shuffle;
-        }
-        self.now_playing().is_some_and(|now| now.shuffle)
+        self.shuffle_wanted
     }
 
     pub fn now_playing(&self) -> Option<NowPlaying> {
@@ -615,7 +609,7 @@ impl App {
                 position_ms: self.local.position_now(),
                 playing,
                 loading: self.local.playback == Playback::Loading,
-                shuffle: self.local.shuffle,
+                shuffle: self.shuffle_wanted,
                 repeat: self.local.repeat,
                 volume_percent: volume_to_percent(self.local.volume),
                 can_control: true,
@@ -701,7 +695,7 @@ impl App {
             position_ms: position,
             playing,
             loading: false,
-            shuffle: remote.state.shuffle_state,
+            shuffle: self.shuffle_wanted,
             repeat: RepeatMode::from_api(&remote.state.repeat_state),
             volume_percent: volume,
             can_control: device.is_none_or(|device| !device.is_restricted),
@@ -1704,10 +1698,28 @@ impl App {
                                 .as_ref()
                                 .map(|item| item.uri().to_string())
                         });
+                        let previous_shuffle = self
+                            .remote
+                            .as_ref()
+                            .map(|remote| remote.state.shuffle_state);
                         self.remote = state.map(|state| RemoteSnapshot {
                             state,
                             received_at: Instant::now(),
                         });
+                        if let (Some(previous), Some(current)) = (
+                            previous_shuffle,
+                            self.remote
+                                .as_ref()
+                                .map(|remote| remote.state.shuffle_state),
+                        ) && previous != current
+                            && self
+                                .shuffle_set_at
+                                .is_none_or(|at| at.elapsed() > Duration::from_secs(5))
+                        {
+                            // Toggled on another device; that is the
+                            // listener's setting too.
+                            self.shuffle_wanted = current;
+                        }
                         if let Some(context) = self
                             .remote
                             .as_ref()
