@@ -30,6 +30,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::COMMAND, Key::H, Action::Open(Page::Home));
         }
         key(Modifiers::COMMAND, Key::L, Action::Open(Page::LikedSongs));
+        // Cmd+M minimises on macOS.
+        if cfg!(target_os = "macos") {
+            key(
+                Modifiers::COMMAND | Modifiers::SHIFT,
+                Key::M,
+                Action::ToggleWinampWindow,
+            );
+        } else {
+            key(Modifiers::COMMAND, Key::M, Action::ToggleWinampWindow);
+        }
         key(
             Modifiers::COMMAND,
             Key::Slash,
@@ -139,6 +149,14 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+L", "Liked Songs"),
     ("Ctrl+Shift+A", "Go to the playing artist"),
     ("Ctrl+Shift+B", "Go to the playing album"),
+    (
+        if cfg!(target_os = "macos") {
+            "Ctrl+Shift+M"
+        } else {
+            "Ctrl+M"
+        },
+        "Winamp mini player",
+    ),
     ("Ctrl+,", "Settings"),
     ("Ctrl+/ or ?", "Keyboard shortcuts"),
     ("Ctrl+Q", "Quit"),

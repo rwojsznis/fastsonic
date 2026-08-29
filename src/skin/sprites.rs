@@ -146,6 +146,11 @@ sprites! {
     CLOSE_BUTTON_PRESSED = (TitleBar, 18, 9, 9, 9);
     CLUTTER_BAR = (TitleBar, 304, 0, 8, 43);
     CLUTTER_BAR_DISABLED = (TitleBar, 312, 0, 8, 43);
+    CLUTTER_O_LIT = (TitleBar, 304, 47, 8, 8);
+    CLUTTER_A_LIT = (TitleBar, 312, 55, 8, 7);
+    CLUTTER_I_LIT = (TitleBar, 320, 62, 8, 7);
+    CLUTTER_D_LIT = (TitleBar, 328, 69, 8, 8);
+    CLUTTER_V_LIT = (TitleBar, 336, 77, 8, 7);
     SHADE_BAR_ACTIVE = (TitleBar, 27, 29, 275, 14);
     SHADE_BAR_INACTIVE = (TitleBar, 27, 42, 275, 14);
     UNSHADE_BUTTON = (TitleBar, 0, 27, 9, 9);

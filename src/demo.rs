@@ -587,6 +587,12 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.actions.push(Action::SettingsChanged);
             }
             "focus" => app.settings.sidebar_visible = false,
+            // The built-in skin, whatever the settings say, so shots are
+            // the same everywhere and never show someone else's art.
+            "winamp" => {
+                app.settings.winamp_window = true;
+                app.settings.skin = None;
+            }
             "pins" => {
                 app.settings.pinned_contexts =
                     vec!["spotify:playlist:pl2".into(), "spotify:playlist:pl4".into()];

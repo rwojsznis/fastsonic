@@ -124,6 +124,9 @@ pub struct App {
     /// A hidden app was asked to show itself; the outer loop recreates the
     /// window.
     pub wants_show: bool,
+    /// The window should close and reopen at once as the other kind: the
+    /// big window or the Winamp mini player.
+    pub switch_intent: bool,
     /// Commands from control clients (a second `fastpotify <verb>` launch,
     /// a Raycast script), on the platforms where they do not arrive through
     /// MPRIS. Drained every frame.
@@ -288,6 +291,8 @@ pub struct App {
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
+    /// The Winamp window and the skin it wears.
+    pub winamp: crate::winamp::WinampState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -348,6 +353,7 @@ impl App {
             window_hidden: false,
             hide_intent: false,
             wants_show: false,
+            switch_intent: false,
             control_commands: None,
             control_now_playing: None,
             control_devices: None,
@@ -448,6 +454,7 @@ impl App {
             resume_position_ms: session.last_position_ms,
             update: None,
             last_update_check: None,
+            winamp: crate::winamp::WinampState::new(session.winamp_pos),
         };
         app.local.volume = app.settings.volume;
         app
@@ -472,11 +479,18 @@ impl App {
             ThemeChoice::System => egui::ThemePreference::System,
         });
         self.applied_dark = None;
+        self.winamp.forget_textures();
         self.window_hidden = false;
         self.hide_intent = false;
         self.wants_show = false;
+        self.switch_intent = false;
         if let Some(tray) = &mut self.tray {
             tray.attach();
+        }
+        if self.settings.winamp_window {
+            // The mini player sizes itself; the big window's geometry
+            // waits here for its return.
+            return;
         }
         if let Some(size) = self.session_window_size.take() {
             // Clamp to a sane range so a stale session never creates an
@@ -506,12 +520,21 @@ impl App {
     /// The window is gone but the process stays: audio, the tray, and the
     /// media controls keep running until Show or Quit.
     pub fn window_gone(&mut self) {
+        // The Winamp window went with it; it comes back where it was.
+        self.winamp.remember_position();
+        self.winamp.forget_textures();
         self.window_hidden = true;
         self.hide_intent = false;
         self.wants_show = false;
         if let Some(tray) = &mut self.tray {
             tray.hidden();
         }
+    }
+
+    /// Whether closing the window keeps the app in the tray rather than
+    /// quitting.
+    pub fn hides_to_tray(&self) -> bool {
+        self.tray.is_some() && self.settings.keep_playing_in_background
     }
 
     // ---- derived state -----------------------------------------------------
@@ -1195,11 +1218,59 @@ impl App {
             self.last_eviction = now;
             self.backend.art().evict_stale(ctx);
         }
+        self.sync_skin(ctx);
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
         }
         if self.session_dirty && self.last_session_save.elapsed() > Duration::from_secs(2) {
             self.save_session();
+        }
+    }
+
+    /// Keeps the Winamp window wearing the skin the settings name: starts
+    /// reading a newly chosen one, and puts it on once it is read. A skin
+    /// that cannot be read is announced and the setting goes back to the
+    /// one still on, so nothing is retried forever.
+    fn sync_skin(&mut self, ctx: &egui::Context) {
+        if self.settings.winamp_window
+            && !self.winamp.is_loading()
+            && self.winamp.worn != self.settings.skin
+        {
+            match self.settings.skin.clone() {
+                None => self.winamp.wear(None, crate::skin::Skin::builtin()),
+                Some(name) => self.winamp.load(name, &self.dirs.skins_dir(), ctx),
+            }
+        }
+        if let Some(loaded) = self.winamp.poll() {
+            self.skin_loaded(loaded);
+        }
+    }
+
+    /// A skin has been read. A dropped file becomes the choice; a chosen
+    /// name is already the choice, and if the choice moved on while this
+    /// one was read, the next tick reads that one.
+    fn skin_loaded(&mut self, loaded: crate::winamp::Loaded) {
+        match loaded.result {
+            Ok(skin) => {
+                self.winamp
+                    .wear(Some(loaded.name.clone()), std::sync::Arc::new(skin));
+                if loaded.installed {
+                    self.toast(format!(
+                        "Added the {} skin",
+                        crate::winamp::label(&loaded.name)
+                    ));
+                    self.winamp.list_choices(&self.dirs.skins_dir());
+                    self.settings.skin = Some(loaded.name);
+                    self.settings_dirty = true;
+                }
+            }
+            Err(error) => {
+                self.toast_error(format!("{}: {error}", crate::winamp::label(&loaded.name)));
+                if !loaded.installed {
+                    self.settings.skin = self.winamp.worn.clone();
+                    self.settings_dirty = true;
+                }
+            }
         }
     }
 
@@ -3704,6 +3775,42 @@ impl App {
                 }
                 Err(error) => self.toast_error(format!("Couldn't clear artwork: {error}")),
             },
+            Action::ToggleWinampWindow => {
+                // One window at a time: this one closes and the loop in
+                // `main` opens the other kind where each was last.
+                if self.settings.winamp_window {
+                    self.winamp.remember_position();
+                } else {
+                    self.session_window_size = self.last_window_size.or(self.session_window_size);
+                    self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
+                }
+                self.settings.winamp_window = !self.settings.winamp_window;
+                self.settings_dirty = true;
+                self.switch_intent = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Action::SetSkin(name) => {
+                self.settings.skin = name;
+                self.settings_dirty = true;
+            }
+            Action::InstallSkin(path) => {
+                self.winamp.install(path, &self.dirs.skins_dir(), ctx);
+            }
+            Action::SetSkinScale(scale) => {
+                self.settings.skin_scale = Some(scale);
+                self.settings_dirty = true;
+            }
+            Action::ToggleWinampOnTop => {
+                self.settings.winamp_on_top = !self.settings.winamp_on_top;
+                self.settings_dirty = true;
+            }
+            Action::OpenSkinsFolder => {
+                let folder = self.dirs.skins_dir();
+                let opened = std::fs::create_dir_all(&folder).and_then(|()| open::that(&folder));
+                if let Err(error) = opened {
+                    self.toast_error(format!("Couldn't open {}: {error}", folder.display()));
+                }
+            }
             Action::Quit => {
                 self.quit_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -3769,15 +3876,29 @@ impl App {
         let ctx = &ctx;
         self.apply_theme(ctx);
         self.lock_scroll_axis(ctx);
-        crate::ui::show(self, ui);
+        // The mini player has no sign-in screen; someone who needs one gets
+        // the big window.
+        let needs_sign_in = !(self.is_connected() && self.user.is_some())
+            && !matches!(self.auth, AuthStatus::Connecting | AuthStatus::Starting)
+            && !(self.is_connected() && self.user.is_none());
+        if self.settings.winamp_window && needs_sign_in && !self.switch_intent {
+            self.actions.push(Action::ToggleWinampWindow);
+        }
+        if self.settings.winamp_window {
+            crate::ui::winamp::show(self, ui);
+        } else {
+            crate::ui::show(self, ui);
+        }
         self.apply_actions(ctx);
         self.sync_media_controls();
 
-        if let Some(rect) = ctx.input(|input| input.viewport().inner_rect) {
-            self.last_window_size = Some([rect.width(), rect.height()]);
-        }
-        if let Some(rect) = ctx.input(|input| input.viewport().outer_rect) {
-            self.last_window_pos = Some([rect.min.x, rect.min.y]);
+        if !self.settings.winamp_window {
+            if let Some(rect) = ctx.input(|input| input.viewport().inner_rect) {
+                self.last_window_size = Some([rect.width(), rect.height()]);
+            }
+            if let Some(rect) = ctx.input(|input| input.viewport().outer_rect) {
+                self.last_window_pos = Some([rect.min.x, rect.min.y]);
+            }
         }
 
         let playing = self.now_playing().is_some_and(|now| now.playing);
@@ -3795,8 +3916,8 @@ impl App {
         }
         if ctx.input(|input| input.viewport().close_requested())
             && !self.quit_requested
-            && self.settings.keep_playing_in_background
-            && self.tray.is_some()
+            && !self.switch_intent
+            && self.hides_to_tray()
         {
             // The window genuinely closes; the process stays in the tray and
             // the outer loop recreates a window on demand. No compositor
@@ -3937,6 +4058,7 @@ impl App {
                 window_size: self.last_window_size.or(self.session_window_size),
                 window_pos: self.last_window_pos.or(self.session_window_pos),
                 queue_open: Some(self.show_queue_panel),
+                winamp_pos: self.winamp.last_pos.or(self.winamp.restore_pos),
             }
             .save(&self.dirs.session_file());
         }
@@ -4291,6 +4413,61 @@ mod tests {
             matches!(app.actions.as_slice(), [Action::TogglePlay]),
             "{:?}",
             app.actions
+        );
+    }
+
+    /// A skin with a bitmap in it, for pretending one was read.
+    fn some_skin(name: &str) -> crate::skin::Skin {
+        let image = image::RgbImage::from_pixel(275, 116, image::Rgb([9, 9, 9]));
+        let mut png = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let archive = crate::skin::zip::write(&[("main.bmp", png.get_ref(), false)]);
+        crate::skin::Skin::from_archive(name, &archive).unwrap()
+    }
+
+    #[test]
+    fn a_skin_read_late_does_not_override_a_newer_choice() {
+        let mut app = headless_app();
+        app.settings.winamp_window = true;
+        app.settings.skin = Some("B.wsz".into());
+        app.skin_loaded(crate::winamp::Loaded {
+            name: "A.wsz".into(),
+            result: Ok(some_skin("A")),
+            installed: false,
+        });
+        assert_eq!(app.winamp.worn.as_deref(), Some("A.wsz"));
+        assert_eq!(app.settings.skin.as_deref(), Some("B.wsz"));
+    }
+
+    #[test]
+    fn a_dropped_skin_becomes_the_choice_and_a_failed_one_is_forgotten() {
+        let mut app = headless_app();
+        app.settings.winamp_window = true;
+        app.skin_loaded(crate::winamp::Loaded {
+            name: "Dropped.wsz".into(),
+            result: Ok(some_skin("Dropped")),
+            installed: true,
+        });
+        assert_eq!(app.settings.skin.as_deref(), Some("Dropped.wsz"));
+        assert_eq!(app.winamp.worn.as_deref(), Some("Dropped.wsz"));
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message == "Added the Dropped skin")
+        );
+
+        app.settings.skin = Some("Gone.wsz".into());
+        app.skin_loaded(crate::winamp::Loaded {
+            name: "Gone.wsz".into(),
+            result: Err(crate::skin::SkinError::Empty),
+            installed: false,
+        });
+        assert_eq!(app.settings.skin.as_deref(), Some("Dropped.wsz"));
+        assert_eq!(app.winamp.worn.as_deref(), Some("Dropped.wsz"));
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.starts_with("Gone: "))
         );
     }
 }

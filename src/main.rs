@@ -358,10 +358,14 @@ fn main() -> eframe::Result<()> {
         let creator_waker = waker.clone();
         #[cfg(feature = "demo")]
         let creator_shot = shot.clone();
+        let mini = {
+            let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
+            MiniWindow::wanted(guard.as_ref().expect("application state present"))
+        };
         #[cfg(feature = "demo")]
-        let options = native_options(shot.is_some());
+        let options = native_options(shot.is_some() && mini.is_none(), mini);
         #[cfg(not(feature = "demo"))]
-        let options = native_options(false);
+        let options = native_options(false, mini);
         eframe::run_native(
             "Fastpotify",
             options,
@@ -392,11 +396,18 @@ fn main() -> eframe::Result<()> {
         )?;
         waker.detach();
 
-        let hide = {
+        let (switch, hide) = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
             let app = guard.as_ref().expect("application state present");
-            !app.quit_requested && app.hide_intent
+            (
+                !app.quit_requested && app.switch_intent,
+                !app.quit_requested && app.hide_intent,
+            )
         };
+        if switch {
+            // Straight back round: the other kind of window opens.
+            continue;
+        }
         if !hide {
             break;
         }
@@ -480,22 +491,64 @@ fn log_panics(path: std::path::PathBuf) {
     }));
 }
 
-fn native_options(fullscreen: bool) -> eframe::NativeOptions {
-    eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Fastpotify")
-            .with_app_id("fastpotify")
+/// The Winamp mini player's window, when that is the window to open.
+struct MiniWindow {
+    /// A first size; the window corrects it once it knows the display.
+    size: egui::Vec2,
+    position: Option<[f32; 2]>,
+    on_top: bool,
+}
+
+impl MiniWindow {
+    fn wanted(app: &app::App) -> Option<Self> {
+        app.settings.winamp_window.then(|| Self {
+            size: fastpotify::ui::winamp::initial_size(&app.settings),
+            position: app.winamp.restore_pos,
+            on_top: app.settings.winamp_on_top,
+        })
+    }
+}
+
+fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeOptions {
+    let icon = if cfg!(target_os = "macos") {
+        // macOS takes the dock icon from the bundle's .icns, which is the
+        // 1024px drawing with the platform's rounding. Setting a window
+        // icon there replaces it with this flat 128px square.
+        egui::IconData::default()
+    } else {
+        app_icon()
+    };
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("Fastpotify")
+        .with_app_id("fastpotify")
+        .with_icon(icon);
+    let viewport = match mini {
+        Some(mini) => {
+            let level = if mini.on_top {
+                egui::WindowLevel::AlwaysOnTop
+            } else {
+                egui::WindowLevel::Normal
+            };
+            let viewport = viewport
+                .with_decorations(false)
+                .with_resizable(false)
+                .with_maximize_button(false)
+                .with_inner_size(mini.size)
+                .with_min_inner_size(mini.size)
+                .with_max_inner_size(mini.size)
+                .with_window_level(level);
+            match mini.position {
+                Some([x, y]) => viewport.with_position([x, y]),
+                None => viewport,
+            }
+        }
+        None => viewport
             .with_inner_size([1240.0, 800.0])
             .with_min_inner_size([760.0, 520.0])
-            .with_fullscreen(fullscreen)
-            // macOS takes the dock icon from the bundle's .icns, which is the
-            // 1024px drawing with the platform's rounding. Setting a window
-            // icon there replaces it with this flat 128px square.
-            .with_icon(if cfg!(target_os = "macos") {
-                egui::IconData::default()
-            } else {
-                app_icon()
-            }),
+            .with_fullscreen(fullscreen),
+    };
+    eframe::NativeOptions {
+        viewport,
         // A Wayland compositor stops sending frame callbacks to a hidden
         // window; waiting for vsync there would block the event loop.
         // Repaints are event-driven, so nothing spins.

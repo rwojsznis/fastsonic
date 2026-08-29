@@ -11,6 +11,7 @@ Fastpotify follows each platform's conventions. On Linux:
 | What | Where | Safe to delete? |
 | --- | --- | --- |
 | Settings | `~/.config/fastpotify/settings.json` | Yes, you lose preferences |
+| Winamp skins | `~/.config/fastpotify/skins/` | Yes, you add them again |
 | Shared Web API sign-in | `~/.local/state/fastpotify/shared_web_api_token.json` | Yes, you sign in again |
 | Personal Web API sign-in | `~/.local/state/fastpotify/personal_web_api_token.json` | Yes, personal acceleration is removed |
 | Playback credential | `~/.local/state/fastpotify/credentials/` | Yes, you approve playback again |
@@ -50,6 +51,10 @@ main fields are:
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `theme` | `dark` | `dark`, `light`, or `system` |
 | `accent_from_art` | `true` | Tint pages with album art |
+| `winamp_window` | `false` | The window is the Winamp mini player |
+| `skin` | none | A file or folder name in the skins folder; the built-in skin when absent |
+| `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |
+| `winamp_on_top` | `false` | Keep the mini player above other windows |
 | `keep_playing_in_background` | `true` | Close to tray |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Optional personal Spotify app id used alongside shared coverage |
@@ -76,7 +81,7 @@ interface work. Demo mode never writes settings.
 
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
-`queue`, `devices`, `shortcuts`, `create`, `light`, and `focus`.
+`queue`, `devices`, `shortcuts`, `create`, `light`, `focus`, and `winamp`.
 
 `--demo-shot <PATH>` writes the window to a PNG and exits, which is how the
 screenshots in these pages are made:

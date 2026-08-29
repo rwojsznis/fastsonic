@@ -18,7 +18,7 @@ pub mod zip;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use thiserror::Error;
 
@@ -195,11 +195,8 @@ impl Skin {
     /// The skin Fastpotify ships, drawn for it and packed as a `.wsz` like
     /// any other, so it goes through the same reader. It has every sheet,
     /// so any other skin's gaps can be filled from it.
-    pub fn builtin() -> &'static Skin {
-        static BUILTIN: LazyLock<Skin> = LazyLock::new(|| {
-            Skin::from_archive("Fastpotify", BUILTIN_ARCHIVE).expect("the built-in skin reads")
-        });
-        &BUILTIN
+    pub fn builtin() -> Arc<Skin> {
+        BUILTIN.clone()
     }
 
     /// Whether the skin brought this sheet itself.
@@ -230,7 +227,7 @@ impl Skin {
         };
         self.sheets
             .get(&substitute)
-            .or_else(|| Self::builtin().sheets.get(&sheet))
+            .or_else(|| BUILTIN.sheets.get(&sheet))
             .expect("the built-in skin has every sheet")
     }
 
@@ -258,6 +255,10 @@ fn wanted(file_name: &str) -> bool {
 
 /// The built-in skin, drawn by `examples/default_skin.rs`.
 const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/fastpotify.wsz");
+
+static BUILTIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
+    Arc::new(Skin::from_archive("Fastpotify", BUILTIN_ARCHIVE).expect("the built-in skin reads"))
+});
 
 #[cfg(test)]
 mod tests {

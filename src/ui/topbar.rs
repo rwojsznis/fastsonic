@@ -224,6 +224,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::Open(Page::Settings));
                 }
+                if theme::icon_button(
+                    ui,
+                    Icon::Shrink,
+                    19.0,
+                    palette.secondary,
+                    palette.text,
+                    "Winamp mini player (Ctrl+M)",
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::ToggleWinampWindow);
+                }
                 // A quiet spinner once the app has been talking to Spotify for a
                 // while, long enough that fast requests never flash it.
                 if app

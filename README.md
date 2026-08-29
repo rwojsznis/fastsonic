@@ -45,6 +45,10 @@ application rather than a shell plugin.
 - **Album-art colour.** Pages and the player bar take a tint from the cover
   of what you are looking at or listening to. Turn it off in Settings.
 - **Light and dark**, or follow the system.
+- **Winamp mini player.** `Ctrl+M` turns the window into a tiny player that
+  wears classic `.wsz` skins, drawn pixel for pixel at 1x to 4x; the logo in
+  the skin brings the big window back. Drop a skin from the
+  [Winamp Skin Museum](https://skins.webamp.org) on either window to add it.
 - **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists
   them).
 - **Keeps playing when you close the window.** The window closes for real,
@@ -161,6 +165,7 @@ those things, and [CONTRIBUTING.md](CONTRIBUTING.md) prohibits them.
 | `Alt+←` / `Alt+→` | Back or forward |
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
+| `Ctrl+M` | Winamp mini player |
 | `Ctrl+,` | Settings |
 | `Ctrl+/` or `?` | All shortcuts |
 | `Ctrl+Q` | Quit |
@@ -219,8 +224,8 @@ the verbs cover more than a media key can ask for.
 Settings live in one readable JSON file (`~/.config/fastpotify/settings.json`
 on Linux). They include the Connect device name, bitrate, normalisation,
 autoplay, gapless playback, the audio backend (PulseAudio/PipeWire or ALSA on
-Linux), audio cache size, theme, sidebar state, and whether pages take colour
-from artwork.
+Linux), audio cache size, theme, sidebar state, whether pages take colour
+from artwork, and the mini player's skin and size.
 Playback settings apply when you press **Apply and restart playback**.
 
 Caches (audio, artwork) live under the cache directory and can be deleted at

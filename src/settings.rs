@@ -69,6 +69,16 @@ pub struct Settings {
     pub sidebar_order: Vec<String>,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
+    /// The Winamp window is open.
+    pub winamp_window: bool,
+    /// The skin the Winamp window wears: a file or folder name in the skins
+    /// folder. `None` is the built-in skin.
+    pub skin: Option<String>,
+    /// Screen pixels per skin pixel; `None` picks double size for the
+    /// display.
+    pub skin_scale: Option<u8>,
+    /// The Winamp window stays above other windows.
+    pub winamp_on_top: bool,
 }
 
 impl Default for Settings {
@@ -99,6 +109,10 @@ impl Default for Settings {
             pinned_contexts: Vec::new(),
             sidebar_order: Vec::new(),
             zoom: 1.0,
+            winamp_window: false,
+            skin: None,
+            skin_scale: None,
+            winamp_on_top: false,
         }
     }
 }
@@ -165,6 +179,28 @@ mod tests {
     }
 
     #[test]
+    fn older_settings_keep_the_winamp_window_closed_and_the_built_in_skin() {
+        let settings: Settings = serde_json::from_str(r#"{"zoom": 1.2}"#).unwrap();
+        assert!(!settings.winamp_window);
+        assert_eq!(settings.skin, None);
+        assert_eq!(settings.skin_scale, None);
+        assert!(!settings.winamp_on_top);
+    }
+
+    #[test]
+    fn a_chosen_skin_round_trips() {
+        let settings = Settings {
+            winamp_window: true,
+            skin: Some("Zaxon.wsz".into()),
+            skin_scale: Some(3),
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, settings);
+    }
+
+    #[test]
     fn hidden_sidebar_round_trips() {
         let settings = Settings {
             sidebar_visible: false,
@@ -197,6 +233,8 @@ pub struct SessionState {
     pub window_pos: Option<[f32; 2]>,
     /// Whether the queue panel was open.
     pub queue_open: Option<bool>,
+    /// Last outer position of the Winamp window.
+    pub winamp_pos: Option<[f32; 2]>,
 }
 
 impl SessionState {

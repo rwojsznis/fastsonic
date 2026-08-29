@@ -98,6 +98,36 @@ and tracks without a transcription show an unavailable message.
 
 ![The lyrics panel beside a playlist, following the song](/assets/images/lyrics.png)
 
+## The Winamp mini player
+
+Ctrl+M (Cmd+Shift+M on macOS), the shrink button beside the settings gear,
+or **Switch to it** in Settings turns Fastpotify into a small player that
+wears classic Winamp skins: the `.wsz` files of the Winamp 2 era, of which
+the [Winamp Skin Museum](https://skins.webamp.org) keeps tens of thousands.
+There is one window at a time; the logo in the skin's corner, Eject, or
+Ctrl+M again brings the big window back where it was.
+
+![The mini player wearing the built-in skin](/assets/images/winamp.png)
+
+Drop a `.wsz` on either window and Fastpotify copies it into its skins
+folder and puts it on. Settings lists every skin in that folder, with the
+built-in one first, and has a button to open the folder.
+
+The window is drawn at a whole number of screen pixels per skin pixel, so
+the pixels stay crisp at any size. Pick 1x to 4x from the menu behind a
+right-click on the title bar (or the **O** at the display's edge), where
+always-on-top lives too; **D** toggles double size and **A** always on top,
+as they did. Drag the title bar to move it; it reopens where you left it,
+and the keyboard shortcuts work there too.
+
+The buttons do what they say, with a few translations. **Stop** pauses and
+rewinds, **PL** opens the queue in the big window, **I** opens the playing
+album there, and repeat is on or off. Closing the window does what closing
+the big one does: to the tray, or quit. Fastpotify has no equalizer or
+balance control, so **EQ** and the balance slider are drawn but do nothing.
+Click the time to count down instead of up. Modern (Winamp 3 and 5) skins
+are a different format and are not supported.
+
 ## The tray
 
 Closing the window keeps the music playing: Fastpotify stays in the system
@@ -128,6 +158,7 @@ Connect devices and conflicting media-key handlers.
 | `Alt+←` / `Alt+→` | Back or forward |
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
+| `Ctrl+M` | Winamp mini player |
 | `Ctrl+,` | Settings |
 | `Ctrl+/` or `?` | All shortcuts |
 | `Ctrl+Q` | Quit |
@@ -138,6 +169,6 @@ On macOS, `Cmd` replaces `Ctrl`.
 
 Settings (Ctrl+,) includes the Connect device name, audio quality up to
 320 kbps, volume normalisation, autoplay, gapless playback, the audio backend
-on Linux, the audio cache size, themes, album-art tinting, and close-to-tray
-behaviour. Applying playback settings restarts the local player. Other
+on Linux, the audio cache size, themes, album-art tinting, the mini
+player's skin and size, and close-to-tray behaviour. Applying playback settings restarts the local player. Other
 settings take effect immediately.

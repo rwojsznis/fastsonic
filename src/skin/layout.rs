@@ -47,6 +47,11 @@ areas! {
     SHADE_BUTTON = (254, 3, 9, 9);
     CLOSE_BUTTON = (264, 3, 9, 9);
     CLUTTER_BAR = (10, 22, 8, 43);
+    CLUTTER_O = (10, 25, 8, 8);
+    CLUTTER_A = (10, 33, 8, 7);
+    CLUTTER_I = (10, 40, 8, 7);
+    CLUTTER_D = (10, 47, 8, 8);
+    CLUTTER_V = (10, 55, 8, 7);
     WORK_INDICATOR = (24, 28, 3, 9);
     STATUS = (26, 28, 9, 9);
     /// The minus sign when the skin has `nums_ex`: a full digit cell.

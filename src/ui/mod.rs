@@ -17,19 +17,23 @@ pub mod show;
 pub mod sidebar;
 pub mod topbar;
 pub mod widgets;
+pub mod winamp;
 
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, Stroke, vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::backend::AuthStatus;
-use crate::model::{Page, ToastKind};
+use crate::model::{Action, Page, ToastKind};
 use crate::theme::{self, Icon};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let ctx = &ctx;
     keys::handle(app, ctx);
+    for path in winamp::dropped_skins(ctx) {
+        app.actions.push(Action::InstallSkin(path));
+    }
     let signed_in = app.is_connected() && app.user.is_some();
     let connecting = matches!(app.auth, AuthStatus::Connecting | AuthStatus::Starting)
         || (app.is_connected() && app.user.is_none());

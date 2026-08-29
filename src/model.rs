@@ -578,5 +578,15 @@ pub enum Action {
     ShowWindow,
     HideWindow,
     ClearArtCache,
+    /// Open or close the Winamp window.
+    ToggleWinampWindow,
+    /// Wear a skin from the skins folder, or the built-in one for `None`.
+    SetSkin(Option<String>),
+    /// Copy a skin file into the skins folder and wear it.
+    InstallSkin(std::path::PathBuf),
+    /// Screen pixels per skin pixel in the Winamp window.
+    SetSkinScale(u8),
+    ToggleWinampOnTop,
+    OpenSkinsFolder,
     Quit,
 }
