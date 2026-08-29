@@ -114,10 +114,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(2.0);
         theme::text(ui, "Your Library", theme::bold(15.0), palette.text);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
             if theme::icon_button(
                 ui,
                 Icon::PanelLeft,
-                18.0,
+                16.0,
                 palette.secondary,
                 palette.text,
                 "Hide sidebar (Cmd+B)",
@@ -126,34 +127,27 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             {
                 app.actions.push(Action::ToggleSidebar);
             }
-            let add = theme::icon_button(
+            // One item never deserved a menu: the plus creates directly.
+            if theme::icon_button(
                 ui,
                 Icon::Plus,
-                18.0,
+                16.0,
                 palette.secondary,
                 palette.text,
-                "Create playlist",
-            );
-            egui::Popup::menu(&add)
-                .frame(super::widgets::menu_frame(&palette))
-                .show(|ui| {
-                    if super::widgets::menu_item(
-                        ui,
-                        &palette,
-                        Some(Icon::ListPlus),
-                        "Create a new playlist",
-                    ) {
-                        app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
-                            name: String::new(),
-                            public: false,
-                            add_uris: Vec::new(),
-                        }));
-                    }
-                });
+                "Create a playlist",
+            )
+            .clicked()
+            {
+                app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
+                    name: String::new(),
+                    public: false,
+                    add_uris: Vec::new(),
+                }));
+            }
             if theme::icon_button(
                 ui,
                 Icon::Search,
-                17.0,
+                16.0,
                 palette.secondary,
                 palette.text,
                 "Search Your Library",
