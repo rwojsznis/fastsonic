@@ -1507,7 +1507,9 @@ pub fn setting_row(
 ) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
-            ui.set_width(ui.available_width() - 260.0);
+            // A frame can arrive before the window has its size (a fullscreen
+            // request on Wayland answers a frame late), so never go negative.
+            ui.set_width((ui.available_width() - 260.0).max(0.0));
             theme::text(ui, label, theme::medium(14.0), palette.text);
             if !description.is_empty() {
                 ui.add(
