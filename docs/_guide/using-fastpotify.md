@@ -133,7 +133,10 @@ equalizer is in Settings with its curve drawn out. The X, the maximize
 button, and both logos of the main window bring back the big window;
 quitting is in the right-click menu and Ctrl+Q. Fastpotify has no balance
 control, so that slider is drawn but does nothing.
-Click the time to count down instead of up. The display's left box is the
+Click the time to count down instead of up. The balance slider moves the
+sound between the speakers and the MONO and STEREO lamps are a switch,
+both for music played on this computer. The playlist's own shade button
+rolls it up to a title bar and down again. The display's left box is the
 spectrum analyser, peaks and all, in the skin's own colours; click it, or
 **V**, for the oscilloscope, and again for nothing. It shows the sound
 leaving this computer, so a device across the room leaves it flat. Modern

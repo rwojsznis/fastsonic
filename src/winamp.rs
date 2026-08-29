@@ -78,6 +78,8 @@ pub struct WinampState {
     choices_listed: Option<Instant>,
     /// Count down instead of up; clicking the time toggles it.
     pub time_remaining: bool,
+    /// The balance while its thumb is held, for the marquee to report.
+    pub balance_preview: Option<f32>,
     marquee_text: String,
     marquee_offset: usize,
     marquee_moved: Option<Instant>,
@@ -110,6 +112,7 @@ impl WinampState {
             choices: Vec::new(),
             choices_listed: None,
             time_remaining: false,
+            balance_preview: None,
             marquee_text: String::new(),
             marquee_offset: 0,
             marquee_moved: None,

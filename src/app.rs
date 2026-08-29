@@ -3868,6 +3868,18 @@ impl App {
                     self.push_eq();
                 }
             }
+            Action::SetBalance(balance) => {
+                self.settings.balance = balance.clamp(-1.0, 1.0);
+                self.push_eq();
+            }
+            Action::ToggleMono => {
+                self.settings.mono = !self.settings.mono;
+                self.push_eq();
+            }
+            Action::ToggleWinampPlaylistShade => {
+                self.settings.playlist_shaded = !self.settings.playlist_shaded;
+                self.settings_dirty = true;
+            }
             Action::CycleVisualiser => {
                 self.settings.vis = self.settings.vis.next();
                 self.settings_dirty = true;
@@ -4173,6 +4185,8 @@ pub fn eq_settings(settings: &Settings) -> crate::eq::EqSettings {
         on: settings.eq_on,
         preamp_db: settings.eq_preamp_db,
         bands_db: settings.eq_bands_db,
+        balance: settings.balance,
+        mono: settings.mono,
     }
     .clamped()
 }

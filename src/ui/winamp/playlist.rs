@@ -32,6 +32,10 @@ struct Row {
 /// The whole panel, `height` skin pixels tall, drawn into a view whose
 /// origin is the panel's top left.
 pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, focused: bool) {
+    if app.settings.playlist_shaded {
+        shade(app, view, now, focused);
+        return;
+    }
     let height = app
         .settings
         .playlist_height
@@ -59,12 +63,17 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     {
         app.actions.push(Action::ToggleWinampPlaylist);
     }
-    view.lamp_button(
-        layout::PLAYLIST_SHADE,
-        sprites::PLAYLIST_SHADE_PRESSED,
-        false,
-        "playlist-shade",
-    );
+    if view
+        .lamp_button(
+            layout::PLAYLIST_SHADE,
+            sprites::PLAYLIST_SHADE_PRESSED,
+            false,
+            "playlist-shade",
+        )
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampPlaylistShade);
+    }
 
     let (rows, queue_uris) = rows(app, now);
     list(app, view, &rows, &queue_uris, height);
@@ -112,6 +121,71 @@ fn mini_transport(app: &mut App, view: &mut View, now: Option<&NowPlaying>, heig
     }
 }
 
+/// The playlist rolled up: a bar with the song's name and time, the
+/// button to roll it down again, and its X.
+fn shade(app: &mut App, view: &mut View, now: Option<&NowPlaying>, focused: bool) {
+    use sprites::*;
+    let width = layout::WINDOW_WIDTH;
+    let height = layout::PLAYLIST_SHADE_HEIGHT;
+    view.sprite_at(PLAYLIST_SHADE_LEFT, 0, 0);
+    let mut x = 25;
+    while x < width - 50 {
+        view.sprite_clipped(
+            PLAYLIST_SHADE_TILE,
+            x,
+            0,
+            Area::new(25, 0, width - 75, height),
+        );
+        x += 25;
+    }
+    let right = if focused {
+        PLAYLIST_SHADE_RIGHT_ACTIVE
+    } else {
+        PLAYLIST_SHADE_RIGHT
+    };
+    view.sprite_at(right, width - 50, 0);
+    let title = view.interact(
+        Area::new(0, 0, width, height),
+        "playlist-shade-title",
+        Sense::click_and_drag(),
+    );
+    if title.drag_started() {
+        view.ui
+            .ctx()
+            .send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if let Some(now) = now {
+        let time = util::format_duration_ms(now.position_ms);
+        let time_width = 5 * time.len() as u32;
+        let time_x = width - 30 - time_width;
+        view.text(&time, Area::new(time_x, 4, time_width, 6));
+        let name = label(1, &now.subtitle, &now.title);
+        view.text(&name, Area::new(5, 4, time_x - 5 - 5, 6));
+    }
+    if view
+        .lamp_button(
+            layout::PLAYLIST_SHADE,
+            sprites::PLAYLIST_UNSHADE_PRESSED,
+            false,
+            "playlist-unshade",
+        )
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampPlaylistShade);
+    }
+    if view
+        .lamp_button(
+            layout::PLAYLIST_CLOSE,
+            sprites::PLAYLIST_CLOSE_PRESSED,
+            false,
+            "playlist-shade-close",
+        )
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampPlaylist);
+    }
+}
+
 /// The frame: corners and tiles across the top, tiles down the sides
 /// however tall the list is, and the two halves of the bottom.
 fn frame(view: &mut View, height: u32, focused: bool) {
@@ -131,23 +205,28 @@ fn frame(view: &mut View, height: u32, focused: bool) {
             PLAYLIST_TOP_RIGHT,
         )
     };
+    // The title sits centred; the tiles either side of it run out to the
+    // corners, the last on each side cut to fit, as Winamp cut them.
     let tile = layout::PLAYLIST_TILE_WIDTH;
-    let spacers = (layout::WINDOW_WIDTH - 2 * tile - 100) / tile;
-    let left_spacers = spacers / 2;
-    let mut x = 0;
-    view.sprite_at(top_left, x, 0);
-    x += tile;
-    for _ in 0..left_spacers {
-        view.sprite_at(top_tile, x, 0);
+    let width = layout::WINDOW_WIDTH;
+    let inner = width - 2 * tile - 100;
+    let left = inner / 2;
+    let right = inner - left;
+    view.sprite_at(top_left, 0, 0);
+    let left_run = Area::new(tile, 0, left, layout::PLAYLIST_TITLE_HEIGHT);
+    let mut x = tile;
+    while x < tile + left {
+        view.sprite_clipped(top_tile, x, 0, left_run);
         x += tile;
     }
-    view.sprite_at(title, x, 0);
-    x += 100;
-    for _ in left_spacers..spacers {
-        view.sprite_at(top_tile, x, 0);
+    view.sprite_at(title, tile + left, 0);
+    let right_run = Area::new(tile + left + 100, 0, right, layout::PLAYLIST_TITLE_HEIGHT);
+    let mut x = tile + left + 100;
+    while x < width - tile {
+        view.sprite_clipped(top_tile, x, 0, right_run);
         x += tile;
     }
-    view.sprite_at(top_right, x, 0);
+    view.sprite_at(top_right, width - tile, 0);
 
     let middle = Area::new(
         0,
@@ -257,9 +336,11 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
     let visible = rows_visible(height);
     let most = rows.len().saturating_sub(visible);
     // The wheel, over the list.
+    // `contains_pointer`, not `hovered`: the rows drawn on top of the list
+    // would take the hover and the wheel with it.
     let hovered = view
         .interact(area, "playlist-list", Sense::hover())
-        .hovered();
+        .contains_pointer();
     if hovered {
         let delta = view.ui.ctx().input(|input| input.smooth_scroll_delta.y);
         let row_points = layout::PLAYLIST_TRACK_HEIGHT as f32 * view.unit;
@@ -347,7 +428,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
 }
 
 /// Text cut to a width, with an ellipsis when it had to be.
-fn fit(text: &super::PixelText, label: &str, width: f32) -> String {
+fn fit(text: &mut super::PixelText, label: &str, width: f32) -> String {
     if text.width(label) <= width {
         return label.to_string();
     }

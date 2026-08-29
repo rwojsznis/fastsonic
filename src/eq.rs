@@ -23,13 +23,19 @@ const Q: f32 = 1.4;
 /// Bands closer to flat than this are skipped rather than run for nothing.
 const FLAT: f32 = 0.05;
 
-/// What the listener set: the switch, the preamp, and the bands.
+/// What the listener set: the switch, the preamp, and the bands, and
+/// the two things Winamp's main window did to the sound as well, the
+/// balance and (a lamp there, a switch here) mono. Those two apply
+/// whether the equalizer is on or not.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EqSettings {
     pub on: bool,
     /// Never above zero.
     pub preamp_db: f32,
     pub bands_db: [f32; 10],
+    /// -1 is all left, 1 all right.
+    pub balance: f32,
+    pub mono: bool,
 }
 
 impl Default for EqSettings {
@@ -38,6 +44,8 @@ impl Default for EqSettings {
             on: false,
             preamp_db: 0.0,
             bands_db: [0.0; 10],
+            balance: 0.0,
+            mono: false,
         }
     }
 }
@@ -49,7 +57,15 @@ impl EqSettings {
         for band in &mut self.bands_db {
             *band = band.clamp(-RANGE_DB, RANGE_DB);
         }
+        self.balance = self.balance.clamp(-1.0, 1.0);
         self
+    }
+
+    /// The gain of each channel from the balance: the side turned away
+    /// from loses, the other keeps its level, as Winamp's did.
+    pub fn channel_gains(&self) -> [f64; 2] {
+        let balance = f64::from(self.balance);
+        [(1.0 - balance).min(1.0), (1.0 + balance).min(1.0)]
     }
 
     /// The response at a frequency, in decibels, with the switch on: the
@@ -244,17 +260,30 @@ impl Processor {
             self.applied = wanted;
             self.rebuild();
         }
-        if !self.applied.on || (self.chains[0].is_empty() && self.gain == 1.0) {
+        let shaping = self.applied.on && !(self.chains[0].is_empty() && self.gain == 1.0);
+        let gains = self.applied.channel_gains();
+        let placing = self.applied.mono || gains != [1.0, 1.0];
+        if !shaping && !placing {
             return;
         }
         let channels = self.chains.len();
         for frame in samples.chunks_exact_mut(channels) {
-            for (sample, chain) in frame.iter_mut().zip(self.chains.iter_mut()) {
-                let mut y = *sample * self.gain;
-                for filter in chain.iter_mut() {
-                    y = filter.run(y);
+            if shaping {
+                for (sample, chain) in frame.iter_mut().zip(self.chains.iter_mut()) {
+                    let mut y = *sample * self.gain;
+                    for filter in chain.iter_mut() {
+                        y = filter.run(y);
+                    }
+                    *sample = y;
                 }
-                *sample = y.clamp(-1.0, 1.0);
+            }
+            if self.applied.mono && frame.len() == 2 {
+                let middle = (frame[0] + frame[1]) / 2.0;
+                frame[0] = middle;
+                frame[1] = middle;
+            }
+            for (sample, gain) in frame.iter_mut().zip(gains) {
+                *sample = (*sample * gain).clamp(-1.0, 1.0);
             }
         }
     }
@@ -353,6 +382,31 @@ mod tests {
         .clamped();
         assert_eq!(clamped.preamp_db, 0.0);
         assert!(clamped.bands_db.iter().all(|band| *band == RANGE_DB));
+    }
+
+    #[test]
+    fn balance_turns_one_side_down_and_mono_makes_the_sides_the_same() {
+        let shared = shared();
+        let mut processor = Processor::new(shared.clone());
+        let mut samples = vec![0.5, -0.25, 0.5, -0.25];
+        shared.lock().unwrap().balance = 0.5;
+        processor.process(&mut samples);
+        assert_eq!(samples, vec![0.25, -0.25, 0.25, -0.25]);
+
+        shared.lock().unwrap().balance = 0.0;
+        shared.lock().unwrap().mono = true;
+        let mut samples = vec![0.5, -0.25];
+        processor.process(&mut samples);
+        assert_eq!(samples, vec![0.125, 0.125]);
+        assert_eq!(
+            EqSettings {
+                balance: 3.0,
+                ..EqSettings::default()
+            }
+            .clamped()
+            .balance,
+            1.0
+        );
     }
 
     #[test]

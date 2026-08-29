@@ -663,6 +663,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                         }
                     }
                 }
+                if let Loadable::Loaded(queue) = &mut app.queue {
+                    for (item, names) in queue.queue.iter_mut().zip(titles) {
+                        if let PlayableItem::Track(track) = item {
+                            rename(track, names);
+                        }
+                    }
+                }
                 if let Some(remote) = &mut app.remote
                     && let Some(PlayableItem::Track(track)) = &mut remote.state.item
                 {

@@ -31,32 +31,33 @@ pub struct Line {
     pub height: u32,
 }
 
-/// The face: Arial or what stands in for it on this desktop, else Inter.
-struct Face {
-    bytes: &'static [u8],
-    index: u32,
-}
-
-static FACE: LazyLock<Face> = LazyLock::new(|| match crate::system_fonts::pledit_face() {
-    Some(face) => Face {
-        bytes: &face.bytes,
-        index: face.index,
-    },
-    None => Face {
-        bytes: include_bytes!("../../../assets/fonts/InterVariable.ttf"),
-        index: 0,
-    },
+/// The faces, in the order they are asked: Arial or what stands in for
+/// it on this desktop (else Inter), then the faces the app borrows from
+/// the system for the scripts those cannot draw. Windows did the same
+/// for Winamp under the name of font linking, so a Japanese title in the
+/// playlist is as period-accurate as a Latin one.
+static FACES: LazyLock<Vec<(&'static [u8], u32)>> = LazyLock::new(|| {
+    let mut faces: Vec<(&'static [u8], u32)> = match crate::system_fonts::pledit_face() {
+        Some(face) => vec![(&face.bytes, face.index)],
+        None => vec![(include_bytes!("../../../assets/fonts/InterVariable.ttf"), 0)],
+    };
+    for fallback in crate::system_fonts::fallbacks() {
+        faces.push((&fallback.bytes, fallback.index));
+    }
+    faces
 });
 
-fn font() -> Option<skrifa::FontRef<'static>> {
-    skrifa::FontRef::from_index(FACE.bytes, FACE.index).ok()
+/// A face opened for drawing, with its hinting programme at the size.
+struct Face {
+    font: skrifa::FontRef<'static>,
+    hinting: Option<HintingInstance>,
 }
 
-/// Lines drawn so far, and the hinting programme they were drawn with.
+/// Lines drawn so far, and the faces they are drawn with.
 #[derive(Default)]
 pub struct PixelText {
     lines: HashMap<String, Line>,
-    hinting: Option<HintingInstance>,
+    faces: Vec<Face>,
 }
 
 impl PixelText {
@@ -65,19 +66,59 @@ impl PixelText {
         self.lines.clear();
     }
 
-    /// How wide a line would be, in skin pixels, from the face's advances.
-    pub fn width(&self, text: &str) -> f32 {
-        let Some(font) = font() else {
-            return 0.0;
-        };
-        let size = Size::new(SIZE_PX as f32);
-        let charmap = font.charmap();
-        let glyphs = font.glyph_metrics(size, LocationRef::default());
-        text.chars()
-            .map(|character| {
-                charmap
+    fn faces(&mut self) -> &[Face] {
+        if self.faces.is_empty() {
+            let size = Size::new(SIZE_PX as f32);
+            for (bytes, index) in FACES.iter() {
+                let Ok(font) = skrifa::FontRef::from_index(bytes, *index) else {
+                    continue;
+                };
+                let hinting = HintingInstance::new(
+                    &font.outline_glyphs(),
+                    size,
+                    LocationRef::default(),
+                    Target::Mono,
+                )
+                .ok();
+                self.faces.push(Face { font, hinting });
+            }
+        }
+        &self.faces
+    }
+
+    /// The face that draws a character and the glyph it uses: the first
+    /// that has it, or the first face's question mark.
+    fn glyph_for(faces: &[Face], character: char) -> Option<(usize, skrifa::GlyphId)> {
+        faces
+            .iter()
+            .enumerate()
+            .find_map(|(index, face)| {
+                face.font
+                    .charmap()
                     .map(character)
-                    .and_then(|glyph| glyphs.advance_width(glyph))
+                    .map(|glyph| (index, glyph))
+            })
+            .or_else(|| {
+                faces
+                    .first()?
+                    .font
+                    .charmap()
+                    .map('?')
+                    .map(|glyph| (0, glyph))
+            })
+    }
+
+    /// How wide a line would be, in skin pixels, from the faces' advances.
+    pub fn width(&mut self, text: &str) -> f32 {
+        let faces = self.faces();
+        let size = Size::new(SIZE_PX as f32);
+        text.chars()
+            .filter_map(|character| Self::glyph_for(faces, character))
+            .map(|(index, glyph)| {
+                faces[index]
+                    .font
+                    .glyph_metrics(size, LocationRef::default())
+                    .advance_width(glyph)
                     .unwrap_or(0.0)
                     .round()
             })
@@ -107,31 +148,31 @@ impl PixelText {
     }
 
     fn rasterise(&mut self, text: &str) -> ColorImage {
-        let Some(font) = font() else {
+        let faces = self.faces();
+        let Some(primary) = faces.first() else {
             return ColorImage::filled([1, 1], Color32::TRANSPARENT);
         };
         let size = Size::new(SIZE_PX as f32);
         let location = LocationRef::default();
-        let metrics = font.metrics(size, location);
+        let metrics = primary.font.metrics(size, location);
         let ascent = metrics.ascent.ceil();
         let height = (ascent + (-metrics.descent).ceil()).max(1.0) as u32;
-        let charmap = font.charmap();
-        let glyph_metrics = font.glyph_metrics(size, location);
-        let outlines = font.outline_glyphs();
-        if self.hinting.is_none() {
-            self.hinting = HintingInstance::new(&outlines, size, location, Target::Mono).ok();
-        }
 
         let mut paths = Vec::new();
         let mut x = 0.0f32;
         for character in text.chars() {
-            let Some(glyph) = charmap.map(character).or_else(|| charmap.map('?')) else {
+            let Some((index, glyph)) = Self::glyph_for(faces, character) else {
                 continue;
             };
-            let mut advance = glyph_metrics.advance_width(glyph).unwrap_or(0.0);
-            if let Some(outline) = outlines.get(glyph) {
+            let face = &faces[index];
+            let mut advance = face
+                .font
+                .glyph_metrics(size, location)
+                .advance_width(glyph)
+                .unwrap_or(0.0);
+            if let Some(outline) = face.font.outline_glyphs().get(glyph) {
                 let mut pen = Pen::new(x, ascent);
-                let drawn = match &self.hinting {
+                let drawn = match &face.hinting {
                     Some(hinting) => outline.draw(DrawSettings::hinted(hinting, false), &mut pen),
                     None => outline.draw(DrawSettings::unhinted(size, location), &mut pen),
                 };
@@ -258,6 +299,19 @@ mod tests {
                 .iter()
                 .all(|pixel| *pixel == Color32::TRANSPARENT)
         );
+    }
+
+    #[test]
+    fn a_script_the_face_lacks_comes_from_a_borrowed_face() {
+        let mut text = PixelText::default();
+        let question = text.rasterise("?").size[0];
+        let kanji = text.rasterise("\u{591c}").size[0];
+        if text.faces().len() > 1 {
+            // A CJK glyph is square, so far wider than a question mark.
+            assert!(kanji > question, "the kanji drew as a question mark");
+        } else {
+            assert_eq!(kanji, question);
+        }
     }
 
     #[test]

@@ -48,9 +48,13 @@ fn stack_height(settings: &crate::settings::Settings) -> u32 {
         height += layout::EQ_HEIGHT;
     }
     if settings.playlist_open {
-        height += settings
-            .playlist_height
-            .clamp(layout::PLAYLIST_MIN_HEIGHT, layout::PLAYLIST_MAX_HEIGHT);
+        height += if settings.playlist_shaded {
+            layout::PLAYLIST_SHADE_HEIGHT
+        } else {
+            settings
+                .playlist_height
+                .clamp(layout::PLAYLIST_MIN_HEIGHT, layout::PLAYLIST_MAX_HEIGHT)
+        };
     }
     height
 }
@@ -294,7 +298,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     );
     title_bar(app, &mut view, &ctx, focused);
     clutter_bar(app, &mut view, now.as_ref());
-    status(&mut view, now.as_ref());
+    status(app, &mut view, now.as_ref());
     time_display(app, &mut view, now.as_ref(), time);
     let vis_moving = visualiser(app, &mut view, now.as_ref());
     marquee(app, &mut view, now.as_ref());
@@ -609,11 +613,20 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
     }
 }
 
-fn status(view: &mut View, now: Option<&NowPlaying>) {
+/// Whether the player is stopped, as Winamp meant it: something loaded and
+/// paused at the very start. Spotify has no stop, so this is what Stop
+/// leaves behind, and what the display treats as stopped.
+fn stopped(now: Option<&NowPlaying>) -> bool {
+    now.is_some_and(|now| !now.playing && !now.loading && now.position_ms == 0)
+}
+
+/// The play, pause, and stop lamp, the work indicator, and the mono and
+/// stereo lamps, which are a switch here: MONO folds the channels together.
+fn status(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     let status = match now {
         Some(now) if now.playing || now.loading => sprites::STATUS_PLAYING,
-        Some(_) => sprites::STATUS_PAUSED,
-        None => sprites::STATUS_STOPPED,
+        Some(_) if !stopped(now) => sprites::STATUS_PAUSED,
+        _ => sprites::STATUS_STOPPED,
     };
     view.sprite(status, layout::STATUS);
     let working = now.is_some_and(|now| now.loading);
@@ -625,16 +638,33 @@ fn status(view: &mut View, now: Option<&NowPlaying>) {
         },
         layout::WORK_INDICATOR,
     );
-    let stereo = now.is_some();
-    view.sprite(
-        if stereo {
-            sprites::STEREO_ON
-        } else {
-            sprites::STEREO_OFF
-        },
-        layout::STEREO,
-    );
-    view.sprite(sprites::MONO_OFF, layout::MONO);
+    let sounding = now.is_some() && !stopped(now);
+    let mono = app.settings.mono;
+    let (stereo, mono_lamp) = match (sounding, mono) {
+        (false, _) => (sprites::STEREO_OFF, sprites::MONO_OFF),
+        (true, true) => (sprites::STEREO_OFF, sprites::MONO_ON),
+        (true, false) => (sprites::STEREO_ON, sprites::MONO_OFF),
+    };
+    view.sprite(stereo, layout::STEREO);
+    view.sprite(mono_lamp, layout::MONO);
+    if view
+        .interact(layout::MONO, "mono", Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Play in mono")
+        .clicked()
+        && !mono
+    {
+        app.actions.push(Action::ToggleMono);
+    }
+    if view
+        .interact(layout::STEREO, "stereo", Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Play in stereo")
+        .clicked()
+        && mono
+    {
+        app.actions.push(Action::ToggleMono);
+    }
 }
 
 /// The time in the skin's digits: elapsed, or remaining with a minus sign,
@@ -664,7 +694,7 @@ fn time_display(app: &mut App, view: &mut View, now: Option<&NowPlaying>, time: 
             view.sprite(sprites::NUMBERS_NO_MINUS, layout::MINUS);
         }
     };
-    let Some(now) = now else {
+    let Some(now) = now.filter(|now| !stopped(Some(now))) else {
         blank(view);
         return;
     };
@@ -703,8 +733,25 @@ fn time_display(app: &mut App, view: &mut View, now: Option<&NowPlaying>, time: 
     }
 }
 
-/// What the marquee says: the song, or where a seek is heading.
-pub fn marquee_text(now: Option<&NowPlaying>, seek_preview: Option<f32>) -> String {
+/// What the marquee says: a slider while it moves, as Winamp announced
+/// them, a seek while it is dragged, else the song.
+pub fn marquee_text(
+    now: Option<&NowPlaying>,
+    seek_preview: Option<f32>,
+    volume_preview: Option<f32>,
+    balance_preview: Option<f32>,
+) -> String {
+    if let Some(balance) = balance_preview {
+        let percent = (balance.abs() * 100.0).round() as u32;
+        return match balance {
+            b if b < 0.0 => format!("Balance: {percent}% left"),
+            b if b > 0.0 => format!("Balance: {percent}% right"),
+            _ => "Balance: center".to_string(),
+        };
+    }
+    if let Some(volume) = volume_preview {
+        return format!("Volume: {}%", (volume * 100.0).round() as u32);
+    }
     let Some(now) = now else {
         return "Fastpotify".to_string();
     };
@@ -731,7 +778,12 @@ pub fn marquee_text(now: Option<&NowPlaying>, seek_preview: Option<f32>) -> Stri
 }
 
 fn marquee(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
-    let text = marquee_text(now, app.seek_preview);
+    let text = marquee_text(
+        now,
+        app.seek_preview,
+        app.volume_preview,
+        app.winamp.balance_preview,
+    );
     let shown = app.winamp.marquee(&text, Instant::now());
     view.text(&shown, layout::MARQUEE);
 }
@@ -740,7 +792,7 @@ fn marquee(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
 /// the one chosen for this computer, so a device across the room shows
 /// none.
 fn rates(app: &App, view: &mut View, now: Option<&NowPlaying>) {
-    let Some(now) = now else {
+    let Some(now) = now.filter(|now| !stopped(Some(now))) else {
         return;
     };
     if now.local {
@@ -784,18 +836,37 @@ fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     let thumb_x = layout::VOLUME.x + (shown * layout::VOLUME_TRAVEL + 50) / 100;
     view.sprite_at(thumb, thumb_x, layout::VOLUME.y + 1);
 
-    // Balance: centred, and Fastpotify has nothing to move it with.
-    view.sprite(sprites::balance_frame(0), layout::BALANCE);
-    view.sprite_at(
-        sprites::BALANCE_THUMB,
-        layout::BALANCE.x + layout::BALANCE_TRAVEL / 2,
-        layout::BALANCE.y + 1,
-    );
+    // Balance: the channels' gains in the sound path, with Winamp's snap
+    // to the centre.
+    let (response, event) = view.slider(layout::BALANCE, "balance", 14);
+    match event {
+        SliderEvent::Dragging(value) => {
+            let balance = balance_of(value);
+            app.winamp.balance_preview = Some(balance);
+            app.actions.push(Action::SetBalance(balance));
+        }
+        SliderEvent::Committed(value) => {
+            app.winamp.balance_preview = None;
+            app.actions.push(Action::SetBalance(balance_of(value)));
+        }
+        SliderEvent::None => {}
+    }
+    let balance = app.winamp.balance_preview.unwrap_or(app.settings.balance);
+    let frame = (balance.abs() * (sprites::SLIDER_FRAMES - 1) as f32).round() as u32;
+    view.sprite(sprites::balance_frame(frame), layout::BALANCE);
+    let thumb = if response.dragged() || response.is_pointer_button_down_on() {
+        sprites::BALANCE_THUMB_PRESSED
+    } else {
+        sprites::BALANCE_THUMB
+    };
+    let thumb_x =
+        layout::BALANCE.x + ((balance + 1.0) / 2.0 * layout::BALANCE_TRAVEL as f32).round() as u32;
+    view.sprite_at(thumb, thumb_x, layout::BALANCE.y + 1);
 
     // The seek bar. The thumb only exists while something plays, as in
-    // Winamp, so an empty player has nothing to drag.
+    // Winamp, so an empty or stopped player has nothing to drag.
     view.sprite(sprites::POSITION_TRACK, layout::POSITION);
-    let Some(now) = now.filter(|now| now.duration_ms > 0) else {
+    let Some(now) = now.filter(|now| now.duration_ms > 0 && !stopped(Some(now))) else {
         return;
     };
     let (response, event) = view.slider(layout::POSITION, "position", 29);
@@ -819,6 +890,13 @@ fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     };
     let thumb_x = layout::POSITION.x + (fraction * layout::POSITION_TRAVEL as f32).round() as u32;
     view.sprite_at(thumb, thumb_x, layout::POSITION.y);
+}
+
+/// A slider position as a balance, -1 to 1, snapping to the centre the
+/// way Winamp's did.
+fn balance_of(value: f32) -> f32 {
+    let balance = value * 2.0 - 1.0;
+    if balance.abs() < 0.08 { 0.0 } else { balance }
 }
 
 /// The EQ and PL toggles, each lit while its window hangs below.
@@ -877,7 +955,7 @@ fn transport(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
             app.actions.push(Action::TogglePlay);
         }
     }
-    let pause = if now.is_some() && !playing {
+    let pause = if now.is_some() && !playing && !stopped(now) {
         sprites::PAUSE_PRESSED
     } else {
         sprites::PAUSE
@@ -889,8 +967,13 @@ fn transport(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     {
         app.actions.push(Action::TogglePlay);
     }
+    let stop = if stopped(now) {
+        sprites::STOP_PRESSED
+    } else {
+        sprites::STOP
+    };
     if view
-        .button(layout::STOP, sprites::STOP, sprites::STOP_PRESSED, "stop")
+        .button(layout::STOP, stop, sprites::STOP_PRESSED, "stop")
         .clicked()
         && now.is_some()
     {
@@ -985,21 +1068,47 @@ mod tests {
     fn the_marquee_names_the_song_the_way_winamp_did() {
         let playing = now("Karma Police", "Radiohead", 264_000);
         assert_eq!(
-            marquee_text(Some(&playing), None),
+            marquee_text(Some(&playing), None, None, None),
             "Radiohead - Karma Police (4:24)"
         );
-        assert_eq!(marquee_text(None, None), "Fastpotify");
+        assert_eq!(marquee_text(None, None, None, None), "Fastpotify");
         let untitled = now("Episode 12", "", 0);
-        assert_eq!(marquee_text(Some(&untitled), None), "Episode 12");
+        assert_eq!(
+            marquee_text(Some(&untitled), None, None, None),
+            "Episode 12"
+        );
     }
 
     #[test]
     fn a_seek_in_progress_says_where_it_is_going() {
         let playing = now("Karma Police", "Radiohead", 264_000);
         assert_eq!(
-            marquee_text(Some(&playing), Some(0.5)),
+            marquee_text(Some(&playing), Some(0.5), None, None),
             "Seek to: 2:12/4:24 (50%)"
         );
+    }
+
+    #[test]
+    fn sliders_announce_themselves_while_they_move() {
+        let playing = now("Karma Police", "Radiohead", 264_000);
+        assert_eq!(
+            marquee_text(Some(&playing), None, Some(0.57), None),
+            "Volume: 57%"
+        );
+        assert_eq!(
+            marquee_text(Some(&playing), None, None, Some(-0.25)),
+            "Balance: 25% left"
+        );
+        assert_eq!(marquee_text(None, None, None, Some(0.0)), "Balance: center");
+        assert_eq!(balance_of(0.5), 0.0);
+        assert_eq!(balance_of(0.52), 0.0);
+        assert!((balance_of(1.0) - 1.0).abs() < 1e-6);
+        assert!(stopped(Some(&NowPlaying {
+            playing: false,
+            position_ms: 0,
+            ..playing.clone()
+        })));
+        assert!(!stopped(Some(&playing)));
     }
 
     #[test]

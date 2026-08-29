@@ -602,5 +602,10 @@ pub enum Action {
     SetEqPreamp(f32),
     /// One of Winamp's presets, by its place in the list.
     ApplyEqPreset(usize),
+    /// The balance, -1 all left to 1 all right.
+    SetBalance(f32),
+    ToggleMono,
+    /// Roll the playlist window up to its title bar, or down again.
+    ToggleWinampPlaylistShade,
     Quit,
 }

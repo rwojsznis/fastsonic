@@ -90,12 +90,7 @@ pub(super) fn show(app: &mut App, view: &mut View, focused: bool) {
 }
 
 fn current(app: &App) -> EqSettings {
-    EqSettings {
-        on: app.settings.eq_on,
-        preamp_db: app.settings.eq_preamp_db,
-        bands_db: app.settings.eq_bands_db,
-    }
-    .clamped()
+    crate::app::eq_settings(&app.settings)
 }
 
 /// A gain as a fraction of the slider, 0 at the bottom.

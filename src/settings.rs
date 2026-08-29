@@ -114,6 +114,12 @@ pub struct Settings {
     pub eq_preamp_db: f32,
     /// The ten bands, in decibels, 60 Hz to 16 kHz.
     pub eq_bands_db: [f32; 10],
+    /// The balance, -1 all left to 1 all right.
+    pub balance: f32,
+    /// Play both channels the same.
+    pub mono: bool,
+    /// The playlist window is rolled up to its title bar.
+    pub playlist_shaded: bool,
 }
 
 impl Default for Settings {
@@ -155,6 +161,9 @@ impl Default for Settings {
             eq_on: false,
             eq_preamp_db: 0.0,
             eq_bands_db: [0.0; 10],
+            balance: 0.0,
+            mono: false,
+            playlist_shaded: false,
         }
     }
 }
@@ -232,6 +241,9 @@ mod tests {
         assert_eq!(settings.playlist_height, 174);
         assert!(!settings.eq_on);
         assert_eq!(settings.eq_bands_db, [0.0; 10]);
+        assert_eq!(settings.balance, 0.0);
+        assert!(!settings.mono);
+        assert!(!settings.playlist_shaded);
     }
 
     #[test]
