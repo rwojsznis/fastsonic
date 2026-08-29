@@ -1549,6 +1549,7 @@ dependencies = [
  "skrifa",
  "souvlaki",
  "thiserror 2.0.20",
+ "tiny-skia",
  "tokio",
  "tray-icon",
  "urlencoding",

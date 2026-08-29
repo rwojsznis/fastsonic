@@ -31,19 +31,36 @@ use crate::winamp::{MAX_SCALE, WinampState};
 
 use super::widgets::SliderEvent;
 
+mod pixel_text;
+mod playlist;
+
+pub use pixel_text::PixelText;
+
 /// How often the visualiser moves.
 const VIS_FRAME: Duration = Duration::from_micros(16_667);
 
+/// The stack's height in skin pixels: the main window, and the playlist
+/// under it when it is open.
+fn stack_height(settings: &crate::settings::Settings) -> u32 {
+    let mut height = layout::WINDOW_HEIGHT;
+    if settings.playlist_open {
+        height += settings
+            .playlist_height
+            .clamp(layout::PLAYLIST_MIN_HEIGHT, layout::PLAYLIST_MAX_HEIGHT);
+    }
+    height
+}
+
 /// The window's size in logical points, for the given points per skin
 /// pixel.
-pub fn window_size(unit: f32) -> Vec2 {
-    vec2(layout::WINDOW_WIDTH as f32, layout::WINDOW_HEIGHT as f32) * unit
+pub fn window_size(settings: &crate::settings::Settings, unit: f32) -> Vec2 {
+    vec2(layout::WINDOW_WIDTH as f32, stack_height(settings) as f32) * unit
 }
 
 /// A first guess at the window's size, before the display's scale is
 /// known; the first frame corrects it.
 pub fn initial_size(settings: &crate::settings::Settings) -> Vec2 {
-    window_size(WinampState::scale(settings, 1.0) as f32)
+    window_size(settings, WinampState::scale(settings, 1.0) as f32)
 }
 
 /// Skin files dropped on the window this frame.
@@ -68,12 +85,12 @@ fn unit(app: &App, ctx: &egui::Context) -> f32 {
 /// Keeps the window exactly the skin's size. The size it was made with is
 /// a guess, since the display's scale is only known once the window
 /// exists, and the size changes when the listener picks another.
-fn fit_window(ctx: &egui::Context, unit: f32) {
-    let wanted = window_size(unit);
+fn fit_window(ctx: &egui::Context, settings: &crate::settings::Settings, unit: f32) {
+    let wanted = window_size(settings, unit);
     // Not `inner_rect`: Wayland reports no window positions, so that is
     // `None` there; the screen rect is the window's size on every desktop.
     let current = ctx.viewport_rect().size();
-    if (current - wanted).abs().max_elem() < 0.5 {
+    if (current - wanted).abs().max_elem() < 1.0 {
         return;
     }
     // A desktop that will not grant the size is asked again only now and
@@ -137,6 +154,13 @@ impl View<'_> {
 
     fn sprite_at(&self, sprite: Sprite, x: u32, y: u32) {
         self.paint(self.ui.painter(), sprite, x, y);
+    }
+
+    /// A sprite cut to an area, for tiles that run past the edge.
+    fn sprite_clipped(&self, sprite: Sprite, x: u32, y: u32, clip: Area) {
+        let clip = self.rect(clip).intersect(self.ui.clip_rect());
+        let painter = self.ui.painter().with_clip_rect(clip);
+        self.paint(&painter, sprite, x, y);
     }
 
     /// A block of skin pixels in one colour.
@@ -233,7 +257,7 @@ impl View<'_> {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let unit = unit(app, &ctx);
-    fit_window(&ctx, unit);
+    fit_window(&ctx, &app.settings, unit);
     let origin = ui.max_rect().min;
     let (outer, focused) = ctx.input(|input| {
         let viewport = input.viewport();
@@ -282,6 +306,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .clicked()
     {
         app.actions.push(Action::ToggleWinampWindow);
+    }
+
+    if app.settings.playlist_open {
+        let mut below = View {
+            ui: view.ui,
+            origin: origin + vec2(0.0, layout::WINDOW_HEIGHT as f32 * unit),
+            unit,
+            skin: &skin,
+            textures: &textures,
+        };
+        playlist::show(app, &mut below, now.as_ref(), focused);
     }
 
     // The visualiser wants a frame every 60th of a second while it moves;
@@ -769,24 +804,20 @@ fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     view.sprite_at(thumb, thumb_x, layout::POSITION.y);
 }
 
-/// The EQ and PL toggles. There is no equalizer, so EQ rests; PL opens the
-/// queue in the big window, which is what a playlist is here.
+/// The EQ and PL toggles. There is no equalizer, so EQ rests; PL opens
+/// the playlist under this window.
 fn windows_buttons(app: &mut App, view: &mut View) {
     view.sprite(sprites::EQ_OFF, layout::EQ_BUTTON);
+    let (normal, pressed) = if app.settings.playlist_open {
+        (sprites::PLAYLIST_ON, sprites::PLAYLIST_ON_PRESSED)
+    } else {
+        (sprites::PLAYLIST_OFF, sprites::PLAYLIST_OFF_PRESSED)
+    };
     if view
-        .button(
-            layout::PLAYLIST_BUTTON,
-            sprites::PLAYLIST_OFF,
-            sprites::PLAYLIST_OFF_PRESSED,
-            "playlist",
-        )
-        .on_hover_text("The queue, in the big window")
+        .button(layout::PLAYLIST_BUTTON, normal, pressed, "playlist")
         .clicked()
     {
-        if !app.show_queue_panel {
-            app.actions.push(Action::ToggleQueuePanel);
-        }
-        app.actions.push(Action::ToggleWinampWindow);
+        app.actions.push(Action::ToggleWinampPlaylist);
     }
 }
 
@@ -945,5 +976,7 @@ mod tests {
         assert_eq!(initial_size(&settings), vec2(550.0, 232.0));
         settings.skin_scale = Some(1);
         assert_eq!(initial_size(&settings), vec2(275.0, 116.0));
+        settings.playlist_open = true;
+        assert_eq!(initial_size(&settings), vec2(275.0, 290.0));
     }
 }

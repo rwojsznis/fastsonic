@@ -102,6 +102,10 @@ pub struct Settings {
     pub winamp_on_top: bool,
     /// The mini player's visualiser: bars, scope, or off.
     pub vis: VisMode,
+    /// The playlist window is open under the mini player.
+    pub playlist_open: bool,
+    /// How tall the playlist window is, in skin pixels.
+    pub playlist_height: u32,
 }
 
 impl Default for Settings {
@@ -137,6 +141,8 @@ impl Default for Settings {
             skin_scale: None,
             winamp_on_top: false,
             vis: VisMode::default(),
+            playlist_open: false,
+            playlist_height: 174,
         }
     }
 }
@@ -210,6 +216,8 @@ mod tests {
         assert_eq!(settings.skin_scale, None);
         assert!(!settings.winamp_on_top);
         assert_eq!(settings.vis, super::VisMode::Bars);
+        assert!(!settings.playlist_open);
+        assert_eq!(settings.playlist_height, 174);
     }
 
     #[test]

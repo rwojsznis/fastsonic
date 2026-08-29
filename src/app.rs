@@ -1195,7 +1195,8 @@ impl App {
             {
                 self.refresh_devices();
             }
-            if (self.show_queue_panel || matches!(self.page(), Page::Queue))
+            let playlist_open = self.settings.winamp_window && self.settings.playlist_open;
+            if (self.show_queue_panel || matches!(self.page(), Page::Queue) || playlist_open)
                 && !self.queue.is_loading()
                 && self
                     .queue_fetched_at
@@ -3807,6 +3808,20 @@ impl App {
             }
             Action::ToggleWinampOnTop => {
                 self.settings.winamp_on_top = !self.settings.winamp_on_top;
+                self.settings_dirty = true;
+            }
+            Action::ToggleWinampPlaylist => {
+                self.settings.playlist_open = !self.settings.playlist_open;
+                self.settings_dirty = true;
+                if self.settings.playlist_open {
+                    self.refresh_queue(false);
+                }
+            }
+            Action::SetPlaylistHeight(height) => {
+                self.settings.playlist_height = height.clamp(
+                    crate::skin::layout::PLAYLIST_MIN_HEIGHT,
+                    crate::skin::layout::PLAYLIST_MAX_HEIGHT,
+                );
                 self.settings_dirty = true;
             }
             Action::CycleVisualiser => {

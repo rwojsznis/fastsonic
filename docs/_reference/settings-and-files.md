@@ -56,6 +56,8 @@ main fields are:
 | `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |
 | `winamp_on_top` | `false` | Keep the mini player above other windows |
 | `vis` | `bars` | The mini player's visualiser: `bars`, `scope`, or `off` |
+| `playlist_open` | `false` | The playlist window is open under the mini player |
+| `playlist_height` | `174` | The playlist window's height in skin pixels |
 | `keep_playing_in_background` | `true` | Close to tray |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Optional personal Spotify app id used alongside shared coverage |
@@ -82,7 +84,8 @@ interface work. Demo mode never writes settings.
 
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
-`queue`, `devices`, `shortcuts`, `create`, `light`, `focus`, and `winamp`.
+`queue`, `devices`, `shortcuts`, `create`, `light`, `focus`, `winamp`, and
+`playlist`.
 
 `--demo-shot <PATH>` writes the window to a PNG and exits, which is how the
 screenshots in these pages are made:

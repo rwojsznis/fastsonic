@@ -88,6 +88,14 @@ pub struct WinampState {
     /// The sound on its way out, for the visualiser.
     pub tap: Arc<AudioTap>,
     pub analyser: Analyser,
+    /// The playlist window: its first visible row, the row clicked, the
+    /// wheel's leftover, and the corner drag's leftover.
+    pub playlist_scroll: usize,
+    pub playlist_selected: Option<String>,
+    pub playlist_wheel: f32,
+    pub playlist_resize: f32,
+    /// The playlist's rows as Winamp drew them, kept once drawn.
+    pub playlist_text: crate::ui::winamp::PixelText,
 }
 
 impl WinampState {
@@ -107,6 +115,11 @@ impl WinampState {
             last_pos: None,
             tap,
             analyser: Analyser::default(),
+            playlist_scroll: 0,
+            playlist_selected: None,
+            playlist_wheel: 0.0,
+            playlist_resize: 0.0,
+            playlist_text: crate::ui::winamp::PixelText::default(),
         }
     }
 
@@ -134,6 +147,7 @@ impl WinampState {
     /// The window is gone (or about to be), and with it the textures.
     pub fn forget_textures(&mut self) {
         self.textures.clear();
+        self.playlist_text.clear();
     }
 
     /// Keeps where the window was, for the next time it opens.

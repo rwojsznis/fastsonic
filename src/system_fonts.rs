@@ -87,6 +87,105 @@ pub fn fallbacks() -> &'static [Fallback] {
     FONTS.get_or_init(load)
 }
 
+/// The face Winamp's playlists were drawn in, or the nearest this desktop
+/// carries: Arial, then the metric twins that stand in for it on Linux,
+/// then a plain sans. `None` leaves it to the interface font.
+pub fn pledit_face() -> Option<&'static Fallback> {
+    static FACE: OnceLock<Option<Fallback>> = OnceLock::new();
+    FACE.get_or_init(|| {
+        find_family(&[
+            "arial",
+            "liberation sans",
+            "arimo",
+            "helvetica",
+            "helvetica neue",
+            "nimbus sans",
+            "dejavu sans",
+        ])
+    })
+    .as_ref()
+}
+
+/// The regular face of the first family in `wanted` that is installed.
+fn find_family(wanted: &[&str]) -> Option<Fallback> {
+    let mut best: Option<(usize, PathBuf, u32)> = None;
+    for dir in font_dirs() {
+        walk_fonts(&dir, 0, &mut |path| rank_family(path, wanted, &mut best));
+    }
+    let (_, path, index) = best?;
+    let bytes = std::fs::read(&path).ok()?;
+    log::debug!("playlist face: {} (face {index})", path.display());
+    Some(Fallback {
+        name: "pledit".to_string(),
+        bytes,
+        index,
+    })
+}
+
+/// Visits every font file below `dir`.
+fn walk_fonts(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
+    if depth >= FONT_SCAN_DEPTH {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if kind.is_dir() || (kind.is_symlink() && path.is_dir()) {
+            walk_fonts(&path, depth + 1, visit);
+        } else if is_font_file(&path) {
+            visit(&path);
+        }
+    }
+}
+
+/// Keeps the file if it holds a regular face of a wanted family that ranks
+/// above the one held so far.
+fn rank_family(path: &Path, wanted: &[&str], best: &mut Option<(usize, PathBuf, u32)>) {
+    let Ok(file) = std::fs::File::open(path) else {
+        return;
+    };
+    // Safety: as in `probe_file`, a read-only mapping that lives inside
+    // this call.
+    let Ok(map) = (unsafe { memmap2::Mmap::map(&file) }) else {
+        return;
+    };
+    let faces: Vec<(u32, skrifa::FontRef)> = match skrifa::raw::FileRef::new(&map) {
+        Ok(skrifa::raw::FileRef::Font(font)) => vec![(0, font)],
+        Ok(skrifa::raw::FileRef::Collection(collection)) => (0..collection.len().min(MAX_FACES))
+            .filter_map(|index| collection.get(index).ok().map(|font| (index, font)))
+            .collect(),
+        Err(_) => return,
+    };
+    for (index, font) in faces {
+        let attributes = font.attributes();
+        if attributes.style != skrifa::attribute::Style::Normal
+            || !(350.0..=450.0).contains(&attributes.weight.value())
+        {
+            continue;
+        }
+        let family = font
+            .localized_strings(skrifa::string::StringId::FAMILY_NAME)
+            .english_or_first()
+            .map(|name| name.to_string())
+            .unwrap_or_default()
+            .to_lowercase();
+        let Some(rank) = wanted.iter().position(|name| *name == family) else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .is_none_or(|(held, held_path, _)| (rank, path) < (*held, held_path.as_path()))
+        {
+            *best = Some((rank, path.to_path_buf(), index));
+        }
+    }
+}
+
 /// A face that covers a script, and how well it suits the interface.
 struct Candidate {
     score: u32,

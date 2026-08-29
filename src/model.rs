@@ -590,5 +590,9 @@ pub enum Action {
     OpenSkinsFolder,
     /// Bars, then the scope, then nothing, in the mini player's display.
     CycleVisualiser,
+    /// Open or close the playlist window under the mini player.
+    ToggleWinampPlaylist,
+    /// The playlist window's height, in skin pixels.
+    SetPlaylistHeight(u32),
     Quit,
 }

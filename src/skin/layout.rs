@@ -84,6 +84,31 @@ areas! {
     ABOUT = (253, 91, 13, 15);
 }
 
+/// The playlist window, below the main one. Its height is whatever the
+/// listener stretched it to, in the steps Winamp allowed; these are the
+/// parts that stay put.
+pub const PLAYLIST_TITLE_HEIGHT: u32 = 20;
+pub const PLAYLIST_BOTTOM_HEIGHT: u32 = 38;
+pub const PLAYLIST_LEFT_WIDTH: u32 = 12;
+pub const PLAYLIST_RIGHT_WIDTH: u32 = 20;
+pub const PLAYLIST_TILE_WIDTH: u32 = 25;
+pub const PLAYLIST_TILE_HEIGHT: u32 = 29;
+pub const PLAYLIST_TRACK_HEIGHT: u32 = 13;
+pub const PLAYLIST_MIN_HEIGHT: u32 = 116;
+pub const PLAYLIST_MAX_HEIGHT: u32 = 116 + 29 * 20;
+pub const PLAYLIST_RESIZE_STEP: u32 = 29;
+/// The title bar's buttons, from the playlist's top left.
+pub const PLAYLIST_CLOSE: Area = Area::new(264, 3, 9, 9);
+pub const PLAYLIST_SHADE: Area = Area::new(254, 3, 9, 9);
+/// The scroll handle's column, and the corner that resizes.
+pub const PLAYLIST_SCROLL_X: u32 = 260;
+pub const PLAYLIST_SCROLL_HANDLE_HEIGHT: u32 = 18;
+pub const PLAYLIST_GRIP: u32 = 20;
+/// Where the times are written: x from the left, y from the bottom bar's
+/// top.
+pub const PLAYLIST_RUNNING_TIME: (u32, u32) = (132, 10);
+pub const PLAYLIST_TRACK_TIME: (u32, u32) = (191, 23);
+
 /// The digit cells of the time display, left to right.
 pub const TIME_DIGITS: [Area; 4] = [MINUTE_TENS, MINUTE_ONES, SECOND_TENS, SECOND_ONES];
 

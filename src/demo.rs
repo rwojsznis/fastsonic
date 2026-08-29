@@ -593,6 +593,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.winamp_window = true;
                 app.settings.skin = None;
             }
+            "playlist" => app.settings.playlist_open = true,
             "pins" => {
                 app.settings.pinned_contexts =
                     vec!["spotify:playlist:pl2".into(), "spotify:playlist:pl4".into()];

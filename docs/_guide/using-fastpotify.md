@@ -121,10 +121,14 @@ as they did. Drag the title bar to move it; it reopens where you left it,
 and the keyboard shortcuts work there too.
 
 The buttons do what they say, with a few translations. **Stop** pauses and
-rewinds, **PL** opens the queue in the big window, **I** opens the playing
-album there, and repeat is on or off. Closing the window does what closing
-the big one does: to the tray, or quit. Fastpotify has no equalizer or
-balance control, so **EQ** and the balance slider are drawn but do nothing.
+rewinds, **I** opens the playing album in the big window, and repeat is on
+or off. **PL** opens the playlist window under the player, in the skin's
+own frame and colours and the small unsmoothed lettering of the time: what
+is playing, then the queue; double-click a song to play from there, drag
+the corner to make it taller, and its X or PL again closes it. The X, the maximize button, and both logos of the main
+window bring back the big window; quitting is in the right-click menu and
+Ctrl+Q. Fastpotify has no equalizer or balance control, so **EQ** and the
+balance slider are drawn but do nothing.
 Click the time to count down instead of up. The display's left box is the
 spectrum analyser, peaks and all, in the skin's own colours; click it, or
 **V**, for the oscilloscope, and again for nothing. It shows the sound
