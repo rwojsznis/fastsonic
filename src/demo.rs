@@ -288,14 +288,22 @@ pub fn populate(app: &mut App) {
                         1 + index % 27
                     )),
                     is_local: false,
-                    added_by: None,
+                    // A second pair of hands, so the page reads as made
+                    // together: the Added By column and the byline show.
+                    added_by: Some(crate::api::models::UserRef {
+                        id: Some(if index % 3 == 1 { "kasia" } else { "sam" }.into()),
+                    }),
                     item: Some(PlayableItem::Track(track.clone())),
                     track: None,
                 })
                 .collect(),
         ),
     );
+    playlist_page.contributors.insert("kasia".into());
+    playlist_page.contributors.insert("sam".into());
     app.playlist_pages.insert("pl1".into(), playlist_page);
+    app.user_names.insert("kasia".into(), Some("Kasia".into()));
+    app.user_names.insert("sam".into(), Some("Sam".into()));
     let mut discover_page = PlaylistPage {
         playlist: Loadable::Loaded(playlists[0].clone()),
         ..PlaylistPage::default()
@@ -579,6 +587,19 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.actions.push(Action::SettingsChanged);
             }
             "focus" => app.settings.sidebar_visible = false,
+            "pins" => {
+                app.settings.pinned_contexts =
+                    vec!["spotify:playlist:pl2".into(), "spotify:playlist:pl4".into()];
+            }
+            "sorted" => {
+                app.table_sorts.insert(
+                    Page::Playlist("pl1".into()),
+                    crate::model::TableSort {
+                        column: crate::model::SortColumn::Added,
+                        ascending: false,
+                    },
+                );
+            }
             "lyrics" => {
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
                 app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
