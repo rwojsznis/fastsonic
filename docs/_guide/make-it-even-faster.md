@@ -1,31 +1,28 @@
 ---
-title: Make It Even Faster
-description: "Fastpotify is quick; Spotify's API rate limits are not. A Spotify app of your own lifts them in five minutes."
+title: Use Your Own Spotify App
+description: Use a personal Spotify application to avoid the shared Web API rate limit.
 nav_order: 4
 ---
 
-## The bottleneck is API rate limits
+## API rate limits
 
-Everything Fastpotify shows you comes from Spotify's Web API, and Spotify
-rate-limits that API per *app*: each app may make only so many requests a
-minute. Out of the box Fastpotify uses a public app it shares with other
-open-source players, so at busy times its requests queue behind everyone
-else's. That is the spinner in the top bar, and pages that take a while
-to fill.
+Fastpotify loads library and catalogue data through Spotify's Web API, which
+is rate-limited per *app*. By default, Fastpotify shares a public app with
+several other open-source players. When that app reaches its limit, requests
+are delayed and the top bar shows a spinner.
 
-An app of your own has that limit to itself. Fastpotify cannot ship one
-for everyone (Spotify allows a new app only a handful of users), but
-making yours is free and takes five minutes.
+A personal app has a separate limit. Fastpotify cannot provide a dedicated
+app for each user because Spotify restricts how many users a new app can
+have, but you can create one at no cost.
 
-## What a personal app cannot do
+## Limitations
 
 Spotify keeps a personal app in Development Mode, and since February 2026
 that mode reads only the playlists you own or collaborate on. Anyone
-else's public playlist, and Spotify's own editorial ones, show their name
-and cover but not their songs; artist top tracks and browsing are gone
-too. The shared app has none of these limits, so this is reach traded for
-speed. Switching back is one click: clear the field and press **Switch
-now**.
+else's public playlist, and Spotify's own editorial playlists, show their
+name and cover but not their songs. Artist top tracks and browse data are
+also unavailable. The shared app does not have these restrictions. To switch
+back, clear the field and press **Switch now**.
 
 ## Make a Spotify app
 
@@ -53,5 +50,5 @@ now**.
    app; approve it and you are back in Fastpotify, which now says
    **Your app is in use**.
 
-That is all. Playing music on this computer is unaffected. To go back to
-the shared app, clear the field and click **Switch now** again.
+Local playback uses separate credentials and is unaffected. To return to the
+shared app, clear the field and click **Switch now** again.

@@ -1,10 +1,10 @@
 ---
 title: How It Connects
-description: The two Spotify grants, why they are separate, what is stored, and what the client does when Spotify pushes back.
+description: How Fastpotify authenticates with Spotify, stores credentials, and handles API limits.
 nav_order: 1
 ---
 
-## Two grants, once each
+## Authentication
 
 Fastpotify talks to Spotify in two distinct ways, and Spotify issues
 credentials for them separately:
@@ -19,16 +19,15 @@ credentials for them separately:
    which librespot stores its own reusable credential. Premium is required,
    because that is what Spotify's streaming protocol requires.
 
-Why not one grant? Because Spotify throttles Web API calls made with
-streaming-identity tokens. Measured during development, every endpoint
-answers `429` within the first request. Two narrow grants are what actually
-works, and each one happens exactly once per machine.
+Spotify throttles Web API calls made with streaming-identity tokens. During
+development, those tokens received a `429` response on the first request to
+each endpoint. Separate credentials avoid that limitation. Each sign-in is
+normally required once per machine.
 
 By default the Web API uses the shared public application also used by
-spotify-player, ncspot, and Omarchy Spotify, whose allowance Spotify
-divides among everyone running any of them. An application of your own
-gets one to itself; [Make It Even Faster](/make-it-even-faster/) shows
-how, in five minutes.
+spotify-player, ncspot, and Omarchy Spotify. Its API allowance is shared among
+their users. You can instead [use your own Spotify app](/make-it-even-faster/)
+to get a separate allowance.
 
 ## What the client stores
 
@@ -37,8 +36,8 @@ how, in five minutes.
 - Downloaded audio and artwork, in the cache directory, within the budget
   you set.
 - Lyrics, in the cache directory, for a month.
-- Nothing else. There is no telemetry, no analytics, and no server of ours.
-  Besides Spotify (and its album art CDN), the app talks to
+- Fastpotify has no telemetry, analytics, or hosted service. Besides Spotify
+  and its album art CDN, the app contacts
   [lrclib.net](https://lrclib.net) while the lyrics panel is open and
   Spotify itself has no words for the track, sending the track's artist,
   title, album, and length, and to
@@ -49,7 +48,7 @@ how, in five minutes.
 
 The Web API rate-limits bursts. Fastpotify bounds its concurrency, honours
 `Retry-After`, retries quietly, and shows a small spinner in the top bar
-when a conversation with Spotify takes longer than a moment. Spotify also
+when a request to Spotify takes longer than a moment. Spotify also
 reshapes endpoints over time; the client detects several of these shapes at
 runtime and falls back to the older form where one still exists.
 
@@ -64,16 +63,16 @@ answer a small HTTP interface. Fastpotify asks a receiver to describe itself,
 then hands over the reusable credential librespot already stores, wrapped
 twice: once in a key derived from the receiver's own device id, and again in
 a key both sides derive from a Diffie-Hellman exchange with the public key
-that receiver just published. A blob captured from the network is useless to
-anything else, and the credential is never written anywhere new.
+that receiver just published. The encrypted value is specific to that
+receiver and exchange. Fastpotify does not write another copy of the
+credential.
 
-The receiver logs in with it, appears in the ordinary device list, and
-everything after that is the plain Web API.
+The receiver then signs in and appears in Spotify's device list. Fastpotify
+uses the Web API for subsequent control requests.
 
 ## The engine
 
 Playback runs on a dedicated runtime: librespot maintains the Spotify
-Connect session, so this computer appears as a device to every other Spotify
-client you own, receives transfers, and reports its position back. If the
-session drops, the engine reconnects with the stored credential; the
-interface never blocks on any of it.
+Connect session, exposes this computer as a device, receives transfers, and
+reports its playback position. If the session drops, the engine reconnects
+with the stored credential. This work does not block the interface.

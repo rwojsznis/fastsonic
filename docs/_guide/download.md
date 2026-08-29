@@ -24,8 +24,8 @@ Open it and drag **Fastpotify** to Applications. Or, with
 brew install --cask crmne/tap/fastpotify
 ```
 
-Homebrew installs it like any download, so the first-open steps below
-apply once. To skip them, clear the quarantine flag instead:
+Homebrew installs the same unnotarized build, so the first-open steps below
+still apply. To skip them, clear the quarantine flag instead:
 
 ```sh
 xattr -d com.apple.quarantine /Applications/Fastpotify.app
@@ -45,14 +45,13 @@ this with a right-click, so you open it once through Privacy & Security:
    to protect your Mac"*, and click **Open Anyway**.
 4. Authenticate, then click **Open Anyway** once more.
 
-macOS remembers the choice: every launch after this is an ordinary
-double-click. This step disappears once notarized builds ship.
+macOS remembers the choice, so later launches work with an ordinary
+double-click.
 
 ## Windows
 
 The installer adds Fastpotify to the Start menu and needs no administrator
-rights. Almost every PC wants the first one; the second is for Windows on
-ARM:
+rights. Choose x86_64 for most PCs or aarch64 for Windows on ARM:
 
 - [fastpotify-v{{ v }}-x86_64-pc-windows-msvc-setup.exe]({{ base }}/fastpotify-v{{ v }}-x86_64-pc-windows-msvc-setup.exe)
 - [fastpotify-v{{ v }}-aarch64-pc-windows-msvc-setup.exe]({{ base }}/fastpotify-v{{ v }}-aarch64-pc-windows-msvc-setup.exe)

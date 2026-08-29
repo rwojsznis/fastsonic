@@ -20,10 +20,9 @@ Fastpotify follows each platform's conventions. On Linux:
 | Last run's log | `~/.local/state/fastpotify/fastpotify.log` | Always |
 | Crash log | `~/.local/state/fastpotify/panic.log` | Always |
 
-Clearing caches never signs you out; credentials live in *state*, not
-*cache*, precisely so cleanup tools cannot log you out. Both credential
-files are written with owner-only permissions. Signing out from Settings
-deletes both.
+Clearing caches does not sign you out because credentials live in *state*,
+not *cache*. Both credential files are written with owner-only permissions.
+Signing out from Settings deletes both.
 
 On macOS, settings, state, and the logs are in
 `~/Library/Application Support/me.paolino.fastpotify` and the caches in
@@ -34,7 +33,8 @@ On macOS, settings, state, and the logs are in
 
 ## settings.json
 
-One readable JSON file, written atomically. The interesting fields:
+Settings are stored in one readable JSON file and written atomically. Its
+main fields are:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -61,9 +61,9 @@ fastpotify [OPTIONS]
 ```
 
 `fastpotify.log` in the state directory is what to attach to a bug report:
-it holds the last run's output, the same lines `fastpotify -v` prints, so a
-run with `-v` says the most. If the app vanished, `panic.log` next to it
-says where it died; attach that too.
+it contains the last run's output, including the additional lines printed by
+`fastpotify -v`. If the app crashed, attach `panic.log` from the same directory
+as well.
 
 ## Demo mode
 

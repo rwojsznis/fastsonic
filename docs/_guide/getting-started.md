@@ -6,8 +6,8 @@ nav_order: 2
 
 ## Install
 
-The [Download page](/download/) has the right file for every OS: a
-drag-to-Applications app for macOS, zips for Windows, archives for Linux.
+The [Download page](/download/) has installers and archives for macOS,
+Windows, and Linux.
 
 Or build from source with [Rust](https://rustup.rs) 1.95 or newer:
 
@@ -30,12 +30,11 @@ On Debian or Ubuntu:
 sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
 ```
 
-Titles in a script the interface font does not cover -- Chinese, Japanese,
-Korean, Arabic, Hebrew, Thai, the Indic scripts and a dozen more -- are drawn
-with a face found on the system; Fastpotify bundles none. macOS and Windows
-already carry faces for the common ones, and on Linux `noto-fonts` and
-`noto-fonts-cjk` (Arch) or `fonts-noto` and `fonts-noto-cjk` (Debian or
-Ubuntu) turn empty boxes back into characters.
+Fastpotify uses system fonts for scripts that its interface font does not
+cover, including Chinese, Japanese, Korean, Arabic, Hebrew, Thai, and Indic
+scripts. macOS and Windows include fonts for the common cases. On Linux,
+install `noto-fonts` and `noto-fonts-cjk` (Arch) or `fonts-noto` and
+`fonts-noto-cjk` (Debian or Ubuntu) if titles appear as empty boxes.
 
 ![Japanese, Chinese, and Korean titles in a playlist](/assets/images/scripts.png)
 
@@ -48,30 +47,31 @@ Spotify's own consent page; your password never touches Fastpotify. When
 Spotify redirects back, your library loads and you can search, browse, and
 control your other devices immediately.
 
-The sign-in is stored as a refresh token in your platform's state directory
-(`~/.local/state/fastpotify` on Linux), so the browser is needed once per
-machine. The next launch goes straight to your library.
+Fastpotify stores a refresh token in your platform's state directory
+(`~/.local/state/fastpotify` on Linux). You normally need the browser only
+once per machine.
 
 ## Enable playback on this computer
 
-Playing music *on this machine* is one more one-time browser approval,
-because Spotify treats streaming as a separate grant
+Playing music *on this machine* requires a second browser approval because
+Spotify treats streaming as a separate grant
 ([why](/how-it-connects/)). Take it from the device menu (the speaker icon
 in the player bar, then **Play here, set up once**) or from Settings.
-It needs Spotify Premium, and it too is remembered forever.
+It needs Spotify Premium. Fastpotify saves the resulting playback credential
+for later sessions.
 
 After that, this computer shows up as a Spotify Connect device named
 **Fastpotify** (rename it in Settings), visible from your phone like any
 speaker.
 
-## A few things worth knowing on day one
+## Basics
 
 - **Closing the window does not stop the music.** Fastpotify keeps playing
   from the system tray; reopen it from the tray icon and quit from the tray
   menu or Ctrl+Q. Settings can turn this off.
-- **Play buttons tell you what is happening.** A pressed play button spins
-  until Spotify reacts, so the app is never silently "stuck".
-- **The keyboard does everything.** Space plays and pauses, Ctrl+F or `/`
-  searches, `Q` opens the queue; Ctrl+/ lists all of it.
-- **Right-click is everywhere.** Every song, playlist, album, and artist has
-  a context menu: queue it, save it, add it to a playlist, copy a link.
+- **Play requests show their progress.** A pressed play button spins until
+  Spotify responds.
+- **Common actions have shortcuts.** Space plays and pauses, Ctrl+F or `/`
+  searches, and `Q` opens the queue. Ctrl+/ shows the full list.
+- **Rows and cards have context menus.** Right-click a song, playlist, album,
+  or artist to see actions such as queue, save, add to playlist, and copy link.

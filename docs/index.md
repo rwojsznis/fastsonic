@@ -6,7 +6,7 @@ permalink: /
 hero:
   name: Fastpotify
   text: Spotify, native and fast
-  tagline: Your whole Spotify library, local playback, and every Connect device in one lightweight Rust app that opens in a blink, on Linux, macOS, and Windows.
+  tagline: A lightweight Spotify client with local playback, library access, and Spotify Connect controls for Linux, macOS, and Windows.
   actions:
     - theme: brand
       text: Download
@@ -25,23 +25,23 @@ hero:
 
 features:
   - icon: ⚡
-    title: Actually lightweight
-    details: A single native binary with no browser engine anywhere in the process. It starts in well under a second and stays small while it runs.
+    title: Lightweight
+    details: A native binary with no embedded browser engine. It starts in well under a second and uses little memory while it runs.
   - icon: 🔊
-    title: A real Spotify Connect device
-    details: Play on this computer, gapless and up to 320 kbps, or push the music to any speaker, phone, or TV and keep controlling it from the same window.
+    title: Spotify Connect
+    details: Play locally, gapless and at up to 320 kbps, or control playback on a speaker, phone, or TV from the same window.
   - icon: 📚
-    title: Your whole library
-    details: Playlists, Liked Songs, albums, artists, and podcasts, with search across all of it and playlist editing where you own the playlist.
+    title: Library and search
+    details: Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own.
   - icon: 🎨
-    title: Beautiful by intent
-    details: Pages and the player take their colour from the album art. Light, dark, or follow the system, with the layout you already know from Spotify.
+    title: Familiar interface
+    details: Pages and the player can take their colour from the album art. Choose a light or dark theme, or follow the system.
   - icon: ⌨️
-    title: Keyboard-first, desktop-native
-    details: Shortcuts for everything, MPRIS media controls on Linux, and a tray that keeps the music playing after you close the window.
+    title: Desktop controls
+    details: Keyboard shortcuts, MPRIS media controls on Linux, and a tray option that keeps music playing after you close the window.
   - icon: 🔓
     title: Open source
-    details: MIT-licensed Rust on egui and librespot, with an honest write-up of how it talks to Spotify.
+    details: MIT-licensed Rust built with egui and librespot. The connection and credential model is documented in full.
     link: https://github.com/crmne/fastpotify
     link_text: Read the source
 ---

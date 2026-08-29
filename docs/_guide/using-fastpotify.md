@@ -6,14 +6,14 @@ nav_order: 3
 
 ## Playing music
 
-Play buttons are wherever you expect them: on playlist, album, artist, and
-podcast pages, on cards when you hover them, and on every row. Double-click
-a row to play from that song within its playlist or album. The shuffle
-button next to a page's play button starts the whole thing shuffled.
+Playlist, album, artist, and podcast pages have play buttons. Cards show one
+when you hover, and each row has its own. Double-click a row to start playback
+from that song within its playlist or album. The shuffle button next to a
+page's play button starts the page in shuffled order.
 
-The player bar at the bottom always shows what is playing, on this
-computer *or* on any other device. Click the title to open its album, the
-artist to open the artist, the heart to save it.
+The player bar shows what is playing locally or on another device. Click the
+title to open its album, the artist name to open the artist, or the heart to
+save the track.
 
 ## Home
 
@@ -26,13 +26,12 @@ time to return to the list's own order.
 
 ## Your Library
 
-The sidebar keeps the playlists you played most recently on top,
-wherever you played them, and remembers that order between runs.
+The sidebar sorts playlists by when you last played them and preserves that
+order between runs.
 
-The sidebar is your library: filter it by Playlists, Albums, Artists, or
-Podcasts with the chips, or search it with the magnifier. Liked Songs is
-pinned on top. The current page is highlighted; the playlist that is playing
-carries a small speaker.
+Use the chips to filter the sidebar by Playlists, Albums, Artists, or Podcasts,
+or use the magnifier to search it. Liked Songs stays at the top. The current
+page is highlighted, and the playing playlist has a small speaker icon.
 
 **Playlists you own** are fully editable: create one with the **+** button,
 add songs from any row's menu, remove and reorder from the playlist page,
@@ -41,10 +40,9 @@ followed and unfollowed.
 
 ## Search
 
-Ctrl+F (or `/`) focuses search from anywhere. Results come grouped (a top
-result, songs, artists, albums, playlists, podcasts, episodes) and the
-chips narrow to one kind. Your recent searches wait on the empty search
-page.
+Ctrl+F (or `/`) focuses search from anywhere. Results are grouped into top
+result, songs, artists, albums, playlists, podcasts, and episodes. Use the
+chips to show one type. The empty search page lists recent searches.
 
 ## Devices and the queue
 
@@ -56,19 +54,17 @@ is coming out of something across the room.
 The queue lives behind the list icon, as a side panel or a full page. Add
 anything to it from a row's context menu.
 
-### Speakers Spotify has not noticed yet
+### Receivers on the local network
 
-A receiver running librespot or spotifyd, and some hardware speakers, only
-appear in Spotify's own device list once an account has been handed to them.
-Until then the Web API cannot see them at all, however plainly they show up
-in the official client.
+A receiver running librespot or spotifyd, and some hardware speakers, appears
+in Spotify's device list only after it has received an account credential.
+Before then, the Web API cannot see it.
 
-Fastpotify looks for those on your local network whenever you open the
-device picker, and lists them under the devices Spotify already knows about,
-marked *on your network*. Choose one and Fastpotify hands it your account
-over the local network, encrypted so that only that receiver can read it.
-A moment later it joins Spotify Connect properly and playback moves there,
-and from then on it is an ordinary device to every Spotify client you own.
+Fastpotify searches the local network when you open the device picker. It
+lists discovered receivers as *on your network*. Choose one to send it the
+stored playback credential, encrypted so that only that receiver can read it.
+Once connected, it appears as an ordinary Spotify Connect device and playback
+moves to it.
 
 This uses the credential stored for playing on this computer, so enable
 playback here first (see [Getting Started](/getting-started/)). Receivers
@@ -76,16 +72,14 @@ that ask for a different kind of login are not connected this way yet.
 
 ## Lyrics
 
-The microphone button in the player bar (or `L`) opens the words of the
-playing track beside the page. When the lyrics are timed, the line being
-sung is highlighted and the panel follows along; click any line to jump the
-song there. Scrolling by hand stops the following, and **Follow** in the
-panel's header picks the song back up. When this computer is signed in
-for playback, the words come from Spotify itself. Otherwise, and for
-tracks Spotify has no words for, they come from
-[LRCLIB](https://lrclib.net), an open database that needs no account, so
-they work for whatever is playing, on this computer or another device;
-podcasts and tracks nobody has transcribed say so.
+The microphone button in the player bar (or `L`) opens lyrics for the playing
+track beside the page. For timed lyrics, the current line is
+highlighted and the panel scrolls automatically; click a line to seek to it.
+Manual scrolling pauses automatic following, and **Follow** resumes it.
+Fastpotify requests lyrics from Spotify when local playback is authorized.
+Otherwise, or when Spotify has no lyrics for a track, it uses
+[LRCLIB](https://lrclib.net), an open database that needs no account. Podcasts
+and tracks without a transcription show an unavailable message.
 
 ![The lyrics panel beside a playlist, following the song](/assets/images/lyrics.png)
 
@@ -99,11 +93,9 @@ media keys, and your desktop's players widget working the whole time.
 
 ## One window, one instance
 
-Starting Fastpotify while it is already running does not open a second copy.
-The launch hands the request to the instance already there, which brings its
-window forward, and then gets out of the way. Two copies would mean two
-Spotify Connect devices with the same name and two players arguing over your
-media keys, so there is only ever one.
+Starting Fastpotify while it is already running brings the existing window
+forward instead of opening a second instance. This avoids duplicate Spotify
+Connect devices and conflicting media-key handlers.
 
 ## Keyboard shortcuts
 
@@ -128,8 +120,8 @@ On macOS, `Cmd` replaces `Ctrl`.
 
 ## Settings
 
-Everything lives in Settings (Ctrl+,): the Connect device name, audio
-quality up to 320 kbps, volume normalisation, autoplay, gapless playback,
-the audio backend on Linux, the audio cache size, themes, album-art
-tinting, and the close-to-tray behaviour. Playback settings apply with one
-button that restarts the local player; nothing else needs a restart.
+Settings (Ctrl+,) includes the Connect device name, audio quality up to
+320 kbps, volume normalisation, autoplay, gapless playback, the audio backend
+on Linux, the audio cache size, themes, album-art tinting, and close-to-tray
+behaviour. Applying playback settings restarts the local player. Other
+settings take effect immediately.

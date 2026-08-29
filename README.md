@@ -9,8 +9,8 @@ runs. There is no browser engine anywhere in the process.
 Fastpotify follows in the footsteps of
 [Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify) and
 [spotify-tui](https://github.com/Rigellute/spotify-tui): the familiar Spotify
-layout, the whole library, and a Spotify Connect receiver on your computer,
-as one ordinary desktop application rather than a shell plugin.
+layout, access to your library, and a Spotify Connect receiver in one desktop
+application rather than a shell plugin.
 
 ![Fastpotify showing a playlist, with the queue open and a track playing on a remote speaker](docs/screenshot.png)
 
@@ -21,14 +21,14 @@ as one ordinary desktop application rather than a shell plugin.
 - **Plays music on this computer.** Fastpotify is a Spotify Connect device.
   Pick it from your phone, or press play here. Gapless, up to 320 kbps, with
   optional volume normalisation and an on-disk audio cache.
-- **Controls every other device.** Move playback to a speaker, a phone, or
+- **Controls other devices.** Move playback to a speaker, a phone, or
   another computer from the device picker, and keep controlling it: play,
   pause, skip, seek, shuffle, repeat, volume.
 - **Finds speakers on your network.** A librespot, spotifyd, or hardware
   receiver waiting on the LAN is invisible to Spotify's API until it has an
   account. Fastpotify discovers those over mDNS and connects them for you,
   after which they behave like any other Spotify Connect device.
-- **Your whole library.** Playlists, Liked Songs, saved albums, followed
+- **Library access.** Playlists, Liked Songs, saved albums, followed
   artists, podcasts, and saved episodes, filterable in the sidebar and as
   full pages.
 - **Search** across songs, artists, albums, playlists, podcasts, and episodes,
@@ -36,8 +36,8 @@ as one ordinary desktop application rather than a shell plugin.
 - **Home** with Made for you, Recently played, your top artists and songs, and
   recommendations.
 - **Artist pages** with popular songs, a filterable discography, and related
-  artists. **Album**, **playlist**, and **podcast** pages with everything
-  playable from any row.
+  artists. **Album**, **playlist**, and **podcast** pages support playback
+  from any row.
 - **Playlists you own** can be created, renamed, described, reordered, and
   edited: add from any row's menu, remove from the playlist page.
 - **Queue** as a side panel or a page; add anything to it from a row menu.
@@ -52,12 +52,11 @@ as one ordinary desktop application rather than a shell plugin.
   back. No compositor-specific tricks, so it behaves the same on any
   desktop. Quit from the tray menu or `Ctrl+Q`; turn the behaviour off in
   Settings if you prefer close-to-quit.
-- **Honest about the network.** Pages show spinners while they load, a
-  quiet indicator appears in the top bar whenever the app is talking to
-  Spotify for more than a moment, and if Spotify asks the app to back off
-  you see that it is waiting, instead of an unexplained pause.
-- **One instance.** Launching it again surfaces the window that is already
-  open instead of starting a rival copy, on every platform.
+- **Visible network activity.** Pages show spinners while they load. An
+  indicator appears in the top bar when a Spotify request takes more than a
+  moment or is waiting for a rate limit.
+- **One instance.** Launching it again brings the existing window forward
+  instead of starting a second copy, on every platform.
 - **Desktop integration.** MPRIS on Linux, so media keys, the shell, and
   `playerctl` see Fastpotify like any other player. On macOS and Windows,
   `fastpotify next` and its siblings drive the running app from a terminal,
@@ -125,28 +124,24 @@ Playing music **on this computer** is one more one-time browser approval.
 Spotify treats streaming as a separate grant for its own client identity,
 which is what librespot plays with. Take it from the device menu ("Play
 here, set up once") or Settings; it needs Spotify Premium, and librespot
-stores a reusable credential so it also never asks again. Browsing and
-remote control work on any account without this step.
+stores a reusable credential for later sessions. Browsing and remote control
+work on any account without this step.
 
 By default the Web API uses the shared public application also used by
 spotify-player, ncspot, and Omarchy Spotify. If you hit rate limits you can
 register your own (free) Spotify application and paste its Client ID in
 Settings → Account.
 
-## Is my account safe?
+## Account safety
 
-Yes, by every signal available. Fastpotify is an ordinary client for
-paying customers: you sign in on Spotify's own pages, audio streams
-through librespot at the quality Premium includes, DRM stays intact,
-nothing is ripped to files, and no ads are blocked because Premium has
-none. librespot-based players have existed for the better part of a
-decade and we know of no account suspended for listening through one
-with Premium.
+We are not aware of a Spotify account being suspended for using Fastpotify
+or another librespot player with Premium. Sign-in happens on Spotify's own
+pages, audio uses the quality included with Premium, DRM stays intact, and
+Fastpotify does not rip tracks or block ads.
 
-The suspensions people hear about come from a different world: modded
-apps that strip ads from free accounts, tools that rip tracks, and
-stream manipulation. Fastpotify does none of that, and
-[CONTRIBUTING.md](CONTRIBUTING.md) rules it out for good.
+Reported suspensions usually involve modded apps that remove ads from free
+accounts, track ripping, or stream manipulation. Fastpotify does none of
+those things, and [CONTRIBUTING.md](CONTRIBUTING.md) prohibits them.
 
 ## Keyboard shortcuts
 
@@ -193,16 +188,16 @@ tab-separated (state, title, artists, album, position_ms, duration_ms,
 volume, shuffle, repeat) for a script that wants one of them. A verb exits
 non-zero when Fastpotify is not running.
 
-That is enough for a launcher such as Raycast or Alfred to drive playback
-through its own script commands.
+Launchers such as Raycast or Alfred can use these commands to control
+playback.
 
 ## Settings
 
-Everything lives in one readable JSON file (`~/.config/fastpotify/settings.json`
-on Linux): the Connect device name, bitrate, normalisation, autoplay, gapless
-playback, the audio backend (PulseAudio/PipeWire or ALSA on Linux), audio
-cache size, theme, and whether pages take colour from artwork. Playback
-settings apply when you press **Apply and restart playback**.
+Settings live in one readable JSON file (`~/.config/fastpotify/settings.json`
+on Linux). They include the Connect device name, bitrate, normalisation,
+autoplay, gapless playback, the audio backend (PulseAudio/PipeWire or ALSA on
+Linux), audio cache size, theme, and whether pages take colour from artwork.
+Playback settings apply when you press **Apply and restart playback**.
 
 Caches (audio, artwork) live under the cache directory and can be deleted at
 any time without signing you out.
