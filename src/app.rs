@@ -856,6 +856,7 @@ impl App {
 
     fn handle_local(&mut self, state: LocalState) {
         let track_changed = state.track != self.local.track;
+        let reconnected = state.connected && !self.local.connected;
         if state.playback != self.local.playback {
             self.optimistic_playing = None;
             if matches!(state.playback, Playback::Playing | Playback::Loading) {
@@ -887,6 +888,9 @@ impl App {
         if track_changed {
             self.on_now_playing_changed();
         }
+        if reconnected && let Some(request) = self.queued_play.take() {
+            self.play_request(request, false);
+        }
     }
 
     fn on_now_playing_changed(&mut self) {
@@ -897,6 +901,9 @@ impl App {
             return;
         }
         self.last_now_playing_uri = Some(now.uri.clone());
+        self.resume_context = self.playing_context_uri();
+        self.resume_track = Some(now.uri.clone());
+        self.resume_position_ms = 0;
         if now.local
             && !now.is_episode
             && let Some(id) = &now.id
@@ -2443,6 +2450,12 @@ impl App {
             });
         }
         match self.target() {
+            Target::Local if !self.local.connected => {
+                // The engine's session dropped (a sleep, a network change)
+                // and is reconnecting on its own; hold the request and play
+                // the moment it is back. The spinner keeps spinning.
+                self.queued_play = Some(request);
+            }
             Target::Local => {
                 self.queued_play = None;
                 self.backend.player(PlayerCommand::Load(LoadSpec {
