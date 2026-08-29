@@ -138,6 +138,16 @@ pub const fn eq_band(band: usize) -> Area {
     Area::new(78 + 18 * band as u32, 38, 14, 63)
 }
 
+/// Shade mode: the main window as one title bar.
+pub const SHADE_TIME: Area = Area::new(127, 4, 30, 6);
+pub const SHADE_PREVIOUS: Area = Area::new(169, 2, 7, 10);
+pub const SHADE_PLAY: Area = Area::new(176, 2, 10, 10);
+pub const SHADE_PAUSE: Area = Area::new(186, 2, 9, 10);
+pub const SHADE_STOP: Area = Area::new(195, 2, 9, 10);
+pub const SHADE_NEXT: Area = Area::new(204, 2, 10, 10);
+pub const SHADE_EJECT: Area = Area::new(215, 2, 10, 10);
+pub const SHADE_POSITION: Area = Area::new(226, 4, 17, 7);
+
 /// The digit cells of the time display, left to right.
 pub const TIME_DIGITS: [Area; 4] = [MINUTE_TENS, MINUTE_ONES, SECOND_TENS, SECOND_ONES];
 

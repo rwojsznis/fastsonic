@@ -3168,7 +3168,13 @@ impl App {
             }
             Target::Remote(device_id) => {
                 if device_id.is_none() && self.remote_fresh().is_none() {
-                    self.toast("Pick a song, album, or playlist");
+                    // Nothing is known to be playing anywhere, which is how
+                    // a fresh start looks before the local engine is ready:
+                    // pick up where the last run left off, the way the
+                    // local branch does. The engine plays it once it is up.
+                    if !self.resume_last() {
+                        self.toast("Pick a song, album, or playlist");
+                    }
                     return;
                 }
                 self.set_play_pending(vec!["::toggle".into()]);
@@ -3875,6 +3881,10 @@ impl App {
             Action::ToggleMono => {
                 self.settings.mono = !self.settings.mono;
                 self.push_eq();
+            }
+            Action::ToggleWinampShade => {
+                self.settings.winamp_shaded = !self.settings.winamp_shaded;
+                self.settings_dirty = true;
             }
             Action::ToggleWinampPlaylistShade => {
                 self.settings.playlist_shaded = !self.settings.playlist_shaded;

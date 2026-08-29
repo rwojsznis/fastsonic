@@ -529,8 +529,11 @@ fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeO
             } else {
                 egui::WindowLevel::Normal
             };
+            // See-through, for skins that are not rectangles; the skin
+            // paints every pixel that is the window.
             let viewport = viewport
                 .with_decorations(false)
+                .with_transparent(true)
                 .with_resizable(false)
                 .with_maximize_button(false)
                 .with_inner_size(mini.size)
@@ -698,6 +701,20 @@ impl eframe::App for Shell {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if let Some(app) = self.app.as_mut() {
             app.frame_ui(ui);
+        }
+    }
+
+    /// The mini player's window is see-through where the skin leaves it
+    /// out; the big window paints itself over eframe's own ground.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if self
+            .app
+            .as_ref()
+            .is_some_and(|app| app.settings.winamp_window)
+        {
+            [0.0; 4]
+        } else {
+            egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
         }
     }
 

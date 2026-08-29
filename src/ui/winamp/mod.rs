@@ -24,7 +24,7 @@ use crate::model::{Action, Page};
 use crate::player::RepeatMode;
 use crate::settings::VisMode;
 use crate::skin::layout::{self, Area};
-use crate::skin::{Sheet, Skin, Sprite, font, sprites};
+use crate::skin::{Mask, Sheet, Skin, Sprite, font, sprites};
 use crate::util;
 use crate::vis;
 use crate::winamp::{MAX_SCALE, WinampState};
@@ -43,7 +43,11 @@ const VIS_FRAME: Duration = Duration::from_micros(16_667);
 /// The stack's height in skin pixels: the main window, and the playlist
 /// under it when it is open.
 fn stack_height(settings: &crate::settings::Settings) -> u32 {
-    let mut height = layout::WINDOW_HEIGHT;
+    let mut height = if settings.winamp_shaded {
+        layout::SHADE_HEIGHT
+    } else {
+        layout::WINDOW_HEIGHT
+    };
     if settings.eq_open {
         height += layout::EQ_HEIGHT;
     }
@@ -123,6 +127,9 @@ struct View<'a> {
     unit: f32,
     skin: &'a Skin,
     textures: &'a HashMap<Sheet, TextureId>,
+    /// The window's shape, when the skin is not a rectangle: nothing is
+    /// painted outside it.
+    mask: Option<&'a Mask>,
 }
 
 impl View<'_> {
@@ -146,18 +153,39 @@ impl View<'_> {
             return;
         };
         let (width, height) = (bitmap.width as f32, bitmap.height as f32);
-        let uv = Rect::from_min_max(
-            pos2(clipped.x as f32 / width, clipped.y as f32 / height),
-            pos2(
-                (clipped.x + clipped.width) as f32 / width,
-                (clipped.y + clipped.height) as f32 / height,
-            ),
-        );
-        let dest = Rect::from_min_size(
-            self.origin + vec2(x as f32, y as f32) * self.unit,
-            vec2(clipped.width as f32, clipped.height as f32) * self.unit,
-        );
-        painter.image(texture, dest, uv, Color32::WHITE);
+        // A piece of the sprite, `dx` in and `columns` wide, on one row or
+        // all of them.
+        let piece = |dx: u32, dy: u32, columns: u32, rows: u32| {
+            let uv = Rect::from_min_max(
+                pos2(
+                    (clipped.x + dx) as f32 / width,
+                    (clipped.y + dy) as f32 / height,
+                ),
+                pos2(
+                    (clipped.x + dx + columns) as f32 / width,
+                    (clipped.y + dy + rows) as f32 / height,
+                ),
+            );
+            let dest = Rect::from_min_size(
+                self.origin + vec2((x + dx) as f32, (y + dy) as f32) * self.unit,
+                vec2(columns as f32, rows as f32) * self.unit,
+            );
+            painter.image(texture, dest, uv, Color32::WHITE);
+        };
+        match self.mask {
+            None => piece(0, 0, clipped.width, clipped.height),
+            Some(mask) => {
+                for dy in 0..clipped.height {
+                    for (start, end) in mask.spans(y + dy) {
+                        let from = (*start).max(x);
+                        let to = (*end).min(x + clipped.width);
+                        if to > from {
+                            piece(from - x, dy, to - from, 1);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn sprite_at(&self, sprite: Sprite, x: u32, y: u32) {
@@ -173,11 +201,27 @@ impl View<'_> {
 
     /// A block of skin pixels in one colour.
     fn fill(&self, x: u32, y: u32, width: u32, height: u32, color: Color32) {
-        let rect = Rect::from_min_size(
-            self.origin + vec2(x as f32, y as f32) * self.unit,
-            vec2(width as f32, height as f32) * self.unit,
-        );
-        self.ui.painter().rect_filled(rect, 0.0, color);
+        let block = |x: u32, y: u32, width: u32, height: u32| {
+            let rect = Rect::from_min_size(
+                self.origin + vec2(x as f32, y as f32) * self.unit,
+                vec2(width as f32, height as f32) * self.unit,
+            );
+            self.ui.painter().rect_filled(rect, 0.0, color);
+        };
+        match self.mask {
+            None => block(x, y, width, height),
+            Some(mask) => {
+                for row in y..y + height {
+                    for (start, end) in mask.spans(row) {
+                        let from = (*start).max(x);
+                        let to = (*end).min(x + width);
+                        if to > from {
+                            block(from, row, to - from, 1);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn sprite(&self, sprite: Sprite, area: Area) {
@@ -284,40 +328,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let skin = app.winamp.skin.clone();
     let now = app.now_playing();
     let time = ctx.input(|input| input.time);
+    let shaded = app.settings.winamp_shaded;
+    let mask = if shaded {
+        skin.regions.shade.as_ref()
+    } else {
+        skin.regions.normal.as_ref()
+    };
     let mut view = View {
         ui,
         origin,
         unit,
         skin: &skin,
         textures: &textures,
+        mask,
+    };
+    let vis_moving = if shaded {
+        shade_bar(app, &mut view, &ctx, focused, now.as_ref());
+        false
+    } else {
+        full_window(app, &mut view, &ctx, focused, now.as_ref(), time)
     };
 
-    view.sprite(
-        sprites::MAIN_BACKGROUND,
-        Area::new(0, 0, layout::WINDOW_WIDTH, layout::WINDOW_HEIGHT),
-    );
-    title_bar(app, &mut view, &ctx, focused);
-    clutter_bar(app, &mut view, now.as_ref());
-    status(app, &mut view, now.as_ref());
-    time_display(app, &mut view, now.as_ref(), time);
-    let vis_moving = visualiser(app, &mut view, now.as_ref());
-    marquee(app, &mut view, now.as_ref());
-    rates(app, &mut view, now.as_ref());
-    sliders(app, &mut view, now.as_ref());
-    windows_buttons(app, &mut view);
-    transport(app, &mut view, now.as_ref());
-    shuffle_repeat(app, &mut view, now.as_ref());
-    if view
-        .interact(layout::ABOUT, "about", Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("Back to the big window (Ctrl+M)")
-        .clicked()
-    {
-        app.actions.push(Action::ToggleWinampWindow);
-    }
-
     // The other windows hang under this one in Winamp's order.
-    let mut below_y = layout::WINDOW_HEIGHT;
+    let mut below_y = if shaded {
+        layout::SHADE_HEIGHT
+    } else {
+        layout::WINDOW_HEIGHT
+    };
     if app.settings.eq_open {
         let mut below = View {
             ui: view.ui,
@@ -325,6 +362,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             unit,
             skin: &skin,
             textures: &textures,
+            mask: skin.regions.equalizer.as_ref(),
         };
         equalizer::show(app, &mut below, focused);
         below_y += layout::EQ_HEIGHT;
@@ -336,6 +374,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             unit,
             skin: &skin,
             textures: &textures,
+            mask: None,
         };
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
@@ -353,6 +392,219 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 }
 
+/// The main window as it usually is. Returns whether the visualiser is
+/// still moving.
+fn full_window(
+    app: &mut App,
+    view: &mut View,
+    ctx: &egui::Context,
+    focused: bool,
+    now: Option<&NowPlaying>,
+    time: f64,
+) -> bool {
+    view.sprite(
+        sprites::MAIN_BACKGROUND,
+        Area::new(0, 0, layout::WINDOW_WIDTH, layout::WINDOW_HEIGHT),
+    );
+    title_bar(app, view, ctx, focused);
+    clutter_bar(app, view, now);
+    status(app, view, now);
+    time_display(app, view, now, time);
+    let vis_moving = visualiser(app, view, now);
+    marquee(app, view, now);
+    rates(app, view, now);
+    sliders(app, view, now);
+    windows_buttons(app, view);
+    transport(app, view, now);
+    shuffle_repeat(app, view, now);
+    if view
+        .interact(layout::ABOUT, "about", Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Back to the big window (Ctrl+M)")
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampWindow);
+    }
+
+    vis_moving
+}
+
+/// The main window rolled up: the bar with the time in the small font,
+/// a little transport, and a little seek bar, as Winamp's shade mode had.
+fn shade_bar(
+    app: &mut App,
+    view: &mut View,
+    ctx: &egui::Context,
+    focused: bool,
+    now: Option<&NowPlaying>,
+) {
+    let bar = if focused {
+        sprites::SHADE_BAR_ACTIVE
+    } else {
+        sprites::SHADE_BAR_INACTIVE
+    };
+    view.sprite(
+        bar,
+        Area::new(0, 0, layout::WINDOW_WIDTH, layout::SHADE_HEIGHT),
+    );
+    let title = view.interact(
+        Area::new(0, 0, layout::WINDOW_WIDTH, layout::SHADE_HEIGHT),
+        "shade-bar",
+        Sense::click_and_drag(),
+    );
+    if title.drag_started() {
+        ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+    }
+    if title.double_clicked() {
+        app.actions.push(Action::ToggleWinampShade);
+    }
+    let unit = view.unit;
+    egui::Popup::context_menu(&title).show(|ui| options_menu(app, ui, unit));
+    let big_window = "Back to the big window (Ctrl+M)";
+    if view
+        .button(
+            layout::OPTIONS_BUTTON,
+            sprites::OPTIONS_BUTTON,
+            sprites::OPTIONS_BUTTON_PRESSED,
+            "logo",
+        )
+        .on_hover_text(big_window)
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampWindow);
+    }
+    if view
+        .button(
+            layout::MINIMIZE_BUTTON,
+            sprites::MINIMIZE_BUTTON,
+            sprites::MINIMIZE_BUTTON_PRESSED,
+            "minimize",
+        )
+        .clicked()
+    {
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+    }
+    if view
+        .button(
+            layout::SHADE_BUTTON,
+            sprites::UNSHADE_BUTTON,
+            sprites::UNSHADE_BUTTON_PRESSED,
+            "unshade",
+        )
+        .on_hover_text("Roll the window down")
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampShade);
+    }
+    if view
+        .button(
+            layout::CLOSE_BUTTON,
+            sprites::CLOSE_BUTTON,
+            sprites::CLOSE_BUTTON_PRESSED,
+            "close",
+        )
+        .on_hover_text(big_window)
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampWindow);
+    }
+
+    // The time, in the small font; a click counts down instead.
+    if view
+        .interact(layout::SHADE_TIME, "shade-time", Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+    {
+        app.winamp.time_remaining = !app.winamp.time_remaining;
+    }
+    let playing = now.is_some_and(|now| now.playing);
+    if let Some(now) = now.filter(|now| !stopped(Some(now))) {
+        let position = match app.seek_preview {
+            Some(fraction) => (fraction * now.duration_ms as f32) as u32,
+            None => now.position_ms,
+        };
+        let remaining = app.winamp.time_remaining && now.duration_ms > 0;
+        let shown = if remaining {
+            now.duration_ms.saturating_sub(position)
+        } else {
+            position
+        };
+        let text = format!(
+            "{}{}",
+            if remaining { "-" } else { " " },
+            util::format_duration_ms(shown)
+        );
+        view.text(&text, layout::SHADE_TIME);
+    }
+
+    // The little transport: painted into the bar, so these only listen.
+    let mini: [(&str, Area); 6] = [
+        ("previous", layout::SHADE_PREVIOUS),
+        ("play", layout::SHADE_PLAY),
+        ("pause", layout::SHADE_PAUSE),
+        ("stop", layout::SHADE_STOP),
+        ("next", layout::SHADE_NEXT),
+        ("eject", layout::SHADE_EJECT),
+    ];
+    for (name, area) in mini {
+        let response = view
+            .interact(area, &format!("shade-{name}"), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        if !response.clicked() {
+            continue;
+        }
+        match name {
+            "previous" => app.actions.push(Action::Previous),
+            "play" => app.actions.push(if playing {
+                Action::Seek(0)
+            } else {
+                Action::TogglePlay
+            }),
+            "pause" if now.is_some() => app.actions.push(Action::TogglePlay),
+            "stop" if now.is_some() => {
+                if playing {
+                    app.actions.push(Action::TogglePlay);
+                }
+                app.actions.push(Action::Seek(0));
+            }
+            "next" => app.actions.push(Action::Next),
+            "eject" => app.actions.push(Action::ToggleWinampWindow),
+            _ => {}
+        }
+    }
+
+    // The little seek bar.
+    view.sprite(sprites::SHADE_POSITION_TRACK, layout::SHADE_POSITION);
+    let Some(now) = now.filter(|now| now.duration_ms > 0 && !stopped(Some(now))) else {
+        return;
+    };
+    let (response, event) = view.slider(layout::SHADE_POSITION, "shade-position", 3);
+    match event {
+        SliderEvent::Dragging(value) => app.seek_preview = Some(value),
+        SliderEvent::Committed(value) => {
+            app.seek_preview = None;
+            app.actions
+                .push(Action::Seek((value * now.duration_ms as f32) as u32));
+        }
+        SliderEvent::None => {}
+    }
+    let fraction = app
+        .seek_preview
+        .unwrap_or(now.position_ms as f32 / now.duration_ms as f32)
+        .clamp(0.0, 1.0);
+    let travel = layout::SHADE_POSITION.width - 3;
+    let thumb = if response.dragged() {
+        sprites::SHADE_POSITION_THUMB_RIGHT
+    } else {
+        sprites::SHADE_POSITION_THUMB
+    };
+    view.sprite_at(
+        thumb,
+        layout::SHADE_POSITION.x + (fraction * travel as f32).round() as u32,
+        layout::SHADE_POSITION.y,
+    );
+}
+
 fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool) {
     let bar = if focused {
         sprites::TITLE_BAR_ACTIVE
@@ -364,11 +616,14 @@ fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool)
     if title.drag_started() {
         ctx.send_viewport_cmd(ViewportCommand::StartDrag);
     }
+    if title.double_clicked() {
+        app.actions.push(Action::ToggleWinampShade);
+    }
     let unit = view.unit;
     egui::Popup::context_menu(&title).show(|ui| options_menu(app, ui, unit));
-    // The logo, the maximise button, and the close button all lead back
-    // to the big window: the mini player is a way of looking at the same
-    // app, not a second one to close. Quitting is in the menu and Ctrl+Q.
+    // The logo and the close button lead back to the big window: the mini
+    // player is a way of looking at the same app, not a second one to
+    // close. Quitting is in the menu and Ctrl+Q.
     let big_window = "Back to the big window (Ctrl+M)";
     if view
         .button(
@@ -400,10 +655,10 @@ fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool)
             sprites::SHADE_BUTTON_PRESSED,
             "shade",
         )
-        .on_hover_text(big_window)
+        .on_hover_text("Roll the window up")
         .clicked()
     {
-        app.actions.push(Action::ToggleWinampWindow);
+        app.actions.push(Action::ToggleWinampShade);
     }
     if view
         .button(

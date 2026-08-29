@@ -22,7 +22,7 @@ use std::sync::{Arc, LazyLock};
 
 use thiserror::Error;
 
-pub use config::{PlaylistStyle, Rgb, VisColors};
+pub use config::{Mask, PlaylistStyle, Regions, Rgb, VisColors};
 pub use sprites::{Sheet, Sprite};
 
 #[derive(Debug, Error)]
@@ -92,6 +92,8 @@ pub struct Skin {
     sheets: HashMap<Sheet, Bitmap>,
     pub playlist: PlaylistStyle,
     pub vis_colors: VisColors,
+    /// The windows' shapes, for skins that are not rectangles.
+    pub regions: Regions,
 }
 
 impl Skin {
@@ -184,11 +186,15 @@ impl Skin {
         let vis_colors = text("viscolor.txt")
             .map(|text| config::parse_vis_colors(&text))
             .unwrap_or(config::DEFAULT_VIS_COLORS);
+        let regions = text("region.txt")
+            .map(|text| config::parse_regions(&text))
+            .unwrap_or_default();
         Ok(Self {
             name,
             sheets,
             playlist,
             vis_colors,
+            regions,
         })
     }
 
@@ -244,7 +250,10 @@ impl Skin {
 /// Whether a file inside a skin is one this reader looks at, so cursors,
 /// readmes, and the equalizer's bitmaps are never inflated.
 fn wanted(file_name: &str) -> bool {
-    if matches!(file_name, "pledit.txt" | "viscolor.txt" | "skin.xml") {
+    if matches!(
+        file_name,
+        "pledit.txt" | "viscolor.txt" | "region.txt" | "skin.xml"
+    ) {
         return true;
     }
     let Some((stem, extension)) = file_name.rsplit_once('.') else {

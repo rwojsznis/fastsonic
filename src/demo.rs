@@ -597,6 +597,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.skin = None;
             }
             "playlist" => app.settings.playlist_open = true,
+            "shade" => app.settings.winamp_shaded = true,
             "eq" => {
                 app.settings.eq_open = true;
                 app.settings.eq_on = true;

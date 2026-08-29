@@ -135,9 +135,12 @@ through the marquee here. **EQ** opens the equalizer between the player and the 
 ten bands and its presets, shaping the music played on this computer (a
 speaker across the room plays what Spotify sends it). The preamp only
 turns down, and AUTO, which loaded a preset per song, stays off. The same
-equalizer is in Settings with its curve drawn out. The X, the maximize
-button, and both logos of the main window bring back the big window;
-quitting is in the right-click menu and Ctrl+Q. Fastpotify has no balance
+equalizer is in Settings with its curve drawn out. The X and both logos
+of the main window bring back the big window; its shade button, or a
+double-click on the title bar, rolls it up to a bar with the time, a small
+transport, and a seek bar, as Winamp's shade mode did. Skins that are not
+rectangles keep their shape: whatever their `region.txt` leaves out is
+see-through. Quitting is in the right-click menu and Ctrl+Q. Fastpotify has no balance
 control, so that slider is drawn but does nothing.
 Click the time to count down instead of up. The balance slider moves the
 sound between the speakers and the MONO and STEREO lamps are a switch,
