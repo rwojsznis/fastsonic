@@ -80,6 +80,34 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     });
                 }
+                Dialog::PremiumNeeded => {
+                    theme::text(
+                        ui,
+                        "This account cannot play music here",
+                        theme::bold(20.0),
+                        palette.text,
+                    );
+                    ui.add_space(8.0);
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(
+                                "Spotify only lets Premium accounts play through another \
+                                 app, on this computer or on any other device. With a Free \
+                                 account Fastpotify can show your library and search, but \
+                                 play, pause, and skip will not work.",
+                            )
+                            .font(theme::regular(14.0))
+                            .color(palette.secondary),
+                        )
+                        .wrap(),
+                    );
+                    ui.add_space(20.0);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if theme::pill_button(ui, &palette, "OK", true).clicked() {
+                            app.actions.push(Action::CloseDialog);
+                        }
+                    });
+                }
             }
         });
     if response.should_close() {

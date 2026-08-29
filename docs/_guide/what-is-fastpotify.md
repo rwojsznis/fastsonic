@@ -42,9 +42,10 @@ uses a layout similar to Spotify's desktop client.
 
 Fastpotify deliberately has a limited scope:
 
-- **Playing on this computer needs Spotify Premium**, as with every
-  librespot-based client. Browsing, search, and remote control work on any
-  account.
+- **Playing needs Spotify Premium**, on this computer (as with every
+  librespot-based client) and on other devices too, because Spotify's API
+  only takes playback commands from Premium accounts. Browsing and search
+  work on any account, and Fastpotify says so when a Free account signs in.
 - Initial setup has two sign-ins because Spotify grants Web API and streaming
   access separately. [How it connects](/how-it-connects/) explains why.
 - Local playback tops out at 320 kbps. Spotify protects its lossless streams

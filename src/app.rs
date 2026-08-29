@@ -258,6 +258,8 @@ pub struct App {
     /// cascade and reconnect once instead of skipping through an album.
     unavailable_at: Vec<Instant>,
     last_unavailable_reconnect: Option<Instant>,
+    /// The Premium notice has been shown for this sign-in.
+    premium_notice_shown: bool,
     /// The context the interface just started, shown as playing until
     /// Spotify's own state says the same thing.
     assumed_context: Option<AssumedContext>,
@@ -442,6 +444,7 @@ impl App {
             shuffle_set_at: None,
             unavailable_at: Vec::new(),
             last_unavailable_reconnect: None,
+            premium_notice_shown: false,
             assumed_context: None,
             last_now_playing_uri: None,
             playlist_busy: false,
@@ -942,6 +945,7 @@ impl App {
                 self.sign_in_url = None;
                 self.web_app = None;
                 self.user = None;
+                self.premium_notice_shown = false;
                 self.local = LocalState::default();
                 self.local_ready = false;
                 self.local_device_id = None;
@@ -1977,6 +1981,17 @@ impl App {
         match response {
             ApiResponse::Me(result) => match result {
                 Ok(user) => {
+                    // Spotify only takes playback commands from Premium
+                    // accounts, here or on any device, so a Free account
+                    // is told once rather than left pressing play.
+                    let free = user
+                        .product
+                        .as_deref()
+                        .is_some_and(|product| product != "premium");
+                    if free && !self.premium_notice_shown {
+                        self.premium_notice_shown = true;
+                        self.dialog = Some(Dialog::PremiumNeeded);
+                    }
                     self.user = Some(user);
                     let page = self.page().clone();
                     self.ensure_loaded(page);
@@ -4279,6 +4294,29 @@ mod tests {
         );
         app.local_ready = true;
         app
+    }
+
+    /// A Free account is told once per sign-in that nothing will play;
+    /// a Premium one is not bothered.
+    #[test]
+    fn a_free_account_is_told_once_that_it_cannot_play() {
+        let me = |product: &str| {
+            ApiResponse::Me(Ok(crate::api::models::User {
+                id: "someone".into(),
+                product: Some(product.into()),
+                ..Default::default()
+            }))
+        };
+        let mut app = headless_app();
+        app.handle_api(me("free"));
+        assert!(matches!(app.dialog, Some(Dialog::PremiumNeeded)));
+        app.dialog = None;
+        app.handle_api(me("free"));
+        assert!(app.dialog.is_none(), "the notice is shown once");
+
+        let mut app = headless_app();
+        app.handle_api(me("premium"));
+        assert!(app.dialog.is_none());
     }
 
     fn snapshot_at(percent: u8) -> LocalState {

@@ -458,6 +458,8 @@ pub enum Dialog {
         owned: bool,
     },
     Shortcuts,
+    /// The signed-in account is not Premium, so nothing will play.
+    PremiumNeeded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

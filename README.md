@@ -6,6 +6,11 @@
 macOS, and Windows, starts in well under a second, and stays small while it
 runs. There is no browser engine anywhere in the process.
 
+**Playing needs Spotify Premium.** Spotify only lets Premium accounts play
+music through another app, on the computer itself or on any other device.
+With a Free account Fastpotify can browse the library but not play it, and
+says so at sign-in.
+
 Fastpotify follows in the footsteps of
 [Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify) and
 [spotify-tui](https://github.com/Rigellute/spotify-tui): the familiar Spotify
@@ -134,8 +139,9 @@ Playing music **on this computer** is one more one-time browser approval.
 Spotify treats streaming as a separate grant for its own client identity,
 which is what librespot plays with. Take it from the device menu ("Play
 here, set up once") or Settings; it needs Spotify Premium, and librespot
-stores a reusable credential for later sessions. Browsing and remote control
-work on any account without this step.
+stores a reusable credential for later sessions. Browsing works on any
+account without this step; playing, here or on another device, does not,
+because Spotify's API only takes playback commands from Premium accounts.
 
 The Web API always keeps shared catalog coverage. You can also register a
 personal Spotify Development Mode app and paste its Client ID in Settings →
