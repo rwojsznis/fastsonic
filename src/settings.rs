@@ -60,6 +60,8 @@ pub struct Settings {
     pub check_for_updates: bool,
     /// Context URIs pinned to the top of the sidebar, in pin order.
     pub pinned_contexts: Vec<String>,
+    /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
+    pub zoom: f32,
 }
 
 impl Default for Settings {
@@ -85,6 +87,7 @@ impl Default for Settings {
             keep_playing_in_background: true,
             check_for_updates: true,
             pinned_contexts: Vec::new(),
+            zoom: 1.0,
         }
     }
 }

@@ -152,6 +152,8 @@ pub struct App {
     /// should be written shortly, not only at exit.
     session_dirty: bool,
     last_session_save: Instant,
+    /// The saved zoom has been applied to the context once.
+    zoom_applied: bool,
     pub devices: Vec<Device>,
     /// Receivers seen on the local network. Spotify lists a receiver only
     /// once it has an account, so these are the ones it cannot see yet.
@@ -346,6 +348,7 @@ impl App {
             remote_poll_seq: 0,
             session_dirty: false,
             last_session_save: Instant::now(),
+            zoom_applied: false,
             devices: Vec::new(),
             receivers: Vec::new(),
             activating_receiver: None,
@@ -1021,6 +1024,20 @@ impl App {
 
     fn tick(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
+        if !self.zoom_applied {
+            self.zoom_applied = true;
+            let zoom = self.settings.zoom.clamp(0.5, 2.5);
+            if (zoom - 1.0).abs() > 0.001 {
+                ctx.set_zoom_factor(zoom);
+            }
+        } else {
+            let zoom = ctx.zoom_factor();
+            if (zoom - self.settings.zoom).abs() > 0.001 {
+                // Ctrl+plus/minus zoomed; remembered for the next start.
+                self.settings.zoom = zoom;
+                self.settings_dirty = true;
+            }
+        }
         self.toasts
             .retain(|toast| toast.created.elapsed() < TOAST_LIFETIME);
 
