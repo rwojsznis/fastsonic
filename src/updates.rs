@@ -49,20 +49,30 @@ pub async fn newer_release(http: &reqwest::Client) -> Result<Option<Release>> {
     )
 }
 
-/// `major.minor.patch`; anything else (a pre-release tag, say) is `None`.
-fn parse(version: &str) -> Option<[u64; 3]> {
-    let mut parts = version
-        .trim()
-        .split('.')
-        .map(|part| part.parse::<u64>().ok());
-    Some([parts.next()??, parts.next()??, parts.next()??])
+/// `major.minor.patch`, and whether a `-rc1` or similar suffix marks it
+/// as a pre-release of that version; anything else is `None`.
+fn parse(version: &str) -> Option<([u64; 3], bool)> {
+    let version = version.trim();
+    let (numbers, pre_release) = match version.split_once('-') {
+        Some((numbers, _)) => (numbers, true),
+        None => (version, false),
+    };
+    let mut parts = numbers.split('.').map(|part| part.parse::<u64>().ok());
+    Some((
+        [parts.next()??, parts.next()??, parts.next()??],
+        pre_release,
+    ))
 }
 
-/// Whether `candidate` is a later version than `current`. Unparseable
-/// versions are never newer, so a pre-release is never announced.
+/// Whether `candidate` is a later version than `current`. A release comes
+/// after its own release candidates, so a candidate's users hear about
+/// the release; a pre-release is never announced, and neither is anything
+/// that does not parse.
 pub fn is_newer(candidate: &str, current: &str) -> bool {
     match (parse(candidate), parse(current)) {
-        (Some(candidate), Some(current)) => candidate > current,
+        (Some((candidate, false)), Some((current, current_pre))) => {
+            candidate > current || (candidate == current && current_pre)
+        }
         _ => false,
     }
 }
@@ -84,5 +94,11 @@ mod tests {
             "pre-releases are not announced"
         );
         assert!(!is_newer("nightly", "0.1.3"));
+        // A release candidate hears about its release, and nothing older.
+        assert!(is_newer("0.4.0", "0.4.0-rc1"));
+        assert!(is_newer("0.4.1", "0.4.0-rc1"));
+        assert!(!is_newer("0.4.0-rc1", "0.4.0"));
+        assert!(!is_newer("0.4.0-rc2", "0.4.0-rc1"));
+        assert!(!is_newer("0.3.0", "0.4.0-rc1"));
     }
 }

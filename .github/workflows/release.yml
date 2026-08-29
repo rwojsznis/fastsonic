@@ -201,3 +201,6 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+          # A tag with a suffix (v0.4.0-rc1) is a pre-release: it stays
+          # off "latest", so the app's update check never offers it.
+          prerelease: ${{ contains(github.ref_name, '-') }}

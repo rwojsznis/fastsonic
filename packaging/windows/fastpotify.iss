@@ -57,7 +57,14 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayIcon={app}\{#AppExeName}
-VersionInfoVersion={#Version}.0
+; The file version has to be numbers: a release candidate's -rc1 comes off.
+#define Dash Pos("-", Version)
+#if Dash > 0
+  #define NumericVersion Copy(Version, 1, Dash - 1)
+#else
+  #define NumericVersion Version
+#endif
+VersionInfoVersion={#NumericVersion}.0
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
