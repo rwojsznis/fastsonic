@@ -125,8 +125,11 @@ rewinds, **PL** opens the queue in the big window, **I** opens the playing
 album there, and repeat is on or off. Closing the window does what closing
 the big one does: to the tray, or quit. Fastpotify has no equalizer or
 balance control, so **EQ** and the balance slider are drawn but do nothing.
-Click the time to count down instead of up. Modern (Winamp 3 and 5) skins
-are a different format and are not supported.
+Click the time to count down instead of up. The display's left box is the
+spectrum analyser, peaks and all, in the skin's own colours; click it, or
+**V**, for the oscilloscope, and again for nothing. It shows the sound
+leaving this computer, so a device across the room leaves it flat. Modern
+(Winamp 3 and 5) skins are a different format and are not supported.
 
 ## The tray
 

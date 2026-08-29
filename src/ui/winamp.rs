@@ -22,12 +22,17 @@ use egui::{
 use crate::app::{App, NowPlaying};
 use crate::model::{Action, Page};
 use crate::player::RepeatMode;
+use crate::settings::VisMode;
 use crate::skin::layout::{self, Area};
 use crate::skin::{Sheet, Skin, Sprite, font, sprites};
 use crate::util;
+use crate::vis;
 use crate::winamp::{MAX_SCALE, WinampState};
 
 use super::widgets::SliderEvent;
+
+/// How often the visualiser moves.
+const VIS_FRAME: Duration = Duration::from_micros(16_667);
 
 /// The window's size in logical points, for the given points per skin
 /// pixel.
@@ -65,8 +70,10 @@ fn unit(app: &App, ctx: &egui::Context) -> f32 {
 /// exists, and the size changes when the listener picks another.
 fn fit_window(ctx: &egui::Context, unit: f32) {
     let wanted = window_size(unit);
-    let current = ctx.input(|input| input.viewport().inner_rect.map(|rect| rect.size()));
-    if current.is_some_and(|current| (current - wanted).abs().max_elem() < 0.5) {
+    // Not `inner_rect`: Wayland reports no window positions, so that is
+    // `None` there; the screen rect is the window's size on every desktop.
+    let current = ctx.viewport_rect().size();
+    if (current - wanted).abs().max_elem() < 0.5 {
         return;
     }
     // A desktop that will not grant the size is asked again only now and
@@ -130,6 +137,15 @@ impl View<'_> {
 
     fn sprite_at(&self, sprite: Sprite, x: u32, y: u32) {
         self.paint(self.ui.painter(), sprite, x, y);
+    }
+
+    /// A block of skin pixels in one colour.
+    fn fill(&self, x: u32, y: u32, width: u32, height: u32, color: Color32) {
+        let rect = Rect::from_min_size(
+            self.origin + vec2(x as f32, y as f32) * self.unit,
+            vec2(width as f32, height as f32) * self.unit,
+        );
+        self.ui.painter().rect_filled(rect, 0.0, color);
     }
 
     fn sprite(&self, sprite: Sprite, area: Area) {
@@ -252,6 +268,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     clutter_bar(app, &mut view, now.as_ref());
     status(&mut view, now.as_ref());
     time_display(app, &mut view, now.as_ref(), time);
+    let vis_moving = visualiser(app, &mut view, now.as_ref());
     marquee(app, &mut view, now.as_ref());
     rates(app, &mut view, now.as_ref());
     sliders(app, &mut view, now.as_ref());
@@ -267,8 +284,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         app.actions.push(Action::ToggleWinampWindow);
     }
 
-    // The marquee steps and the time ticks; while paused the time blinks.
-    if now.is_some() {
+    // The visualiser wants a frame every 60th of a second while it moves;
+    // otherwise the marquee steps and the time ticks, and while paused the
+    // time blinks. egui takes one predicted frame (a 60th) off every delay
+    // on the assumption that vsync paces the loop, and this app runs with
+    // vsync off, so asking for a 60th would leave nothing and spin a core;
+    // asking for two frames waits one.
+    if vis_moving {
+        ctx.request_repaint_after(VIS_FRAME * 2);
+    } else if now.is_some() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }
 }
@@ -441,12 +465,96 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         };
         app.actions.push(Action::SetSkinScale(next as u8));
     }
-    view.lamp_button(
-        layout::CLUTTER_V,
-        sprites::CLUTTER_V_LIT,
-        false,
-        "clutter-v",
-    );
+    if view
+        .lamp_button(
+            layout::CLUTTER_V,
+            sprites::CLUTTER_V_LIT,
+            false,
+            "clutter-v",
+        )
+        .on_hover_text("Visualiser")
+        .clicked()
+    {
+        app.actions.push(Action::CycleVisualiser);
+    }
+}
+
+/// The display's left box: the spectrum analyser, the oscilloscope, or
+/// nothing, in the skin's own colours. A click, or V, goes to the next.
+/// Only sound from this computer passes the tap; a device across the room
+/// leaves the bars flat. Returns whether anything is still moving.
+fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool {
+    let area = layout::VISUALIZER;
+    if view
+        .interact(area, "visualiser", Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+    {
+        app.actions.push(Action::CycleVisualiser);
+    }
+    let mode = app.settings.vis;
+    if mode == VisMode::Off {
+        return false;
+    }
+    let palette = view.skin.vis_colors;
+    let color =
+        |index: usize| Color32::from_rgb(palette[index][0], palette[index][1], palette[index][2]);
+    view.fill(area.x, area.y, area.width, area.height, color(0));
+    for y in (0..area.height).step_by(2) {
+        for x in (0..area.width).step_by(2) {
+            view.fill(area.x + x, area.y + y, 1, 1, color(1));
+        }
+    }
+    let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
+    match mode {
+        VisMode::Bars => {
+            let samples = if sounding {
+                app.winamp.tap.window(vis::FFT_SAMPLES, vis::LAG)
+            } else {
+                vec![0.0; vis::FFT_SAMPLES]
+            };
+            let bars = app.winamp.analyser.step(&samples);
+            for (index, bar) in bars.iter().enumerate() {
+                let x = area.x + 4 * index as u32;
+                for row in (vis::ROWS - bar.height)..vis::ROWS {
+                    view.fill(
+                        x,
+                        area.y + u32::from(row),
+                        3,
+                        1,
+                        color(2 + usize::from(row)),
+                    );
+                }
+                if let Some(peak) = bar.peak {
+                    let row = vis::ROWS - peak;
+                    view.fill(x, area.y + u32::from(row), 3, 1, color(23));
+                }
+            }
+            sounding || !app.winamp.analyser.settled()
+        }
+        VisMode::Scope => {
+            let samples = if sounding {
+                app.winamp.tap.window(vis::SCOPE_SAMPLES, vis::LAG)
+            } else {
+                vec![0.0; vis::SCOPE_SAMPLES]
+            };
+            let rows = vis::scope(&samples);
+            let mut last = rows[0];
+            for (x, &y) in rows.iter().enumerate() {
+                let (mut top, mut bottom) = (y, last);
+                if bottom < top {
+                    (top, bottom) = (bottom + 1, top);
+                }
+                last = y;
+                let shade = color(18 + vis::scope_shade(y));
+                for row in top..=bottom {
+                    view.fill(area.x + x as u32, area.y + u32::from(row), 1, 1, shade);
+                }
+            }
+            sounding
+        }
+        VisMode::Off => false,
+    }
 }
 
 fn status(view: &mut View, now: Option<&NowPlaying>) {

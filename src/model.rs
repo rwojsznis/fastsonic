@@ -588,5 +588,7 @@ pub enum Action {
     SetSkinScale(u8),
     ToggleWinampOnTop,
     OpenSkinsFolder,
+    /// Bars, then the scope, then nothing, in the mini player's display.
+    CycleVisualiser,
     Quit,
 }

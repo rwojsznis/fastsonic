@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use crate::settings::Settings;
 use crate::skin::{Sheet, Skin, SkinError};
+use crate::vis::{Analyser, AudioTap};
 
 /// The most screen pixels a skin pixel may take.
 pub const MAX_SCALE: u32 = 4;
@@ -84,10 +85,13 @@ pub struct WinampState {
     pub restore_pos: Option<[f32; 2]>,
     /// Where the window is, as last seen.
     pub last_pos: Option<[f32; 2]>,
+    /// The sound on its way out, for the visualiser.
+    pub tap: Arc<AudioTap>,
+    pub analyser: Analyser,
 }
 
 impl WinampState {
-    pub fn new(restore_pos: Option<[f32; 2]>) -> Self {
+    pub fn new(restore_pos: Option<[f32; 2]>, tap: Arc<AudioTap>) -> Self {
         Self {
             skin: Skin::builtin(),
             worn: None,
@@ -101,6 +105,8 @@ impl WinampState {
             marquee_moved: None,
             restore_pos,
             last_pos: None,
+            tap,
+            analyser: Analyser::default(),
         }
     }
 
@@ -346,7 +352,7 @@ mod tests {
 
     #[test]
     fn a_short_title_sits_still_and_a_long_one_scrolls() {
-        let mut state = WinampState::new(None);
+        let mut state = WinampState::new(None, AudioTap::new());
         let start = Instant::now();
         assert_eq!(state.marquee("Fastpotify", start), "Fastpotify");
         assert!(!state.marquee_scrolling());

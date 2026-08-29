@@ -13,6 +13,27 @@ pub enum ThemeChoice {
     System,
 }
 
+/// What the mini player's display shows of the sound.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VisMode {
+    #[default]
+    Bars,
+    Scope,
+    Off,
+}
+
+impl VisMode {
+    /// The next mode round, the order a click on the display goes through.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Bars => Self::Scope,
+            Self::Scope => Self::Off,
+            Self::Off => Self::Bars,
+        }
+    }
+}
+
 impl ThemeChoice {
     pub const ALL: [ThemeChoice; 3] = [Self::Dark, Self::Light, Self::System];
 
@@ -79,6 +100,8 @@ pub struct Settings {
     pub skin_scale: Option<u8>,
     /// The Winamp window stays above other windows.
     pub winamp_on_top: bool,
+    /// The mini player's visualiser: bars, scope, or off.
+    pub vis: VisMode,
 }
 
 impl Default for Settings {
@@ -113,6 +136,7 @@ impl Default for Settings {
             skin: None,
             skin_scale: None,
             winamp_on_top: false,
+            vis: VisMode::default(),
         }
     }
 }
@@ -185,6 +209,17 @@ mod tests {
         assert_eq!(settings.skin, None);
         assert_eq!(settings.skin_scale, None);
         assert!(!settings.winamp_on_top);
+        assert_eq!(settings.vis, super::VisMode::Bars);
+    }
+
+    #[test]
+    fn the_visualiser_cycles_bars_scope_off() {
+        use super::VisMode;
+        assert_eq!(VisMode::Bars.next(), VisMode::Scope);
+        assert_eq!(VisMode::Scope.next(), VisMode::Off);
+        assert_eq!(VisMode::Off.next(), VisMode::Bars);
+        let settings: Settings = serde_json::from_str(r#"{"vis": "scope"}"#).unwrap();
+        assert_eq!(settings.vis, VisMode::Scope);
     }
 
     #[test]

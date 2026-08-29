@@ -34,6 +34,7 @@ use librespot_playback::{
 use sha1::{Digest, Sha1};
 
 use crate::sink::{ErrorHook, RodioSink};
+use crate::vis::{AudioTap, Tapped};
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
@@ -49,6 +50,8 @@ pub struct EngineConfig {
     pub volume_dir: PathBuf,
     pub audio_cache_dir: Option<PathBuf>,
     pub audio_cache_limit: Option<u64>,
+    /// Where the samples on their way out are copied for the visualiser.
+    pub tap: Arc<AudioTap>,
 }
 
 impl EngineConfig {
@@ -455,6 +458,7 @@ fn sink_builder(
     mixer: &Arc<dyn Mixer>,
 ) -> SinkAndVolume {
     let device = config.audio_device.clone();
+    let tap = Arc::clone(&config.tap);
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -470,8 +474,14 @@ fn sink_builder(
     {
         match audio_backend::find(Some(name.to_string())) {
             Some(builder) => {
+                // The player applies the volume before these sinks see the
+                // samples; the tap is told, so the bars show the music.
+                let applied = mixer.get_soft_volume();
                 return (
-                    Box::new(move || builder(device, AudioFormat::S16)),
+                    Box::new(move || {
+                        let sink = builder(device, AudioFormat::S16);
+                        Box::new(Tapped::new(sink, tap, Some(applied))) as Box<dyn Sink>
+                    }),
                     mixer.get_soft_volume(),
                 );
             }
@@ -480,7 +490,10 @@ fn sink_builder(
     }
     let volume = mixer.get_soft_volume();
     (
-        Box::new(move || Box::new(RodioSink::new(device, report, volume)) as Box<dyn Sink>),
+        Box::new(move || {
+            let sink = Box::new(RodioSink::new(device, report, volume));
+            Box::new(Tapped::new(sink, tap, None)) as Box<dyn Sink>
+        }),
         Box::new(NoOpVolume),
     )
 }
@@ -707,6 +720,7 @@ mod tests {
     #[test]
     fn device_id_is_stable_hex() {
         let config = EngineConfig {
+            tap: AudioTap::new(),
             device_name: "Fastpotify".into(),
             bitrate_kbps: 320,
             normalisation: false,

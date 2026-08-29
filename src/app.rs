@@ -317,7 +317,8 @@ const GLIDE_STOP: f32 = 40.0;
 
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, settings: Settings, options: AppOptions) -> Self {
-        let engine_config = engine_config(&dirs, &settings);
+        let tap = crate::vis::AudioTap::new();
+        let engine_config = engine_config(&dirs, &settings, std::sync::Arc::clone(&tap));
         let backend = Backend::spawn(
             dirs.clone(),
             engine_config,
@@ -454,7 +455,7 @@ impl App {
             resume_position_ms: session.last_position_ms,
             update: None,
             last_update_check: None,
-            winamp: crate::winamp::WinampState::new(session.winamp_pos),
+            winamp: crate::winamp::WinampState::new(session.winamp_pos, tap),
         };
         app.local.volume = app.settings.volume;
         app
@@ -3724,7 +3725,11 @@ impl App {
             }
             Action::RestartEngine => {
                 self.save_settings();
-                let config = engine_config(&self.dirs, &self.settings);
+                let config = engine_config(
+                    &self.dirs,
+                    &self.settings,
+                    std::sync::Arc::clone(&self.winamp.tap),
+                );
                 self.backend.send(Command::RestartEngine(config));
                 if self.local_ready {
                     self.toast("Restarting local playback");
@@ -3803,6 +3808,11 @@ impl App {
             Action::ToggleWinampOnTop => {
                 self.settings.winamp_on_top = !self.settings.winamp_on_top;
                 self.settings_dirty = true;
+            }
+            Action::CycleVisualiser => {
+                self.settings.vis = self.settings.vis.next();
+                self.settings_dirty = true;
+                self.winamp.analyser.reset();
             }
             Action::OpenSkinsFolder => {
                 let folder = self.dirs.skins_dir();
@@ -4071,8 +4081,13 @@ impl App {
     }
 }
 
-pub fn engine_config(dirs: &AppDirs, settings: &Settings) -> EngineConfig {
+pub fn engine_config(
+    dirs: &AppDirs,
+    settings: &Settings,
+    tap: std::sync::Arc<crate::vis::AudioTap>,
+) -> EngineConfig {
     EngineConfig {
+        tap,
         device_name: settings.device_name.trim().to_string(),
         bitrate_kbps: settings.bitrate,
         normalisation: settings.normalisation,

@@ -55,6 +55,7 @@ main fields are:
 | `skin` | none | A file or folder name in the skins folder; the built-in skin when absent |
 | `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |
 | `winamp_on_top` | `false` | Keep the mini player above other windows |
+| `vis` | `bars` | The mini player's visualiser: `bars`, `scope`, or `off` |
 | `keep_playing_in_background` | `true` | Close to tray |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Optional personal Spotify app id used alongside shared coverage |
