@@ -32,6 +32,13 @@ Read `docs/_reference/how-it-connects.md` before changing authentication,
 Spotify requests, Connect, credential storage, or network behaviour. Read the
 nearby module tests before changing a state machine or API fallback.
 
+## Branches
+
+Work on `main`. Commit there directly, one topic per commit, each
+compiling and passing the checks on its own. Feature branches and pull
+requests are for outside contributors; the maintainer's own work, and
+work done with the maintainer, does not go through them.
+
 ## Definition of done
 
 - Add focused regression tests for changed behaviour. Use the `demo` feature
