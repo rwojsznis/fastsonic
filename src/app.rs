@@ -251,6 +251,10 @@ pub struct App {
     /// When the listener last set shuffle here, so an echo of that same
     /// change from the engine is not mistaken for another client's toggle.
     shuffle_set_at: Option<Instant>,
+    /// When tracks recently came up unavailable, to spot a key-service
+    /// cascade and reconnect once instead of skipping through an album.
+    unavailable_at: Vec<Instant>,
+    last_unavailable_reconnect: Option<Instant>,
     /// The context the interface just started, shown as playing until
     /// Spotify's own state says the same thing.
     assumed_context: Option<AssumedContext>,
@@ -420,6 +424,8 @@ impl App {
             intent_track: None,
             shuffle_wanted: session.shuffle_on,
             shuffle_set_at: None,
+            unavailable_at: Vec::new(),
+            last_unavailable_reconnect: None,
             assumed_context: None,
             last_now_playing_uri: None,
             playlist_busy: false,
@@ -1001,6 +1007,26 @@ impl App {
             && self.local.error.as_deref() != Some(error.as_str())
         {
             self.toast_error(error.clone());
+            // One unavailable track is Spotify's catalogue; several in a
+            // row is the session's audio-key service gone bad, which
+            // leaves librespot feeding the decoder encrypted bytes and
+            // skipping through the whole album. A fresh session cures it.
+            if error.starts_with("This item isn't available") {
+                let now = Instant::now();
+                self.unavailable_at
+                    .retain(|at| now.duration_since(*at) < Duration::from_secs(20));
+                self.unavailable_at.push(now);
+                if self.unavailable_at.len() >= 3
+                    && self
+                        .last_unavailable_reconnect
+                        .is_none_or(|at| at.elapsed() > Duration::from_secs(60))
+                {
+                    self.unavailable_at.clear();
+                    self.last_unavailable_reconnect = Some(now);
+                    self.backend.send(Command::Reconnect);
+                    self.toast("Spotify's audio service faltered; reconnecting local playback");
+                }
+            }
         }
         self.local = state;
         if let Some(volume) = held_volume {
