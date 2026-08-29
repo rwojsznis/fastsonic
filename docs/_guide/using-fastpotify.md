@@ -15,6 +15,10 @@ The player bar shows what is playing locally or on another device. Click the
 title to open its album, the artist name to open the artist, or the heart to
 save the track.
 
+Music played on this computer follows the system's default output: plug in
+headphones, connect a Bluetooth speaker, or pick another device in the sound
+settings, and playback moves there within a couple of seconds.
+
 ## Home
 
 Home previews your most-played songs. Select **Your top songs** or **Show

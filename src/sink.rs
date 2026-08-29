@@ -37,6 +37,9 @@ const QUEUE_LIMIT: usize = 12;
 /// How long `stop` lets the queue play out before pausing regardless.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// How often playback looks at which output the system calls its default.
+const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+
 pub struct RodioSink {
     /// The output device name from Settings; `None` means the default.
     device: Option<String>,
@@ -46,11 +49,14 @@ pub struct RodioSink {
     /// at once instead of after the queue drains.
     volume: Box<dyn VolumeGetter + Send>,
     applied_volume: f32,
+    default_checked_at: Option<Instant>,
 }
 
 struct Output {
     sink: rodio::Sink,
     _stream: rodio::OutputStream,
+    /// The name of the device the stream was opened on.
+    device_name: Option<String>,
     /// Set from the audio thread when the stream dies (device unplugged).
     failed: Arc<AtomicBool>,
 }
@@ -73,6 +79,41 @@ impl RodioSink {
             on_error,
             volume,
             applied_volume: -1.0,
+            default_checked_at: None,
+        }
+    }
+
+    /// Moves to the system's default output when that changes while the
+    /// listener has not picked a device: headphones plugged in, a Bluetooth
+    /// speaker connected, another device chosen in the sound settings. The
+    /// stream was opened on one device and would keep playing through it
+    /// otherwise. Asking is cheap on Windows and macOS. On Linux PipeWire
+    /// and PulseAudio move the stream themselves, and ALSA's answer never
+    /// changes, so nothing is asked there.
+    fn follow_default(&mut self, at_once: bool) {
+        if cfg!(target_os = "linux") || self.device.is_some() {
+            return;
+        }
+        let Some(output) = &self.output else {
+            return;
+        };
+        if !at_once
+            && self
+                .default_checked_at
+                .is_some_and(|at| at.elapsed() < DEFAULT_CHECK_INTERVAL)
+        {
+            return;
+        }
+        self.default_checked_at = Some(Instant::now());
+        let current = cpal::default_host()
+            .default_output_device()
+            .and_then(|device| device.name().ok());
+        if current.is_some() && current != output.device_name {
+            log::info!(
+                "the default audio output is now {}; moving playback to it",
+                current.as_deref().unwrap_or("[unknown device]")
+            );
+            self.output = None;
         }
     }
 
@@ -113,6 +154,7 @@ impl RodioSink {
 
 impl Sink for RodioSink {
     fn start(&mut self) -> SinkResult<()> {
+        self.follow_default(true);
         self.ensure_open()?;
         self.apply_volume();
         if let Some(output) = &self.output {
@@ -138,6 +180,7 @@ impl Sink for RodioSink {
             .samples()
             .map_err(|error| SinkError::OnWrite(error.to_string()))?;
         let samples = converter.f64_to_f32(samples);
+        self.follow_default(false);
         self.ensure_open()?;
         self.apply_volume();
         let Some(output) = &self.output else {
@@ -191,9 +234,10 @@ fn open_output(preferred: Option<&str>) -> Result<Output, OpenError> {
         }
         None => host.default_output_device().ok_or(OpenError::NoDevice)?,
     };
+    let device_name = device.name().ok();
     log::info!(
         "audio output: {}",
-        device.name().unwrap_or_else(|_| "[unknown device]".into())
+        device_name.as_deref().unwrap_or("[unknown device]")
     );
 
     let failed = Arc::new(AtomicBool::new(false));
@@ -213,6 +257,7 @@ fn open_output(preferred: Option<&str>) -> Result<Output, OpenError> {
     Ok(Output {
         sink,
         _stream: stream,
+        device_name,
         failed,
     })
 }
