@@ -913,9 +913,12 @@ pub fn table_header(
     let mut x = rect.left() + 8.0;
     {
         let number = Rect::from_center_size(pos2(x + 22.0, rect.center().y), vec2(30.0, 22.0));
+        // With no sort chosen the list already plays its own order, and
+        // the # says so: lit, arrow pointing down the list.
+        let natural = sort.is_none();
         let active = sort.filter(|sort| sort.column == SortColumn::Index);
         let response = ui.interact(number, ui.id().with("table-header-number"), Sense::click());
-        let number_color = if active.is_some() {
+        let number_color = if natural || active.is_some() {
             palette.accent
         } else if response.hovered() {
             palette.text
