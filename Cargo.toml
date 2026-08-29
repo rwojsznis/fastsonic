@@ -67,7 +67,6 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-
 # mpris-server dependency happens to turn it on, which is why leaving it out
 # built there and nowhere else.
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs"] }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs"] }
 sha1 = "0.10"
 sha2 = "0.10"
 base64 = "0.22"
