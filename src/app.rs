@@ -2456,6 +2456,46 @@ impl App {
     /// With `shuffle_first`, shuffle is turned on before playback starts,
     /// in one ordered exchange: two independent requests race, and shuffle
     /// sometimes lost.
+    /// A random playable track of a context the app has rows for: the
+    /// start of a shuffle play. `None` when no rows are at hand.
+    fn random_track_in(&self, context_uri: &str) -> Option<String> {
+        let uris: Vec<&str> = if let Some(id) = context_uri.strip_prefix("spotify:playlist:") {
+            self.playlist_pages
+                .get(id)?
+                .items
+                .items
+                .iter()
+                .filter_map(|item| item.playable())
+                .map(|item| item.uri())
+                .collect()
+        } else if let Some(id) = context_uri.strip_prefix("spotify:album:") {
+            self.album_pages
+                .get(id)?
+                .tracks
+                .items
+                .iter()
+                .map(|track| track.uri.as_str())
+                .collect()
+        } else if context_uri.ends_with(":collection") {
+            self.library
+                .liked
+                .items
+                .iter()
+                .map(|item| item.track.uri.as_str())
+                .collect()
+        } else {
+            return None;
+        };
+        if uris.is_empty() {
+            return None;
+        }
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .subsec_nanos() as usize;
+        Some(uris[nanos % uris.len()].to_string())
+    }
+
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
         let mut keys: Vec<String> = Vec::new();
         if let Some(context) = &request.context_uri {
@@ -2945,7 +2985,13 @@ impl App {
                 }
             },
             Action::ShufflePlay(uri) => {
-                self.play_request(PlayRequest::context(uri), true);
+                // librespot and the Web API both start an offsetless play
+                // at track one and only then shuffle what follows, so the
+                // first songs came out in order. Picking the random start
+                // here makes even the first song anyone's guess.
+                let mut request = PlayRequest::context(uri.clone());
+                request.offset_uri = self.random_track_in(&uri);
+                self.play_request(request, true);
             }
             Action::TogglePlay => self.toggle_play(),
             Action::Next => match self.target() {
