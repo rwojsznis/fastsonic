@@ -523,11 +523,10 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     if !ui.is_rect_visible(rect) {
         return;
     }
-    let now_playing = app.now_playing();
-    let is_current = now_playing
-        .as_ref()
-        .is_some_and(|now| now.uri == row.item.uri());
-    let playing = is_current && now_playing.as_ref().is_some_and(|now| now.playing);
+    let is_current = app
+        .current_track_uri()
+        .is_some_and(|uri| uri == row.item.uri());
+    let playing = is_current && app.believed_playing();
     let hovered = ui.rect_contains_pointer(rect);
     let unavailable = match row.item {
         PlayableItem::Track(track) => track.is_playable == Some(false) || track.is_local,

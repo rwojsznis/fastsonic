@@ -223,6 +223,9 @@ pub struct App {
     /// every second, so a snapshot must not undo the change on its way past.
     pending_local_volume: Option<(u16, Instant)>,
     optimistic_playing: Option<(bool, Instant)>,
+    /// The track a play just asked for, marked current at once; the
+    /// engine's report (or time) hands back to the reported state.
+    intent_track: Option<(String, Instant)>,
     /// The context the interface just started, shown as playing until
     /// Spotify's own state says the same thing.
     assumed_context: Option<AssumedContext>,
@@ -379,6 +382,7 @@ impl App {
             pending_remote_volume: None,
             pending_local_volume: None,
             optimistic_playing: None,
+            intent_track: None,
             assumed_context: None,
             last_now_playing_uri: None,
             playlist_busy: false,
@@ -524,6 +528,17 @@ impl App {
 
     /// Whether the playing context shuffles, honouring a shuffle the
     /// interface just asked for ahead of Spotify's state.
+    /// The track the interface should mark as current: the one a click
+    /// just asked for, until a report names it or the moment passes.
+    pub fn current_track_uri(&self) -> Option<String> {
+        if let Some((uri, at)) = &self.intent_track
+            && at.elapsed() < PLAYBACK_HOLD
+        {
+            return Some(uri.clone());
+        }
+        self.now_playing().map(|now| now.uri)
+    }
+
     /// Whether something plays, as the interface should show it: what it
     /// just asked for, before any state reports back.
     pub fn believed_playing(&self) -> bool {
@@ -600,6 +615,19 @@ impl App {
             });
         }
         let remote = self.remote_fresh()?;
+        // When the snapshot names this very computer as its device, the
+        // local engine is the truth, and it just said it has nothing: a
+        // poll from before a stop must not say otherwise.
+        if self.local_device_id.is_some()
+            && remote
+                .state
+                .device
+                .as_ref()
+                .and_then(|device| device.id.as_deref())
+                == self.local_device_id.as_deref()
+        {
+            return None;
+        }
         let item = remote.state.item.as_ref()?;
         let device = remote.state.device.as_ref();
         let playing = match self.optimistic_playing {
@@ -872,6 +900,12 @@ impl App {
         }
         if state.track != self.local.track {
             self.clear_play_pending();
+            if let (Some(track), Some((intent, _))) = (&state.track, &self.intent_track)
+                && track.uri == *intent
+            {
+                // The engine reports the very track that was asked for.
+                self.intent_track = None;
+            }
         }
         let held_volume = self.held_local_volume(state.volume);
         if held_volume.is_none() && state.volume != self.settings.volume {
@@ -2445,6 +2479,11 @@ impl App {
             }
             None => {}
         }
+        self.intent_track = keys
+            .iter()
+            .find(|key| key.contains(":track:"))
+            .cloned()
+            .map(|uri| (uri, Instant::now()));
         self.set_play_pending(keys);
         if let Some(context) = request.context_uri.clone() {
             self.note_recent_context(&context);

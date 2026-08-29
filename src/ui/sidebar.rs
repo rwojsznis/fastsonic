@@ -372,6 +372,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         }
     });
     let playing_context = app.playing_context_uri();
+    let context_playing = app.believed_playing();
     let current_page = app.page().clone();
 
     egui::ScrollArea::vertical()
@@ -399,8 +400,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             super::widgets::virtual_rows(ui, entries.len(), ROW_HEIGHT, |ui, index| {
                 let entry = &entries[index];
                 let active = entry.page == current_page;
-                let playing =
-                    !entry.uri.is_empty() && playing_context.as_deref() == Some(entry.uri.as_str());
+                let playing = context_playing
+                    && !entry.uri.is_empty()
+                    && playing_context.as_deref() == Some(entry.uri.as_str());
                 let pinned =
                     !entry.uri.is_empty() && app.settings.pinned_contexts.contains(&entry.uri);
                 let (rect, response) =
