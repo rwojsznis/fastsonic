@@ -64,6 +64,21 @@ If something misbehaves, [an issue](https://github.com/crmne/fastpotify/issues)
 with the terminal output of `fastpotify -v` and what you expected instead is
 gold.
 
+
+## Will Spotify ban my account?
+
+No case of it has ever surfaced. Fastpotify is a normal client for
+paying customers: sign-in happens on Spotify's own pages, audio comes
+through librespot at the quality Premium includes, DRM stays intact,
+nothing is ripped to files, and there are no ads to block because
+Premium has none. librespot players have been around for the better
+part of a decade under Spotify's eyes.
+
+The stories about banned accounts come from something else entirely:
+modded apps that strip ads from free accounts, track rippers, and
+stream manipulation. Fastpotify does none of that, and its
+contribution rules keep it that way.
+
 ## Prior art
 
 Fastpotify stands on earlier efforts:

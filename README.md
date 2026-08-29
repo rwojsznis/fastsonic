@@ -133,6 +133,21 @@ spotify-player, ncspot, and Omarchy Spotify. If you hit rate limits you can
 register your own (free) Spotify application and paste its Client ID in
 Settings → Account.
 
+## Is my account safe?
+
+Yes, by every signal available. Fastpotify is an ordinary client for
+paying customers: you sign in on Spotify's own pages, audio streams
+through librespot at the quality Premium includes, DRM stays intact,
+nothing is ripped to files, and no ads are blocked because Premium has
+none. librespot-based players have existed for the better part of a
+decade and we know of no account suspended for listening through one
+with Premium.
+
+The suspensions people hear about come from a different world: modded
+apps that strip ads from free accounts, tools that rip tracks, and
+stream manipulation. Fastpotify does none of that, and
+[CONTRIBUTING.md](CONTRIBUTING.md) rules it out for good.
+
 ## Keyboard shortcuts
 
 | Shortcut | What it does |
@@ -174,8 +189,8 @@ fastpotify now-playing [--raw]
 ```
 
 `now-playing` prints one readable line; `--raw` prints the fields
-tab-separated — state, title, artists, album, position_ms, duration_ms,
-volume, shuffle, repeat — for a script that wants one of them. A verb exits
+tab-separated (state, title, artists, album, position_ms, duration_ms,
+volume, shuffle, repeat) for a script that wants one of them. A verb exits
 non-zero when Fastpotify is not running.
 
 That is enough for a launcher such as Raycast or Alfred to drive playback
