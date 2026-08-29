@@ -65,6 +65,7 @@ pub struct Cursors {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Image {
+    #[serde(default, deserialize_with = "null_default")]
     pub url: String,
     #[serde(default)]
     pub width: Option<u32>,
@@ -115,6 +116,7 @@ pub struct ArtistRef {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
     pub uri: Option<String>,
@@ -123,10 +125,13 @@ pub struct ArtistRef {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Artist {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub id: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub uri: String,
     #[serde(default, deserialize_with = "null_default")]
     pub images: Vec<Image>,
@@ -143,10 +148,13 @@ pub struct Artist {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Album {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub id: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub uri: String,
     #[serde(default)]
     pub album_type: Option<String>,
@@ -177,8 +185,10 @@ pub struct Album {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Copyright {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub text: String,
     #[serde(default, rename = "type")]
+    #[serde(deserialize_with = "null_default")]
     pub kind: String,
 }
 
@@ -209,8 +219,10 @@ pub struct Track {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub uri: String,
     #[serde(default)]
     pub duration_ms: u32,
@@ -268,14 +280,18 @@ pub struct ResumePoint {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Episode {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub id: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub uri: String,
     #[serde(default)]
     pub duration_ms: u32,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub description: String,
     #[serde(default, deserialize_with = "null_default")]
     pub images: Vec<Image>,
@@ -294,14 +310,19 @@ pub struct Episode {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Show {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub id: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub uri: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub publisher: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub description: String,
     #[serde(default, deserialize_with = "null_default")]
     pub images: Vec<Image>,
@@ -332,10 +353,13 @@ pub struct TrackCount {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Playlist {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub id: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub uri: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -512,8 +536,10 @@ pub struct PlayHistory {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Context {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub uri: String,
     #[serde(default, rename = "type")]
+    #[serde(deserialize_with = "null_default")]
     pub kind: String,
 }
 
@@ -522,6 +548,7 @@ pub struct Device {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
     pub is_active: bool,
@@ -532,12 +559,14 @@ pub struct Device {
     #[serde(default)]
     pub supports_volume: Option<bool>,
     #[serde(default, rename = "type")]
+    #[serde(deserialize_with = "null_default")]
     pub kind: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct DeviceList {
     #[serde(default)]
+    #[serde(deserialize_with = "skip_nulls")]
     pub devices: Vec<Device>,
 }
 
@@ -546,6 +575,7 @@ pub struct PlaybackState {
     #[serde(default)]
     pub device: Option<Device>,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub repeat_state: String,
     #[serde(default)]
     pub shuffle_state: bool,
@@ -615,6 +645,7 @@ impl SearchResults {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct User {
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub id: String,
     #[serde(default)]
     pub display_name: Option<String>,
@@ -669,6 +700,7 @@ pub struct ApiErrorDetail {
     #[serde(default)]
     pub status: u16,
     #[serde(default)]
+    #[serde(deserialize_with = "null_default")]
     pub message: String,
     #[serde(default)]
     pub reason: Option<String>,
