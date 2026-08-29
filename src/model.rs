@@ -397,6 +397,12 @@ pub enum RowContext {
     },
     /// A loose list of tracks, played as a queue of URIs.
     Uris(Vec<String>),
+    /// A sorted or filtered view of a context: plays exactly the list on
+    /// screen, while the context stays what the interface calls playing.
+    View {
+        uris: Vec<String>,
+        context_uri: String,
+    },
 }
 
 #[derive(Clone, Debug)]

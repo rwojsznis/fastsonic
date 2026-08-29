@@ -504,15 +504,22 @@ impl App {
     /// The context playing as the interface should show it: the one just
     /// asked for until Spotify's state confirms it, then Spotify's own.
     pub fn playing_context_uri(&self) -> Option<String> {
-        if let Some(assumed) = &self.assumed_context
-            && assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD
-        {
-            return Some(assumed.uri.clone());
-        }
-        self.remote
+        let remote = self
+            .remote
             .as_ref()
             .and_then(|remote| remote.state.context.as_ref())
-            .map(|context| context.uri.clone())
+            .map(|context| context.uri.clone());
+        if let Some(assumed) = &self.assumed_context {
+            let held = assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD;
+            // A view of a context plays as plain tracks, so no state will
+            // ever name the context: the assumption stands while nothing
+            // names another one and something is believed to be playing.
+            let contradicted = remote.as_deref().is_some_and(|uri| uri != assumed.uri);
+            if held || (!contradicted && self.believed_playing()) {
+                return Some(assumed.uri.clone());
+            }
+        }
+        remote
     }
 
     /// Whether the playing context shuffles, honouring a shuffle the
@@ -2885,6 +2892,17 @@ impl App {
                     let (uris, index) = cap_uris(uris, index);
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
                     self.play_request(request, false);
+                }
+                RowContext::View { uris, context_uri } => {
+                    let (uris, index) = cap_uris(uris, index);
+                    let request = PlayRequest::tracks(uris).starting_at_index(index);
+                    self.play_request(request, false);
+                    self.note_recent_context(&context_uri);
+                    self.assumed_context = Some(AssumedContext {
+                        uri: context_uri,
+                        shuffle: None,
+                        at: Instant::now(),
+                    });
                 }
             },
             Action::ShufflePlay(uri) => {

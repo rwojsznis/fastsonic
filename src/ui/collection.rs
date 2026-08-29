@@ -265,71 +265,8 @@ pub struct Table<'a> {
 pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let palette = app.palette;
     let needle = table.filter.trim().to_lowercase();
-    let visible: Vec<usize> = table
-        .items
-        .iter()
-        .enumerate()
-        .filter(|(_, (item, _, _))| {
-            if needle.is_empty() {
-                return true;
-            }
-            let haystack = match item {
-                PlayableItem::Track(track) => format!(
-                    "{} {} {}",
-                    track.name,
-                    track.artist_names(),
-                    track
-                        .album
-                        .as_ref()
-                        .map(|album| album.name.as_str())
-                        .unwrap_or("")
-                ),
-                PlayableItem::Episode(episode) => episode.name.clone(),
-            };
-            haystack.to_lowercase().contains(&needle)
-        })
-        .map(|(index, _)| index)
-        .collect();
-
     let sort = app.table_sorts.get(&table.page).copied();
-    let mut visible = visible;
-    if let Some(sort) = sort {
-        let album_of = |item: &PlayableItem| match item {
-            PlayableItem::Track(track) => track
-                .album
-                .as_ref()
-                .map(|album| album.name.to_lowercase())
-                .unwrap_or_default(),
-            PlayableItem::Episode(_) => String::new(),
-        };
-        let duration_of = |item: &PlayableItem| match item {
-            PlayableItem::Track(track) => track.duration_ms,
-            PlayableItem::Episode(episode) => episode.duration_ms,
-        };
-        visible.sort_by(|a, b| {
-            let (item_a, added_a, adder_a) = &table.items[*a];
-            let (item_b, added_b, adder_b) = &table.items[*b];
-            let ordering = match sort.column {
-                SortColumn::Title => item_a
-                    .name()
-                    .to_lowercase()
-                    .cmp(&item_b.name().to_lowercase()),
-                SortColumn::Album => album_of(item_a).cmp(&album_of(item_b)),
-                SortColumn::Added => added_a.cmp(added_b),
-                SortColumn::AddedBy => adder_a
-                    .as_deref()
-                    .unwrap_or_default()
-                    .to_lowercase()
-                    .cmp(&adder_b.as_deref().unwrap_or_default().to_lowercase()),
-                SortColumn::Duration => duration_of(item_a).cmp(&duration_of(item_b)),
-            };
-            if sort.ascending {
-                ordering
-            } else {
-                ordering.reverse()
-            }
-        });
-    }
+    let visible = view_indices(table.items, &needle, sort);
 
     if !table.items.is_empty()
         && let Some(column) = widgets::table_header(
@@ -369,12 +306,17 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     // order, as a plain list of tracks, and its rows cannot edit server
     // positions that no longer match the screen.
     let context = if sort.is_some() {
-        RowContext::Uris(
-            visible
-                .iter()
-                .map(|&index| table.items[index].0.uri().to_string())
-                .collect(),
-        )
+        let uris: Vec<String> = visible
+            .iter()
+            .map(|&index| table.items[index].0.uri().to_string())
+            .collect();
+        match &table.context {
+            RowContext::Context { uri, .. } => RowContext::View {
+                uris,
+                context_uri: uri.clone(),
+            },
+            _ => RowContext::Uris(uris),
+        }
     } else {
         table.context.clone()
     };
@@ -426,6 +368,73 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             table.can_load_more && !table.loading,
         );
     }
+}
+
+/// The indices of `items` as a view presents them: filtered by `needle`
+/// (already lowercased), then ordered by `sort`.
+fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> Vec<usize> {
+    let mut visible: Vec<usize> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, (item, _, _))| {
+            if needle.is_empty() {
+                return true;
+            }
+            let haystack = match item {
+                PlayableItem::Track(track) => format!(
+                    "{} {} {}",
+                    track.name,
+                    track.artist_names(),
+                    track
+                        .album
+                        .as_ref()
+                        .map(|album| album.name.as_str())
+                        .unwrap_or("")
+                ),
+                PlayableItem::Episode(episode) => episode.name.clone(),
+            };
+            haystack.to_lowercase().contains(needle)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    if let Some(sort) = sort {
+        let album_of = |item: &PlayableItem| match item {
+            PlayableItem::Track(track) => track
+                .album
+                .as_ref()
+                .map(|album| album.name.to_lowercase())
+                .unwrap_or_default(),
+            PlayableItem::Episode(_) => String::new(),
+        };
+        let duration_of = |item: &PlayableItem| match item {
+            PlayableItem::Track(track) => track.duration_ms,
+            PlayableItem::Episode(episode) => episode.duration_ms,
+        };
+        visible.sort_by(|a, b| {
+            let (item_a, added_a, adder_a) = &items[*a];
+            let (item_b, added_b, adder_b) = &items[*b];
+            let ordering = match sort.column {
+                SortColumn::Title => item_a
+                    .name()
+                    .to_lowercase()
+                    .cmp(&item_b.name().to_lowercase()),
+                SortColumn::Album => album_of(item_a).cmp(&album_of(item_b)),
+                SortColumn::Added => added_a.cmp(added_b),
+                SortColumn::AddedBy => adder_a
+                    .as_deref()
+                    .unwrap_or_default()
+                    .to_lowercase()
+                    .cmp(&adder_b.as_deref().unwrap_or_default().to_lowercase()),
+                SortColumn::Duration => duration_of(item_a).cmp(&duration_of(item_b)),
+            };
+            if sort.ascending {
+                ordering
+            } else {
+                ordering.reverse()
+            }
+        });
+    }
+    visible
 }
 
 fn total_duration(items: &[TableItem]) -> u64 {
