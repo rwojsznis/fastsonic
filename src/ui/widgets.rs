@@ -195,26 +195,21 @@ pub fn menu_item_enabled(
         }
         // A playlist can be named a paragraph; the label ends at the menu's
         // edge instead of running past it.
-        let display = crate::bidi::display_text(label);
-        let halign = crate::bidi::halign_for(label);
-        let mut job = egui::text::LayoutJob::simple_singleline(
-            display.into_owned(),
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            label,
             theme::regular(13.5),
             color,
+            (rect.right() - 10.0 - x).max(0.0),
+            1,
+            Some(crate::bidi::ELLIPSIS),
         );
-        job.halign = halign;
-        job.wrap = egui::text::TextWrapping {
-            max_width: (rect.right() - 10.0 - x).max(0.0),
-            max_rows: 1,
-            break_anywhere: true,
-            overflow_character: Some('\u{2026}'),
-        };
-        let galley = ui.painter().layout_job(job);
-        let pos = match halign {
-            Align::RIGHT => pos2(rect.right() - 10.0, rect.center().y - galley.size().y / 2.0),
-            _ => pos2(x, rect.center().y - galley.size().y / 2.0),
-        };
-        ui.painter().galley(pos, galley, color);
+        let text_rect = Rect::from_min_max(
+            pos2(x, rect.center().y - galley.size().y / 2.0),
+            pos2(rect.right() - 10.0, rect.center().y + galley.size().y / 2.0),
+        );
+        ui.painter()
+            .galley(crate::bidi::galley_pos(text_rect, &galley), galley, color);
     }
     let clicked = enabled && response.clicked();
     if clicked {
@@ -740,9 +735,11 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
                 pos2(x + cols.added_by - 12.0, rect.bottom()),
             );
             let clipped = painter.with_clip_rect(cell.intersect(ui.clip_rect()));
-            clipped.text(
-                pos2(cell.left(), cell.center().y),
-                egui::Align2::LEFT_CENTER,
+            crate::bidi::paint_line(
+                &clipped,
+                cell.left(),
+                cell.right(),
+                cell.center().y,
                 adder,
                 theme::regular(13.0),
                 palette.secondary,
@@ -1142,14 +1139,15 @@ pub fn ellipsized(
     width: f32,
     max_rows: usize,
 ) -> std::sync::Arc<egui::Galley> {
-    let display = crate::bidi::display_text(text);
-    let halign = crate::bidi::halign_for(text);
-    let mut job = egui::text::LayoutJob::simple(display.into_owned(), font, color, width);
-    job.halign = halign;
-    job.wrap.max_rows = max_rows;
-    job.wrap.break_anywhere = false;
-    job.wrap.overflow_character = Some('…');
-    ui.painter().layout_job(job)
+    crate::bidi::layout(
+        ui.painter(),
+        text,
+        font,
+        color,
+        width,
+        max_rows,
+        Some(crate::bidi::ELLIPSIS),
+    )
 }
 
 pub struct CardResponse {
@@ -1462,6 +1460,18 @@ pub fn search_field(
             .max_rect(field_rect)
             .layout(Layout::left_to_right(Align::Center)),
     );
+    // A right-to-left query is shown in reading order. The caret keeps
+    // egui's own idea of where it is: at the end of what was typed.
+    let text_color = palette.text;
+    let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _wrap_width: f32| {
+        let shown = crate::bidi::display_text(buffer.as_str()).into_owned();
+        ui.painter()
+            .layout_job(egui::text::LayoutJob::simple_singleline(
+                shown,
+                theme::regular(14.0),
+                text_color,
+            ))
+    };
     let response = child.add(
         egui::TextEdit::singleline(text)
             .id(id)
@@ -1470,7 +1480,8 @@ pub fn search_field(
             .text_color(palette.text)
             .frame(egui::Frame::NONE)
             .desired_width(field_rect.width())
-            .vertical_align(Align::Center),
+            .vertical_align(Align::Center)
+            .layouter(&mut layouter),
     );
     if !text.is_empty() {
         let clear_rect = Rect::from_center_size(

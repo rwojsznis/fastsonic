@@ -682,7 +682,9 @@ pub fn soft_button(
 ) -> Response {
     let font = medium(13.0);
     let color = if active { palette.window } else { palette.text };
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(crate::bidi::display_text(label).into_owned(), font, color);
     let icon_size = 15.0;
     let icon_width = if icon.is_some() { icon_size + 6.0 } else { 0.0 };
     let padding = Vec2::new(12.0, 7.0);
@@ -743,17 +745,23 @@ pub fn text(
     color: Color32,
 ) -> Response {
     let text = text.into();
-    let halign = crate::bidi::halign_for(&text);
-    let display = crate::bidi::display_text(&text);
+    if crate::bidi::is_rtl(&text) {
+        // Laid out here so a cut lands at the reading end, on the left.
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            &text,
+            font,
+            color,
+            ui.available_width(),
+            1,
+            Some(crate::bidi::ELLIPSIS),
+        );
+        return ui.add(egui::Label::new(galley).selectable(false));
+    }
     ui.add(
-        egui::Label::new(
-            egui::RichText::new(display.into_owned())
-                .font(font)
-                .color(color),
-        )
-        .halign(halign)
-        .truncate()
-        .selectable(false),
+        egui::Label::new(egui::RichText::new(text).font(font).color(color))
+            .truncate()
+            .selectable(false),
     )
 }
 
@@ -765,19 +773,29 @@ pub fn link(
     color: Color32,
 ) -> Response {
     let text = text.into();
-    let halign = crate::bidi::halign_for(&text);
-    let display = crate::bidi::display_text(&text);
-    let response = ui.add(
-        egui::Label::new(
-            egui::RichText::new(display.into_owned())
-                .font(font)
-                .color(color),
+    let response = if crate::bidi::is_rtl(&text) {
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            &text,
+            font,
+            color,
+            ui.available_width(),
+            1,
+            Some(crate::bidi::ELLIPSIS),
+        );
+        ui.add(
+            egui::Label::new(galley)
+                .selectable(false)
+                .sense(Sense::click()),
         )
-        .halign(halign)
-        .truncate()
-        .selectable(false)
-        .sense(Sense::click()),
-    );
+    } else {
+        ui.add(
+            egui::Label::new(egui::RichText::new(text).font(font).color(color))
+                .truncate()
+                .selectable(false)
+                .sense(Sense::click()),
+        )
+    };
     if response.hovered() {
         let rect = response.rect;
         ui.painter()

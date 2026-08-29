@@ -96,14 +96,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             if !show.description.is_empty() {
                 theme::section_title(ui, &palette, "About");
                 ui.add_space(4.0);
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(util::strip_html(&show.description))
-                            .font(theme::regular(13.5))
-                            .color(palette.secondary),
-                    )
-                    .wrap(),
+                let description = util::strip_html(&show.description);
+                let galley = crate::bidi::layout(
+                    ui.painter(),
+                    &description,
+                    theme::regular(13.5),
+                    palette.secondary,
+                    ui.available_width(),
+                    usize::MAX,
+                    None,
                 );
+                ui.add(egui::Label::new(galley));
                 ui.add_space(16.0);
             }
             theme::section_title(ui, &palette, "All episodes");
@@ -184,26 +187,31 @@ pub fn episode_row(
     } else {
         palette.text
     };
-    painter.text(
-        pos2(text_left, text_rect.top() + 10.0),
-        egui::Align2::LEFT_CENTER,
+    crate::bidi::paint_line(
+        &painter,
+        text_left,
+        text_rect.right(),
+        text_rect.top() + 10.0,
         &episode.name,
         theme::semibold(15.0),
         title_color,
     );
     let description = util::strip_html(&episode.description);
-    let description_galley = ui.painter().layout(
-        description,
+    let description_galley = crate::bidi::layout(
+        ui.painter(),
+        &description,
         theme::regular(12.5),
         palette.secondary,
         text_rect.width(),
+        2,
+        None,
     );
     let description_rect = Rect::from_min_size(
         pos2(text_left, text_rect.top() + 26.0),
         vec2(text_rect.width(), 34.0),
     );
     ui.painter().with_clip_rect(description_rect).galley(
-        description_rect.min,
+        crate::bidi::galley_pos(description_rect, &description_galley),
         description_galley,
         palette.secondary,
     );

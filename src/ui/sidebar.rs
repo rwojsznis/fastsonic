@@ -551,16 +551,20 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         palette.text
                     };
-                    painter.text(
-                        pos2(text_left, rect.center().y - 9.0),
-                        egui::Align2::LEFT_CENTER,
+                    crate::bidi::paint_line(
+                        &painter,
+                        text_left,
+                        text_right,
+                        rect.center().y - 9.0,
                         &entry.name,
                         theme::medium(14.0),
                         name_color,
                     );
-                    painter.text(
-                        pos2(text_left, rect.center().y + 10.0),
-                        egui::Align2::LEFT_CENTER,
+                    crate::bidi::paint_line(
+                        &painter,
+                        text_left,
+                        text_right,
+                        rect.center().y + 10.0,
                         &entry.subtitle,
                         theme::regular(12.5),
                         palette.secondary,

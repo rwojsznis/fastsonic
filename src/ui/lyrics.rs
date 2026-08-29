@@ -154,17 +154,23 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     Sense::hover()
                 };
-                let display = crate::bidi::display_text(text);
-                let halign = crate::bidi::halign_for(text);
-                let response = ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(display.into_owned())
-                            .font(font)
-                            .color(color),
+                let response = if crate::bidi::is_rtl(text) {
+                    let galley = crate::bidi::layout(
+                        ui.painter(),
+                        text,
+                        font,
+                        color,
+                        ui.available_width(),
+                        usize::MAX,
+                        None,
+                    );
+                    ui.add(egui::Label::new(galley).sense(sense))
+                } else {
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(text).font(font).color(color))
+                            .sense(sense),
                     )
-                    .halign(halign)
-                    .sense(sense),
-                );
+                };
                 let rect = response.rect;
                 if lyrics.synced {
                     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
