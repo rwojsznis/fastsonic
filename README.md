@@ -44,7 +44,7 @@ application rather than a shell plugin.
 - **Album-art colour.** Pages and the player bar take a tint from the cover
   of what you are looking at or listening to. Turn it off in Settings.
 - **Light and dark**, or follow the system.
-- **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` lists
+- **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists
   them).
 - **Keeps playing when you close the window.** The window closes for real,
   the music and the process stay in the system tray (Linux status notifier),
@@ -160,7 +160,7 @@ those things, and [CONTRIBUTING.md](CONTRIBUTING.md) prohibits them.
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+,` | Settings |
-| `Ctrl+/` | All shortcuts |
+| `Ctrl+/` or `?` | All shortcuts |
 | `Ctrl+Q` | Quit |
 
 On macOS, `Cmd` replaces `Ctrl`.

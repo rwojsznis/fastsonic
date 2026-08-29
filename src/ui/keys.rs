@@ -35,6 +35,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             Key::Slash,
             Action::ShowDialog(Dialog::Shortcuts),
         );
+        key(
+            Modifiers::NONE,
+            Key::Questionmark,
+            Action::ShowDialog(Dialog::Shortcuts),
+        );
+        key(
+            Modifiers::SHIFT,
+            Key::Questionmark,
+            Action::ShowDialog(Dialog::Shortcuts),
+        );
         key(Modifiers::ALT, Key::ArrowLeft, Action::Back);
         key(Modifiers::ALT, Key::ArrowRight, Action::Forward);
         key(Modifiers::COMMAND, Key::ArrowLeft, Action::Previous);
@@ -130,6 +140,6 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+Shift+A", "Go to the playing artist"),
     ("Ctrl+Shift+B", "Go to the playing album"),
     ("Ctrl+,", "Settings"),
-    ("Ctrl+/", "Keyboard shortcuts"),
+    ("Ctrl+/ or ?", "Keyboard shortcuts"),
     ("Ctrl+Q", "Quit"),
 ];

@@ -114,7 +114,7 @@ Connect devices and conflicting media-key handlers.
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+,` | Settings |
-| `Ctrl+/` | All shortcuts |
+| `Ctrl+/` or `?` | All shortcuts |
 | `Ctrl+Q` | Quit |
 
 On macOS, `Cmd` replaces `Ctrl`.
