@@ -304,9 +304,17 @@ mod tests {
     #[test]
     fn a_script_the_face_lacks_comes_from_a_borrowed_face() {
         let mut text = PixelText::default();
+        let character = '\u{591c}';
         let question = text.rasterise("?").size[0];
-        let kanji = text.rasterise("\u{591c}").size[0];
-        if text.faces().len() > 1 {
+        let kanji = text.rasterise(&character.to_string()).size[0];
+        // Whether any face on this machine has the character at all: a
+        // CI runner has fallback faces but no CJK one, and then the kanji
+        // is drawn as the question mark on purpose.
+        let covered = text
+            .faces()
+            .iter()
+            .any(|face| face.font.charmap().map(character).is_some());
+        if covered {
             // A CJK glyph is square, so far wider than a question mark.
             assert!(kanji > question, "the kanji drew as a question mark");
         } else {
