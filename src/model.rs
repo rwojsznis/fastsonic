@@ -370,13 +370,13 @@ pub struct ShowPage {
 }
 
 /// A table's sort, chosen by clicking a column heading.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TableSort {
     pub column: SortColumn,
     pub ascending: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SortColumn {
     Title,
     Album,

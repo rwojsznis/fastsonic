@@ -401,7 +401,11 @@ impl App {
             scroll_accum: egui::Vec2::ZERO,
             glide: None,
             scroll_last_event: None,
-            table_sorts: HashMap::new(),
+            table_sorts: session
+                .sorts
+                .iter()
+                .filter_map(|(page, sort)| Some((Page::decode(page)?, *sort)))
+                .collect(),
             user_names: HashMap::new(),
             recent_contexts: session.recent_contexts.clone(),
             resume_context: session.last_context.clone(),
@@ -3582,6 +3586,11 @@ impl App {
                 last_track: self.resume_track.clone(),
                 last_position_ms: self.resume_position_ms,
                 shuffle_on: self.shuffle_wanted,
+                sorts: self
+                    .table_sorts
+                    .iter()
+                    .map(|(page, sort)| (page.encode(), *sort))
+                    .collect(),
             }
             .save(&self.dirs.session_file());
         }
