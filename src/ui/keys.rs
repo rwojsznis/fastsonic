@@ -45,16 +45,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             Key::Slash,
             Action::ShowDialog(Dialog::Shortcuts),
         );
-        key(
-            Modifiers::NONE,
-            Key::Questionmark,
-            Action::ShowDialog(Dialog::Shortcuts),
-        );
-        key(
-            Modifiers::SHIFT,
-            Key::Questionmark,
-            Action::ShowDialog(Dialog::Shortcuts),
-        );
         key(Modifiers::ALT, Key::ArrowLeft, Action::Back);
         key(Modifiers::ALT, Key::ArrowRight, Action::Forward);
         key(Modifiers::COMMAND, Key::ArrowLeft, Action::Previous);
@@ -82,6 +72,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             );
         }
         if !typing {
+            key(
+                Modifiers::NONE,
+                Key::Questionmark,
+                Action::ShowDialog(Dialog::Shortcuts),
+            );
+            key(
+                Modifiers::SHIFT,
+                Key::Questionmark,
+                Action::ShowDialog(Dialog::Shortcuts),
+            );
             key(Modifiers::SHIFT, Key::ArrowLeft, Action::SeekBy(-10_000));
             key(Modifiers::SHIFT, Key::ArrowRight, Action::SeekBy(10_000));
             key(Modifiers::NONE, Key::Space, Action::TogglePlay);
