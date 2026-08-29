@@ -840,12 +840,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// The first drop of a sidebar row switches the playlists shelf to a
-    /// custom order: the order on screen is snapshotted, the pinned block
-    /// first, and the dropped row sits where it landed. The pins
-    /// themselves stay untouched for the automatic order to come back to.
+    /// Pins are pins: dropping a pinned row at the top of the block
+    /// reorders the pins themselves, and the rest of the shelf stays in
+    /// its automatic order.
     #[test]
-    fn dragging_a_sidebar_row_leaves_the_pinned_block_alone() {
+    fn dragging_within_the_pinned_block_reorders_it() {
         let root =
             std::env::temp_dir().join(format!("fastpotify-reorder-test-{}", std::process::id()));
         let dirs = AppDirs {
@@ -899,31 +898,22 @@ mod tests {
                 }],
             );
             egui::DragAndDrop::clear_payload(&ctx);
-            if !app.settings.sidebar_order.is_empty() {
+            if app.settings.pinned_contexts.first().map(String::as_str)
+                == Some("spotify:playlist:pl4")
+            {
                 dropped = true;
                 break;
             }
         }
-        assert!(dropped, "no sweep position landed below Liked Songs");
-        // The snapshot shows the shelf as it stood, pinned block first,
-        // with the dragged row moved to where it was dropped.
-        let uris = |indices: &[usize]| -> Vec<String> {
-            indices
-                .iter()
-                .map(|index| format!("spotify:playlist:pl{index}"))
-                .collect()
-        };
-        assert_eq!(
-            app.settings.sidebar_order,
-            uris(&[4, 2, 0, 1, 3, 5, 6, 7, 8, 9]),
-        );
+        assert!(dropped, "no sweep position landed in the pinned block");
         assert_eq!(
             app.settings.pinned_contexts,
             vec![
-                "spotify:playlist:pl2".to_string(),
                 "spotify:playlist:pl4".to_string(),
+                "spotify:playlist:pl2".to_string(),
             ],
         );
+        assert!(app.settings.sidebar_order.is_empty());
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }
