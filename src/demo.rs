@@ -665,11 +665,16 @@ mod tests {
     use crate::settings::Settings;
 
     fn frame(ctx: &egui::Context, app: &mut App) {
+        frame_events(ctx, app, Vec::new());
+    }
+
+    fn frame_events(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
                 egui::vec2(1280.0, 800.0),
             )),
+            events,
             ..Default::default()
         };
         let mut output = ctx.run_ui(input, |ui| {
@@ -762,6 +767,74 @@ mod tests {
             frame(&ctx, &mut app);
         }
         assert!(!app.palette.dark);
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A drag in flight renders, and releasing it over an owned playlist
+    /// row lands in the same add-to-playlist plumbing the row menu uses.
+    #[test]
+    fn dropping_a_song_on_a_sidebar_playlist_adds_it() {
+        let root =
+            std::env::temp_dir().join(format!("fastpotify-drag-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        app.open(Page::Playlist("pl1".into()));
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+
+        // Sweep a held track down the sidebar; somewhere along the sweep
+        // the pointer crosses an owned playlist row, and releasing there
+        // must mark the playlist edit busy through the existing plumbing.
+        // Where exactly the rows sit depends on the loaded fonts, so the
+        // sweep does not hardcode a row position.
+        let mut dropped = false;
+        for step in 0..40 {
+            let pos = egui::pos2(120.0, 120.0 + step as f32 * 15.0);
+            egui::DragAndDrop::set_payload(
+                &ctx,
+                DragTrack {
+                    uri: "spotify:track:trk0".into(),
+                    title: "Fragments".into(),
+                    image: None,
+                },
+            );
+            frame_events(&ctx, &mut app, vec![egui::Event::PointerMoved(pos)]);
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            assert!(!egui::DragAndDrop::has_any_payload(&ctx));
+            if app.playlist_busy {
+                dropped = true;
+                break;
+            }
+        }
+        assert!(dropped, "no sweep position landed on an owned playlist row");
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }

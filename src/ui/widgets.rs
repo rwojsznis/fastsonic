@@ -6,7 +6,7 @@ use egui::{
 
 use crate::api::models::*;
 use crate::app::App;
-use crate::model::{Action, Dialog, Page, RowContext};
+use crate::model::{Action, Dialog, DragTrack, Page, RowContext};
 use crate::theme::{self, Icon, Palette};
 use crate::util;
 
@@ -523,9 +523,22 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
         theme::ROW_HEIGHT
     };
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(vec2(width, row_height), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(width, row_height), Sense::click_and_drag());
     if !ui.is_rect_visible(rect) {
         return;
+    }
+    // Moving past the drag threshold puts the track in hand for the sidebar
+    // to catch. egui tells clicks and drags apart by that threshold, so
+    // single click, double click, and the context menu stay as they were.
+    if row.item.is_track() && response.drag_started_by(egui::PointerButton::Primary) {
+        egui::DragAndDrop::set_payload(
+            ui.ctx(),
+            DragTrack {
+                uri: row.item.uri().to_string(),
+                title: row.item.name().to_string(),
+                image: row.item.image(64).map(str::to_string),
+            },
+        );
     }
     let is_current = app
         .current_track_uri()
@@ -830,6 +843,54 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     egui::Popup::context_menu(&response)
         .frame(menu_frame(&palette))
         .show(|ui| item_menu(ui, app, row.item, Some(row.context), Some(row.index)));
+}
+
+/// The chip that rides the pointer while a song is being dragged.
+pub fn drag_ghost(ctx: &egui::Context, palette: &Palette) {
+    let Some(track) = egui::DragAndDrop::payload::<DragTrack>(ctx) else {
+        return;
+    };
+    // The payload lives through the release frame; the chip should not.
+    if !ctx.input(|input| input.pointer.any_down()) {
+        return;
+    }
+    let Some(pos) = ctx.pointer_latest_pos() else {
+        return;
+    };
+    egui::Area::new(egui::Id::new("drag-ghost"))
+        .order(egui::Order::Tooltip)
+        .interactable(false)
+        .fixed_pos(pos + vec2(16.0, 6.0))
+        .show(ctx, |ui| {
+            ui.set_opacity(0.9);
+            egui::Frame::new()
+                .fill(palette.overlay)
+                .stroke(Stroke::new(1.0, palette.outline))
+                .corner_radius(CornerRadius::same(theme::RADIUS))
+                .inner_margin(egui::Margin::symmetric(10, 6))
+                .shadow(egui::epaint::Shadow {
+                    offset: [0, 4],
+                    blur: 16,
+                    spread: 0,
+                    color: palette.shadow,
+                })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.set_max_width(280.0);
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        cover(ui, palette, track.image.as_deref(), 24.0, 4.0, Icon::Music);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&track.title)
+                                    .font(theme::medium(13.0))
+                                    .color(palette.text),
+                            )
+                            .truncate()
+                            .selectable(false),
+                        );
+                    });
+                });
+        });
 }
 
 pub fn explicit_badge(ui: &mut Ui, palette: &Palette) {

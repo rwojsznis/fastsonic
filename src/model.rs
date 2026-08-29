@@ -417,6 +417,15 @@ pub enum RowContext {
     },
 }
 
+/// The track in hand while a row is dragged, until a sidebar row takes it.
+#[derive(Clone, Debug)]
+pub struct DragTrack {
+    pub uri: String,
+    pub title: String,
+    /// Small cover art for the chip that rides the pointer.
+    pub image: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub enum Dialog {
     CreatePlaylist {

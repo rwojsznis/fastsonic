@@ -34,9 +34,10 @@ or use the magnifier to search it. Liked Songs stays at the top. The current
 page is highlighted, and the playing playlist has a small speaker icon.
 
 **Playlists you own** are fully editable: create one with the **+** button,
-add songs from any row's menu, remove and reorder from the playlist page,
-and rename or delete from its context menu. Playlists you follow can be
-followed and unfollowed.
+add songs from any row's menu or by dragging them onto a playlist in the
+sidebar, remove and reorder from the playlist page, and rename or delete
+from its context menu. Dropping a song on Liked Songs saves it. Playlists
+you follow can be followed and unfollowed.
 
 ## Search
 

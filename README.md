@@ -39,7 +39,8 @@ application rather than a shell plugin.
   artists. **Album**, **playlist**, and **podcast** pages support playback
   from any row.
 - **Playlists you own** can be created, renamed, described, reordered, and
-  edited: add from any row's menu, remove from the playlist page.
+  edited: add from any row's menu or by dragging a song onto the playlist in
+  the sidebar, remove from the playlist page.
 - **Queue** as a side panel or a page; add anything to it from a row menu.
 - **Album-art colour.** Pages and the player bar take a tint from the cover
   of what you are looking at or listening to. Turn it off in Settings.

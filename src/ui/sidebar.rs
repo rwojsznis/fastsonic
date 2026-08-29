@@ -4,7 +4,7 @@ use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Vec2, pos2, 
 
 use crate::api::models::pick_image;
 use crate::app::App;
-use crate::model::{Action, Dialog, Loadable, Page};
+use crate::model::{Action, Dialog, DragTrack, Loadable, Page};
 use crate::theme::{self, Icon, Palette};
 
 const ROW_HEIGHT: f32 = 60.0;
@@ -403,8 +403,24 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
+            // While a song is in hand, find the library row under the
+            // pointer up front: its neighbours shift before that row draws,
+            // so it cannot be discovered row by row. The fixed row height
+            // makes it arithmetic.
+            let dragging = egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx());
+            let list_top = ui.cursor().top();
+            let drop_target = dragging
+                .then(|| ui.ctx().pointer_latest_pos())
+                .flatten()
+                .filter(|pos| ui.clip_rect().contains(*pos))
+                .map(|pos| ((pos.y - list_top) / ROW_HEIGHT).floor())
+                .filter(|row| *row >= 0.0 && *row < entries.len() as f32)
+                .map(|row| row as usize)
+                .filter(|row| entries[*row].liked || entries[*row].owned);
             super::widgets::virtual_rows(ui, entries.len(), ROW_HEIGHT, |ui, index| {
                 let entry = &entries[index];
+                let droppable = entry.liked || entry.owned;
+                let drop_hover = drop_target == Some(index);
                 let active = entry.page == current_page;
                 let playing = context_playing
                     && !entry.uri.is_empty()
@@ -413,6 +429,19 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     !entry.uri.is_empty() && app.settings.pinned_contexts.contains(&entry.uri);
                 let (rect, response) =
                     ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
+                // Neighbours ease apart around the row that would take the
+                // drop, macOS style. Each row keeps one animated offset,
+                // which also eases everything back after the drag ends.
+                let shift = ui.ctx().animate_value_with_time(
+                    ui.id().with(("drop-shift", index)),
+                    match drop_target {
+                        Some(target) if index < target => -4.0,
+                        Some(target) if index > target => 4.0,
+                        _ => 0.0,
+                    },
+                    0.12,
+                );
+                let rect = rect.translate(vec2(0.0, shift));
                 if ui.is_rect_visible(rect) {
                     if active {
                         ui.painter()
@@ -422,6 +451,19 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             rect,
                             CornerRadius::same(6),
                             palette.surface_hover.gamma_multiply(0.6),
+                        );
+                    }
+                    if drop_hover {
+                        ui.painter().rect_filled(
+                            rect,
+                            CornerRadius::same(6),
+                            palette.accent.gamma_multiply(0.18),
+                        );
+                        ui.painter().rect_stroke(
+                            rect,
+                            CornerRadius::same(6),
+                            egui::Stroke::new(1.5, palette.accent),
+                            egui::StrokeKind::Inside,
                         );
                     }
                     let cover_rect = Rect::from_center_size(
@@ -534,6 +576,29 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                                 offset_index: None,
                             });
                         }
+                    }
+                    // Rows that cannot take the song step back a little.
+                    if dragging && !droppable {
+                        ui.painter().rect_filled(
+                            rect,
+                            CornerRadius::same(6),
+                            palette.panel.gamma_multiply(0.5),
+                        );
+                    }
+                }
+                if droppable && let Some(track) = response.dnd_release_payload::<DragTrack>() {
+                    if entry.liked {
+                        // Dropping on Liked Songs saves; a song already
+                        // saved is left alone.
+                        if app.is_saved(&track.uri) != Some(true) {
+                            app.actions.push(Action::ToggleSaved(track.uri.clone()));
+                        }
+                    } else if let Page::Playlist(id) = &entry.page {
+                        app.actions.push(Action::AddToPlaylist {
+                            playlist_id: id.clone(),
+                            playlist_name: entry.name.clone(),
+                            uris: vec![track.uri.clone()],
+                        });
                     }
                 }
                 if response.clicked() {
