@@ -246,7 +246,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    for (kbps, label) in [(320u16, "Very high"), (160, "High"), (96, "Normal")] {
+                    for (kbps, label) in [
+                        (320u16, "Very high · 320 kbps"),
+                        (160, "High · 160 kbps"),
+                        (96, "Normal · 96 kbps"),
+                    ] {
                         if theme::soft_button(
                             ui,
                             &palette,
