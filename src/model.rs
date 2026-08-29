@@ -426,6 +426,15 @@ pub struct DragTrack {
     pub image: Option<String>,
 }
 
+/// A sidebar row in hand while it is dragged to a new place in the
+/// pinned block.
+#[derive(Clone, Debug)]
+pub struct DragEntry {
+    pub uri: String,
+    pub title: String,
+    pub image: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub enum Dialog {
     CreatePlaylist {

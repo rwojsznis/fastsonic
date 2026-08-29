@@ -6,7 +6,7 @@ use egui::{
 
 use crate::api::models::*;
 use crate::app::App;
-use crate::model::{Action, Dialog, DragTrack, Page, RowContext};
+use crate::model::{Action, Dialog, DragEntry, DragTrack, Page, RowContext};
 use crate::theme::{self, Icon, Palette};
 use crate::util;
 
@@ -847,7 +847,14 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
 
 /// The chip that rides the pointer while a song is being dragged.
 pub fn drag_ghost(ctx: &egui::Context, palette: &Palette) {
-    let Some(track) = egui::DragAndDrop::payload::<DragTrack>(ctx) else {
+    // A song and a sidebar row ride the pointer the same way.
+    let chip = egui::DragAndDrop::payload::<DragTrack>(ctx)
+        .map(|track| (track.title.clone(), track.image.clone()))
+        .or_else(|| {
+            egui::DragAndDrop::payload::<DragEntry>(ctx)
+                .map(|entry| (entry.title.clone(), entry.image.clone()))
+        });
+    let Some((title, image)) = chip else {
         return;
     };
     // The payload lives through the release frame; the chip should not.
@@ -878,10 +885,10 @@ pub fn drag_ghost(ctx: &egui::Context, palette: &Palette) {
                     ui.horizontal(|ui| {
                         ui.set_max_width(280.0);
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        cover(ui, palette, track.image.as_deref(), 24.0, 4.0, Icon::Music);
+                        cover(ui, palette, image.as_deref(), 24.0, 4.0, Icon::Music);
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(&track.title)
+                                egui::RichText::new(&title)
                                     .font(theme::medium(13.0))
                                     .color(palette.text),
                             )

@@ -29,6 +29,11 @@ time to return to the list's own order.
 The sidebar sorts playlists by when you last played them and preserves that
 order between runs.
 
+Pinned entries sit in a block right under Liked Songs: pin one from its
+context menu, or drag a row into the block to pin it where you drop it.
+Dragging within the block reorders it, and dragging a pinned row below
+the block unpins it.
+
 Use the chips to filter the sidebar by Playlists, Albums, Artists, or Podcasts,
 or use the magnifier to search it. Liked Songs stays at the top. The current
 page is highlighted, and the playing playlist has a small speaker icon.

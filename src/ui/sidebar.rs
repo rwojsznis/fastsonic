@@ -4,7 +4,7 @@ use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Vec2, pos2, 
 
 use crate::api::models::pick_image;
 use crate::app::App;
-use crate::model::{Action, Dialog, DragTrack, Loadable, Page};
+use crate::model::{Action, Dialog, DragEntry, DragTrack, Loadable, Page};
 use crate::theme::{self, Icon, Palette};
 
 const ROW_HEIGHT: f32 = 60.0;
@@ -377,6 +377,13 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     });
+    // The zones a dragged row can land in: everything sits below Liked
+    // Songs, and the pinned entries form one block right after it.
+    let liked_rows = entries.iter().take_while(|entry| entry.liked).count();
+    let pinned_rows = entries
+        .iter()
+        .filter(|entry| !entry.liked && pin_rank(&entry.uri) != usize::MAX)
+        .count();
     let playing_context = app.playing_context_uri();
     let context_playing = app.believed_playing();
     let current_page = app.page().clone();
@@ -403,20 +410,31 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     },
                 );
             }
-            // While a song is in hand, find the library row under the
-            // pointer up front: its neighbours shift before that row draws,
-            // so it cannot be discovered row by row. The fixed row height
-            // makes it arithmetic.
-            let dragging = egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx());
+            // While something is in hand, find where it hangs up front:
+            // neighbours shift before that row draws, so the spot cannot
+            // be discovered row by row. The fixed row height makes it
+            // arithmetic.
             let list_top = ui.cursor().top();
-            let drop_target = dragging
-                .then(|| ui.ctx().pointer_latest_pos())
+            let pointer = ui
+                .ctx()
+                .pointer_latest_pos()
+                .filter(|pos| ui.clip_rect().contains(*pos));
+            // A song in hand lands on a row, when that row can take one.
+            let dragging_song = egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx());
+            let drop_target = dragging_song
+                .then_some(pointer)
                 .flatten()
-                .filter(|pos| ui.clip_rect().contains(*pos))
                 .map(|pos| ((pos.y - list_top) / ROW_HEIGHT).floor())
                 .filter(|row| *row >= 0.0 && *row < entries.len() as f32)
                 .map(|row| row as usize)
                 .filter(|row| entries[*row].liked || entries[*row].owned);
+            // A sidebar row in hand lands between rows: the slot nearest
+            // the pointer, never above Liked Songs.
+            let reordering = egui::DragAndDrop::has_payload_of_type::<DragEntry>(ui.ctx());
+            let reorder_slot = reordering.then_some(pointer).flatten().map(|pos| {
+                (((pos.y - list_top) / ROW_HEIGHT).round().max(0.0) as usize)
+                    .clamp(liked_rows, entries.len())
+            });
             super::widgets::virtual_rows(ui, entries.len(), ROW_HEIGHT, |ui, index| {
                 let entry = &entries[index];
                 let droppable = entry.liked || entry.owned;
@@ -427,17 +445,40 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     && playing_context.as_deref() == Some(entry.uri.as_str());
                 let pinned =
                     !entry.uri.is_empty() && app.settings.pinned_contexts.contains(&entry.uri);
-                let (rect, response) =
-                    ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
-                // Neighbours ease apart around the row that would take the
-                // drop, macOS style. Each row keeps one animated offset,
-                // which also eases everything back after the drag ends.
+                let (rect, response) = ui.allocate_exact_size(
+                    vec2(ui.available_width(), ROW_HEIGHT),
+                    Sense::click_and_drag(),
+                );
+                // Past the drag threshold the row itself is in hand, to be
+                // pinned into place; clicks and the context menu keep their
+                // meaning. Liked Songs stays where it is.
+                if !entry.liked
+                    && !entry.uri.is_empty()
+                    && response.drag_started_by(egui::PointerButton::Primary)
+                {
+                    egui::DragAndDrop::set_payload(
+                        ui.ctx(),
+                        DragEntry {
+                            uri: entry.uri.clone(),
+                            title: entry.name.clone(),
+                            image: entry.image.clone(),
+                        },
+                    );
+                }
+                // Neighbours ease apart around the row that would take a
+                // song, macOS style, and part at the slot a dragged row
+                // would land in. Each row keeps one animated offset, which
+                // also eases everything back after the drag ends.
                 let shift = ui.ctx().animate_value_with_time(
                     ui.id().with(("drop-shift", index)),
-                    match drop_target {
-                        Some(target) if index < target => -4.0,
-                        Some(target) if index > target => 4.0,
-                        _ => 0.0,
+                    if let Some(slot) = reorder_slot {
+                        if index < slot { -4.0 } else { 4.0 }
+                    } else {
+                        match drop_target {
+                            Some(target) if index < target => -4.0,
+                            Some(target) if index > target => 4.0,
+                            _ => 0.0,
+                        }
                     },
                     0.12,
                 );
@@ -578,7 +619,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         }
                     }
                     // Rows that cannot take the song step back a little.
-                    if dragging && !droppable {
+                    if dragging_song && !droppable {
                         ui.painter().rect_filled(
                             rect,
                             CornerRadius::same(6),
@@ -586,7 +627,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         );
                     }
                 }
-                if droppable && let Some(track) = response.dnd_release_payload::<DragTrack>() {
+                if dragging_song
+                    && droppable
+                    && let Some(track) = response.dnd_release_payload::<DragTrack>()
+                {
                     if entry.liked {
                         // Dropping on Liked Songs saves; a song already
                         // saved is left alone.
@@ -660,10 +704,62 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 }
                 response.on_hover_cursor(egui::CursorIcon::PointingHand);
             });
+            if let Some(slot) = reorder_slot {
+                // A line in the gap the rows opened, so the eye lands
+                // where the row will.
+                let y = list_top + slot as f32 * ROW_HEIGHT;
+                ui.painter().hline(
+                    ui.max_rect().x_range().shrink(6.0),
+                    y,
+                    egui::Stroke::new(2.0, palette.accent),
+                );
+                if ui.input(|input| input.pointer.any_released())
+                    && let Some(drag) = egui::DragAndDrop::take_payload::<DragEntry>(ui.ctx())
+                {
+                    drop_row(app, &entries, liked_rows, pinned_rows, slot, &drag.uri);
+                }
+            }
             if let Some(page) = more_page {
                 super::widgets::load_more_when_near_end(ui, app, page, true);
             }
         });
+}
+
+/// A dropped sidebar row lands in the pinned block: within the block the
+/// drop position is its new pin order, and below the block the row goes
+/// back to living by recency, so it simply stops being pinned. Liked Songs
+/// is not part of the pinned list and never moves.
+fn drop_row(
+    app: &mut App,
+    entries: &[Entry],
+    liked_rows: usize,
+    pinned_rows: usize,
+    slot: usize,
+    uri: &str,
+) {
+    let mut pinned = app.settings.pinned_contexts.clone();
+    let section_end = liked_rows + pinned_rows;
+    if slot <= section_end {
+        // The pinned entry the drop lands in front of anchors the new
+        // position, so entries pinned from another shelf keep theirs.
+        let anchor = entries[liked_rows..section_end]
+            .iter()
+            .skip(slot - liked_rows)
+            .map(|entry| entry.uri.as_str())
+            .find(|held| *held != uri)
+            .map(str::to_string);
+        pinned.retain(|held| held != uri);
+        let at = anchor
+            .and_then(|anchor| pinned.iter().position(|held| *held == anchor))
+            .unwrap_or(pinned.len());
+        pinned.insert(at, uri.to_string());
+    } else {
+        pinned.retain(|held| held != uri);
+    }
+    if pinned != app.settings.pinned_contexts {
+        app.settings.pinned_contexts = pinned;
+        app.mark_settings_dirty();
+    }
 }
 
 /// The purple-to-blue Liked Songs tile.

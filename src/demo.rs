@@ -838,4 +838,80 @@ mod tests {
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }
+
+    /// Dragging a pinned sidebar row to the top of the pinned block
+    /// rewrites the pin order behind the same setting the pin menu uses.
+    #[test]
+    fn dragging_a_sidebar_row_reorders_the_pinned_block() {
+        let root =
+            std::env::temp_dir().join(format!("fastpotify-reorder-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        app.settings.pinned_contexts =
+            vec!["spotify:playlist:pl2".into(), "spotify:playlist:pl4".into()];
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+
+        // Sweep from the top: the first slot inside the list pins the
+        // dragged row first. Where the list begins depends on the loaded
+        // fonts, so the sweep does not hardcode it.
+        let mut reordered = false;
+        for step in 0..40 {
+            let pos = egui::pos2(120.0, 100.0 + step as f32 * 10.0);
+            egui::DragAndDrop::set_payload(
+                &ctx,
+                DragEntry {
+                    uri: "spotify:playlist:pl4".into(),
+                    title: "Deep Focus".into(),
+                    image: None,
+                },
+            );
+            frame_events(&ctx, &mut app, vec![egui::Event::PointerMoved(pos)]);
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            egui::DragAndDrop::clear_payload(&ctx);
+            if app.settings.pinned_contexts.first().map(String::as_str)
+                == Some("spotify:playlist:pl4")
+            {
+                reordered = true;
+                break;
+            }
+        }
+        assert!(reordered, "no sweep position landed in the pinned block");
+        assert_eq!(
+            app.settings.pinned_contexts,
+            vec![
+                "spotify:playlist:pl4".to_string(),
+                "spotify:playlist:pl2".to_string(),
+            ],
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
