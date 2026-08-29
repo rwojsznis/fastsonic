@@ -769,7 +769,11 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
 
     // More.
     let more_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.more, row_height));
-    if hovered {
+    // The row's menu stays alive while it is open: when the button existed
+    // only on a hovered row, the pointer's trip to the menu could leave
+    // the row and close it before anything was clicked.
+    let menu_id = ui.id().with(("row-menu", row.index));
+    if hovered || egui::Popup::is_id_open(ui.ctx(), menu_id) {
         let mut child = ui.new_child(
             UiBuilder::new()
                 .max_rect(more_rect)
@@ -784,6 +788,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
             "More",
         );
         egui::Popup::menu(&more)
+            .id(menu_id)
             .frame(menu_frame(&palette))
             .show(|ui| item_menu(ui, app, row.item, Some(row.context), Some(row.index)));
     }
