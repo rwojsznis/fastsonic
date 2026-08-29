@@ -932,13 +932,12 @@ pub fn table_header(
             font.clone(),
             number_color,
         );
-        if let Some(sort) = active {
+        if let Some(ascending) = active
+            .map(|sort| sort.ascending)
+            .or(natural.then_some(true))
+        {
             let center = pos2(number.center().x + 12.0, rect.center().y);
-            let (wing, tip) = if sort.ascending {
-                (2.8, -3.2)
-            } else {
-                (-2.8, 3.2)
-            };
+            let (wing, tip) = if ascending { (2.8, -3.2) } else { (-2.8, 3.2) };
             ui.painter().add(egui::Shape::convex_polygon(
                 vec![
                     center + vec2(-4.0, wing),
