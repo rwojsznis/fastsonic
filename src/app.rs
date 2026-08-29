@@ -2497,6 +2497,20 @@ impl App {
     }
 
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
+        // Shuffle survives a change of context: starting another playlist
+        // while one already shuffles keeps shuffling, from a random song.
+        // A chosen row is honoured as the start either way.
+        let mut request = request;
+        let shuffle = shuffle_first
+            || (request.context_uri.is_some() && self.now_playing().is_some_and(|now| now.shuffle));
+        if shuffle
+            && request.offset_uri.is_none()
+            && request.offset_position.is_none()
+            && request.uris.is_empty()
+            && let Some(context) = request.context_uri.clone()
+        {
+            request.offset_uri = self.random_track_in(&context);
+        }
         let mut keys: Vec<String> = Vec::new();
         if let Some(context) = &request.context_uri {
             keys.push(context.clone());
@@ -2531,7 +2545,7 @@ impl App {
             // state takes a poll or two to say the same thing.
             self.assumed_context = Some(AssumedContext {
                 uri: context,
-                shuffle: shuffle_first.then_some(true),
+                shuffle: shuffle.then_some(true),
                 at: Instant::now(),
             });
         }
@@ -2551,13 +2565,13 @@ impl App {
                     offset_index: request.offset_position,
                     position_ms: request.position_ms,
                     play: true,
-                    shuffle: shuffle_first.then_some(true),
+                    shuffle: shuffle.then_some(true),
                 }));
                 self.optimistic_playing = Some((true, Instant::now()));
             }
             Target::Remote(Some(device_id)) => {
                 self.queued_play = None;
-                if shuffle_first {
+                if shuffle {
                     self.backend.api(ApiRequest::ShufflePlay {
                         device_id: Some(device_id),
                         play: request,
