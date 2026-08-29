@@ -607,6 +607,26 @@ impl App {
         self.shuffle_wanted
     }
 
+    /// The playing thing as a playable item, for menus that act on it:
+    /// the cached full track when known, a minimal one otherwise.
+    pub fn now_playing_item(&self) -> Option<PlayableItem> {
+        let now = self.now_playing()?;
+        if now.is_episode {
+            return None;
+        }
+        if let Some(track) = now.id.as_deref().and_then(|id| self.track_cache.get(id)) {
+            return Some(PlayableItem::Track(track.clone()));
+        }
+        Some(PlayableItem::Track(Track {
+            id: now.id.clone(),
+            uri: now.uri.clone(),
+            name: now.title.clone(),
+            artists: now.artists.clone(),
+            duration_ms: now.duration_ms,
+            ..Track::default()
+        }))
+    }
+
     pub fn now_playing(&self) -> Option<NowPlaying> {
         if self.local.is_active() {
             let track = self.local.track.as_ref()?;

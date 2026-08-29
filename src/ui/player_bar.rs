@@ -102,20 +102,25 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         6.0,
         Icon::Music,
     );
-    if ui
+    let cover_response = ui
         .interact(
             cover_rect,
             egui::Id::new("now-playing-cover"),
             Sense::click(),
         )
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-    {
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if cover_response.clicked() {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
         } else if let Some(id) = &now.show_id {
             app.actions.push(Action::Open(Page::Show(id.clone())));
         }
+    }
+    // The playing thing answers the same right-click menu as a table row.
+    if let Some(item) = app.now_playing_item() {
+        egui::Popup::context_menu(&cover_response)
+            .frame(super::widgets::menu_frame(&palette))
+            .show(|ui| super::widgets::item_menu(ui, app, &item, None, None));
     }
 
     let heart_width = if now.is_episode { 0.0 } else { 42.0 };
