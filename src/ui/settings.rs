@@ -610,6 +610,121 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
     });
 
+    section(ui, &palette, "MilkDrop", |ui| {
+        widgets::setting_row(
+            ui,
+            &palette,
+            "MilkDrop window",
+            "Winamp's visualiser, as projectM reimplements it, in a window of its own; the vis button in the top bar, Ctrl+Shift+K, or the V on the mini player opens it too. Double-click it for full screen. It draws the music played on this computer.",
+            |ui| {
+                let mut open = app.settings.milkdrop_open;
+                if widgets::switch(ui, &palette, &mut open).changed() {
+                    app.actions.push(Action::ToggleWinampMilkdrop);
+                }
+            },
+        );
+        let folder = app.dirs.milkdrop_dir();
+        app.winamp.presets.refresh(&folder);
+        let count = app.winamp.presets.count();
+        let downloading = app.winamp.presets.downloading();
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Presets",
+            &format!(
+                "{} in {}. Presets are .milk files; put your own there, or fetch the packs projectM keeps: {}",
+                match count {
+                    0 => "None yet".to_string(),
+                    1 => "One preset".to_string(),
+                    n => format!("{n} presets"),
+                },
+                folder.display(),
+                crate::milkdrop::PACKS
+                    .iter()
+                    .map(|pack| format!("{}: {}", pack.name, pack.note))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for (index, pack) in crate::milkdrop::PACKS.iter().enumerate() {
+                        let label = match downloading {
+                            Some(name) if name == pack.name => "Fetching...".to_string(),
+                            _ => format!("Get {}", pack.name),
+                        };
+                        if theme::soft_button(ui, &palette, Some(Icon::Globe), &label, false)
+                            .clicked()
+                            && downloading.is_none()
+                        {
+                            app.actions.push(Action::DownloadMilkdropPack(index));
+                        }
+                    }
+                    if theme::soft_button(
+                        ui,
+                        &palette,
+                        Some(Icon::ExternalLink),
+                        "Open folder",
+                        false,
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::OpenMilkdropFolder);
+                    }
+                });
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Time per preset",
+            "How long each preset plays before the next fades in.",
+            |ui| {
+                let current = app.settings.milkdrop_seconds;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for seconds in crate::milkdrop::SECONDS_CHOICES {
+                        let label = if seconds < 60 {
+                            format!("{seconds} s")
+                        } else {
+                            format!("{} min", seconds / 60)
+                        };
+                        if theme::soft_button(ui, &palette, None, &label, seconds == current)
+                            .clicked()
+                            && seconds != current
+                        {
+                            app.actions.push(Action::SetMilkdropSeconds(seconds));
+                        }
+                    }
+                });
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Frame rate",
+            "How often the window draws. Matching your screen is smooth without wasting frames; uncapped runs as fast as it can.",
+            |ui| {
+                let current = app.settings.milkdrop_fps;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for fps in crate::milkdrop::FPS_CHOICES {
+                        let label = if fps == 0 {
+                            "Uncapped".to_string()
+                        } else {
+                            format!("{fps} fps")
+                        };
+                        if theme::soft_button(ui, &palette, None, &label, fps == current).clicked()
+                            && fps != current
+                        {
+                            app.actions.push(Action::SetMilkdropFps(fps));
+                        }
+                    }
+                });
+            },
+        );
+    });
+
     section(ui, &palette, "Equalizer", |ui| {
         widgets::setting_row(
             ui,

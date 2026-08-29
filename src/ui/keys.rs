@@ -44,6 +44,12 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         } else {
             key(Modifiers::COMMAND, Key::M, Action::ToggleWinampWindow);
         }
+        // Winamp's key for starting and stopping the visualisation plug-in.
+        key(
+            Modifiers::COMMAND | Modifiers::SHIFT,
+            Key::K,
+            Action::ToggleWinampMilkdrop,
+        );
         key(
             Modifiers::COMMAND,
             Key::Slash,
@@ -174,6 +180,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         },
         "Winamp mini player",
     ),
+    ("Ctrl+Shift+K", "MilkDrop, under the mini player"),
     ("Ctrl+,", "Settings"),
     ("Ctrl+/ or ?", "Keyboard shortcuts"),
     ("Ctrl+W", "Close the window"),

@@ -128,6 +128,16 @@ pub struct Settings {
     pub eq_shaded: bool,
     /// The main window is rolled up to its title bar.
     pub winamp_shaded: bool,
+    /// The MilkDrop window is open (its own window, not part of the skin).
+    pub milkdrop_open: bool,
+    /// How long each preset plays before the next, in seconds.
+    pub milkdrop_seconds: u32,
+    /// How many frames a second the MilkDrop window draws; 0 is uncapped.
+    pub milkdrop_fps: u32,
+    /// The MilkDrop window fills the screen.
+    pub milkdrop_fullscreen: bool,
+    /// The MilkDrop window's size in logical points, when not full-screen.
+    pub milkdrop_size: [f32; 2],
 }
 
 impl Default for Settings {
@@ -176,6 +186,11 @@ impl Default for Settings {
             playlist_shaded: false,
             eq_shaded: false,
             winamp_shaded: false,
+            milkdrop_open: false,
+            milkdrop_seconds: crate::milkdrop::DEFAULT_SECONDS,
+            milkdrop_fps: crate::milkdrop::DEFAULT_FPS,
+            milkdrop_fullscreen: false,
+            milkdrop_size: crate::milkdrop::DEFAULT_SIZE,
         }
     }
 }
@@ -352,6 +367,8 @@ pub struct SessionState {
     pub queue_open: Option<bool>,
     /// Last outer position of the Winamp window.
     pub winamp_pos: Option<[f32; 2]>,
+    /// Last outer position of the MilkDrop window.
+    pub milkdrop_pos: Option<[f32; 2]>,
 }
 
 impl SessionState {

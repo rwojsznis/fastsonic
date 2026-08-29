@@ -46,6 +46,10 @@
               (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
               rust-analyzer
               pkg-config
+              # libprojectM (MilkDrop) is built from source by CMake, and its
+              # bindings by bindgen, which needs libclang.
+              cmake
+              rustPlatform.bindgenHook
             ]
             ++ lib.optionals stdenv.hostPlatform.isDarwin [
               apple-sdk
@@ -111,6 +115,10 @@
               with pkgs;
               [
                 pkg-config
+                # libprojectM (MilkDrop) is built from source by CMake, and
+                # its bindings by bindgen, which needs libclang.
+                cmake
+                rustPlatform.bindgenHook
               ]
               ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ makeWrapper ];
             buildInputs =
@@ -119,6 +127,8 @@
                 [
                   alsa-lib
                   libpulseaudio
+                  # libprojectM links OpenGL directly.
+                  libGL
                 ]
               )
               ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.apple-sdk ];

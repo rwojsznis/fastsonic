@@ -2,8 +2,9 @@
 //! sums that turn them into Winamp's bars and scope.
 //!
 //! The tap wraps whichever sink plays the music (this crate's, or one of
-//! librespot's) and keeps the last half second of it, mixed to mono. The
-//! analyser is a port of Winamp's classic one as Webamp reconstructed it
+//! librespot's) and keeps the last half second of it, mixed to mono for the
+//! analyser and in stereo for MilkDrop, which reads what has arrived since
+//! it last looked. The analyser is a port of Winamp's classic one as Webamp reconstructed it
 //! (`VisPainter.ts` and `FFTNullsoft.ts`): Nullsoft's own FFT with its sine
 //! envelope and log equalisation, 75 columns spread over the spectrum on a
 //! mostly logarithmic sweep and grouped four at a time into 19 bars, bars
@@ -49,9 +50,14 @@ pub const STEP: Duration = Duration::from_micros(16_667);
 const INPUT_GAIN: f32 = 128.0 / 24.0;
 
 /// The last half second of sound, shared between the player's thread and
-/// the window.
+/// the visualiser. The mono mix stays in this process for the skin's
+/// analyser; the stereo sound goes to a shared-memory ring for the MilkDrop
+/// child process, when one is running.
 pub struct AudioTap {
     samples: Mutex<VecDeque<f32>>,
+    /// The ring the MilkDrop child reads, attached while its window is open.
+    #[cfg(feature = "milkdrop")]
+    shm: Mutex<Option<std::sync::Arc<crate::milkdrop::shm::Ring>>>,
 }
 
 impl std::fmt::Debug for AudioTap {
@@ -64,6 +70,8 @@ impl Default for AudioTap {
     fn default() -> Self {
         Self {
             samples: Mutex::new(VecDeque::with_capacity(KEPT)),
+            #[cfg(feature = "milkdrop")]
+            shm: Mutex::new(None),
         }
     }
 }
@@ -73,16 +81,42 @@ impl AudioTap {
         Arc::new(Self::default())
     }
 
-    /// Takes interleaved stereo samples, mixed down and scaled by `gain`.
+    /// Points the tap at a shared-memory ring, so the sound reaches the
+    /// MilkDrop child process; `None` detaches it when the child is gone.
+    #[cfg(feature = "milkdrop")]
+    pub fn set_shm(&self, ring: Option<std::sync::Arc<crate::milkdrop::shm::Ring>>) {
+        *self.shm.lock().unwrap_or_else(|p| p.into_inner()) = ring;
+    }
+
+    /// Takes interleaved stereo samples, scaled by `gain`: mixed down for
+    /// the analyser, and, if a MilkDrop child is listening, sent on in
+    /// stereo through the shared ring.
     pub fn push(&self, interleaved: &[f64], gain: f32) {
         let mut samples = self.samples.lock().unwrap_or_else(|p| p.into_inner());
         let (frames, _) = interleaved.as_chunks::<{ NUM_CHANNELS as usize }>();
+        #[cfg(feature = "milkdrop")]
+        let shm = self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        #[cfg(feature = "milkdrop")]
+        let mut stereo: Vec<f32> = if shm.is_some() {
+            Vec::with_capacity(frames.len() * 2)
+        } else {
+            Vec::new()
+        };
         for frame in frames {
             let mono = frame.iter().sum::<f64>() as f32 / frame.len() as f32 * gain;
             if samples.len() == KEPT {
                 samples.pop_front();
             }
             samples.push_back(mono);
+            #[cfg(feature = "milkdrop")]
+            if shm.is_some() {
+                stereo.push(frame[0] as f32 * gain);
+                stereo.push(frame[1] as f32 * gain);
+            }
+        }
+        #[cfg(feature = "milkdrop")]
+        if let Some(ring) = &shm {
+            ring.push(&stereo);
         }
     }
 

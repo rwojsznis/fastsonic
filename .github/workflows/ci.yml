@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
-            libwayland-dev libgl1-mesa-dev
+            libwayland-dev libgl1-mesa-dev cmake libclang-dev
       - uses: Swatinem/rust-cache@v2
       - name: Formatting
         run: cargo fmt --all --check
@@ -60,7 +60,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
-            libwayland-dev libgl1-mesa-dev
+            libwayland-dev libgl1-mesa-dev cmake libclang-dev
+      # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
+      # against vcpkg's, and the binary links the same copy.
+      - name: GLEW for libprojectM
+        if: runner.os == 'Windows'
+        run: vcpkg install glew:x64-windows-static-md
       - uses: Swatinem/rust-cache@v2
       # The demo feature carries the headless render test that lays out every
       # page, panel, and dialog without a display.

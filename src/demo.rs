@@ -628,6 +628,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.eq_open = true;
                 app.settings.eq_shaded = true;
             }
+            "milkdrop" => app.settings.milkdrop_open = true,
             "pins" => {
                 app.settings.pinned_contexts =
                     vec!["spotify:playlist:pl2".into(), "spotify:playlist:pl4".into()];

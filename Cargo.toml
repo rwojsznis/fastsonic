@@ -47,6 +47,18 @@ flate2 = "1"
 # text (src/ui/winamp/pixel_text.rs). Already compiled for the SVG icons
 # through egui_extras and resvg, so this adds no code to the build.
 tiny-skia = "0.11"
+# MilkDrop, as libprojectM reimplements it, for the MilkDrop window
+# (src/milkdrop.rs). Built into the binary, so it stays one file.
+projectm-sys = { version = "1.2.2", default-features = false, features = ["static"], optional = true }
+# The MilkDrop window runs as a child process with its own winit event loop
+# and OpenGL context (src/milkdrop/child.rs), because winit allows one event
+# loop per process and eframe owns the app's. These are the same versions
+# eframe already pulls in, so they add no build. Only compiled with the
+# milkdrop feature.
+winit = { version = "0.30", optional = true }
+glutin = { version = "0.32", optional = true }
+glutin-winit = { version = "0.5", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
 # Spotify playback and Connect. rustls everywhere so the client links one TLS
 # stack and builds without OpenSSL on every platform.
 #
@@ -118,8 +130,13 @@ mpris-server = { version = "0.10", features = ["tokio"] }
 winresource = "0.1"
 
 [features]
+default = ["milkdrop"]
 # Sample data and screenshot flags; never part of a release build.
 demo = []
+# MilkDrop, through libprojectM: a C++ library that CMake builds into the
+# binary at compile time, so building needs cmake, a C++ compiler, and
+# libclang. `--no-default-features` leaves it out.
+milkdrop = ["dep:projectm-sys", "dep:winit", "dep:glutin", "dep:glutin-winit", "dep:raw-window-handle"]
 
 [profile.release]
 lto = "thin"
@@ -132,3 +149,10 @@ panic = "abort"
 # application crate itself stays incremental.
 [profile.dev.package."*"]
 opt-level = 2
+
+# projectm-sys names the library it links after Rust's profile (a `d` suffix
+# for dev) but CMake names what it builds after the optimisation level, so an
+# optimised dev build would look for a library that was never made. A debug
+# build of libprojectM is fine to develop against; releases are optimised.
+[profile.dev.package.projectm-sys]
+opt-level = 0

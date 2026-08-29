@@ -27,9 +27,11 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
           # Cross-compiled from x64: the MSVC arm64 linker ships with the
-          # runner's Visual Studio.
+          # runner's Visual Studio. projectm-sys only knows how to build
+          # libprojectM for x64 there, so this build goes without MilkDrop.
           - os: windows-latest
             target: aarch64-pc-windows-msvc
+            features: --no-default-features
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -43,12 +45,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
-            libwayland-dev libgl1-mesa-dev
+            libwayland-dev libgl1-mesa-dev cmake libclang-dev
+      # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
+      # against vcpkg's, and the binary links the same copy.
+      - name: GLEW for libprojectM
+        if: runner.os == 'Windows' && matrix.features == ''
+        run: vcpkg install glew:x64-windows-static-md
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
 
-      - run: cargo build --release --target ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}
 
       - name: Package
         shell: bash

@@ -12,6 +12,7 @@ Fastpotify follows each platform's conventions. On Linux:
 | --- | --- | --- |
 | Settings | `~/.config/fastpotify/settings.json` | Yes, you lose preferences |
 | Winamp skins | `~/.config/fastpotify/skins/` | Yes, you add them again |
+| MilkDrop presets | `~/.config/fastpotify/milkdrop/` | Yes, you fetch them again |
 | Shared Web API sign-in | `~/.local/state/fastpotify/shared_web_api_token.json` | Yes, you sign in again |
 | Personal Web API sign-in | `~/.local/state/fastpotify/personal_web_api_token.json` | Yes, personal acceleration is removed |
 | Playback credential | `~/.local/state/fastpotify/credentials/` | Yes, you approve playback again |
@@ -68,6 +69,11 @@ main fields are:
 | `mono` | `false` | Play both channels the same |
 | `playlist_shaded` | `false` | The playlist window is rolled up to its title bar |
 | `winamp_shaded` | `false` | The main window is rolled up to its title bar |
+| `milkdrop_open` | `false` | The MilkDrop window is open |
+| `milkdrop_seconds` | `30` | How long each MilkDrop preset plays |
+| `milkdrop_fps` | `60` | The MilkDrop window's frame rate; `0` is uncapped |
+| `milkdrop_fullscreen` | `false` | The MilkDrop window fills the screen |
+| `milkdrop_size` | `640, 480` | The MilkDrop window's size in points |
 | `keep_playing_in_background` | `true` | Close to tray |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Optional personal Spotify app id used alongside shared coverage |

@@ -625,6 +625,8 @@ pub enum Action {
     OpenSkinsFolder,
     /// Bars, then the scope, then nothing, in the mini player's display.
     CycleVisualiser,
+    /// One of those, by name.
+    SetVisualiser(crate::settings::VisMode),
     /// Open or close the playlist window under the mini player.
     ToggleWinampPlaylist,
     /// The playlist window's height, in skin pixels.
@@ -649,5 +651,15 @@ pub enum Action {
     CloseWindow,
     /// Roll the main window up to its title bar, or down again.
     ToggleWinampShade,
+    /// Open or close the MilkDrop window.
+    ToggleWinampMilkdrop,
+    /// How long each MilkDrop preset plays, in seconds.
+    SetMilkdropSeconds(u32),
+    /// How many frames a second the MilkDrop window draws; 0 is uncapped.
+    SetMilkdropFps(u32),
+    OpenMilkdropFolder,
+    /// Fetch one of projectM's preset packs into the folder, by its place
+    /// in the list.
+    DownloadMilkdropPack(usize),
     Quit,
 }

@@ -1,0 +1,366 @@
+//! projectM itself, behind the MilkDrop window.
+//!
+//! Everything here happens inside egui's paint callback, the one place the
+//! window's OpenGL context is known to be current: projectM is started
+//! there, fed the sound, told which preset to load, and asked to draw.
+//! libprojectM 4.1 draws into the window's own framebuffer at its
+//! bottom-left corner (it cannot yet be handed another), so the frame is
+//! copied from that corner into the window's picture, and the corner is
+//! painted over by the frame's sprites, which egui draws after the
+//! callback. The engine is dropped from eframe's exit hook, while the
+//! context still exists to free what it made.
+
+use std::ffi::{CStr, CString, c_char, c_void};
+use std::num::NonZeroU32;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+
+use eframe::glow::{self, HasContext};
+use projectm_sys as pm;
+
+use super::CROSSFADE_SECONDS;
+
+/// What projectM asked for, as its callback left it.
+const NOTHING: u8 = 0;
+const FADE: u8 = 1;
+const CUT: u8 = 2;
+
+/// One running projectM and the framebuffer its frames are copied
+/// through.
+pub struct Engine {
+    handle: pm::projectm_handle,
+    gl: Arc<glow::Context>,
+    copy: Option<Copy>,
+    /// What projectM asked for from its callback: nothing, a fade to the
+    /// next preset, or a cut on the beat. Boxed so its address holds.
+    switch: Box<AtomicU8>,
+    seconds: u32,
+    locked: bool,
+}
+
+/// A framebuffer the picture's size, with the texture it draws into.
+struct Copy {
+    framebuffer: glow::Framebuffer,
+    texture: glow::Texture,
+    width: u32,
+    height: u32,
+}
+
+// SAFETY: only ever touched from the thread that owns the window's context,
+// which is where the paint callback runs; the mutex it sits in wants Send.
+unsafe impl Send for Engine {}
+
+unsafe extern "C" fn switch_requested(is_hard_cut: bool, user_data: *mut c_void) {
+    // SAFETY: `user_data` is the engine's own flag, boxed so it outlives
+    // every callback, which projectM only makes while the engine exists.
+    let switch = unsafe { &*user_data.cast::<AtomicU8>() };
+    switch.store(if is_hard_cut { CUT } else { FADE }, Ordering::Relaxed);
+}
+
+unsafe extern "C" fn switch_failed(
+    preset_filename: *const c_char,
+    message: *const c_char,
+    _user_data: *mut c_void,
+) {
+    let text = |pointer: *const c_char| {
+        if pointer.is_null() {
+            String::new()
+        } else {
+            // SAFETY: projectM hands over C strings that live for the call.
+            unsafe { CStr::from_ptr(pointer) }
+                .to_string_lossy()
+                .into_owned()
+        }
+    };
+    log::warn!(
+        "MilkDrop could not load {}: {}",
+        text(preset_filename),
+        text(message)
+    );
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    /// GLEW, which libprojectM reads OpenGL through on Windows, has to be
+    /// pointed at the context first; the library leaves that to whoever
+    /// made the context.
+    fn glewInit() -> u32;
+}
+
+impl Engine {
+    /// Starts projectM in the current context, looking for presets'
+    /// textures in `texture_dirs`. `None` when it cannot start, which means
+    /// the context is short of OpenGL 3.3.
+    pub fn new(gl: Arc<glow::Context>, texture_dirs: &[&Path], seconds: u32) -> Option<Self> {
+        #[cfg(windows)]
+        {
+            static GLEW: std::sync::Once = std::sync::Once::new();
+            // SAFETY: the context is current, which is all GLEW asks.
+            GLEW.call_once(|| unsafe {
+                glewInit();
+            });
+        }
+        // SAFETY: the context is current; a null handle is the documented
+        // way projectM says it cannot work in it.
+        let handle = unsafe { pm::projectm_create() };
+        if handle.is_null() {
+            log::warn!("projectM could not start: MilkDrop needs OpenGL 3.3");
+            return None;
+        }
+        let switch = Box::new(AtomicU8::new(NOTHING));
+        // SAFETY: a fresh handle, and the flag outlives it (see `Drop`).
+        unsafe {
+            pm::projectm_set_preset_switch_requested_event_callback(
+                handle,
+                Some(switch_requested),
+                (&raw const *switch).cast_mut().cast::<c_void>(),
+            );
+            pm::projectm_set_preset_switch_failed_event_callback(
+                handle,
+                Some(switch_failed),
+                std::ptr::null_mut(),
+            );
+            pm::projectm_set_preset_duration(handle, f64::from(seconds));
+            pm::projectm_set_soft_cut_duration(handle, CROSSFADE_SECONDS);
+            // Beat-driven cuts are off, as MilkDrop shipped them.
+            pm::projectm_set_hard_cut_enabled(handle, false);
+            pm::projectm_set_aspect_correction(handle, true);
+            // MilkDrop's own mesh, on which the per-vertex equations run.
+            pm::projectm_set_mesh_size(handle, 48, 36);
+            pm::projectm_set_fps(handle, 60);
+        }
+        let engine = Self {
+            handle,
+            gl,
+            copy: None,
+            switch,
+            seconds,
+            locked: false,
+        };
+        engine.set_texture_dirs(texture_dirs);
+        Some(engine)
+    }
+
+    fn set_texture_dirs(&self, dirs: &[&Path]) {
+        let owned: Vec<CString> = dirs
+            .iter()
+            .filter_map(|dir| CString::new(dir.to_string_lossy().as_bytes()).ok())
+            .collect();
+        let mut pointers: Vec<*const c_char> = owned.iter().map(|dir| dir.as_ptr()).collect();
+        // SAFETY: the strings live for the call, which copies them.
+        unsafe {
+            pm::projectm_set_texture_search_paths(
+                self.handle,
+                pointers.as_mut_ptr(),
+                pointers.len(),
+            );
+        }
+    }
+
+    pub fn set_seconds(&mut self, seconds: u32) {
+        if self.seconds != seconds {
+            self.seconds = seconds;
+            // SAFETY: a live handle.
+            unsafe { pm::projectm_set_preset_duration(self.handle, f64::from(seconds)) };
+        }
+    }
+
+    pub fn set_locked(&mut self, locked: bool) {
+        if self.locked != locked {
+            self.locked = locked;
+            // SAFETY: a live handle.
+            unsafe { pm::projectm_set_preset_locked(self.handle, locked) };
+        }
+    }
+
+    /// Loads a preset, fading into it or cutting straight to it. One that
+    /// cannot be read is reported through the failure callback and the
+    /// one playing stays.
+    pub fn load(&mut self, path: &Path, smooth: bool) {
+        let Ok(path) = CString::new(path.to_string_lossy().as_bytes()) else {
+            return;
+        };
+        // SAFETY: a live handle and a string that lives for the call.
+        unsafe { pm::projectm_load_preset_file(self.handle, path.as_ptr(), smooth) };
+        self.switch.store(NOTHING, Ordering::Relaxed);
+    }
+
+    /// Whether projectM has asked for the next preset since last asked:
+    /// `Some(true)` for a cut on the beat, `Some(false)` for a fade.
+    pub fn switch_wanted(&self) -> Option<bool> {
+        match self.switch.swap(NOTHING, Ordering::Relaxed) {
+            FADE => Some(false),
+            CUT => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Feeds projectM stereo frames (LRLR pairs), from the shared ring.
+    pub fn feed_frames(&mut self, frames: &[[f32; 2]]) {
+        if frames.is_empty() {
+            return;
+        }
+        // SAFETY: `frames` is `[f32; 2]` pairs laid out as LRLR, which is
+        // what projectM reads `count` pairs of.
+        unsafe {
+            pm::projectm_pcm_add_float(
+                self.handle,
+                frames.as_ptr().cast::<f32>(),
+                frames.len() as std::os::raw::c_uint,
+                pm::projectm_channels_PROJECTM_STEREO,
+            );
+        }
+    }
+
+    /// Draws a frame into the picture: `left` and `bottom` from the
+    /// window's bottom-left corner, all in pixels.
+    pub fn render(&mut self, left: i32, bottom: i32, width: u32, height: u32) {
+        // projectM halves its viewport for the blur and warp passes, so an
+        // odd width or height leaves a column or row those passes never
+        // wrote, which its feedback then smears into a seam. Kept even, the
+        // passes tile the picture cleanly.
+        let width = width & !1;
+        let height = height & !1;
+        if width == 0 || height == 0 {
+            return;
+        }
+        if self
+            .copy
+            .as_ref()
+            .is_none_or(|copy| (copy.width, copy.height) != (width, height))
+        {
+            self.resize(width, height);
+        }
+        let Some(copy) = &self.copy else {
+            return;
+        };
+        let gl = &self.gl;
+        let (w, h) = (width as i32, height as i32);
+        // SAFETY: the context is current; every call is a plain GL call on
+        // objects this engine made or the window owns.
+        unsafe {
+            let target =
+                NonZeroU32::new(gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING) as u32)
+                    .map(glow::NativeFramebuffer);
+            // egui leaves its scissor on and its viewport set to the
+            // picture's place on screen; projectM's final composite draws a
+            // quad over the current viewport, so it has to be the corner the
+            // copy reads from, not where the picture lands.
+            gl.disable(glow::SCISSOR_TEST);
+            gl.viewport(0, 0, w, h);
+            pm::projectm_opengl_render_frame(self.handle);
+            // The frame is in the window's corner; the picture overlaps it,
+            // and a framebuffer copied onto itself is anyone's guess, so it
+            // goes through a copy.
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(copy.framebuffer));
+            gl.blit_framebuffer(
+                0,
+                0,
+                w,
+                h,
+                0,
+                0,
+                w,
+                h,
+                glow::COLOR_BUFFER_BIT,
+                glow::NEAREST,
+            );
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(copy.framebuffer));
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, target);
+            gl.blit_framebuffer(
+                0,
+                0,
+                w,
+                h,
+                left,
+                bottom,
+                left + w,
+                bottom + h,
+                glow::COLOR_BUFFER_BIT,
+                glow::NEAREST,
+            );
+            gl.bind_framebuffer(glow::FRAMEBUFFER, target);
+            // The window is see-through wherever its alpha says so; the
+            // picture is not, whatever a preset wrote there.
+            gl.enable(glow::SCISSOR_TEST);
+            gl.scissor(left, bottom, w, h);
+            gl.color_mask(false, false, false, true);
+            gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            gl.clear(glow::COLOR_BUFFER_BIT);
+            gl.color_mask(true, true, true, true);
+            // egui's painter puts the rest of its state back itself.
+        }
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        let gl = Arc::clone(&self.gl);
+        // SAFETY: the context is current; the old objects are this
+        // engine's own.
+        unsafe {
+            pm::projectm_set_window_size(self.handle, width as usize, height as usize);
+            if let Some(old) = self.copy.take() {
+                gl.delete_framebuffer(old.framebuffer);
+                gl.delete_texture(old.texture);
+            }
+            let (Ok(texture), Ok(framebuffer)) = (gl.create_texture(), gl.create_framebuffer())
+            else {
+                log::warn!("MilkDrop could not make a framebuffer for its picture");
+                return;
+            };
+            gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                width as i32,
+                height as i32,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(None),
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::NEAREST as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::NEAREST as i32,
+            );
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(framebuffer));
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(texture),
+                0,
+            );
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            self.copy = Some(Copy {
+                framebuffer,
+                texture,
+                width,
+                height,
+            });
+        }
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        // SAFETY: the context is current (see the module's note), the
+        // handle is live, and the objects are this engine's own. The flag
+        // outlives the handle: it is dropped after this.
+        unsafe {
+            pm::projectm_destroy(self.handle);
+            if let Some(copy) = self.copy.take() {
+                self.gl.delete_framebuffer(copy.framebuffer);
+                self.gl.delete_texture(copy.texture);
+            }
+        }
+    }
+}

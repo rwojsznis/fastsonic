@@ -80,8 +80,12 @@ RUSTDOCFLAGS='-D warnings' cargo doc --locked --all-features --no-deps
 ```
 
 Linux needs the development packages listed in the README; `nix develop`
-provides the complete development environment. CI repeats the test suite on
-Linux, macOS, and Windows. Passing CI is required, but does not replace review
+provides the complete development environment. MilkDrop builds libprojectM
+from source, so every platform also needs CMake, a C++ compiler, and
+libclang (on Windows, vcpkg with `glew:x64-windows-static-md` installed and
+`VCPKG_INSTALLATION_ROOT` pointing at it); `--no-default-features` leaves
+MilkDrop out and needs none of that. CI repeats the test suite on Linux,
+macOS, and Windows. Passing CI is required, but does not replace review
 for correctness, product fit, maintainability, or security.
 
 By contributing, you agree that your contribution is licensed under the

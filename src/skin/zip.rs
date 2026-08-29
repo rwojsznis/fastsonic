@@ -55,11 +55,13 @@ impl Entry {
     /// looked up: Winamp ran on a case-insensitive file system, and skins
     /// often nest everything in a folder.
     pub fn file_name(&self) -> String {
-        self.name
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase()
+        self.base_name().to_ascii_lowercase()
+    }
+
+    /// The final path component as stored, for files whose names are
+    /// worth keeping as they are.
+    pub fn base_name(&self) -> &str {
+        self.name.rsplit(['/', '\\']).next().unwrap_or("")
     }
 
     pub fn is_dir(&self) -> bool {

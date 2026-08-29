@@ -60,6 +60,11 @@ application rather than a shell plugin.
   ![The mini player wearing the built-in skin](docs/assets/images/winamp.png)
 - **Equalizer.** Winamp's ten bands and presets over the music played on
   this computer, in Settings and in the skin.
+- **MilkDrop.** Winamp's visualiser, through
+  [projectM](https://github.com/projectM-visualizer/projectm), in a
+  fullscreenable window of its own (a separate process, so it never disturbs
+  the player), playing MilkDrop's own `.milk` presets; Settings fetches the
+  packs projectM curates.
 - **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists
   them).
 - **Keeps playing when you close the window.** The window closes for real,
@@ -102,18 +107,27 @@ Everywhere else it is a single binary. Build it with a stable Rust toolchain
 cargo install --path .
 ```
 
-On Linux you also need the development packages for ALSA, PulseAudio (which
-covers PipeWire), and the usual windowing libraries, for example on Arch:
+MilkDrop is drawn by libprojectM, a C++ library built from source along the
+way, so the build also needs CMake, a C++ compiler, and libclang;
+`cargo install --path . --no-default-features` leaves MilkDrop out and needs
+none of them. On Linux you also need the development packages for ALSA,
+PulseAudio (which covers PipeWire), and the usual windowing libraries, for
+example on Arch:
 
 ```bash
-sudo pacman -S --needed alsa-lib libpulse libxkbcommon wayland
+sudo pacman -S --needed alsa-lib libpulse libxkbcommon wayland cmake clang
 ```
 
 and on Debian or Ubuntu:
 
 ```bash
-sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev
+sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev \
+  cmake clang libclang-dev
 ```
+
+On Windows, libprojectM is built with Visual Studio 2022, CMake, LLVM, and
+vcpkg (`vcpkg install glew:x64-windows-static-md`, with
+`VCPKG_INSTALLATION_ROOT` pointing at the vcpkg folder).
 
 With [Nix](https://nixos.org), `nix develop` provides all of it, along with
 the exact toolchain `rust-toolchain.toml` pins.
@@ -180,6 +194,7 @@ those things, and [CONTRIBUTING.md](CONTRIBUTING.md) prohibits them.
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+M` | Winamp mini player |
+| `Ctrl+Shift+K` | MilkDrop, under the mini player |
 | `Ctrl+,` | Settings |
 | `Ctrl+/` or `?` | All shortcuts |
 | `Ctrl+Q` | Quit |

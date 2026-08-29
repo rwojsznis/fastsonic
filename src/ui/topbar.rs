@@ -234,6 +234,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
                 if theme::icon_button(
                     ui,
+                    Icon::AudioLines,
+                    19.0,
+                    if app.settings.milkdrop_open {
+                        palette.accent
+                    } else {
+                        palette.secondary
+                    },
+                    palette.text,
+                    "MilkDrop visualiser (Ctrl+Shift+K)",
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::ToggleWinampMilkdrop);
+                }
+                if theme::icon_button(
+                    ui,
                     Icon::Shrink,
                     19.0,
                     palette.secondary,

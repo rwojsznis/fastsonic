@@ -265,6 +265,15 @@ fn format_devices(snapshot: &str) -> String {
 }
 
 fn main() -> eframe::Result<()> {
+    // A MilkDrop child launch is a bare visualiser window, not the app: it has
+    // its own event loop and OpenGL context, reads the sound from a shared
+    // buffer, and never touches the app's state. Handle it before anything
+    // else, including the argument parser, which does not know its flags.
+    #[cfg(feature = "milkdrop")]
+    if let Some(args) = fastpotify::milkdrop::child::Args::parse() {
+        std::process::exit(fastpotify::milkdrop::child::run(args));
+    }
+
     let cli = Cli::parse();
     // A control launch is a client, not a second app: talk to the running
     // instance and exit before touching the log file it is writing to.
@@ -530,7 +539,8 @@ fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeO
                 egui::WindowLevel::Normal
             };
             // See-through, for skins that are not rectangles; the skin
-            // paints every pixel that is the window.
+            // paints every pixel that is the window. MilkDrop runs in its own
+            // process, so nothing else shares this window's surface.
             let viewport = viewport
                 .with_decorations(false)
                 .with_transparent(true)

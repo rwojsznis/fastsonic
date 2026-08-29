@@ -19,6 +19,7 @@ pub mod media_controls;
 #[cfg(not(target_os = "linux"))]
 #[path = "media_native.rs"]
 pub mod media_controls;
+pub mod milkdrop;
 pub mod model;
 pub mod paths;
 pub mod player;

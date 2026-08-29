@@ -238,6 +238,12 @@ pub struct App {
     /// Last observed window geometry, updated each frame for saving.
     last_window_size: Option<[f32; 2]>,
     last_window_pos: Option<[f32; 2]>,
+    /// Where the MilkDrop window last was, as it reported, for restoring it.
+    pub milkdrop_pos: Option<[f32; 2]>,
+    /// The MilkDrop child process; `None` until it is first opened. Its
+    /// `Drop` stops the child when the app does.
+    #[cfg(feature = "milkdrop")]
+    milkdrop_host: Option<crate::milkdrop::host::Host>,
     last_eviction: Instant,
     pub sign_in_url: Option<String>,
     /// The verified personal Web API application, when acceleration is ready.
@@ -438,6 +444,9 @@ impl App {
             session_window_pos: session.window_pos,
             last_window_size: None,
             last_window_pos: None,
+            milkdrop_pos: session.milkdrop_pos,
+            #[cfg(feature = "milkdrop")]
+            milkdrop_host: None,
             last_eviction: Instant::now(),
             sign_in_url: None,
             web_app: None,
@@ -1290,6 +1299,69 @@ impl App {
         }
         if let Some(loaded) = self.winamp.poll() {
             self.skin_loaded(loaded);
+        }
+        let fetched = self.winamp.presets.poll();
+        if let Some(fetched) = fetched {
+            match fetched {
+                Ok(count) => self.toast(format!("Added {count} MilkDrop presets")),
+                Err(error) => self.toast_error(format!("Couldn't fetch presets: {error}")),
+            }
+        }
+    }
+
+    /// Keeps the MilkDrop child process in step with the settings, and takes
+    /// back where its window sits and whether it was closed from there.
+    #[cfg(feature = "milkdrop")]
+    fn sync_milkdrop(&mut self, ctx: &egui::Context) {
+        let presets = self.dirs.milkdrop_dir();
+        let open = self.settings.milkdrop_open;
+        let size = self.settings.milkdrop_size;
+        let pos = self.milkdrop_pos;
+        let fullscreen = self.settings.milkdrop_fullscreen;
+        let fps = self.settings.milkdrop_fps;
+        let seconds = self.settings.milkdrop_seconds;
+        if self.milkdrop_host.is_none() {
+            let tap = std::sync::Arc::clone(&self.winamp.tap);
+            self.milkdrop_host = Some(crate::milkdrop::host::Host::new(tap));
+        }
+        let poll = {
+            let host = self.milkdrop_host.as_mut().expect("the host was just made");
+            if open {
+                if !host.is_running() {
+                    host.open(&presets, size, pos, fullscreen, fps, seconds);
+                }
+                host.update(fps, seconds);
+            } else if host.is_running() {
+                host.close();
+            }
+            host.poll()
+        };
+        if poll.closed {
+            self.settings.milkdrop_open = false;
+            self.mark_settings_dirty();
+        }
+        if let Some(size) = poll.size
+            && self.settings.milkdrop_size != size
+        {
+            self.settings.milkdrop_size = size;
+            self.mark_settings_dirty();
+        }
+        if let Some(pos) = poll.pos {
+            self.milkdrop_pos = Some(pos);
+        }
+        // Look in on the child now and then, so its close or move is noticed
+        // while the app is otherwise idle.
+        if self.settings.milkdrop_open {
+            ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
+    }
+
+    /// Shows a folder of the config directory in the desktop's file
+    /// manager, making it first if need be.
+    fn open_folder(&mut self, folder: std::path::PathBuf) {
+        let opened = std::fs::create_dir_all(&folder).and_then(|()| open::that(&folder));
+        if let Err(error) = opened {
+            self.toast_error(format!("Couldn't open {}: {error}", folder.display()));
         }
     }
 
@@ -3997,11 +4069,33 @@ impl App {
                 self.settings_dirty = true;
                 self.winamp.analyser.reset();
             }
-            Action::OpenSkinsFolder => {
-                let folder = self.dirs.skins_dir();
-                let opened = std::fs::create_dir_all(&folder).and_then(|()| open::that(&folder));
-                if let Err(error) = opened {
-                    self.toast_error(format!("Couldn't open {}: {error}", folder.display()));
+            Action::SetVisualiser(mode) => {
+                if self.settings.vis != mode {
+                    self.settings.vis = mode;
+                    self.settings_dirty = true;
+                    self.winamp.analyser.reset();
+                }
+            }
+            Action::OpenSkinsFolder => self.open_folder(self.dirs.skins_dir()),
+            Action::ToggleWinampMilkdrop => {
+                self.settings.milkdrop_open = !self.settings.milkdrop_open;
+                self.settings_dirty = true;
+            }
+            Action::SetMilkdropSeconds(seconds) => {
+                self.settings.milkdrop_seconds = seconds.clamp(1, 3600);
+                self.settings_dirty = true;
+            }
+            Action::SetMilkdropFps(fps) => {
+                self.settings.milkdrop_fps = fps.min(240);
+                self.settings_dirty = true;
+            }
+            Action::OpenMilkdropFolder => self.open_folder(self.dirs.milkdrop_dir()),
+            Action::DownloadMilkdropPack(index) => {
+                if let Some(pack) = crate::milkdrop::PACKS.get(index) {
+                    self.winamp
+                        .presets
+                        .download(pack, self.dirs.milkdrop_dir(), ctx.clone());
+                    self.toast(format!("Fetching {} presets", pack.name));
                 }
             }
             Action::Quit => {
@@ -4082,6 +4176,10 @@ impl App {
         } else {
             crate::ui::show(self, ui);
         }
+        // MilkDrop is a window of its own, in a child process; the app opens,
+        // updates, and hears back from it here.
+        #[cfg(feature = "milkdrop")]
+        self.sync_milkdrop(ctx);
         self.apply_actions(ctx);
         self.sync_media_controls();
 
@@ -4252,6 +4350,7 @@ impl App {
                 window_pos: self.last_window_pos.or(self.session_window_pos),
                 queue_open: Some(self.show_queue_panel),
                 winamp_pos: self.winamp.last_pos.or(self.winamp.restore_pos),
+                milkdrop_pos: self.milkdrop_pos,
             }
             .save(&self.dirs.session_file());
         }

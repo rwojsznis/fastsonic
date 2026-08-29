@@ -40,8 +40,8 @@ pub use pixel_text::PixelText;
 /// How often the visualiser moves.
 const VIS_FRAME: Duration = Duration::from_micros(16_667);
 
-/// The stack's height in skin pixels: the main window, and the playlist
-/// under it when it is open.
+/// The stack's height in skin pixels: the main window, and the equalizer
+/// and the playlist under it, whichever are open.
 fn stack_height(settings: &crate::settings::Settings) -> u32 {
     let mut height = if settings.winamp_shaded {
         layout::SHADE_HEIGHT
@@ -712,6 +712,14 @@ fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
     if ui.checkbox(&mut on_top, "Always on top").clicked() {
         app.actions.push(Action::ToggleWinampOnTop);
     }
+    let mut milkdrop = app.settings.milkdrop_open;
+    if ui
+        .checkbox(&mut milkdrop, "MilkDrop")
+        .on_hover_text("Ctrl+Shift+K")
+        .clicked()
+    {
+        app.actions.push(Action::ToggleWinampMilkdrop);
+    }
     if ui.button("Choose a skin").clicked() {
         app.actions.push(Action::Open(Page::Settings));
         app.actions.push(Action::ToggleWinampWindow);
@@ -869,18 +877,39 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         };
         app.actions.push(Action::SetSkinScale(next as u8));
     }
-    if view
+    // V opened Winamp's visualisation menu; this one has the display's
+    // three looks and MilkDrop.
+    let vis = view
         .lamp_button(
             layout::CLUTTER_V,
             sprites::CLUTTER_V_LIT,
-            false,
+            app.settings.milkdrop_open,
             "clutter-v",
         )
-        .on_hover_text("Visualiser")
-        .clicked()
-    {
-        app.actions.push(Action::CycleVisualiser);
-    }
+        .on_hover_text("Visualisation");
+    menu(egui::Popup::menu(&vis), view.skin, unit, |ui| {
+        for (mode, label) in [
+            (VisMode::Bars, "Spectrum analyser"),
+            (VisMode::Scope, "Oscilloscope"),
+            (VisMode::Off, "Nothing"),
+        ] {
+            if ui
+                .selectable_label(app.settings.vis == mode, label)
+                .clicked()
+            {
+                app.actions.push(Action::SetVisualiser(mode));
+            }
+        }
+        ui.separator();
+        let mut milkdrop = app.settings.milkdrop_open;
+        if ui
+            .checkbox(&mut milkdrop, "MilkDrop")
+            .on_hover_text("Ctrl+Shift+K")
+            .clicked()
+        {
+            app.actions.push(Action::ToggleWinampMilkdrop);
+        }
+    });
 }
 
 /// The display's left box: the spectrum analyser, the oscilloscope, or
