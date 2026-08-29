@@ -111,6 +111,9 @@ pub fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
 
 pub struct Actions<'a> {
     pub play_uri: Option<String>,
+    /// A sorted or filtered view: the exact list on screen, which the big
+    /// button plays instead of the context's own order.
+    pub view: Option<Vec<String>>,
     pub saved: Option<(String, bool)>,
     pub saved_icons: (Icon, Icon),
     pub saved_tooltips: (&'a str, &'a str),
@@ -152,6 +155,15 @@ pub fn actions_row(
             {
                 if now_playing_here {
                     app.actions.push(Action::TogglePlay);
+                } else if let Some(uris) = actions.view.clone() {
+                    app.actions.push(Action::PlayFromRow {
+                        context: RowContext::View {
+                            uris,
+                            context_uri: uri.clone(),
+                        },
+                        uri: String::new(),
+                        index: 0,
+                    });
                 } else {
                     app.actions.push(Action::PlayContext {
                         uri: uri.clone(),
@@ -600,12 +612,24 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             );
             let owned = playlist.owned_by(&user_id);
             let saved = app.is_saved(&playlist.uri).unwrap_or(false);
+            let view_play = app
+                .table_sorts
+                .get(&Page::Playlist(id.to_string()))
+                .copied()
+                .map(|sort| {
+                    let needle = page.filter.trim().to_lowercase();
+                    view_indices(&items, &needle, Some(sort))
+                        .iter()
+                        .map(|&index| items[index].0.uri().to_string())
+                        .collect::<Vec<_>>()
+                });
             let playlist_clone = playlist.clone();
             actions_row(
                 app,
                 ui,
                 Actions {
                     play_uri: Some(playlist.uri.clone()),
+                    view: view_play,
                     saved: (!owned).then(|| (playlist.uri.clone(), saved)),
                     saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
                     saved_tooltips: ("Add to Your Library", "Remove from Your Library"),
@@ -659,20 +683,6 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
     match &page.album {
         Loadable::Loaded(album) => {
             album_hero(app, ui, album, &page.tracks);
-            let saved = app.is_saved(&album.uri).unwrap_or(false);
-            actions_row(
-                app,
-                ui,
-                Actions {
-                    play_uri: Some(album.uri.clone()),
-                    saved: Some((album.uri.clone(), saved)),
-                    saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
-                    saved_tooltips: ("Save to Your Library", "Remove from Your Library"),
-                    owned_playlist: None,
-                    name: &album.name,
-                },
-                None,
-            );
             let items: Vec<TableItem> = page
                 .tracks
                 .items
@@ -691,6 +701,31 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     (PlayableItem::Track(track), None, None)
                 })
                 .collect();
+            let saved = app.is_saved(&album.uri).unwrap_or(false);
+            let album_view = app
+                .table_sorts
+                .get(&Page::Album(id.to_string()))
+                .copied()
+                .map(|sort| {
+                    view_indices(&items, "", Some(sort))
+                        .iter()
+                        .map(|&index| items[index].0.uri().to_string())
+                        .collect::<Vec<_>>()
+                });
+            actions_row(
+                app,
+                ui,
+                Actions {
+                    play_uri: Some(album.uri.clone()),
+                    view: album_view,
+                    saved: Some((album.uri.clone(), saved)),
+                    saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
+                    saved_tooltips: ("Save to Your Library", "Remove from Your Library"),
+                    owned_playlist: None,
+                    name: &album.name,
+                },
+                None,
+            );
             table(
                 app,
                 ui,
@@ -844,6 +879,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         ui,
         Actions {
             play_uri: collection_uri.clone(),
+            view: None,
             saved: None,
             saved_icons: (Icon::Heart, Icon::HeartFilled),
             saved_tooltips: ("", ""),
