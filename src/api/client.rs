@@ -1063,6 +1063,30 @@ impl ApiClient {
         offset: u32,
         limit: u32,
     ) -> Result<Page<Album>> {
+        match self
+            .artist_albums_limited(id, include_groups, offset, limit)
+            .await
+        {
+            Err(ApiError::Status {
+                status: 400,
+                message,
+            }) if limit > 20 && message.to_lowercase().contains("limit") => {
+                // Some Web API applications cap this endpoint lower than
+                // others; ask for less rather than show an error (#38).
+                self.artist_albums_limited(id, include_groups, offset, 20)
+                    .await
+            }
+            result => result,
+        }
+    }
+
+    async fn artist_albums_limited(
+        &self,
+        id: &str,
+        include_groups: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Page<Album>> {
         self.get(
             &format!("/artists/{id}/albums"),
             &[
