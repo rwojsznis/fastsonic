@@ -19,7 +19,7 @@ use crate::api::{
 };
 use crate::images::{ArtLoader, accent_color};
 use crate::paths::AppDirs;
-use crate::player::{Engine, EngineConfig, EngineEvent, LocalState, PlayerCommand};
+use crate::player::{Engine, EngineConfig, EngineEvent, LoadSpec, LocalState, PlayerCommand};
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
@@ -676,6 +676,9 @@ struct Worker {
     authorizing_source: Option<ApiSource>,
     pending_authorization: Option<ApiSource>,
     reconnects: Vec<Instant>,
+    /// What the engine was playing when it went down, to load again once
+    /// the next one is up.
+    resume: Option<LoadSpec>,
 }
 
 impl Worker {
@@ -710,6 +713,7 @@ impl Worker {
             authorizing_source: None,
             pending_authorization: None,
             reconnects: Vec::new(),
+            resume: None,
         }
     }
 
@@ -1107,18 +1111,28 @@ impl Worker {
         }
     }
 
-    /// Reconnect the engine after its session dropped or audio settings changed.
+    /// Reconnect the engine after its session dropped or audio settings
+    /// changed. Whatever was playing comes back at the same spot on the new
+    /// session, so a dropped connection is a pause of a few seconds rather
+    /// than silence.
     fn reconnect_engine(&mut self) {
         if !self.signed_in {
             return;
         }
         if let Some(engine) = self.engine.take() {
+            self.resume = engine.interrupted().map(|interrupted| LoadSpec {
+                uris: vec![interrupted.uri],
+                position_ms: interrupted.position_ms,
+                play: interrupted.playing,
+                ..LoadSpec::default()
+            });
             engine.shutdown();
         }
         let now = Instant::now();
         self.reconnects
             .retain(|attempt| now.duration_since(*attempt) < Duration::from_secs(600));
         if self.reconnects.len() >= 6 {
+            self.resume = None;
             self.emit(Event::Playback(LocalPlayback::Failed(
                 "Local playback keeps dropping. Re-enable it from Settings.".into(),
             )));
@@ -1250,11 +1264,23 @@ impl Worker {
         match engine {
             Some(engine) => {
                 let device_id = engine.device_id().to_string();
-                self.engine = Some(Arc::new(engine));
+                let engine = Arc::new(engine);
+                if let Some(spec) = self.resume.take() {
+                    log::info!(
+                        "picking {} up again at {} ms on the new session",
+                        spec.uris.join(" "),
+                        spec.position_ms
+                    );
+                    if let Err(error) = engine.command(PlayerCommand::Load(spec)) {
+                        log::warn!("unable to pick playback up again: {error}");
+                    }
+                }
+                self.engine = Some(engine);
                 self.reconnects.clear();
                 self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
             }
             None => {
+                self.resume = None;
                 let message = error.unwrap_or_else(|| "Local playback is unavailable".into());
                 self.emit(Event::Playback(LocalPlayback::Failed(message)));
             }

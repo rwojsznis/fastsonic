@@ -169,7 +169,30 @@ pub struct LocalState {
     pub seek_sequence: u64,
 }
 
+/// What local playback was doing when its session ended, so the engine
+/// can pick it up again after reconnecting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Interrupted {
+    pub uri: String,
+    pub position_ms: u32,
+    /// Playing or loading, as opposed to paused.
+    pub playing: bool,
+}
+
 impl LocalState {
+    /// The track and position to come back to, if something was on.
+    pub fn interrupted(&self) -> Option<Interrupted> {
+        let track = self.track.as_ref()?;
+        if self.playback == Playback::Stopped {
+            return None;
+        }
+        Some(Interrupted {
+            uri: track.uri.clone(),
+            position_ms: self.position_now(),
+            playing: matches!(self.playback, Playback::Playing | Playback::Loading),
+        })
+    }
+
     /// The position now, interpolated from the last report while playing.
     pub fn position_now(&self) -> u32 {
         match (self.playback, self.position_at) {
@@ -233,6 +256,9 @@ pub struct Engine {
     session: Session,
     mixer: Arc<dyn Mixer>,
     device_id: String,
+    state: Arc<Mutex<LocalState>>,
+    /// What was playing when the session ended on its own.
+    interrupted: Arc<Mutex<Option<Interrupted>>>,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -308,13 +334,19 @@ impl Engine {
         }
 
         let shutting_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let interrupted: Arc<Mutex<Option<Interrupted>>> = Arc::default();
         let ended_flag = Arc::clone(&shutting_down);
         let ended_notify = Arc::clone(&notify);
         let ended_state = Arc::clone(&state);
+        let ended_interrupted = Arc::clone(&interrupted);
         tokio::spawn(async move {
             spirc_task.await;
             {
                 let mut current = ended_state.lock().unwrap_or_else(|p| p.into_inner());
+                // Kept before the state is marked stopped, so a reconnect
+                // knows what to pick up.
+                *ended_interrupted.lock().unwrap_or_else(|p| p.into_inner()) =
+                    current.interrupted();
                 current.connected = false;
                 current.playback = Playback::Stopped;
                 current.position_at = None;
@@ -331,7 +363,26 @@ impl Engine {
             session,
             mixer,
             device_id,
+            state,
+            interrupted,
             shutting_down,
+        })
+    }
+
+    /// What to resume after this engine is replaced: what was playing when
+    /// its session ended, or what is playing now if the session still
+    /// stands and the engine is being restarted anyway.
+    pub fn interrupted(&self) -> Option<Interrupted> {
+        let ended = self
+            .interrupted
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+        ended.or_else(|| {
+            self.state
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .interrupted()
         })
     }
 
@@ -740,5 +791,33 @@ mod tests {
         let id = config.device_id();
         assert_eq!(id.len(), 40);
         assert_eq!(id, config.device_id());
+    }
+
+    /// A track that was playing or paused is remembered with its position;
+    /// nothing is once playback has stopped.
+    #[test]
+    fn an_interrupted_track_is_remembered_with_its_position() {
+        let mut state = LocalState {
+            track: Some(LocalTrack {
+                uri: "spotify:track:x".into(),
+                duration_ms: 200_000,
+                ..LocalTrack::default()
+            }),
+            playback: Playback::Playing,
+            position_ms: 10_000,
+            position_at: Some(Instant::now()),
+            ..LocalState::default()
+        };
+        let resume = state.interrupted().expect("playing");
+        assert_eq!(resume.uri, "spotify:track:x");
+        assert!(resume.playing);
+        assert!(resume.position_ms >= 10_000);
+        state.playback = Playback::Paused;
+        assert!(!state.interrupted().expect("paused").playing);
+        state.playback = Playback::Stopped;
+        assert!(state.interrupted().is_none());
+        state.playback = Playback::Playing;
+        state.track = None;
+        assert!(state.interrupted().is_none());
     }
 }
