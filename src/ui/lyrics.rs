@@ -158,7 +158,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 let halign = crate::bidi::halign_for(text);
                 let response = ui.add(
                     egui::Label::new(
-                        egui::RichText::new(display.into_owned()).font(font).color(color),
+                        egui::RichText::new(display.into_owned())
+                            .font(font)
+                            .color(color),
                     )
                     .halign(halign)
                     .sense(sense),

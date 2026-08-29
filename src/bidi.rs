@@ -112,7 +112,12 @@ pub fn halign_for(text: &str) -> Align {
 /// The job's `halign` is set to `RIGHT` for RTL so that the text hugs the
 /// right edge of its container, and the text itself is reordered via
 /// `display_text` when needed.
-pub fn layout_job(text: &str, font: FontId, color: Color32, wrap_width: f32) -> egui::text::LayoutJob {
+pub fn layout_job(
+    text: &str,
+    font: FontId,
+    color: Color32,
+    wrap_width: f32,
+) -> egui::text::LayoutJob {
     let display = display_text(text);
     let mut job = egui::text::LayoutJob::simple(display.into_owned(), font, color, wrap_width);
     job.halign = halign_for(text);

@@ -4,6 +4,7 @@ pub mod api;
 pub mod app;
 pub mod auth;
 pub mod backend;
+pub mod bidi;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
 pub mod eq;
@@ -32,7 +33,6 @@ pub mod tray;
 #[cfg(not(target_os = "linux"))]
 #[path = "tray_native.rs"]
 pub mod tray;
-pub mod bidi;
 pub mod ui;
 pub mod updates;
 pub mod util;

@@ -256,7 +256,13 @@ fn top_result(
                     egui::Align2::LEFT_CENTER,
                 )
             };
-            painter.text(pos, anchor, display.into_owned(), theme::bold(26.0), palette.text);
+            painter.text(
+                pos,
+                anchor,
+                display.into_owned(),
+                theme::bold(26.0),
+                palette.text,
+            );
         }
         {
             let display = crate::bidi::display_text(subtitle);
@@ -272,7 +278,13 @@ fn top_result(
                     egui::Align2::LEFT_CENTER,
                 )
             };
-            painter.text(pos, anchor, display.into_owned(), theme::regular(13.5), palette.secondary);
+            painter.text(
+                pos,
+                anchor,
+                display.into_owned(),
+                theme::regular(13.5),
+                palette.secondary,
+            );
         }
         if hovered && let Some(uri) = &play_uri {
             let button = Rect::from_center_size(

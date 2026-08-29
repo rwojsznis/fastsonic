@@ -746,10 +746,14 @@ pub fn text(
     let halign = crate::bidi::halign_for(&text);
     let display = crate::bidi::display_text(&text);
     ui.add(
-        egui::Label::new(egui::RichText::new(display.into_owned()).font(font).color(color))
-            .halign(halign)
-            .truncate()
-            .selectable(false),
+        egui::Label::new(
+            egui::RichText::new(display.into_owned())
+                .font(font)
+                .color(color),
+        )
+        .halign(halign)
+        .truncate()
+        .selectable(false),
     )
 }
 
@@ -764,11 +768,15 @@ pub fn link(
     let halign = crate::bidi::halign_for(&text);
     let display = crate::bidi::display_text(&text);
     let response = ui.add(
-        egui::Label::new(egui::RichText::new(display.into_owned()).font(font).color(color))
-            .halign(halign)
-            .truncate()
-            .selectable(false)
-            .sense(Sense::click()),
+        egui::Label::new(
+            egui::RichText::new(display.into_owned())
+                .font(font)
+                .color(color),
+        )
+        .halign(halign)
+        .truncate()
+        .selectable(false)
+        .sense(Sense::click()),
     );
     if response.hovered() {
         let rect = response.rect;
