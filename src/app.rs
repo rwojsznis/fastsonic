@@ -3862,7 +3862,17 @@ impl App {
                     self.toast("Opening Spotify to enable playback here");
                 }
             }
-            Action::OpenUrl(url) => ctx.open_url(egui::OpenUrl::new_tab(url)),
+            Action::OpenUrl(url) => {
+                // The door the sign-in uses, off the interface thread. egui's
+                // own link opening runs through a chain of features and a
+                // guessing launcher, and a click that does nothing is worse
+                // than no link.
+                std::thread::spawn(move || {
+                    if let Err(error) = open::that(&url) {
+                        log::warn!("unable to open {url}: {error}");
+                    }
+                });
+            }
             Action::ClearArtCache => match self.backend.art().clear_disk_cache() {
                 Ok(bytes) => {
                     ctx.forget_all_images();
@@ -3961,6 +3971,9 @@ impl App {
                 self.settings.eq_shaded = !self.settings.eq_shaded;
                 self.settings_dirty = true;
             }
+            // The same request the window's own close button makes, so the
+            // close-to-tray setting decides what follows.
+            Action::CloseWindow => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             Action::CycleVisualiser => {
                 self.settings.vis = self.settings.vis.next();
                 self.settings_dirty = true;
