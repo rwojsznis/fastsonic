@@ -2278,13 +2278,12 @@ impl App {
                     return;
                 }
                 let filtered = result.map(|playlists| {
-                    let needle = term.to_lowercase();
                     let mut seen = std::collections::HashSet::new();
                     let mut matching: Vec<Playlist> = playlists
                         .into_iter()
                         .filter(|playlist| {
                             let owner = playlist.owner.id.as_deref().unwrap_or("");
-                            playlist.name.to_lowercase().contains(&needle)
+                            is_made_for_you(&playlist.name, &term)
                                 && (owner == "spotify" || playlist.owner_name() == "Spotify")
                                 && seen.insert(playlist.name.to_lowercase())
                         })
@@ -4334,6 +4333,23 @@ fn friendly_page_error(error: &crate::api::ApiError) -> String {
     }
 }
 
+/// Whether a Spotify-owned playlist named `name` is the personal one the
+/// Made for you shelf looks for under `term`. The name has to be the term
+/// itself, or "Daily Mix" with a number: Spotify also makes "<Artist> Mix",
+/// "This Is <Artist>", and "<Artist> Radio" for every artist, and an artist
+/// called "Discover Weekly" put those on the shelf (#89).
+fn is_made_for_you(name: &str, term: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    let term = term.to_lowercase();
+    if name == term {
+        return true;
+    }
+    term == "daily mix"
+        && name
+            .strip_prefix("daily mix ")
+            .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+}
+
 /// What the engine is told to play. A single song goes as a context of
 /// its own rather than a list of one: Spotify resolves a track's URI as a
 /// context, and a context with a URI is what librespot's autoplay carries
@@ -4562,6 +4578,25 @@ mod tests {
         let mut app = headless_app();
         app.handle_api(me("premium"));
         assert!(app.dialog.is_none());
+    }
+
+    /// Only the personal playlists themselves belong on the shelf, not
+    /// what Spotify generates for an artist who took one of their names.
+    #[test]
+    fn the_shelf_takes_the_playlist_and_not_an_artist_named_after_it() {
+        assert!(is_made_for_you("Discover Weekly", "Discover Weekly"));
+        assert!(is_made_for_you("release radar", "Release Radar"));
+        assert!(is_made_for_you("daylist", "daylist"));
+        assert!(is_made_for_you("Daily Mix 3", "Daily Mix"));
+        assert!(is_made_for_you("Daily Mix", "Daily Mix"));
+        assert!(!is_made_for_you("Discover Weekly Mix", "Discover Weekly"));
+        assert!(!is_made_for_you(
+            "This Is Discover Weekly",
+            "Discover Weekly"
+        ));
+        assert!(!is_made_for_you("Release Radar Radio", "Release Radar"));
+        assert!(!is_made_for_you("Daily Mix Radio", "Daily Mix"));
+        assert!(!is_made_for_you("Daily Mix 3", "Discover Weekly"));
     }
 
     /// One song plays as a context of its own, so librespot's autoplay
