@@ -269,11 +269,27 @@ fn install_fonts(ctx: &egui::Context) {
         .font_data
         .insert(INTER_BOLD.to_owned(), weighted(700.0));
 
+    let noto_emoji = include_bytes!("../assets/fonts/NotoEmoji.ttf");
+    fonts.font_data.insert(
+        "noto_emoji".to_owned(),
+        Arc::new(FontData::from_static(noto_emoji)),
+    );
+
     fonts
         .families
         .entry(FontFamily::Proportional)
         .or_default()
         .insert(0, "inter".to_owned());
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .push("noto_emoji".to_owned());
+    fonts
+        .families
+        .entry(FontFamily::Monospace)
+        .or_default()
+        .push("noto_emoji".to_owned());
     let fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional]
         .iter()
         .skip(1)
@@ -825,4 +841,24 @@ pub fn section_title(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Respo
 
 pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
     text(ui, label, regular(13.0), palette.secondary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fonts_install_and_layout_emojis() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let galley = ui.painter().layout_no_wrap(
+                "Rosewood 🔥 Otomo 🎵 ❤️ 🚀".to_string(),
+                regular(14.0),
+                Color32::WHITE,
+            );
+            assert!(galley.rows[0].glyphs.len() >= 5);
+        });
+        output.textures_delta.clear();
+    }
 }
