@@ -179,7 +179,7 @@ Connect devices and conflicting media-key handlers.
 | `Space` | Play or pause |
 | `Ctrl+←` / `Ctrl+→` | Previous or next |
 | `Shift+←` / `Shift+→` | Seek 10 seconds |
-| `Ctrl+↑` / `Ctrl+↓` | Volume |
+| `Ctrl+↑` / `Ctrl+↓`, or the wheel over the volume slider | Volume |
 | `M` | Mute |
 | `S` / `R` | Shuffle / cycle repeat |
 | `Q` | Queue panel |

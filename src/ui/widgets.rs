@@ -1406,6 +1406,22 @@ pub enum SliderEvent {
     Committed(f32),
 }
 
+/// Whole notches the wheel turned over `response` since last asked, up
+/// being positive. A mouse reports fifty points a notch; a trackpad's
+/// finer scrolling adds up to the same steps.
+pub fn wheel_notches(ui: &Ui, response: &egui::Response) -> i32 {
+    const NOTCH: f32 = 50.0;
+    if !response.hovered() {
+        return 0;
+    }
+    let delta = ui.input(|input| input.smooth_scroll_delta.y);
+    let id = response.id.with("wheel");
+    let total = ui.data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0) + delta;
+    let notches = (total / NOTCH).trunc();
+    ui.data_mut(|data| data.insert_temp(id, total - notches * NOTCH));
+    notches as i32
+}
+
 /// A thin horizontal slider whose handle appears on hover, for seeking and
 /// volume. `value` is 0..=1.
 pub fn thin_slider(
@@ -1415,6 +1431,7 @@ pub fn thin_slider(
     value: f32,
     width: f32,
     accent: Color32,
+    wheel_step: Option<f32>,
 ) -> SliderEvent {
     let (rect, response) = ui.allocate_exact_size(vec2(width, 16.0), Sense::click_and_drag());
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1437,6 +1454,12 @@ pub fn thin_slider(
         && let Some(v) = pointer_value
     {
         event = SliderEvent::Committed(v);
+    }
+    if let Some(step) = wheel_step {
+        let notches = wheel_notches(ui, &response);
+        if notches != 0 {
+            event = SliderEvent::Committed((value + step * notches as f32).clamp(0.0, 1.0));
+        }
     }
     let shown = match &event {
         SliderEvent::Dragging(v) => *v,

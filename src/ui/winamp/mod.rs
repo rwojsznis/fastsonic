@@ -29,7 +29,7 @@ use crate::util;
 use crate::vis;
 use crate::winamp::{MAX_SCALE, WinampState};
 
-use super::widgets::SliderEvent;
+use super::widgets::{SliderEvent, wheel_notches};
 
 mod equalizer;
 mod pixel_text;
@@ -1163,6 +1163,11 @@ fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         .map(|now| now.volume_percent)
         .unwrap_or_else(|| crate::app::volume_to_percent(app.local.volume));
     let (response, event) = view.slider(layout::VOLUME, "volume", 14);
+    let notches = wheel_notches(view.ui, &response);
+    if notches != 0 {
+        let level = (i32::from(volume) + 5 * notches).clamp(0, 100);
+        app.actions.push(Action::SetVolume(level as u8));
+    }
     match event {
         SliderEvent::Dragging(value) => {
             app.volume_preview = Some(value);

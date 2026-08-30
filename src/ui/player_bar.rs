@@ -384,6 +384,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         fraction,
         slider_width,
         palette.accent,
+        None,
     ) {
         SliderEvent::Dragging(value) => app.seek_preview = Some(value),
         SliderEvent::Committed(value) => {
@@ -421,6 +422,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         shown as f32 / 100.0,
         92.0,
         palette.accent,
+        Some(0.05),
     ) {
         SliderEvent::Dragging(value) => {
             app.volume_preview = Some(value);
