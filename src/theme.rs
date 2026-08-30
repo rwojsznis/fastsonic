@@ -280,16 +280,19 @@ fn install_fonts(ctx: &egui::Context) {
         .entry(FontFamily::Proportional)
         .or_default()
         .insert(0, "inter".to_owned());
+    // Right behind the text face, ahead of the emoji subset and the icon
+    // font egui bundles, so every emoji comes from the one full face and
+    // wears the same style; egui's pair still serves what Noto lacks.
     fonts
         .families
         .entry(FontFamily::Proportional)
         .or_default()
-        .push("noto_emoji".to_owned());
+        .insert(1, "noto_emoji".to_owned());
     fonts
         .families
         .entry(FontFamily::Monospace)
         .or_default()
-        .push("noto_emoji".to_owned());
+        .insert(1, "noto_emoji".to_owned());
     let fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional]
         .iter()
         .skip(1)
