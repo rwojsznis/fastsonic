@@ -18,6 +18,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
+        // The platform's close key. macOS only closes a window from its
+        // menu, which winit does not install, and the mini player has no
+        // title bar for the system to close it by.
+        key(Modifiers::COMMAND, Key::W, Action::CloseWindow);
         // winit installs its own macOS app menu, whose Hide item owns Cmd+H
         // before the window is offered the key.
         if cfg!(target_os = "macos") {
@@ -159,5 +163,6 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ),
     ("Ctrl+,", "Settings"),
     ("Ctrl+/ or ?", "Keyboard shortcuts"),
+    ("Ctrl+W", "Close the window"),
     ("Ctrl+Q", "Quit"),
 ];

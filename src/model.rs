@@ -644,6 +644,9 @@ pub enum Action {
     ToggleWinampPlaylistShade,
     /// Roll the equalizer window up to its title bar, or down again.
     ToggleWinampEqShade,
+    /// Close the window the way its close button does: into the tray when
+    /// that is on, out of the app otherwise.
+    CloseWindow,
     /// Roll the main window up to its title bar, or down again.
     ToggleWinampShade,
     Quit,
