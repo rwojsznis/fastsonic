@@ -917,7 +917,7 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
             } else {
                 vec![0.0; vis::FFT_SAMPLES]
             };
-            let bars = app.winamp.analyser.step(&samples);
+            let bars = app.winamp.analyser.step(&samples, Instant::now());
             for (index, bar) in bars.iter().enumerate() {
                 let x = area.x + 4 * index as u32;
                 for row in (vis::ROWS - bar.height)..vis::ROWS {
@@ -1032,6 +1032,9 @@ fn time_display(app: &mut App, view: &mut View, now: Option<&NowPlaying>, time: 
         app.winamp.time_remaining = !app.winamp.time_remaining;
     }
     let extended = view.skin.has_extended_digits();
+    // The blank digit is painted, not left out: what the main sheet has
+    // under the digits is the skin's own idea of an empty display, which
+    // is not always empty.
     let blank = |view: &mut View| {
         if extended {
             for cell in layout::TIME_DIGITS {
@@ -1039,6 +1042,9 @@ fn time_display(app: &mut App, view: &mut View, now: Option<&NowPlaying>, time: 
             }
             view.sprite(sprites::NUMS_EX_BLANK, layout::MINUS_EX);
         } else {
+            for cell in layout::TIME_DIGITS {
+                view.sprite(sprites::NUMBERS_BLANK, cell);
+            }
             view.sprite(sprites::NUMBERS_NO_MINUS, layout::MINUS);
         }
     };

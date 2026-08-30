@@ -210,6 +210,7 @@ sprites! {
     /// middle bar of the 2 and, to clear it, the same row of the 1.
     NUMBERS_MINUS = (Numbers, 20, 6, 5, 1);
     NUMBERS_NO_MINUS = (Numbers, 9, 6, 5, 1);
+    NUMBERS_BLANK = (Numbers, 90, 0, 9, 13);
     NUMS_EX_BLANK = (NumsEx, 90, 0, 9, 13);
     NUMS_EX_MINUS = (NumsEx, 99, 0, 9, 13);
 
