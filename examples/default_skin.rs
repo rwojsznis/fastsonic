@@ -610,23 +610,23 @@ fn pledit_sheet() -> Canvas {
     }
     c.rect(72, 42, 1, 14, OUTLINE);
     c.rect(148, 42, 1, 29, OUTLINE);
+    // The strip is one sunken box across the whole bar: the left end
+    // starts it three pixels in with its own edge, the tile carries it
+    // straight across with no edges of its own, and the right end closes
+    // it short of the buttons.
+    c.rect(75, 44, 22, 10, WINDOW);
+    c.rect(75, 44, 22, 1, OUTLINE);
+    c.rect(75, 53, 22, 1, OUTLINE);
+    c.rect(75, 44, 1, 10, OUTLINE);
+    c.rect(72, 59, 25, 10, WINDOW);
+    c.rect(72, 59, 25, 1, OUTLINE);
+    c.rect(72, 68, 25, 1, OUTLINE);
     for y in [42, 57] {
-        // The left end's strip starts a little in; the tile's runs across;
-        // the right end's stops short of the buttons.
-        c.rect(75, y + 2, 22, 10, WINDOW);
-        c.rect(75, y + 2, 22, 1, OUTLINE);
-        c.rect(75, y + 11, 22, 1, OUTLINE);
-        c.rect(75, y + 2, 1, 10, OUTLINE);
-        c.rect(72, y + 2, 25, 10, WINDOW);
-        c.rect(72, y + 2, 25, 1, OUTLINE);
-        c.rect(72, y + 11, 25, 1, OUTLINE);
         c.rect(99, y + 2, 27, 10, WINDOW);
         c.rect(99, y + 2, 27, 1, OUTLINE);
         c.rect(99, y + 11, 27, 1, OUTLINE);
         c.rect(125, y + 2, 1, 10, OUTLINE);
     }
-    // The tile at (72,57) overwrote the left end's start; redraw it.
-    c.rect(72, 57 + 2, 3, 10, SURFACE);
     for (y, color) in [(42, SECONDARY), (57, DIM)] {
         c.glyph_centred((126, y + 3, 9, 9), UNSHADE, color, 0);
         c.glyph_centred((137, y + 3, 9, 9), CLOSE, color, 0);
