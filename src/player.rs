@@ -222,6 +222,9 @@ pub struct LoadSpec {
     pub position_ms: u32,
     pub play: bool,
     pub shuffle: Option<bool>,
+    /// Play what Spotify would follow `context_uri` with, its autoplay
+    /// station, rather than the context itself.
+    pub autoplay: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -463,12 +466,16 @@ impl Engine {
                     .clone()
                     .map(PlayingTrack::Uri)
                     .or_else(|| spec.offset_index.map(PlayingTrack::Index));
-                let context_options = spec.shuffle.map(|shuffle| {
-                    LoadContextOptions::Options(Options {
-                        shuffle,
-                        ..Options::default()
+                let context_options = if spec.autoplay {
+                    Some(LoadContextOptions::Autoplay)
+                } else {
+                    spec.shuffle.map(|shuffle| {
+                        LoadContextOptions::Options(Options {
+                            shuffle,
+                            ..Options::default()
+                        })
                     })
-                });
+                };
                 let options = LoadRequestOptions {
                     start_playing: spec.play,
                     seek_to: spec.position_ms,

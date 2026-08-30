@@ -221,6 +221,10 @@ pub struct App {
     /// A play request made while the local engine was still connecting; it
     /// starts the moment the engine reports ready.
     queued_play: Option<PlayRequest>,
+    /// The plain list of songs local playback was last given, so autoplay
+    /// can carry on from its last one when it ends: librespot only
+    /// continues from a context with a URI, and a list has none.
+    local_list: Option<Vec<String>>,
     /// A receiver just activated, waiting for Spotify to list it so playback
     /// can move there.
     pending_transfer_to: Option<(String, Instant)>,
@@ -425,6 +429,7 @@ impl App {
             pending_play_keys: Vec::new(),
             pending_play_at: None,
             queued_play: None,
+            local_list: None,
             pending_transfer_to: None,
             remote_recheck_at: None,
             seek_preview: None,
@@ -1073,6 +1078,21 @@ impl App {
                     self.toast("Spotify's audio service faltered; reconnecting local playback");
                 }
             }
+        }
+        if let Some(seed) = autoplay_seed(
+            self.local_list.as_deref(),
+            self.settings.autoplay,
+            &self.local,
+            &state,
+        ) {
+            log::info!("the list ended; playing what Spotify follows {seed} with");
+            self.local_list = None;
+            self.backend.player(PlayerCommand::Load(LoadSpec {
+                context_uri: Some(seed),
+                play: true,
+                autoplay: true,
+                ..LoadSpec::default()
+            }));
         }
         self.local = state;
         if let Some(volume) = held_volume {
@@ -3092,15 +3112,9 @@ impl App {
             }
             Target::Local => {
                 self.queued_play = None;
-                self.backend.player(PlayerCommand::Load(LoadSpec {
-                    context_uri: request.context_uri.clone(),
-                    uris: request.uris.clone(),
-                    offset_uri: request.offset_uri.clone(),
-                    offset_index: request.offset_position,
-                    position_ms: request.position_ms,
-                    play: true,
-                    shuffle: shuffle.then_some(true),
-                }));
+                let load = local_load(&request, shuffle);
+                self.local_list = load.context_uri.is_none().then(|| load.uris.clone());
+                self.backend.player(PlayerCommand::Load(load));
                 self.optimistic_playing = Some((true, Instant::now()));
             }
             Target::Remote(Some(device_id)) => {
@@ -3421,6 +3435,7 @@ impl App {
                     position_ms: request.position_ms,
                     play: was_playing,
                     shuffle: None,
+                    autoplay: false,
                 }));
             }
             self.poll_remote_soon();
@@ -4319,6 +4334,59 @@ fn friendly_page_error(error: &crate::api::ApiError) -> String {
     }
 }
 
+/// What the engine is told to play. A single song goes as a context of
+/// its own rather than a list of one: Spotify resolves a track's URI as a
+/// context, and a context with a URI is what librespot's autoplay carries
+/// on from when it ends, the way one song from a search does in Spotify.
+fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
+    let single_song = request.context_uri.is_none()
+        && request.uris.len() == 1
+        && request.uris[0].contains(":track:");
+    if single_song {
+        return LoadSpec {
+            context_uri: Some(request.uris[0].clone()),
+            position_ms: request.position_ms,
+            play: true,
+            ..LoadSpec::default()
+        };
+    }
+    LoadSpec {
+        context_uri: request.context_uri.clone(),
+        uris: request.uris.clone(),
+        offset_uri: request.offset_uri.clone(),
+        offset_index: request.offset_position,
+        position_ms: request.position_ms,
+        play: true,
+        shuffle: shuffle.then_some(true),
+        autoplay: false,
+    }
+}
+
+/// The song to seed autoplay with when local playback stops at the end of
+/// a plain list: the list's last one, provided the stop is the list's end
+/// rather than the listener's, the session still stands, and autoplay is
+/// on.
+fn autoplay_seed(
+    list: Option<&[String]>,
+    autoplay: bool,
+    before: &LocalState,
+    after: &LocalState,
+) -> Option<String> {
+    if !autoplay
+        || !after.connected
+        || after.playback != Playback::Stopped
+        || before.playback != Playback::Playing
+    {
+        return None;
+    }
+    let track = before.track.as_ref()?;
+    if list?.last() != Some(&track.uri) || track.duration_ms == 0 {
+        return None;
+    }
+    let near_end = before.position_now() + 3_000 >= track.duration_ms;
+    near_end.then(|| track.uri.clone())
+}
+
 /// Spotify balks at gigantic track lists, so a play that starts deep in
 /// one keeps the five hundred songs from its start onward.
 fn cap_uris(uris: Vec<String>, index: u32) -> (Vec<String>, u32) {
@@ -4494,6 +4562,78 @@ mod tests {
         let mut app = headless_app();
         app.handle_api(me("premium"));
         assert!(app.dialog.is_none());
+    }
+
+    /// One song plays as a context of its own, so librespot's autoplay
+    /// follows it; a list stays a list.
+    #[test]
+    fn one_song_is_loaded_as_a_context() {
+        let one = local_load(&PlayRequest::tracks(vec!["spotify:track:a".into()]), false);
+        assert_eq!(one.context_uri.as_deref(), Some("spotify:track:a"));
+        assert!(one.uris.is_empty() && !one.autoplay);
+        let two = local_load(
+            &PlayRequest::tracks(vec!["spotify:track:a".into(), "spotify:track:b".into()])
+                .starting_at_index(1),
+            true,
+        );
+        assert_eq!(two.context_uri, None);
+        assert_eq!(two.uris.len(), 2);
+        assert_eq!(two.offset_index, Some(1));
+        assert_eq!(two.shuffle, Some(true));
+        let episode = local_load(
+            &PlayRequest::tracks(vec!["spotify:episode:e".into()]),
+            false,
+        );
+        assert_eq!(episode.context_uri, None);
+        assert_eq!(episode.uris.len(), 1);
+    }
+
+    /// A plain list that plays out seeds autoplay with its last song; a
+    /// stop anywhere else, a dropped session, or autoplay off does not.
+    #[test]
+    fn a_list_that_ends_seeds_autoplay_with_its_last_song() {
+        let track = |uri: &str| {
+            Some(crate::player::LocalTrack {
+                uri: uri.into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            })
+        };
+        let playing = LocalState {
+            playback: Playback::Playing,
+            track: track("spotify:track:last"),
+            position_ms: 198_500,
+            connected: true,
+            ..LocalState::default()
+        };
+        let stopped = LocalState {
+            playback: Playback::Stopped,
+            track: track("spotify:track:last"),
+            connected: true,
+            ..LocalState::default()
+        };
+        let list: Vec<String> = vec!["spotify:track:first".into(), "spotify:track:last".into()];
+        assert_eq!(
+            autoplay_seed(Some(&list), true, &playing, &stopped).as_deref(),
+            Some("spotify:track:last")
+        );
+        assert_eq!(autoplay_seed(Some(&list), false, &playing, &stopped), None);
+        assert_eq!(autoplay_seed(None, true, &playing, &stopped), None);
+        let mid_song = LocalState {
+            position_ms: 60_000,
+            ..playing.clone()
+        };
+        assert_eq!(autoplay_seed(Some(&list), true, &mid_song, &stopped), None);
+        let not_last = LocalState {
+            track: track("spotify:track:first"),
+            ..playing.clone()
+        };
+        assert_eq!(autoplay_seed(Some(&list), true, &not_last, &stopped), None);
+        let dropped = LocalState {
+            connected: false,
+            ..stopped.clone()
+        };
+        assert_eq!(autoplay_seed(Some(&list), true, &playing, &dropped), None);
     }
 
     fn snapshot_at(percent: u8) -> LocalState {
