@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>rocks.fastpotify.Fastpotify</id>
+  <name>Fastpotify</name>
+  <summary>Spotify, native and fast</summary>
+  <developer id="me.paolino">
+    <name>Carmine Paolino</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      A lightweight Spotify client written in Rust, with no browser engine
+      anywhere in the process. It starts in well under a second, stays small
+      while it runs, plays music on this computer as a Spotify Connect
+      device, and controls playback on your other devices.
+    </p>
+    <p>
+      Your library, search, home, artist and album pages, the queue, lyrics,
+      keyboard shortcuts, media keys, a tray icon that keeps the music going
+      when the window closes, and a mini player that wears classic Winamp
+      skins. Playing music needs Spotify Premium; Spotify only lets Premium
+      accounts play through another app.
+    </p>
+  </description>
+  <launchable type="desktop-id">rocks.fastpotify.Fastpotify.desktop</launchable>
+  <url type="homepage">https://fastpotify.rocks/</url>
+  <url type="bugtracker">https://github.com/crmne/fastpotify/issues</url>
+  <url type="help">https://fastpotify.rocks/getting-started/</url>
+  <url type="vcs-browser">https://github.com/crmne/fastpotify</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>A playlist, with the queue open and a track playing on a remote speaker</caption>
+      <image>https://raw.githubusercontent.com/crmne/fastpotify/main/docs/screenshot.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The mini player wearing the built-in Winamp skin</caption>
+      <image>https://raw.githubusercontent.com/crmne/fastpotify/main/docs/assets/images/winamp.png</image>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#1ed760</color>
+    <color type="primary" scheme_preference="dark">#144a2a</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <requires>
+    <display_length compare="ge">760</display_length>
+    <internet>always</internet>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.4.0" date="2026-08-30" type="development">
+      <url>https://github.com/crmne/fastpotify/releases</url>
+    </release>
+    <release version="0.3.0" date="2026-08-29">
+      <url>https://github.com/crmne/fastpotify/releases/tag/v0.3.0</url>
+    </release>
+  </releases>
+</component>

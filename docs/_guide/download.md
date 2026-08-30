@@ -83,13 +83,17 @@ yay -S fastpotify-git      # built from the latest commit
 
 ### Flatpak
 
-[FlatPark](https://flatpark.org/apps/rocks.fastpotify.Fastpotify) packages
-each Linux release as a sandboxed Flatpak and follows every new version:
+From 0.4.0 on, every release carries a Flatpak bundle of the Linux build,
+`fastpotify-vX.Y.Z-x86_64.flatpak`, on the
+[releases page](https://github.com/crmne/fastpotify/releases). It runs on
+any distribution with Flatpak and the Freedesktop 24.08 runtime:
 
 ```sh
-flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
-flatpak install flatpark rocks.fastpotify.Fastpotify
+flatpak install --user ~/Downloads/fastpotify-vX.Y.Z-x86_64.flatpak
 ```
+
+A bundle does not update itself; a Flathub listing, which would, is in the
+works.
 
 ### Other distributions
 

@@ -184,9 +184,44 @@ jobs:
           path: dist/*.dmg
           if-no-files-found: error
 
+  # The Linux build packaged as a Flatpak bundle: the same binary, in the
+  # sandbox packaging/flatpak describes, so nothing compiles twice. Flathub
+  # builds from source on its own machines, from the manifest beside it.
+  flatpak:
+    name: Flatpak bundle
+    needs: build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: x86_64-unknown-linux-gnu
+          path: dist
+      - name: Unpack the Linux build
+        run: |
+          tar xzf dist/fastpotify-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz -C packaging/flatpak
+          mv packaging/flatpak/fastpotify-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu packaging/flatpak/built
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/rocks.fastpotify.Fastpotify.bundle.yml
+          bundle: fastpotify-${{ github.ref_name }}-x86_64.flatpak
+          cache: false
+          upload-artifact: false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak
+          path: "*.flatpak"
+          if-no-files-found: error
+
   publish:
     name: GitHub release
-    needs: [build, macos]
+    # The bundle is welcome but not required: a Flatpak failure must not
+    # hold the release.
+    needs: [build, macos, flatpak]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.macos.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v7

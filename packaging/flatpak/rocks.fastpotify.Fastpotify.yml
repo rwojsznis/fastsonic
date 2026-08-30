@@ -1,0 +1,56 @@
+# Fastpotify as a Flatpak, built from source: the manifest Flathub builds
+# from. The copy in the Flathub repository names a tag and its commit in
+# the source below and carries cargo-sources.json next to it; flathub.sh
+# writes both. For a local build, this one takes the checkout as it is:
+#
+#   flatpak-builder --user --install --force-clean build-dir \
+#       packaging/flatpak/rocks.fastpotify.Fastpotify.yml
+#
+# The release workflow does not build from source twice: it packages the
+# binary the Linux job already built, through the bundle manifest beside
+# this one, whose finish-args are the same as these.
+id: rocks.fastpotify.Fastpotify
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: fastpotify
+finish-args:
+  # Wayland first, X11 when that is what there is.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # Sound: PulseAudio, which PipeWire also answers.
+  - --socket=pulseaudio
+  # Spotify's API, the streaming session, the sign-in's local redirect, and
+  # mDNS for receivers on the network.
+  - --share=network
+  # The tray item, media keys and Now Playing over MPRIS, and the name the
+  # single instance is found by.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.mpris.MediaPlayer2.fastpotify
+  - --own-name=rocks.fastpotify.Instance
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/fastpotify/cargo
+modules:
+  - name: fastpotify
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --locked
+      - install -Dm755 target/release/fastpotify /app/bin/fastpotify
+      - install -Dm644 packaging/applications/fastpotify.desktop /app/share/applications/rocks.fastpotify.Fastpotify.desktop
+      - sed -i 's/^Icon=fastpotify$/Icon=rocks.fastpotify.Fastpotify/' /app/share/applications/rocks.fastpotify.Fastpotify.desktop
+      - install -Dm644 packaging/icons/fastpotify.svg /app/share/icons/hicolor/scalable/apps/rocks.fastpotify.Fastpotify.svg
+      - install -Dm644 packaging/flatpak/rocks.fastpotify.Fastpotify.metainfo.xml /app/share/metainfo/rocks.fastpotify.Fastpotify.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/fastpotify/LICENSE
+    sources:
+      - type: dir
+        path: ../..
+      # Every crate the lockfile names, for the offline build; flathub.sh
+      # writes it with flatpak-cargo-generator.
+      - cargo-sources.json

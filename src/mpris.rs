@@ -112,7 +112,7 @@ async fn run(
 ) -> mpris_server::zbus::Result<()> {
     let player = Player::builder("fastpotify")
         .identity("Fastpotify")
-        .desktop_entry("fastpotify")
+        .desktop_entry(desktop_entry())
         .can_raise(true)
         .can_quit(true)
         .can_control(true)
@@ -305,6 +305,16 @@ fn uri_from_object_path(path: &str) -> Option<String> {
     let rest = path.strip_prefix(TRACK_OBJECT_PATH_PREFIX)?;
     let (kind, id) = rest.split_once('_')?;
     Some(format!("spotify:{kind}:{id}"))
+}
+
+/// The desktop entry's name: inside a Flatpak the entry is exported under
+/// the app id, and a desktop looking it up by the plain name finds nothing.
+fn desktop_entry() -> &'static str {
+    if std::path::Path::new("/.flatpak-info").exists() {
+        "rocks.fastpotify.Fastpotify"
+    } else {
+        "fastpotify"
+    }
 }
 
 #[cfg(test)]

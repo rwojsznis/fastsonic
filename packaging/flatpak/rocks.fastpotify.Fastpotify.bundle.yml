@@ -1,0 +1,31 @@
+# The release workflow's Flatpak: the binary the Linux job built, packaged
+# into the same sandbox as rocks.fastpotify.Fastpotify.yml describes. The
+# job unpacks the release tarball into built/ beside this file first.
+id: rocks.fastpotify.Fastpotify
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: fastpotify
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --socket=pulseaudio
+  - --share=network
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.mpris.MediaPlayer2.fastpotify
+  - --own-name=rocks.fastpotify.Instance
+modules:
+  - name: fastpotify
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 fastpotify /app/bin/fastpotify
+      - install -Dm644 packaging/applications/fastpotify.desktop /app/share/applications/rocks.fastpotify.Fastpotify.desktop
+      - sed -i 's/^Icon=fastpotify$/Icon=rocks.fastpotify.Fastpotify/' /app/share/applications/rocks.fastpotify.Fastpotify.desktop
+      - install -Dm644 packaging/icons/fastpotify.svg /app/share/icons/hicolor/scalable/apps/rocks.fastpotify.Fastpotify.svg
+      - install -Dm644 packaging/flatpak/rocks.fastpotify.Fastpotify.metainfo.xml /app/share/metainfo/rocks.fastpotify.Fastpotify.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/fastpotify/LICENSE
+    sources:
+      - type: dir
+        path: built
