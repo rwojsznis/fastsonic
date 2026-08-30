@@ -252,16 +252,22 @@ fn open_stream(
 /// The player's thread decodes the music and hands it here with about a
 /// fifth of a second in hand. Under load a PC gives the foreground app
 /// the cores first, and a fifth of a second is soon gone; Windows lets a
-/// thread ask for precedence, so this one does. (#88)
+/// thread ask for precedence, so this one asks for a step above normal:
+/// ahead of an app's ordinary threads, behind the audio engine's own,
+/// and never so high that a stuck loop here could hold the machine. (#88)
+///
+/// Only Windows has a knob an unprivileged thread can turn: on Linux a
+/// thread cannot raise itself without rtkit, and on macOS the equivalent
+/// is a QoS class, worth wiring up when a report calls for it.
 #[cfg(windows)]
 fn take_precedence() {
     use windows_sys::Win32::System::Threading::{
-        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
     };
     // SAFETY: the current thread's pseudo-handle needs no closing, and the
     // call takes nothing else.
     unsafe {
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
     }
 }
 
