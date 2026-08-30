@@ -99,30 +99,28 @@ impl Curve {
     }
 }
 
-/// Each band's width, as a Q, from where its neighbours are: half way to
-/// each in octaves. Winamp's bands are not evenly spaced, three of them
-/// sit within a third of an octave at the top, and one width for all
-/// would pile those three on top of each other, so that "Full Treble"
-/// came out at +26 dB where it says +12.
-fn band_qs() -> [f64; 10] {
+/// Each band's width in octaves, from where its neighbours are: half way
+/// to each. Winamp's bands are not evenly spaced, three of them sit
+/// within a third of an octave at the top, and one width for all piled
+/// those three on top of each other, so that "Full Treble" came out at
+/// +26 dB where it says +12. The first and last band have no neighbour
+/// on their outer side and, as Winamp's did, take in what lies beyond:
+/// the sub-bass under 60 Hz and the air over 16 kHz, so their outer
+/// halves reach three octaves down and one up.
+fn band_widths() -> [f64; 10] {
     let octaves: Vec<f64> = BANDS.iter().map(|hz| f64::from(*hz).log2()).collect();
-    let mut qs = [0.0; 10];
-    for (index, q) in qs.iter_mut().enumerate() {
-        let left = index
+    let mut widths = [0.0; 10];
+    for (index, width) in widths.iter_mut().enumerate() {
+        let below = index
             .checked_sub(1)
-            .map(|i| (octaves[index] - octaves[i]) / 2.0);
-        let right = octaves
+            .map_or(octaves[index] - 3.0, |i| octaves[i]);
+        let above = octaves
             .get(index + 1)
-            .map(|next| (next - octaves[index]) / 2.0);
-        let width = match (left, right) {
-            (Some(left), Some(right)) => left + right,
-            (Some(one), None) | (None, Some(one)) => 2.0 * one,
-            (None, None) => 1.0,
-        };
-        // Q from a bandwidth in octaves, for a peaking filter.
-        *q = 1.0 / (2.0 * ((std::f64::consts::LN_2 / 2.0) * width).sinh());
+            .copied()
+            .unwrap_or(octaves[index] + 1.0);
+        *width = (octaves[index] - below) / 2.0 + (above - octaves[index]) / 2.0;
     }
-    qs
+    widths
 }
 
 /// The filters that make the combined response meet the sliders at every
@@ -130,22 +128,22 @@ fn band_qs() -> [f64; 10] {
 /// given is not the slider's own: the interaction is solved for, on the
 /// digital filters themselves, and refined until the centres agree.
 fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
-    let qs = band_qs();
+    let widths = band_widths();
     let target: [f64; 10] = bands_db.map(f64::from);
     if target.iter().all(|gain| gain.abs() <= f64::from(FLAT)) {
         return Vec::new();
     }
     // How much each band moves every centre, per decibel it is given.
     let mut unit = [[0.0; 10]; 10];
-    for (j, (hz, q)) in BANDS.iter().zip(qs).enumerate() {
-        let filter = Biquad::peaking(f64::from(*hz), q, 1.0);
+    for (j, (hz, width)) in BANDS.iter().zip(widths).enumerate() {
+        let filter = Biquad::peaking(f64::from(*hz), width, 1.0);
         for (i, centre) in BANDS.iter().enumerate() {
             unit[i][j] = filter.gain_db_at(f64::from(*centre));
         }
     }
     let mut gains = target;
     for _ in 0..6 {
-        let filters: Vec<(usize, Biquad)> = filters_for(&gains, &qs);
+        let filters: Vec<(usize, Biquad)> = filters_for(&gains, &widths);
         let mut residual = [0.0; 10];
         for (i, centre) in BANDS.iter().enumerate() {
             let played: f64 = filters
@@ -162,21 +160,21 @@ fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
             *gain = (*gain - step).clamp(-SOLVED_LIMIT, SOLVED_LIMIT);
         }
     }
-    filters_for(&gains, &qs)
+    filters_for(&gains, &widths)
         .into_iter()
         .map(|(_, filter)| filter)
         .collect()
 }
 
 /// The bands worth running, with the filter for each.
-fn filters_for(gains: &[f64; 10], qs: &[f64; 10]) -> Vec<(usize, Biquad)> {
+fn filters_for(gains: &[f64; 10], widths: &[f64; 10]) -> Vec<(usize, Biquad)> {
     BANDS
         .iter()
-        .zip(qs)
+        .zip(widths)
         .zip(gains)
         .enumerate()
         .filter(|(_, (_, gain))| gain.abs() > f64::from(FLAT))
-        .map(|(index, ((hz, q), gain))| (index, Biquad::peaking(f64::from(*hz), *q, *gain)))
+        .map(|(index, ((hz, width), gain))| (index, Biquad::peaking(f64::from(*hz), *width, *gain)))
         .collect()
 }
 
@@ -328,12 +326,16 @@ struct Biquad {
 }
 
 impl Biquad {
-    /// A peaking filter after the Audio EQ Cookbook, normalised by `a0`.
-    fn peaking(hz: f64, q: f64, gain_db: f64) -> Self {
+    /// A peaking filter after the Audio EQ Cookbook, `width` octaves wide
+    /// between its half-gain points and normalised by `a0`. The width is
+    /// taken the cookbook's digital way, with its `w0 / sin(w0)` term: near
+    /// the top of the band the plain analog Q would have come out three
+    /// times too narrow, which is what rippled the treble.
+    fn peaking(hz: f64, width: f64, gain_db: f64) -> Self {
         let a = 10f64.powf(gain_db / 40.0);
         let w0 = std::f64::consts::TAU * hz / f64::from(SAMPLE_RATE);
         let (sin, cos) = w0.sin_cos();
-        let alpha = sin / (2.0 * q);
+        let alpha = sin * ((std::f64::consts::LN_2 / 2.0) * width * w0 / sin).sinh();
         let a0 = 1.0 + alpha / a;
         Self {
             b0: (1.0 + alpha * a) / a0,
@@ -595,6 +597,32 @@ mod tests {
             "13 kHz sags to {:.1}",
             curve.db_at(13_000.0)
         );
+    }
+
+    /// The outer sliders reach past their centres: the sub-bass follows
+    /// the 60 Hz slider and the air follows the 16 kHz one, as they did.
+    #[test]
+    fn the_outer_sliders_reach_the_ends() {
+        let mut settings = EqSettings::default();
+        settings.bands_db[0] = 12.0;
+        let curve = settings.curve();
+        assert!(
+            curve.db_at(30.0) > 6.0,
+            "30 Hz gets {:.1}",
+            curve.db_at(30.0)
+        );
+        assert!(curve.db_at(170.0).abs() < 0.3);
+        let mut settings = EqSettings::default();
+        settings.bands_db[9] = 12.0;
+        let curve = settings.curve();
+        // A peaking filter is back at 0 dB by the sample rate's top, so
+        // half the slider is what 19 kHz can hold.
+        assert!(
+            curve.db_at(19_000.0) > 5.0,
+            "19 kHz gets {:.1}",
+            curve.db_at(19_000.0)
+        );
+        assert!(curve.db_at(14_000.0).abs() < 0.3);
     }
 
     #[test]
