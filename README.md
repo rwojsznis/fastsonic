@@ -82,7 +82,8 @@ application rather than a shell plugin.
 On Arch Linux, Fastpotify is in the AUR:
 
 ```bash
-yay -S fastpotify          # the released build
+yay -S fastpotify-bin      # the released build, ready made
+yay -S fastpotify          # the release, built from source
 yay -S fastpotify-git      # built from the latest commit
 ```
 

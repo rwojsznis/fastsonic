@@ -76,7 +76,8 @@ choose More info, then Run anyway.
 Fastpotify is in the AUR, with the desktop entry and icon installed for you:
 
 ```sh
-yay -S fastpotify          # the released build
+yay -S fastpotify-bin      # the released build, ready made
+yay -S fastpotify          # the release, built from source
 yay -S fastpotify-git      # built from the latest commit
 ```
 
