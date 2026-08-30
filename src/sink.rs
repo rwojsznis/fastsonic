@@ -10,8 +10,8 @@
 //! and tells the interface why, so the app stays up as a Connect remote and
 //! plays as soon as an output exists.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -21,6 +21,8 @@ use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
 use librespot_playback::mixer::VolumeGetter;
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
+
+use crate::resample::Resampler;
 
 /// The backend name Settings uses for this sink.
 pub const NAME: &str = "rodio";
@@ -49,7 +51,8 @@ pub struct RodioSink {
     /// at once instead of after the queue drains.
     volume: Box<dyn VolumeGetter + Send>,
     applied_volume: f32,
-    default_checked_at: Option<Instant>,
+    /// Keeps asking which output the system calls its default.
+    watch: Option<DefaultWatch>,
 }
 
 struct Output {
@@ -59,6 +62,10 @@ struct Output {
     device_name: Option<String>,
     /// Set from the audio thread when the stream dies (device unplugged).
     failed: Arc<AtomicBool>,
+    /// The rate the stream runs at, and the converter to it when that is
+    /// not Spotify's.
+    sample_rate: u32,
+    resampler: Option<Resampler>,
 }
 
 impl Output {
@@ -79,7 +86,7 @@ impl RodioSink {
             on_error,
             volume,
             applied_volume: -1.0,
-            default_checked_at: None,
+            watch: None,
         }
     }
 
@@ -87,9 +94,11 @@ impl RodioSink {
     /// listener has not picked a device: headphones plugged in, a Bluetooth
     /// speaker connected, another device chosen in the sound settings. The
     /// stream was opened on one device and would keep playing through it
-    /// otherwise. Asking is cheap on Windows and macOS. On Linux PipeWire
-    /// and PulseAudio move the stream themselves, and ALSA's answer never
-    /// changes, so nothing is asked there.
+    /// otherwise. Windows and macOS are asked; on Linux PipeWire and
+    /// PulseAudio move the stream themselves, and ALSA's answer never
+    /// changes, so nothing is asked there. The asking happens on a thread
+    /// of its own, since the player's thread has music to deliver on time;
+    /// `at_once` asks right now, for the start of playback.
     fn follow_default(&mut self, at_once: bool) {
         if cfg!(target_os = "linux") || self.device.is_some() {
             return;
@@ -97,17 +106,8 @@ impl RodioSink {
         let Some(output) = &self.output else {
             return;
         };
-        if !at_once
-            && self
-                .default_checked_at
-                .is_some_and(|at| at.elapsed() < DEFAULT_CHECK_INTERVAL)
-        {
-            return;
-        }
-        self.default_checked_at = Some(Instant::now());
-        let current = cpal::default_host()
-            .default_output_device()
-            .and_then(|device| device.name().ok());
+        let watch = self.watch.get_or_insert_with(DefaultWatch::start);
+        let current = if at_once { watch.ask() } else { watch.name() };
         if current.is_some() && current != output.device_name {
             log::info!(
                 "the default audio output is now {}; moving playback to it",
@@ -183,14 +183,18 @@ impl Sink for RodioSink {
         self.follow_default(false);
         self.ensure_open()?;
         self.apply_volume();
-        let Some(output) = &self.output else {
+        let Some(output) = &mut self.output else {
             return Err(SinkError::NotConnected(
                 "the audio output is not open".into(),
             ));
         };
+        let samples = match &mut output.resampler {
+            Some(resampler) => resampler.process(&samples),
+            None => samples,
+        };
         output.sink.append(rodio::buffer::SamplesBuffer::new(
             NUM_CHANNELS as rodio::ChannelCount,
-            SAMPLE_RATE as rodio::SampleRate,
+            output.sample_rate as rodio::SampleRate,
             samples,
         ));
         // Let rodio drain a little; without this the whole track would be
@@ -205,6 +209,55 @@ impl Sink for RodioSink {
         }
         Ok(())
     }
+}
+
+/// The name of the system's default output, as last asked. Asking
+/// Windows means making a device enumerator and reading a property store,
+/// which some driver stacks take their time over, so a thread of its own
+/// asks every couple of seconds and the player's thread only reads the
+/// answer. The thread ends when the sink that started it is gone.
+struct DefaultWatch(Arc<Mutex<Option<String>>>);
+
+impl DefaultWatch {
+    fn start() -> Self {
+        let shared = Arc::new(Mutex::new(None));
+        let weak = Arc::downgrade(&shared);
+        let watching = thread::Builder::new()
+            .name("audio-default-watch".into())
+            .spawn(move || {
+                while let Some(shared) = weak.upgrade() {
+                    let name = default_output_name();
+                    *shared.lock().unwrap_or_else(PoisonError::into_inner) = name;
+                    drop(shared);
+                    thread::sleep(DEFAULT_CHECK_INTERVAL);
+                }
+            });
+        if let Err(error) = watching {
+            log::warn!("cannot watch the default audio output: {error}");
+        }
+        Self(shared)
+    }
+
+    /// The answer as last asked; `None` before the first answer.
+    fn name(&self) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Asks right now, on this thread.
+    fn ask(&self) -> Option<String> {
+        let name = default_output_name();
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = name.clone();
+        name
+    }
+}
+
+fn default_output_name() -> Option<String> {
+    cpal::default_host()
+        .default_output_device()
+        .and_then(|device| device.name().ok())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -253,12 +306,21 @@ fn open_output(preferred: Option<&str>) -> Result<Output, OpenError> {
         })
         .open_stream_or_fallback()?;
     stream.log_on_drop(false);
+    let sample_rate = stream.config().sample_rate();
+    let resampler = Resampler::new(SAMPLE_RATE, sample_rate, NUM_CHANNELS as usize);
+    if resampler.is_some() {
+        log::info!(
+            "the output runs at {sample_rate} Hz; the music is converted from {SAMPLE_RATE} Hz"
+        );
+    }
     let sink = rodio::Sink::connect_new(stream.mixer());
     Ok(Output {
         sink,
         _stream: stream,
         device_name,
         failed,
+        sample_rate,
+        resampler,
     })
 }
 
