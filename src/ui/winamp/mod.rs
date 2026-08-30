@@ -472,7 +472,9 @@ fn shade_bar(
         app.actions.push(Action::ToggleWinampShade);
     }
     let unit = view.unit;
-    egui::Popup::context_menu(&title).show(|ui| options_menu(app, ui, unit));
+    menu(egui::Popup::context_menu(&title), view.skin, unit, |ui| {
+        options_menu(app, ui, unit);
+    });
     let big_window = "Back to the big window (Ctrl+M)";
     if view
         .button(
@@ -633,7 +635,9 @@ fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool)
         app.actions.push(Action::ToggleWinampShade);
     }
     let unit = view.unit;
-    egui::Popup::context_menu(&title).show(|ui| options_menu(app, ui, unit));
+    menu(egui::Popup::context_menu(&title), view.skin, unit, |ui| {
+        options_menu(app, ui, unit);
+    });
     // The logo and the close button lead back to the big window: the mini
     // player is a way of looking at the same app, not a second one to
     // close. Quitting is in the menu and Ctrl+Q.
@@ -690,7 +694,7 @@ fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool)
 /// The menu behind a right-click on the title bar and the O of the
 /// clutter bar, sized to the skin so it fits inside the window.
 fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
-    let font = menu_style(ui, unit);
+    let font = menu_font(unit);
     ui.set_min_width(font * 11.0);
     let scale = WinampState::scale(&app.settings, ui.ctx().pixels_per_point());
     ui.horizontal(|ui| {
@@ -722,16 +726,83 @@ fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
 
 /// Sizes a menu to the skin, so it fits inside the window at any scale;
 /// returns the font size it settled on.
-pub(super) fn menu_style(ui: &mut Ui, unit: f32) -> f32 {
-    let font = (5.0 * unit).clamp(9.0, 14.0);
-    for style in [egui::TextStyle::Body, egui::TextStyle::Button] {
-        ui.style_mut()
-            .text_styles
-            .insert(style, egui::FontId::proportional(font));
-    }
-    ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
-    ui.spacing_mut().button_padding = vec2(6.0, 2.0);
-    font
+/// A menu for the mini player: the skin's playlist colours on a square
+/// frame, type that follows the scale, and never taller than the window.
+/// A long list, such as the presets or the playlists, scrolls inside
+/// instead of running off the screen and being cut where the window
+/// ends. Classic Winamp used the system's menus and a skin says nothing
+/// about them, so the playlist's colours are the nearest thing it says
+/// about text on a background.
+pub(super) fn menu<R>(
+    popup: egui::Popup<'_>,
+    skin: &Skin,
+    unit: f32,
+    contents: impl FnOnce(&mut Ui) -> R,
+) -> Option<egui::InnerResponse<R>> {
+    let rgb = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+    let text = rgb(skin.playlist.normal);
+    let current = rgb(skin.playlist.current);
+    let background = rgb(skin.playlist.normal_background);
+    let selected = rgb(skin.playlist.selected_background);
+    let font = menu_font(unit);
+    let margin = unit.max(1.0).round();
+    let style = move |style: &mut egui::Style| {
+        for text_style in [egui::TextStyle::Body, egui::TextStyle::Button] {
+            style
+                .text_styles
+                .insert(text_style, egui::FontId::proportional(font));
+        }
+        style.spacing.item_spacing = vec2(4.0, 1.0);
+        style.spacing.button_padding = vec2(6.0, 1.0);
+        // A row is its text and padding, not egui's 18 points.
+        style.spacing.interact_size = vec2(font * 2.0, font + 2.0);
+        style.spacing.menu_margin = egui::Margin::same(margin as i8);
+        let visuals = &mut style.visuals;
+        visuals.window_fill = background;
+        visuals.panel_fill = background;
+        visuals.window_stroke = egui::Stroke::new(1.0, text.gamma_multiply(0.5));
+        visuals.window_corner_radius = egui::CornerRadius::ZERO;
+        visuals.menu_corner_radius = egui::CornerRadius::ZERO;
+        visuals.window_shadow = egui::Shadow::NONE;
+        visuals.popup_shadow = egui::Shadow::NONE;
+        visuals.override_text_color = None;
+        visuals.selection.bg_fill = selected;
+        visuals.selection.stroke = egui::Stroke::new(1.0, current);
+        let widgets = &mut visuals.widgets;
+        for state in [&mut widgets.noninteractive, &mut widgets.inactive] {
+            state.fg_stroke.color = text;
+            state.weak_bg_fill = background;
+            state.bg_fill = background;
+            state.bg_stroke = egui::Stroke::NONE;
+        }
+        for state in [&mut widgets.hovered, &mut widgets.active, &mut widgets.open] {
+            state.fg_stroke.color = current;
+            state.weak_bg_fill = selected;
+            state.bg_fill = selected;
+            state.bg_stroke = egui::Stroke::NONE;
+            state.expansion = 0.0;
+            state.corner_radius = egui::CornerRadius::ZERO;
+        }
+    };
+    popup.style(style).show(|ui| {
+        egui::ScrollArea::vertical()
+            .max_height(menu_limit(ui))
+            .show(ui, contents)
+            .inner
+    })
+}
+
+/// The type size of a menu at this scale.
+pub(super) fn menu_font(unit: f32) -> f32 {
+    (5.0 * unit).clamp(9.0, 14.0)
+}
+
+/// How tall a menu's contents may be before they scroll: the window less
+/// the menu's own frame, so egui can always find it a place inside. A
+/// submenu is a popup of its own and caps itself the same way.
+pub(super) fn menu_limit(ui: &Ui) -> f32 {
+    let frame = ui.spacing().menu_margin.sum().y + 6.0;
+    (ui.ctx().content_rect().height() - frame).max(menu_font(1.0))
 }
 
 /// The O A I D V strip: options, always on top, info, double size, and
@@ -745,7 +816,9 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         "clutter-o",
     );
     let unit = view.unit;
-    egui::Popup::menu(&options).show(|ui| options_menu(app, ui, unit));
+    menu(egui::Popup::menu(&options), view.skin, unit, |ui| {
+        options_menu(app, ui, unit);
+    });
     if view
         .lamp_button(
             layout::CLUTTER_A,

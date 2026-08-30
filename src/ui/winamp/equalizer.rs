@@ -95,8 +95,12 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
         sprites::EQ_PRESETS_PRESSED,
         "eq-presets",
     );
-    let unit = view.unit;
-    egui::Popup::menu(&presets).show(|ui| presets_menu(app, ui, unit));
+    if std::mem::take(&mut app.winamp.open_presets) {
+        egui::Popup::open_id(view.ui.ctx(), egui::Popup::default_response_id(&presets));
+    }
+    super::menu(egui::Popup::menu(&presets), view.skin, view.unit, |ui| {
+        presets_menu(app, ui);
+    });
 
     graph(view, &settings);
     let preamp = fraction(settings.preamp_db);
@@ -332,15 +336,7 @@ fn spline(points: &[f32], t: f32) -> f32 {
 }
 
 /// Winamp's presets, in a menu sized to the skin.
-fn presets_menu(app: &mut App, ui: &mut egui::Ui, unit: f32) {
-    let font = (5.0 * unit).clamp(9.0, 14.0);
-    for style in [egui::TextStyle::Body, egui::TextStyle::Button] {
-        ui.style_mut()
-            .text_styles
-            .insert(style, egui::FontId::proportional(font));
-    }
-    ui.spacing_mut().item_spacing = egui::vec2(4.0, 1.0);
-    ui.spacing_mut().button_padding = egui::vec2(6.0, 1.0);
+fn presets_menu(app: &mut App, ui: &mut egui::Ui) {
     let current = app.settings.eq_bands_db;
     for (index, preset) in eq::PRESETS.iter().enumerate() {
         let chosen = preset.bands_db == current;

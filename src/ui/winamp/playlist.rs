@@ -595,16 +595,18 @@ fn menus(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], he
         let button = view
             .interact(area, &format!("playlist-menu-{name}"), Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand);
-        egui::Popup::menu(&button).show(|ui| {
-            super::menu_style(ui, unit);
-            match name {
+        super::menu(
+            egui::Popup::menu(&button),
+            view.skin,
+            unit,
+            |ui| match name {
                 "add" => add_menu(app, ui),
                 "rem" => rem_menu(ui),
                 "sel" => sel_menu(app, ui, rows),
                 "misc" => misc_menu(app, ui, rows),
                 _ => list_menu(app, ui, rows, queue_uris),
-            }
-        });
+            },
+        );
     }
 }
 
@@ -684,7 +686,7 @@ fn list_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row], queue_uris: &[Strin
         .unwrap_or_default();
     ui.menu_button("Load list", |ui| {
         egui::ScrollArea::vertical()
-            .max_height(220.0)
+            .max_height(super::menu_limit(ui))
             .show(ui, |ui| {
                 if playlists.is_empty() {
                     ui.add_enabled(false, egui::Button::new("No playlists yet"));

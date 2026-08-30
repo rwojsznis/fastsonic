@@ -80,6 +80,9 @@ pub struct WinampState {
     pub time_remaining: bool,
     /// The balance while its thumb is held, for the marquee to report.
     pub balance_preview: Option<f32>,
+    /// Open the equalizer's presets menu on the next frame; the demo's
+    /// `presets` surface asks for it.
+    pub open_presets: bool,
     marquee_text: String,
     marquee_offset: usize,
     marquee_moved: Option<Instant>,
@@ -115,6 +118,7 @@ impl WinampState {
             choices_listed: None,
             time_remaining: false,
             balance_preview: None,
+            open_presets: false,
             marquee_text: String::new(),
             marquee_offset: 0,
             marquee_moved: None,
