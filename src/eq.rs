@@ -17,11 +17,11 @@ pub const BANDS: [f32; 10] = [
 ];
 /// How far a band goes either way, in decibels.
 pub const RANGE_DB: f32 = 12.0;
-/// The width of each band: about an octave, so neighbours overlap a
-/// little and a boost across several reads as one shape.
-const Q: f32 = 1.4;
 /// Bands closer to flat than this are skipped rather than run for nothing.
 const FLAT: f32 = 0.05;
+/// How far the solved gains may go past the sliders while making the
+/// combined response meet them; a guard, not a target.
+const SOLVED_LIMIT: f64 = 36.0;
 
 /// What the listener set: the switch, the preamp, and the bands, and
 /// the two things Winamp's main window did to the sound as well, the
@@ -68,17 +68,159 @@ impl EqSettings {
         [(1.0 - balance).min(1.0), (1.0 + balance).min(1.0)]
     }
 
-    /// The response at a frequency, in decibels, with the switch on: the
-    /// preamp and every band's analog prototype added up. Drawn, not
-    /// played; the played response is the digital filters' and bends a
-    /// little from this near the top of the band.
-    pub fn response_db(&self, hz: f32) -> f32 {
-        let mut db = self.preamp_db;
-        for (band, gain_db) in BANDS.iter().zip(self.bands_db) {
-            db += peaking_db(hz, *band, Q, gain_db);
+    /// The response as it is played, with the switch on: the very filters
+    /// the player runs, to draw from.
+    pub fn curve(&self) -> Curve {
+        Curve {
+            preamp_db: self.preamp_db,
+            filters: chain(&self.bands_db),
         }
-        db
     }
+
+    /// The response at one frequency, in decibels, with the switch on.
+    pub fn response_db(&self, hz: f32) -> f32 {
+        self.curve().db_at(hz)
+    }
+}
+
+/// The equalizer's response, ready to be asked frequency by frequency.
+pub struct Curve {
+    preamp_db: f32,
+    filters: Vec<Biquad>,
+}
+
+impl Curve {
+    pub fn db_at(&self, hz: f32) -> f32 {
+        let mut db = f64::from(self.preamp_db);
+        for filter in &self.filters {
+            db += filter.gain_db_at(f64::from(hz));
+        }
+        db as f32
+    }
+}
+
+/// Each band's width, as a Q, from where its neighbours are: half way to
+/// each in octaves. Winamp's bands are not evenly spaced, three of them
+/// sit within a third of an octave at the top, and one width for all
+/// would pile those three on top of each other, so that "Full Treble"
+/// came out at +26 dB where it says +12.
+fn band_qs() -> [f64; 10] {
+    let octaves: Vec<f64> = BANDS.iter().map(|hz| f64::from(*hz).log2()).collect();
+    let mut qs = [0.0; 10];
+    for (index, q) in qs.iter_mut().enumerate() {
+        let left = index
+            .checked_sub(1)
+            .map(|i| (octaves[index] - octaves[i]) / 2.0);
+        let right = octaves
+            .get(index + 1)
+            .map(|next| (next - octaves[index]) / 2.0);
+        let width = match (left, right) {
+            (Some(left), Some(right)) => left + right,
+            (Some(one), None) | (None, Some(one)) => 2.0 * one,
+            (None, None) => 1.0,
+        };
+        // Q from a bandwidth in octaves, for a peaking filter.
+        *q = 1.0 / (2.0 * ((std::f64::consts::LN_2 / 2.0) * width).sinh());
+    }
+    qs
+}
+
+/// The filters that make the combined response meet the sliders at every
+/// band's centre. Neighbouring peaks add up, so the gain each filter is
+/// given is not the slider's own: the interaction is solved for, on the
+/// digital filters themselves, and refined until the centres agree.
+fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
+    let qs = band_qs();
+    let target: [f64; 10] = bands_db.map(f64::from);
+    if target.iter().all(|gain| gain.abs() <= f64::from(FLAT)) {
+        return Vec::new();
+    }
+    // How much each band moves every centre, per decibel it is given.
+    let mut unit = [[0.0; 10]; 10];
+    for (j, (hz, q)) in BANDS.iter().zip(qs).enumerate() {
+        let filter = Biquad::peaking(f64::from(*hz), q, 1.0);
+        for (i, centre) in BANDS.iter().enumerate() {
+            unit[i][j] = filter.gain_db_at(f64::from(*centre));
+        }
+    }
+    let mut gains = target;
+    for _ in 0..6 {
+        let filters: Vec<(usize, Biquad)> = filters_for(&gains, &qs);
+        let mut residual = [0.0; 10];
+        for (i, centre) in BANDS.iter().enumerate() {
+            let played: f64 = filters
+                .iter()
+                .map(|(_, filter)| filter.gain_db_at(f64::from(*centre)))
+                .sum();
+            residual[i] = played - target[i];
+        }
+        if residual.iter().all(|r| r.abs() < 0.01) {
+            break;
+        }
+        let correction = solve(unit, residual);
+        for (gain, step) in gains.iter_mut().zip(correction) {
+            *gain = (*gain - step).clamp(-SOLVED_LIMIT, SOLVED_LIMIT);
+        }
+    }
+    filters_for(&gains, &qs)
+        .into_iter()
+        .map(|(_, filter)| filter)
+        .collect()
+}
+
+/// The bands worth running, with the filter for each.
+fn filters_for(gains: &[f64; 10], qs: &[f64; 10]) -> Vec<(usize, Biquad)> {
+    BANDS
+        .iter()
+        .zip(qs)
+        .zip(gains)
+        .enumerate()
+        .filter(|(_, (_, gain))| gain.abs() > f64::from(FLAT))
+        .map(|(index, ((hz, q), gain))| (index, Biquad::peaking(f64::from(*hz), *q, *gain)))
+        .collect()
+}
+
+/// Gaussian elimination with partial pivoting, for the ten-by-ten
+/// interaction of the bands.
+fn solve(mut matrix: [[f64; 10]; 10], mut rhs: [f64; 10]) -> [f64; 10] {
+    let n = 10;
+    for column in 0..n {
+        let pivot = (column..n)
+            .max_by(|a, b| {
+                matrix[*a][column]
+                    .abs()
+                    .total_cmp(&matrix[*b][column].abs())
+            })
+            .unwrap_or(column);
+        matrix.swap(column, pivot);
+        rhs.swap(column, pivot);
+        let lead = matrix[column][column];
+        if lead.abs() < 1e-12 {
+            continue;
+        }
+        let pivot_row = matrix[column];
+        let pivot_rhs = rhs[column];
+        for row in column + 1..n {
+            let factor = matrix[row][column] / lead;
+            if factor == 0.0 {
+                continue;
+            }
+            for (cell, above) in matrix[row][column..].iter_mut().zip(&pivot_row[column..]) {
+                *cell -= factor * above;
+            }
+            rhs[row] -= factor * pivot_rhs;
+        }
+    }
+    let mut solution = [0.0; 10];
+    for row in (0..n).rev() {
+        let mut sum = rhs[row];
+        for k in row + 1..n {
+            sum -= matrix[row][k] * solution[k];
+        }
+        let lead = matrix[row][row];
+        solution[row] = if lead.abs() < 1e-12 { 0.0 } else { sum / lead };
+    }
+    solution
 }
 
 /// A named set of band gains, as Winamp shipped them.
@@ -187,11 +329,11 @@ struct Biquad {
 
 impl Biquad {
     /// A peaking filter after the Audio EQ Cookbook, normalised by `a0`.
-    fn peaking(hz: f32, q: f32, gain_db: f32) -> Self {
-        let a = 10f64.powf(f64::from(gain_db) / 40.0);
-        let w0 = std::f64::consts::TAU * f64::from(hz) / f64::from(SAMPLE_RATE);
+    fn peaking(hz: f64, q: f64, gain_db: f64) -> Self {
+        let a = 10f64.powf(gain_db / 40.0);
+        let w0 = std::f64::consts::TAU * hz / f64::from(SAMPLE_RATE);
         let (sin, cos) = w0.sin_cos();
-        let alpha = sin / (2.0 * f64::from(q));
+        let alpha = sin / (2.0 * q);
         let a0 = 1.0 + alpha / a;
         Self {
             b0: (1.0 + alpha * a) / a0,
@@ -201,6 +343,20 @@ impl Biquad {
             a2: (1.0 - alpha / a) / a0,
             ..Self::default()
         }
+    }
+
+    /// The filter's gain at a frequency, in decibels, from its transfer
+    /// function on the unit circle: what is played, including the bend
+    /// the bilinear transform puts near the top of the band.
+    fn gain_db_at(&self, hz: f64) -> f64 {
+        let w = std::f64::consts::TAU * hz / f64::from(SAMPLE_RATE);
+        let (sin1, cos1) = w.sin_cos();
+        let (sin2, cos2) = (2.0 * w).sin_cos();
+        let numerator = (self.b0 + self.b1 * cos1 + self.b2 * cos2).powi(2)
+            + (self.b1 * sin1 + self.b2 * sin2).powi(2);
+        let denominator = (1.0 + self.a1 * cos1 + self.a2 * cos2).powi(2)
+            + (self.a1 * sin1 + self.a2 * sin2).powi(2);
+        10.0 * (numerator / denominator).log10()
     }
 
     #[inline]
@@ -240,13 +396,7 @@ impl Processor {
     fn rebuild(&mut self) {
         let settings = self.applied;
         self.gain = 10f64.powf(f64::from(settings.preamp_db) / 20.0);
-        let chain: Vec<Biquad> = BANDS
-            .iter()
-            .zip(settings.bands_db)
-            .filter(|(_, gain_db)| gain_db.abs() > FLAT)
-            .map(|(hz, gain_db)| Biquad::peaking(*hz, Q, gain_db))
-            .collect();
-        self.chains = vec![chain; NUM_CHANNELS as usize];
+        self.chains = vec![chain(&settings.bands_db); NUM_CHANNELS as usize];
     }
 
     /// Runs interleaved stereo samples through the equalizer, in place.
@@ -287,19 +437,6 @@ impl Processor {
             }
         }
     }
-}
-
-/// A peaking band's gain at one frequency, from the analog prototype.
-fn peaking_db(hz: f32, centre: f32, q: f32, gain_db: f32) -> f32 {
-    if gain_db.abs() <= FLAT {
-        return 0.0;
-    }
-    let a = 10f32.powf(gain_db / 40.0);
-    let x = hz / centre;
-    let common = (1.0 - x * x).powi(2);
-    let numerator = common + (a * x / q).powi(2);
-    let denominator = common + (x / (a * q)).powi(2);
-    10.0 * (numerator / denominator).log10()
 }
 
 #[cfg(test)]
@@ -406,6 +543,57 @@ mod tests {
             .clamped()
             .balance,
             1.0
+        );
+    }
+
+    /// Every preset, played, meets its sliders at every band's centre,
+    /// which the top three bands, a fifth of an octave apart, did not.
+    #[test]
+    fn what_is_played_meets_the_sliders_at_every_band() {
+        for preset in PRESETS {
+            let settings = EqSettings {
+                on: true,
+                bands_db: preset.bands_db,
+                ..EqSettings::default()
+            };
+            let curve = settings.curve();
+            for (hz, wanted) in BANDS.iter().zip(preset.bands_db) {
+                let got = curve.db_at(*hz);
+                assert!(
+                    (got - wanted).abs() < 0.3,
+                    "{} at {hz} Hz plays {got:.1} dB for {wanted:.1}",
+                    preset.name
+                );
+            }
+        }
+    }
+
+    /// One slider moves its own band and leaves the neighbours' centres
+    /// alone, even at the top where they sit close together.
+    #[test]
+    fn a_slider_leaves_its_neighbours_centres_alone() {
+        let mut settings = EqSettings::default();
+        settings.bands_db[8] = 12.0; // 14 kHz
+        let curve = settings.curve();
+        assert!((curve.db_at(14_000.0) - 12.0).abs() < 0.3);
+        assert!(
+            curve.db_at(12_000.0).abs() < 0.3,
+            "12 kHz moved {:.1}",
+            curve.db_at(12_000.0)
+        );
+        assert!(
+            curve.db_at(16_000.0).abs() < 0.3,
+            "16 kHz moved {:.1}",
+            curve.db_at(16_000.0)
+        );
+        assert!(curve.db_at(1_000.0).abs() < 0.1);
+        // Between two boosted neighbours the response does not sag away.
+        settings.bands_db[7] = 12.0; // 12 kHz too
+        let curve = settings.curve();
+        assert!(
+            curve.db_at(13_000.0) > 9.0,
+            "13 kHz sags to {:.1}",
+            curve.db_at(13_000.0)
         );
     }
 

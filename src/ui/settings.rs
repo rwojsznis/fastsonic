@@ -839,14 +839,12 @@ fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettin
     for hz in crate::eq::BANDS {
         painter.vline(x_of(hz), plot.y_range(), Stroke::new(1.0, palette.outline));
     }
+    let curve = settings.curve();
     let points: Vec<egui::Pos2> = (0..=240)
         .map(|step| {
             let t = step as f32 / 240.0;
             let hz = 10f32.powf(low + t * (high - low));
-            pos2(
-                plot.left() + t * plot.width(),
-                y_of(settings.response_db(hz)),
-            )
+            pos2(plot.left() + t * plot.width(), y_of(curve.db_at(hz)))
         })
         .collect();
     let color = if settings.on {
