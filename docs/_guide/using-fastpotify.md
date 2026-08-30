@@ -184,7 +184,7 @@ Connect devices and conflicting media-key handlers.
 | `Q` | Queue panel |
 | `Ctrl+F` or `/` | Search |
 | `Ctrl+B` | Show or hide the sidebar |
-| `Alt+←` / `Alt+→` | Back or forward |
+| `Alt+←` / `Alt+→`, or the mouse's back and forward buttons | Back or forward |
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+M` | Winamp mini player |

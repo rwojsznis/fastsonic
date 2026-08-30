@@ -120,6 +120,19 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             other => app.actions.push(other),
         }
     }
+    // A mouse's back and forward buttons, the way a browser takes them.
+    let (back, forward) = ctx.input(|input| {
+        (
+            input.pointer.button_pressed(egui::PointerButton::Extra1),
+            input.pointer.button_pressed(egui::PointerButton::Extra2),
+        )
+    });
+    if back {
+        app.actions.push(Action::Back);
+    }
+    if forward {
+        app.actions.push(Action::Forward);
+    }
     if ctx.input(|input| input.key_pressed(Key::Escape)) {
         if app.dialog.is_some() {
             app.actions.push(Action::CloseDialog);
