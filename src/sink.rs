@@ -42,6 +42,14 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often playback looks at which output the system calls its default.
 const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
+/// How much sound the Windows audio engine holds for the device, in
+/// seconds. Its default is a period of ten milliseconds, which a busy
+/// PC misses now and then, and every miss is a click; a tenth of a
+/// second rides out the misses at the cost of a tenth of a second's
+/// delay, which a music player never notices. (#88)
+#[cfg(windows)]
+const ENGINE_BUFFER: u32 = 10;
+
 pub struct RodioSink {
     /// The output device name from Settings; `None` means the default.
     device: Option<String>,
@@ -154,6 +162,7 @@ impl RodioSink {
 
 impl Sink for RodioSink {
     fn start(&mut self) -> SinkResult<()> {
+        take_precedence();
         self.follow_default(true);
         self.ensure_open()?;
         self.apply_volume();
@@ -210,6 +219,54 @@ impl Sink for RodioSink {
         Ok(())
     }
 }
+
+/// Opens the stream at Spotify's stereo 44.1 kHz, so nothing is converted,
+/// else at the device's own rate, which Windows insists on for a shared
+/// device, else at whatever rodio can find. The first two carry the
+/// engine buffer Windows needs; rodio's own fallback would not.
+fn open_stream(
+    device: &cpal::Device,
+    on_error: impl FnMut(cpal::StreamError) + Send + Clone + 'static,
+) -> Result<rodio::OutputStream, rodio::StreamError> {
+    let builder = |sample_rate: u32| -> Result<_, rodio::StreamError> {
+        let builder = rodio::OutputStreamBuilder::from_device(device.clone())?
+            .with_channels(NUM_CHANNELS as rodio::ChannelCount)
+            .with_sample_rate(sample_rate as rodio::SampleRate)
+            .with_error_callback(on_error.clone());
+        #[cfg(windows)]
+        let builder =
+            builder.with_buffer_size(cpal::BufferSize::Fixed(sample_rate / ENGINE_BUFFER));
+        Ok(builder)
+    };
+    if let Ok(stream) = builder(SAMPLE_RATE)?.open_stream() {
+        return Ok(stream);
+    }
+    if let Ok(config) = device.default_output_config()
+        && let Ok(stream) = builder(config.sample_rate().0)?.open_stream()
+    {
+        return Ok(stream);
+    }
+    builder(SAMPLE_RATE)?.open_stream_or_fallback()
+}
+
+/// The player's thread decodes the music and hands it here with about a
+/// fifth of a second in hand. Under load a PC gives the foreground app
+/// the cores first, and a fifth of a second is soon gone; Windows lets a
+/// thread ask for precedence, so this one does. (#88)
+#[cfg(windows)]
+fn take_precedence() {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
+    };
+    // SAFETY: the current thread's pseudo-handle needs no closing, and the
+    // call takes nothing else.
+    unsafe {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    }
+}
+
+#[cfg(not(windows))]
+fn take_precedence() {}
 
 /// The name of the system's default output, as last asked. Asking
 /// Windows means making a device enumerator and reading a property store,
@@ -295,16 +352,11 @@ fn open_output(preferred: Option<&str>) -> Result<Output, OpenError> {
 
     let failed = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&failed);
-    // Spotify's native stereo 44.1 kHz first, so nothing is resampled; rodio
-    // falls back to whatever the device does support.
-    let mut stream = rodio::OutputStreamBuilder::from_device(device)?
-        .with_channels(NUM_CHANNELS as rodio::ChannelCount)
-        .with_sample_rate(SAMPLE_RATE as rodio::SampleRate)
-        .with_error_callback(move |error: cpal::StreamError| {
-            log::error!("audio stream error: {error}");
-            flag.store(true, Ordering::Relaxed);
-        })
-        .open_stream_or_fallback()?;
+    let on_error = move |error: cpal::StreamError| {
+        log::error!("audio stream error: {error}");
+        flag.store(true, Ordering::Relaxed);
+    };
+    let mut stream = open_stream(&device, on_error)?;
     stream.log_on_drop(false);
     let sample_rate = stream.config().sample_rate();
     let resampler = Resampler::new(SAMPLE_RATE, sample_rate, NUM_CHANNELS as usize);
