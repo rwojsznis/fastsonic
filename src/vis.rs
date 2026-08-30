@@ -12,6 +12,7 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use librespot_playback::audio_backend::{Sink, SinkResult};
 use librespot_playback::convert::Converter;
@@ -39,6 +40,11 @@ const MAX_HEIGHT: f32 = 15.0;
 /// How far a bar falls each step, and how peaks pick up speed.
 const FALLOFF: f32 = 12.0 / 16.0;
 const PEAK_FALLOFF: f32 = 1.1;
+/// How often the bars move. Winamp drew its analyser sixty times a
+/// second on a timer of its own, so a fast or slow frame rate never
+/// changed how quickly the bars fell; a frame that comes sooner than
+/// this shows the bars where they were.
+pub const STEP: Duration = Duration::from_micros(16_667);
 /// Winamp's byte-scaled input: a full-scale sample is 128 in 24ths.
 const INPUT_GAIN: f32 = 128.0 / 24.0;
 
@@ -281,6 +287,9 @@ pub struct Analyser {
     /// Each peak, in 256ths of a row, and how fast it is dropping.
     peaks: [i32; BARS],
     peak_speed: [f32; BARS],
+    /// When the bars last moved, and where they are.
+    last_step: Option<Instant>,
+    bars: [Bar; BARS],
 }
 
 impl Default for Analyser {
@@ -291,6 +300,8 @@ impl Default for Analyser {
             falloff: [0.0; BARS],
             peaks: [0; BARS],
             peak_speed: [0.0; BARS],
+            last_step: None,
+            bars: [Bar::default(); BARS],
         }
     }
 }
@@ -298,7 +309,14 @@ impl Default for Analyser {
 impl Analyser {
     /// One frame: the spectrum of `samples` (1024 of them, mono, -1 to 1)
     /// moves the bars, and the bars are returned.
-    pub fn step(&mut self, samples: &[f32]) -> [Bar; BARS] {
+    pub fn step(&mut self, samples: &[f32], now: Instant) -> [Bar; BARS] {
+        // Keep the step's own beat when frames come a little early or late,
+        // and never owe more than one step after a long gap.
+        let due = self.last_step.map_or(now, |last| last + STEP);
+        if now + Duration::from_millis(1) < due {
+            return self.bars;
+        }
+        self.last_step = Some(due.max(now - STEP));
         let wave: Vec<f32> = samples.iter().map(|sample| sample * INPUT_GAIN).collect();
         self.fft.spectrum(&wave, &mut self.spectrum);
         let columns = self.columns();
@@ -329,6 +347,7 @@ impl Analyser {
             slot.height = falloff.round() as u8;
             slot.peak = (peak_row >= 1).then_some((peak_row + 1) as u8);
         }
+        self.bars = bars;
         bars
     }
 
@@ -342,6 +361,8 @@ impl Analyser {
         self.falloff = [0.0; BARS];
         self.peaks = [0; BARS];
         self.peak_speed = [0.0; BARS];
+        self.last_step = None;
+        self.bars = [Bar::default(); BARS];
     }
 
     /// The spectrum spread over the columns: mostly logarithmic, with a
@@ -447,23 +468,58 @@ mod tests {
         );
     }
 
+    /// Frames one step apart, the way a 60 Hz loop delivers them.
+    fn clock() -> impl FnMut() -> Instant {
+        let mut at = Instant::now();
+        move || {
+            at += STEP;
+            at
+        }
+    }
+
+    #[test]
+    fn a_fast_frame_rate_leaves_the_bars_alone() {
+        let mut analyser = Analyser::default();
+        let loud = sine(1000.0, 0.5, FFT_SAMPLES);
+        let silence = vec![0.0; FFT_SAMPLES];
+        let start = Instant::now();
+        let bars = analyser.step(&loud, start);
+        // Frames a millisecond apart do not move the bars: they are shown
+        // where they were, however often the window paints.
+        for i in 1..12 {
+            let again = analyser.step(&silence, start + Duration::from_millis(i));
+            assert_eq!(
+                again.iter().map(|b| b.height).collect::<Vec<_>>(),
+                bars.iter().map(|b| b.height).collect::<Vec<_>>()
+            );
+        }
+        let moved = analyser.step(&silence, start + STEP);
+        assert!(
+            moved
+                .iter()
+                .zip(bars.iter())
+                .any(|(after, before)| after.height < before.height)
+        );
+    }
+
     #[test]
     fn bars_rise_with_sound_and_fall_without() {
         let mut analyser = Analyser::default();
+        let mut tick = clock();
         let loud: Vec<f32> = (0..FFT_SAMPLES)
             .map(|i| {
                 let t = i as f32 / SAMPLE_RATE as f32 * std::f32::consts::TAU;
                 0.3 * ((t * 100.0).sin() + (t * 800.0).sin() + (t * 5000.0).sin())
             })
             .collect();
-        let bars = analyser.step(&loud);
+        let bars = analyser.step(&loud, tick());
         let tallest = bars.iter().map(|bar| bar.height).max().unwrap();
         assert!(tallest > 0, "no bar rose to the sound");
         assert!(tallest <= 15);
         assert!(!analyser.settled());
 
         let silence = vec![0.0; FFT_SAMPLES];
-        let after = analyser.step(&silence);
+        let after = analyser.step(&silence, tick());
         let lower = bars
             .iter()
             .zip(after.iter())
@@ -473,12 +529,12 @@ mod tests {
         let with_peak = after.iter().find(|bar| bar.peak.is_some()).unwrap();
         assert!(with_peak.peak.unwrap() > with_peak.height);
         for _ in 0..400 {
-            analyser.step(&silence);
+            analyser.step(&silence, tick());
         }
         assert!(analyser.settled());
         assert!(
             analyser
-                .step(&silence)
+                .step(&silence, tick())
                 .iter()
                 .all(|bar| bar.height == 0 && bar.peak.is_none())
         );
