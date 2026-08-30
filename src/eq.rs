@@ -53,7 +53,7 @@ impl Default for EqSettings {
 impl EqSettings {
     /// The same settings kept within what the equalizer can do.
     pub fn clamped(mut self) -> Self {
-        self.preamp_db = self.preamp_db.clamp(-RANGE_DB, 0.0);
+        self.preamp_db = self.preamp_db.clamp(-RANGE_DB, RANGE_DB);
         for band in &mut self.bands_db {
             *band = band.clamp(-RANGE_DB, RANGE_DB);
         }
@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn off_or_flat_changes_nothing_and_the_preamp_only_cuts() {
+    fn off_or_flat_changes_nothing_and_the_preamp_scales() {
         let shared = shared();
         let mut processor = Processor::new(shared.clone());
         let original = tone(440.0, 1024);
@@ -497,7 +497,8 @@ mod tests {
         shared.lock().unwrap().preamp_db = 6.0;
         let mut samples = original.clone();
         processor.process(&mut samples);
-        assert_eq!(samples, original, "a preamp above zero was applied");
+        let ratio = rms(&samples) / rms(&original);
+        assert!((20.0 * ratio.log10() - 6.0).abs() < 0.1);
 
         shared.lock().unwrap().preamp_db = -6.0;
         let mut samples = original.clone();
@@ -514,12 +515,12 @@ mod tests {
         assert!((settings.response_db(12_000.0) - 3.0).abs() < 0.1);
         assert!((settings.response_db(100.0) + 3.0).abs() < 0.2);
         let clamped = EqSettings {
-            preamp_db: 4.0,
+            preamp_db: 20.0,
             bands_db: [20.0; 10],
             ..settings
         }
         .clamped();
-        assert_eq!(clamped.preamp_db, 0.0);
+        assert_eq!(clamped.preamp_db, RANGE_DB);
         assert!(clamped.bands_db.iter().all(|band| *band == RANGE_DB));
     }
 

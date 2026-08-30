@@ -137,8 +137,9 @@ saves the queue as a new one, and REM only explains that no app can take
 from Spotify's queue. Notices that the big window shows as toasts scroll
 through the marquee here. **EQ** opens the equalizer between the player and the playlist: Winamp's
 ten bands and its presets, shaping the music played on this computer (a
-speaker across the room plays what Spotify sends it). The preamp only
-turns down, and AUTO, which loaded a preset per song, stays off. The same
+speaker across the room plays what Spotify sends it). The preamp goes
+twelve decibels either way, and AUTO, which loaded a preset per song,
+stays off. The same
 equalizer is in Settings with its curve drawn out. The X and both logos
 of the main window bring back the big window; its shade button, or a
 double-click on the title bar, rolls it up to a bar with the time, a small

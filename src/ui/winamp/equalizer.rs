@@ -105,9 +105,7 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     graph(view, &settings);
     let preamp = fraction(settings.preamp_db);
     if let Some(value) = slider(view, layout::EQ_PREAMP, "eq-preamp", preamp) {
-        // The preamp never boosts: the top half of its track is dead.
-        app.actions
-            .push(Action::SetEqPreamp(decibels(value).min(0.0)));
+        app.actions.push(Action::SetEqPreamp(decibels(value)));
     }
     for (band, gain_db) in settings.bands_db.into_iter().enumerate() {
         let area = layout::eq_band(band);

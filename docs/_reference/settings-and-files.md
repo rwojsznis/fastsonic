@@ -62,7 +62,7 @@ main fields are:
 | `playlist_height` | `174` | The playlist window's height in skin pixels |
 | `eq_open` | `false` | The equalizer window is open under the mini player |
 | `eq_on` | `false` | The equalizer shapes local playback |
-| `eq_preamp_db` | `0` | The preamp, in decibels, never above zero |
+| `eq_preamp_db` | `0` | The preamp, in decibels, -12 to 12 |
 | `eq_bands_db` | ten zeros | The bands from 60 Hz to 16 kHz, in decibels, -12 to 12 |
 | `balance` | `0` | Left to right, -1 to 1, for local playback |
 | `mono` | `false` | Play both channels the same |

@@ -3955,7 +3955,8 @@ impl App {
                 }
             }
             Action::SetEqPreamp(gain_db) => {
-                self.settings.eq_preamp_db = gain_db.clamp(-crate::eq::RANGE_DB, 0.0);
+                self.settings.eq_preamp_db =
+                    gain_db.clamp(-crate::eq::RANGE_DB, crate::eq::RANGE_DB);
                 self.push_eq();
             }
             Action::ApplyEqPreset(index) => {

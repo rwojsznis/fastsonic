@@ -642,19 +642,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.spacing_mut().item_spacing.x = 14.0;
             let on = app.settings.eq_on;
             let mut preamp = app.settings.eq_preamp_db;
-            if eq_slider(ui, &palette, "Pre", &mut preamp, 0.0, on) {
+            if eq_slider(ui, &palette, "Pre", &mut preamp, on) {
                 app.actions.push(Action::SetEqPreamp(preamp));
             }
             for (band, hz) in crate::eq::BANDS.iter().enumerate() {
                 let mut gain = app.settings.eq_bands_db[band];
-                if eq_slider(
-                    ui,
-                    &palette,
-                    &hertz(*hz),
-                    &mut gain,
-                    crate::eq::RANGE_DB,
-                    on,
-                ) {
+                if eq_slider(ui, &palette, &hertz(*hz), &mut gain, on) {
                     app.actions.push(Action::SetEqBand(band, gain));
                 }
             }
@@ -748,14 +741,7 @@ fn hertz(hz: f32) -> String {
 /// One vertical slider in the app's own style: the track filled from
 /// 0 dB, the handle in the middle when flat, a double-click to put it
 /// back there. Returns whether it moved.
-fn eq_slider(
-    ui: &mut egui::Ui,
-    palette: &Palette,
-    label: &str,
-    value: &mut f32,
-    ceiling: f32,
-    on: bool,
-) -> bool {
+fn eq_slider(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut f32, on: bool) -> bool {
     use egui::{Rect, Stroke, pos2, vec2};
     let range = crate::eq::RANGE_DB;
     ui.vertical(|ui| {
@@ -772,7 +758,7 @@ fn eq_slider(
             && let Some(pos) = response.interact_pointer_pos()
         {
             let db = (track.bottom() - pos.y) / track.height() * 2.0 * range - range;
-            let db = (db.clamp(-range, ceiling) * 10.0).round() / 10.0;
+            let db = (db.clamp(-range, range) * 10.0).round() / 10.0;
             if db != *value {
                 *value = db;
                 changed = true;
