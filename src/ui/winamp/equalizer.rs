@@ -352,6 +352,9 @@ fn spline(points: &[f32], t: f32) -> f32 {
 fn presets_menu(app: &mut App, ui: &mut egui::Ui) {
     let current = app.settings.eq_bands_db;
     for (index, preset) in eq::PRESETS.iter().enumerate() {
+        if index == eq::WINAMP_PRESET_COUNT {
+            ui.separator();
+        }
         let chosen = preset.bands_db == current;
         if ui.selectable_label(chosen, preset.name).clicked() {
             app.actions.push(Action::ApplyEqPreset(index));

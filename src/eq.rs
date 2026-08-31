@@ -229,6 +229,10 @@ pub struct Preset {
 }
 
 /// Winamp's presets, in its order.
+/// How many of `PRESETS` are Winamp's own, in its order; what follows
+/// are scenario presets of this app's, shown behind a separator.
+pub const WINAMP_PRESET_COUNT: usize = 18;
+
 pub const PRESETS: &[Preset] = &[
     Preset {
         name: "Flat",
@@ -301,6 +305,38 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         name: "Techno",
         bands_db: [8.0, 5.6, 0.0, -5.6, -4.8, 0.0, 8.0, 9.6, 9.6, 8.8],
+    },
+    Preset {
+        name: "Bass Booster",
+        bands_db: [8.8, 7.2, 5.6, 3.2, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0],
+    },
+    Preset {
+        name: "Bass Reducer",
+        bands_db: [-8.8, -7.2, -5.6, -3.2, -0.8, 0.0, 0.0, 0.0, 0.0, 0.0],
+    },
+    Preset {
+        name: "Treble Booster",
+        bands_db: [0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 3.2, 5.6, 7.2, 8.8],
+    },
+    Preset {
+        name: "Vocal Booster",
+        bands_db: [-2.4, -4.8, -4.8, 1.6, 5.6, 5.6, 4.0, 1.6, 0.0, -2.4],
+    },
+    Preset {
+        name: "Small Speakers",
+        bands_db: [-8.0, -6.4, -4.0, -1.6, 1.6, 3.2, 4.8, 5.6, 5.6, 5.6],
+    },
+    Preset {
+        name: "Spoken Word",
+        bands_db: [-3.2, -0.8, 0.0, 0.8, 4.0, 5.6, 4.8, 2.4, 0.8, 0.0],
+    },
+    Preset {
+        name: "Loudness",
+        bands_db: [9.6, 6.4, 0.0, 0.0, -2.4, 0.0, -1.6, 0.0, 8.0, 1.6],
+    },
+    Preset {
+        name: "Night Listening",
+        bands_db: [-4.8, -3.2, -1.6, 0.8, 2.4, 3.2, 2.4, 0.8, -1.6, -3.2],
     },
 ];
 
