@@ -118,12 +118,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     }
     theme::text(ui, "Next up", theme::semibold(14.0), palette.text);
     ui.add_space(4.0);
-    let uris: Vec<String> = queue
-        .queue
-        .iter()
-        .map(|item| item.uri().to_string())
-        .collect();
-    let context = RowContext::Uris(uris);
+    let context = RowContext::Queue;
     let row_height = if compact {
         theme::COMPACT_ROW_HEIGHT
     } else {

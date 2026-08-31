@@ -79,7 +79,7 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     }
 
     let (rows, queue_uris) = rows(app, now);
-    list(app, view, &rows, &queue_uris, height);
+    list(app, view, &rows, height);
     scrollbar(app, view, rows.len(), height);
     grip(app, view, height);
     times(app, view, now, &rows, height);
@@ -345,7 +345,7 @@ fn label(number: usize, subtitle: &str, title: &str) -> String {
 }
 
 /// The rows, in the skin's colours and a font the size Winamp's was.
-fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], height: u32) {
+fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
     let style = view.skin.playlist.clone();
     let rgb = |color: [u8; 3]| Color32::from_rgb(color[0], color[1], color[2]);
     let area = list_area(height);
@@ -437,7 +437,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
             && let Some(index) = row.queued
         {
             app.actions.push(Action::PlayFromRow {
-                context: RowContext::Uris(queue_uris.to_vec()),
+                context: RowContext::Queue,
                 uri: row.uri.clone(),
                 index: index as u32,
             });
