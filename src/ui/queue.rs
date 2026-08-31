@@ -143,33 +143,58 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         );
         return;
     }
-    theme::text(ui, "Next up", theme::semibold(14.0), palette.text);
-    ui.add_space(4.0);
-    let context = RowContext::Queue;
     let row_height = if compact {
         theme::COMPACT_ROW_HEIGHT
     } else {
         theme::ROW_HEIGHT
     };
     let items = queue.queue.clone();
-    widgets::virtual_rows(ui, items.len(), row_height, |ui, index| {
-        widgets::track_row(
-            ui,
-            app,
-            TrackRow {
-                index,
-                number: Some(index + 1),
-                item: &items[index],
-                context: &context,
-                show_cover: true,
-                show_album: !compact,
-                added_at: None,
-                added_by: None,
-                show_added_by: false,
-                compact,
-                thin: false,
-                shift: 0.0,
-            },
-        );
-    });
+    // The user's own songs get their own section on top; the playing
+    // context's rows follow under the usual heading. One numbering runs
+    // through both, because that is the order things play.
+    let queued_len = app.queued_rows_len().min(items.len());
+    if queued_len > 0 {
+        theme::text(ui, "Playing next", theme::semibold(14.0), palette.text);
+        ui.add_space(4.0);
+        for index in 0..queued_len {
+            queue_row(app, ui, &items, index, compact);
+        }
+        ui.add_space(14.0);
+    }
+    if items.len() > queued_len {
+        theme::text(ui, "Next up", theme::semibold(14.0), palette.text);
+        ui.add_space(4.0);
+        widgets::virtual_rows(ui, items.len() - queued_len, row_height, |ui, index| {
+            queue_row(app, ui, &items, queued_len + index, compact);
+        });
+    }
+}
+
+/// One row of the queue, numbered and indexed by its place in the whole
+/// queue, whichever section it sits in.
+fn queue_row(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    items: &[PlayableItem],
+    index: usize,
+    compact: bool,
+) {
+    widgets::track_row(
+        ui,
+        app,
+        TrackRow {
+            index,
+            number: Some(index + 1),
+            item: &items[index],
+            context: &RowContext::Queue,
+            show_cover: true,
+            show_album: !compact,
+            added_at: None,
+            added_by: None,
+            show_added_by: false,
+            compact,
+            thin: false,
+            shift: 0.0,
+        },
+    );
 }

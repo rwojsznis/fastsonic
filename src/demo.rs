@@ -921,6 +921,15 @@ mod tests {
         app.show_queue_panel = true;
         app.show_devices = true;
         frame(&ctx, &mut app);
+        // The drawer again with a hand-queued song, so the Playing next
+        // section lays out too.
+        if let Loadable::Loaded(queue) = &app.queue
+            && let Some(first) = queue.queue.first()
+        {
+            app.manual_queue = vec![first.uri().to_string()];
+        }
+        frame(&ctx, &mut app);
+        app.manual_queue.clear();
         for dialog in [
             Dialog::Shortcuts,
             Dialog::CreatePlaylist {

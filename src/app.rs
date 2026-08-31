@@ -2415,6 +2415,15 @@ impl App {
         }
     }
 
+    /// How many leading rows of Next up are songs the user queued here,
+    /// so the view can give them their own section.
+    pub fn queued_rows_len(&self) -> usize {
+        match &self.queue {
+            Loadable::Loaded(queue) => Self::end_of_queued_rows(&queue.queue, &self.manual_queue),
+            _ => 0,
+        }
+    }
+
     /// Whether Clear queue can truly clear: the queue has rows and this
     /// computer's engine is the playing device, the only device whose
     /// queue any client is allowed to drop.
@@ -5934,6 +5943,30 @@ mod tests {
             vec!["spotify:track:b", "spotify:track:c", "spotify:track:ctx1"],
             "the missing row comes back after the queued section"
         );
+    }
+
+    /// The view splits the queue where the user's own songs end; rows
+    /// queued elsewhere or belonging to the context stay below the line.
+    #[test]
+    fn the_queued_section_covers_only_the_users_own_rows() {
+        let mut app = headless_app();
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()];
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:ctx1",
+                "spotify:track:c",
+            ],
+        );
+        assert_eq!(
+            app.queued_rows_len(),
+            2,
+            "the context's own copy of c does not count as queued"
+        );
+        app.manual_queue.clear();
+        assert_eq!(app.queued_rows_len(), 0);
     }
 
     fn headless_app() -> App {
