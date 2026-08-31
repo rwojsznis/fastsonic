@@ -3448,7 +3448,11 @@ impl App {
                 self.queued_play = None;
                 let load = local_load(&request, shuffle);
                 self.local_list = load.context_uri.is_none().then(|| load.uris.clone());
+                let shuffle_after = shuffle && load.shuffle.is_none() && !load.uris.is_empty();
                 self.backend.player(PlayerCommand::Load(load));
+                if shuffle_after {
+                    self.backend.player(PlayerCommand::Shuffle(true));
+                }
                 self.optimistic_playing = Some((true, Instant::now()));
             }
             Target::Remote(Some(device_id)) => {
@@ -4812,6 +4816,13 @@ fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
             ..LoadSpec::default()
         };
     }
+    // A plain track list must not load shuffled when a row was chosen:
+    // librespot shuffles the list first and then cannot find the chosen
+    // row in it, falls back to nowhere, and replays what was on. The list
+    // loads straight and shuffle is switched on right after the load,
+    // which also matches Spotify: the chosen song plays, the rest shuffle.
+    let chosen = request.offset_uri.is_some() || request.offset_position.is_some();
+    let list = request.context_uri.is_none();
     LoadSpec {
         context_uri: request.context_uri.clone(),
         uris: request.uris.clone(),
@@ -4819,7 +4830,7 @@ fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
         offset_index: request.offset_position,
         position_ms: request.position_ms,
         play: true,
-        shuffle: shuffle.then_some(true),
+        shuffle: (shuffle && !(list && chosen)).then_some(true),
         autoplay: false,
     }
 }
@@ -5115,6 +5126,25 @@ mod tests {
             "a fresh start lets the saved queue go"
         );
         assert!(app.session_dirty);
+    }
+
+    /// A chosen row in a plain list loads the list straight; librespot
+    /// shuffling first loses the chosen row and replays what was on.
+    /// Shuffle is put back by a command after the load.
+    #[test]
+    fn a_chosen_row_in_a_list_never_loads_shuffled() {
+        let request = PlayRequest::tracks(vec!["spotify:track:a".into(), "spotify:track:b".into()])
+            .starting_at_index(1);
+        let load = local_load(&request, true);
+        assert_eq!(load.shuffle, None);
+        assert_eq!(load.offset_index, Some(1));
+        // Without a chosen row the list may shuffle from the start.
+        let request = PlayRequest::tracks(vec!["spotify:track:a".into(), "spotify:track:b".into()]);
+        assert_eq!(local_load(&request, true).shuffle, Some(true));
+        // A context play keeps its shuffled load; the offset was already
+        // picked to match.
+        let request = PlayRequest::context("spotify:playlist:x").starting_at_uri("spotify:track:a");
+        assert_eq!(local_load(&request, true).shuffle, Some(true));
     }
 
     fn headless_app() -> App {
