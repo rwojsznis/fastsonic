@@ -1645,6 +1645,7 @@ impl App {
         let pos = self.milkdrop_pos;
         let fullscreen = self.settings.milkdrop_fullscreen;
         let fps = self.settings.milkdrop_fps;
+        let fps_screen = self.settings.milkdrop_fps_screen;
         let seconds = self.settings.milkdrop_seconds;
         let scale = self.settings.milkdrop_scale.max(1);
         // The playing song, for the window to overlay when it changes.
@@ -1665,9 +1666,11 @@ impl App {
             let host = self.milkdrop_host.as_mut().expect("the host was just made");
             if open {
                 if !host.is_running() {
-                    host.open(&presets, size, pos, fullscreen, fps, seconds, scale);
+                    host.open(
+                        &presets, size, pos, fullscreen, fps, fps_screen, seconds, scale,
+                    );
                 }
-                host.update(fps, seconds, scale);
+                host.update(fps, fps_screen, seconds, scale);
                 host.song(song);
             } else if host.is_running() {
                 host.close();
@@ -4927,7 +4930,18 @@ impl App {
                 self.settings_dirty = true;
             }
             Action::SetMilkdropFps(fps) => {
-                self.settings.milkdrop_fps = fps.min(240);
+                self.settings.milkdrop_fps = if fps == 0 {
+                    0
+                } else {
+                    fps.clamp(
+                        *crate::milkdrop::FPS_RANGE.start(),
+                        *crate::milkdrop::FPS_RANGE.end(),
+                    )
+                };
+                self.settings_dirty = true;
+            }
+            Action::SetMilkdropFpsScreen(on) => {
+                self.settings.milkdrop_fps_screen = on;
                 self.settings_dirty = true;
             }
             Action::SetMilkdropScale(scale) => {

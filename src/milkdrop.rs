@@ -38,7 +38,9 @@ pub const DEFAULT_SECONDS: u32 = 30;
 /// How many frames a second the window draws by default.
 pub const DEFAULT_FPS: u32 = 60;
 /// The choices Settings offers for that; 0 is uncapped.
-pub const FPS_CHOICES: [u32; 3] = [30, 60, 0];
+/// The frame rates a number may be set to by hand. Anything in between
+/// is fine too; these are only where the slider starts and stops.
+pub const FPS_RANGE: std::ops::RangeInclusive<u32> = 10..=360;
 /// The window's size when it first opens, in logical points.
 pub const DEFAULT_SIZE: [f32; 2] = [640.0, 480.0];
 /// The smallest the window may be dragged.

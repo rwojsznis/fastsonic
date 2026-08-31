@@ -685,22 +685,40 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Frame rate",
-            "How often the window draws. Matching your screen is smooth without wasting frames; uncapped runs as fast as it can.",
+            "How often the window draws. Following the screen is smooth without drawing frames nobody sees; a number of your own suits a screen the app cannot ask, and uncapped runs as fast as the machine can.",
             |ui| {
-                let current = app.settings.milkdrop_fps;
+                let screen = app.settings.milkdrop_fps_screen;
+                let fps = app.settings.milkdrop_fps;
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    for fps in crate::milkdrop::FPS_CHOICES {
-                        let label = if fps == 0 {
-                            "Uncapped".to_string()
-                        } else {
-                            format!("{fps} fps")
-                        };
-                        if theme::soft_button(ui, &palette, None, &label, fps == current).clicked()
-                            && fps != current
-                        {
-                            app.actions.push(Action::SetMilkdropFps(fps));
+                    if theme::soft_button(ui, &palette, None, "Screen", screen).clicked() && !screen
+                    {
+                        app.actions.push(Action::SetMilkdropFpsScreen(true));
+                    }
+                    let uncapped = !screen && fps == 0;
+                    if theme::soft_button(ui, &palette, None, "Uncapped", uncapped).clicked()
+                        && !uncapped
+                    {
+                        app.actions.push(Action::SetMilkdropFpsScreen(false));
+                        app.actions.push(Action::SetMilkdropFps(0));
+                    }
+                    let numbered = !screen && fps != 0;
+                    // The number itself, wherever anyone wants it: the
+                    // slider covers the usual screens and the box takes
+                    // whatever it is given.
+                    let mut wanted = if fps == 0 {
+                        crate::milkdrop::DEFAULT_FPS
+                    } else {
+                        fps
+                    };
+                    let slider = egui::Slider::new(&mut wanted, crate::milkdrop::FPS_RANGE)
+                        .suffix(" fps")
+                        .clamping(egui::SliderClamping::Edits);
+                    if ui.add(slider).changed() {
+                        if !numbered {
+                            app.actions.push(Action::SetMilkdropFpsScreen(false));
                         }
+                        app.actions.push(Action::SetMilkdropFps(wanted));
                     }
                 });
             },

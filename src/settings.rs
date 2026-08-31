@@ -136,6 +136,9 @@ pub struct Settings {
     pub milkdrop_seconds: u32,
     /// How many frames a second the MilkDrop window draws; 0 is uncapped.
     pub milkdrop_fps: u32,
+    /// Draw as often as the screen refreshes, whatever `milkdrop_fps`
+    /// says: smooth without drawing frames no one ever sees.
+    pub milkdrop_fps_screen: bool,
     /// The picture's inner resolution: 1 full, 2 half, 4 quarter.
     pub milkdrop_scale: u32,
     /// The MilkDrop window fills the screen.
@@ -194,6 +197,7 @@ impl Default for Settings {
             milkdrop_open: false,
             milkdrop_seconds: crate::milkdrop::DEFAULT_SECONDS,
             milkdrop_fps: crate::milkdrop::DEFAULT_FPS,
+            milkdrop_fps_screen: true,
             milkdrop_scale: 1,
             milkdrop_fullscreen: false,
             milkdrop_size: crate::milkdrop::DEFAULT_SIZE,
