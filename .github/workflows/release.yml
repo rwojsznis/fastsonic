@@ -63,6 +63,10 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
       - uses: Swatinem/rust-cache@v2
         with:
+          # v2: caches from before the projectm-sys fork replay its stale
+          # build output instead of compiling the fork.
+          prefix-key: v2
+        with:
           key: ${{ matrix.target }}
 
       - run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}

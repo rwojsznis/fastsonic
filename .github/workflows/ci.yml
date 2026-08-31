@@ -33,6 +33,10 @@ jobs:
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
       - uses: Swatinem/rust-cache@v2
+        with:
+          # v2: caches from before the projectm-sys fork replay its stale
+          # build output instead of compiling the fork.
+          prefix-key: v2
       - name: Formatting
         run: cargo fmt --all --check
       - name: Clippy (default features)
