@@ -310,6 +310,8 @@ pub struct App {
     pub resume_context: Option<String>,
     pub resume_track: Option<String>,
     pub resume_position_ms: u32,
+    /// The songs that were queued behind it, queued again when it resumes.
+    pub resume_queue: Vec<String>,
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
@@ -491,6 +493,7 @@ impl App {
             resume_context: session.last_context.clone(),
             resume_track: session.last_track.clone(),
             resume_position_ms: session.last_position_ms,
+            resume_queue: session.last_queue.clone(),
             update: None,
             last_update_check: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
@@ -1338,6 +1341,22 @@ impl App {
         }
         if self.last_now_playing_uri.as_deref() == Some(now.uri.as_str()) {
             return;
+        }
+        // The queue saved with the remembered song comes back when that song
+        // resumes; starting anything else instead lets it go, the way
+        // Spotify's own queue does not follow a fresh start.
+        if !self.resume_queue.is_empty() {
+            let queued = std::mem::take(&mut self.resume_queue);
+            self.session_dirty = true;
+            if now.local && self.resume_track.as_deref() == Some(now.uri.as_str()) {
+                for uri in queued {
+                    self.backend.api(ApiRequest::AddToQueue {
+                        uri,
+                        device_id: self.local_device_id.clone(),
+                        label: String::new(),
+                    });
+                }
+            }
         }
         self.last_now_playing_uri = Some(now.uri.clone());
         self.resume_context = self.playing_context_uri();
@@ -3159,7 +3178,10 @@ impl App {
             },
             ApiResponse::QueueAdded { label, result } => match result {
                 Ok(()) => {
-                    self.toast(format!("Added {label} to queue"));
+                    // A restored queue announces nothing; a chosen song does.
+                    if !label.is_empty() {
+                        self.toast(format!("Added {label} to queue"));
+                    }
                     self.refresh_queue(true);
                 }
                 Err(error) => self.toast_error(format!("Couldn't add to queue: {error}")),
@@ -4600,6 +4622,21 @@ impl App {
                 last_context: self.resume_context.clone(),
                 last_track: self.resume_track.clone(),
                 last_position_ms: self.resume_position_ms,
+                last_queue: if self.resume_queue.is_empty() {
+                    self.queue
+                        .get()
+                        .map(|queue| {
+                            queue
+                                .queue
+                                .iter()
+                                .map(|item| item.uri().to_string())
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    // Never resumed this session; the owed queue carries over.
+                    self.resume_queue.clone()
+                },
                 shuffle_on: self.shuffle_wanted,
                 sorts: self
                     .table_sorts
@@ -5011,6 +5048,27 @@ mod tests {
             Some("spotify:track:two"),
             "a shuffled skip still lands on another song in the context"
         );
+    }
+
+    /// The queue saved at close is owed to the resumed song alone:
+    /// resuming it queues the songs again, starting anything else lets
+    /// them go.
+    #[test]
+    fn the_saved_queue_follows_the_resumed_song_only() {
+        let mut app = headless_app();
+        app.resume_track = Some("spotify:track:abc".into());
+        app.resume_queue = vec!["spotify:track:q1".into(), "spotify:track:q2".into()];
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:other".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.on_now_playing_changed();
+        assert!(
+            app.resume_queue.is_empty(),
+            "a fresh start lets the saved queue go"
+        );
+        assert!(app.session_dirty);
     }
 
     fn headless_app() -> App {

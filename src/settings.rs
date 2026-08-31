@@ -355,6 +355,8 @@ pub struct SessionState {
     pub last_context: Option<String>,
     pub last_track: Option<String>,
     pub last_position_ms: u32,
+    /// The songs queued behind it, to queue again when it resumes.
+    pub last_queue: Vec<String>,
     /// Whether the listener had shuffle on, a mode that outlives contexts.
     pub shuffle_on: bool,
     /// Each table's chosen sort, by encoded page, restored at start.
