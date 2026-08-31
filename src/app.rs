@@ -5027,6 +5027,14 @@ impl App {
         self.handle_media_commands();
         self.handle_tray();
         self.tick(ctx);
+        // MilkDrop is a window of its own, in a child process; the app opens,
+        // updates, and hears back from it here. This is the frame that runs
+        // whether or not the main window exists, which is the point: the
+        // MilkDrop window outlives it, and used to be left with a song title
+        // that stopped changing and keys that went nowhere. Before the
+        // actions, because its keys arrive as actions.
+        #[cfg(feature = "milkdrop")]
+        self.sync_milkdrop(ctx);
         self.apply_actions(ctx);
         self.sync_media_controls();
         self.sync_window_title(ctx);
@@ -5064,10 +5072,6 @@ impl App {
         } else {
             crate::ui::show(self, ui);
         }
-        // MilkDrop is a window of its own, in a child process; the app opens,
-        // updates, and hears back from it here.
-        #[cfg(feature = "milkdrop")]
-        self.sync_milkdrop(ctx);
         self.apply_actions(ctx);
         self.sync_media_controls();
 
