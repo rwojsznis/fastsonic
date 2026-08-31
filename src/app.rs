@@ -315,6 +315,9 @@ pub struct App {
     /// What the listener queued by hand this session, oldest first; the
     /// context's own upcoming songs never belong here.
     pub manual_queue: Vec<String>,
+    /// Adds shown in the queue before Spotify confirms them: the uri and
+    /// when it was asked, so a slow answer cannot erase or double them.
+    pending_queue_adds: Vec<(String, Instant)>,
     /// The account's playlist tree from Spotify, folders and all; empty
     /// until the session answers.
     pub rootlist: Vec<crate::player::RootlistEntry>,
@@ -503,6 +506,7 @@ impl App {
             resume_position_ms: session.last_position_ms,
             resume_queue: session.last_added_queue.clone(),
             manual_queue: Vec::new(),
+            pending_queue_adds: Vec::new(),
             rootlist: Vec::new(),
             collapsed_folders: session.collapsed_folders.clone(),
             update: None,
@@ -2493,6 +2497,7 @@ impl App {
             }
             ApiResponse::Queue(result) => {
                 self.queue = Loadable::from_result(result);
+                self.reconcile_pending_queue();
                 if let Some(queue) = self.queue.get() {
                     let uris: Vec<String> = queue
                         .queue
@@ -3213,12 +3218,9 @@ impl App {
                 }
                 Err(error) => self.toast_error(format!("Couldn't switch device: {error}")),
             },
-            ApiResponse::QueueAdded { label, result } => match result {
+            ApiResponse::QueueAdded { label: _, result } => match result {
                 Ok(()) => {
-                    // A restored queue announces nothing; a chosen song does.
-                    if !label.is_empty() {
-                        self.toast(format!("Added {label} to queue"));
-                    }
+                    // The toast came at the click; here the view catches up.
                     self.refresh_queue(true);
                 }
                 Err(error) => self.toast_error(format!("Couldn't add to queue: {error}")),
@@ -3802,10 +3804,27 @@ impl App {
     }
 
     fn add_to_queue(&mut self, uri: String, label: String) {
+        // The row appears at once and Spotify catches up behind; a second
+        // click while the first is still on its way is the lag talking,
+        // not a second wish.
+        self.expire_pending_queue_adds();
+        if self
+            .pending_queue_adds
+            .iter()
+            .any(|(pending, _)| *pending == uri)
+        {
+            return;
+        }
+        self.pending_queue_adds.push((uri.clone(), Instant::now()));
+        let item = self.optimistic_queue_item(&uri, &label);
+        if let Loadable::Loaded(queue) = &mut self.queue {
+            queue.queue.insert(0, item);
+        }
         self.manual_queue.push(uri.clone());
         if self.manual_queue.len() > 100 {
             self.manual_queue.remove(0);
         }
+        self.toast(format!("Added {label} to queue"));
         let device_id = match self.target() {
             Target::Local => self.local_device_id.clone(),
             Target::Remote(device_id) => device_id,
@@ -3815,6 +3834,57 @@ impl App {
             device_id,
             label,
         });
+    }
+
+    /// The queued row as it can be shown right now: the cached track, or
+    /// its name alone until the details arrive.
+    fn optimistic_queue_item(&self, uri: &str, label: &str) -> PlayableItem {
+        let cached = util::uri_id(uri)
+            .and_then(|id| self.track_cache.get(id))
+            .cloned();
+        PlayableItem::Track(cached.unwrap_or_else(|| crate::api::models::Track {
+            uri: uri.to_string(),
+            name: label.to_string(),
+            ..Default::default()
+        }))
+    }
+
+    fn expire_pending_queue_adds(&mut self) {
+        self.pending_queue_adds
+            .retain(|(_, at)| at.elapsed() < Duration::from_secs(30));
+    }
+
+    /// A fetched queue that has not caught up yet gets the pending adds
+    /// put back on top, so a slow answer cannot erase them; ones it now
+    /// carries stop being pending.
+    fn reconcile_pending_queue(&mut self) {
+        self.expire_pending_queue_adds();
+        if self.pending_queue_adds.is_empty() {
+            return;
+        }
+        let Loadable::Loaded(queue) = &mut self.queue else {
+            return;
+        };
+        let fetched: std::collections::HashSet<String> = queue
+            .queue
+            .iter()
+            .map(|item| item.uri().to_string())
+            .collect();
+        self.pending_queue_adds
+            .retain(|(uri, _)| !fetched.contains(uri));
+        let missing: Vec<PlayableItem> = self
+            .pending_queue_adds
+            .iter()
+            .map(|(uri, _)| (uri.clone(), String::new()))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(uri, label)| self.optimistic_queue_item(&uri, &label))
+            .collect();
+        if let Loadable::Loaded(queue) = &mut self.queue {
+            for item in missing.into_iter().rev() {
+                queue.queue.insert(0, item);
+            }
+        }
     }
 
     fn set_saved(&mut self, uri: String, saved: bool) {
