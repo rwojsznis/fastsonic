@@ -172,9 +172,10 @@ struct Live {
     engine: Engine,
     gl: Arc<glow::Context>,
     overlay: Option<Overlay>,
-    /// What is switched on to stay: the song, the preset's name, the
-    /// frame rate. It sits in a corner and does not fade.
-    status: Option<Overlay>,
+    /// What is switched on to stay, each in a corner of its own so that
+    /// none of them can cover another: the frame rate, the song, the
+    /// preset's name. None of these fade.
+    corners: [Option<Overlay>; 3],
     context: PossiblyCurrentContext,
     surface: Surface<WindowSurface>,
     window: Window,
@@ -196,10 +197,10 @@ struct Child {
     song_on: bool,
     preset_on: bool,
     fps_on: bool,
-    /// What it says now, and when that was written, so it is redrawn
-    /// only when it would say something else.
-    status_lines: Vec<String>,
-    status_written: Option<Instant>,
+    /// What each corner says now, and when that was written, so one is
+    /// redrawn only when it would say something else.
+    corner_lines: [Vec<String>; 3],
+    corner_written: [Option<Instant>; 3],
     modifiers: winit::keyboard::ModifiersState,
     fps: u32,
     scale: u32,
@@ -227,8 +228,8 @@ impl Child {
             song_on: false,
             preset_on: false,
             fps_on: false,
-            status_lines: Vec::new(),
-            status_written: None,
+            corner_lines: [Vec::new(), Vec::new(), Vec::new()],
+            corner_written: [None; 3],
             modifiers: winit::keyboard::ModifiersState::empty(),
             fps,
             scale,
@@ -329,8 +330,8 @@ impl Child {
         if let Some(overlay) = &mut live.overlay {
             overlay.draw(&live.gl, (size.width, size.height));
         }
-        if let Some(status) = &mut live.status {
-            status.draw(&live.gl, (size.width, size.height));
+        for corner in live.corners.iter_mut().flatten() {
+            corner.draw(&live.gl, (size.width, size.height));
         }
         if self.drawn.len() >= 60 {
             self.drawn.remove(0);
@@ -339,7 +340,7 @@ impl Child {
         if let Err(error) = live.surface.swap_buffers(&live.context) {
             eprintln!("MilkDrop: present failed: {error}");
         }
-        self.update_status();
+        self.update_corners();
         self.report_geometry();
     }
 
@@ -635,108 +636,110 @@ impl Child {
         live.window.request_redraw();
     }
 
-    /// Keeps something in the corner, or stops keeping it there. What is
-    /// on is written into one block, so two of them cannot overlap.
+    /// Keeps something in its corner, or stops keeping it there.
     fn toggle_status(&mut self, what: Status) {
         match what {
             Status::Song => self.song_on = !self.song_on,
             Status::Preset => self.preset_on = !self.preset_on,
             Status::Fps => self.fps_on = !self.fps_on,
         }
-        // A key press answers at once, whatever the pace above.
-        self.status_written = None;
-        self.update_status();
+        // A key press answers at once, whatever the pace below.
+        self.corner_written[what.index()] = None;
+        self.update_corners();
         if let Some(live) = &self.live {
             live.window.request_redraw();
         }
     }
 
-    /// What the corner says now: the song, the preset, the frame rate,
-    /// in that order, and each only if it was asked for.
-    fn status_lines(&self) -> Vec<String> {
-        let mut lines = Vec::new();
-        if self.song_on {
-            let playing = self
-                .song
-                .as_ref()
-                .map(|song| {
-                    let named: Vec<&str> = song
-                        .iter()
-                        .take(2)
-                        .map(String::as_str)
-                        .filter(|line| !line.is_empty())
-                        .collect();
-                    named.join("  \u{00b7}  ")
-                })
-                .unwrap_or_default();
-            lines.push(if playing.is_empty() {
-                "Nothing playing".to_string()
-            } else {
-                playing
-            });
-        }
-        if self.preset_on {
-            lines.push(
+    /// What a corner says now, or nothing when it is switched off.
+    fn corner_lines(&self, what: Status) -> Vec<String> {
+        match what {
+            Status::Fps if self.fps_on => {
+                vec![format!("{:.0} FPS", frames_per_second(&self.drawn))]
+            }
+            Status::Song if self.song_on => match &self.song {
+                Some(song) => song
+                    .iter()
+                    .take(2)
+                    .filter(|line| !line.is_empty())
+                    .cloned()
+                    .collect(),
+                None => vec!["Nothing playing".into()],
+            },
+            Status::Preset if self.preset_on => vec![
                 self.presets
                     .current()
                     .and_then(|path| path.file_stem())
                     .map(|stem| stem.to_string_lossy().to_string())
                     .unwrap_or_else(|| "No preset".into()),
-            );
+            ],
+            _ => Vec::new(),
         }
-        if self.fps_on {
-            lines.push(format!("{:.0} FPS", frames_per_second(&self.drawn)));
-        }
-        lines
     }
 
-    /// Writes the corner again when it would say something else, and no
-    /// more often than a few times a second while the count is moving.
-    fn update_status(&mut self) {
-        let lines = self.status_lines();
-        if lines.is_empty() {
-            self.status_lines.clear();
-            if let Some(live) = &mut self.live
-                && let Some(status) = &mut live.status
-            {
-                status.hide();
+    /// Writes each corner again when it would say something else, and no
+    /// more often than a few times a second while a count is moving.
+    fn update_corners(&mut self) {
+        for what in [Status::Fps, Status::Song, Status::Preset] {
+            let at = what.index();
+            let lines = self.corner_lines(what);
+            if lines.is_empty() {
+                if !self.corner_lines[at].is_empty() {
+                    self.corner_lines[at].clear();
+                    if let Some(live) = &mut self.live
+                        && let Some(corner) = &mut live.corners[at]
+                    {
+                        corner.hide();
+                    }
+                }
+                continue;
             }
-            return;
+            // Saying the same thing again is not worth a new bitmap, and
+            // a frame rate that flickers between two numbers is not worth
+            // one several times a second either.
+            if lines == self.corner_lines[at] {
+                continue;
+            }
+            let waited = self.corner_written[at]
+                .is_none_or(|written| written.elapsed() >= Duration::from_millis(400));
+            if !waited {
+                continue;
+            }
+            let rows: Vec<Row> = lines
+                .iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    // The song leads with its title and names who plays
+                    // it underneath; everything else is one plain line.
+                    let span = match (what, index) {
+                        (Status::Song, 0) => Span::new(line.clone(), 16.0).weight(700.0),
+                        (Status::Song, _) => Span::new(line.clone(), 13.0).tint(0.82),
+                        _ => Span::new(line.clone(), 13.0).weight(600.0),
+                    };
+                    Row::Line(span)
+                })
+                .collect();
+            self.corner_lines[at] = lines;
+            self.corner_written[at] = Some(Instant::now());
+            let Some(live) = &mut self.live else {
+                return;
+            };
+            let gl = Arc::clone(&live.gl);
+            let window = window_size(&live.window);
+            let Some(corner) = &mut live.corners[at] else {
+                continue;
+            };
+            corner.show(
+                &gl,
+                &rows,
+                what.place(),
+                Backing::Shadow,
+                // Long enough that it never fades on its own; the key
+                // that turned it on is what turns it off.
+                Duration::from_secs(60 * 60),
+                window,
+            );
         }
-        // Saying the same thing again is not worth a new bitmap, and a
-        // frame rate that flickers between two numbers is not worth one
-        // several times a second either.
-        if lines == self.status_lines {
-            return;
-        }
-        let waited = self
-            .status_written
-            .is_none_or(|at| at.elapsed() >= Duration::from_millis(400));
-        if !waited {
-            return;
-        }
-        let rows: Vec<Row> = lines
-            .iter()
-            .map(|line| Row::Line(Span::new(line.clone(), 13.0).weight(600.0)))
-            .collect();
-        let Some(live) = &mut self.live else {
-            return;
-        };
-        let Some(status) = &mut live.status else {
-            return;
-        };
-        self.status_lines = lines;
-        self.status_written = Some(Instant::now());
-        status.show(
-            &live.gl,
-            &rows,
-            Place::TopLeft,
-            Backing::Shadow,
-            // Long enough that it never fades on its own; the key that
-            // turned it on is what turns it off.
-            Duration::from_secs(60 * 60),
-            window_size(&live.window),
-        );
     }
 
     /// What is playing, big in the middle of the picture: the title, then
@@ -779,12 +782,32 @@ impl Child {
     }
 }
 
-/// What the corner can be asked to keep showing.
+/// What a corner can be asked to keep showing, and which corner it is.
 #[derive(Clone, Copy)]
 enum Status {
+    Fps,
     Song,
     Preset,
-    Fps,
+}
+
+impl Status {
+    fn index(self) -> usize {
+        match self {
+            Status::Fps => 0,
+            Status::Song => 1,
+            Status::Preset => 2,
+        }
+    }
+
+    /// The frame rate out of the way in the top left, the song where the
+    /// eye goes first, the preset's name furthest from both.
+    fn place(self) -> Place {
+        match self {
+            Status::Fps => Place::TopLeft,
+            Status::Song => Place::TopRight,
+            Status::Preset => Place::BottomRight,
+        }
+    }
 }
 
 /// Frames a second, from when the last frames were drawn.
@@ -884,13 +907,13 @@ fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live
     // Text over the picture; the picture goes on without it if the
     // shaders will not take.
     let overlay = Overlay::new(&gl);
-    let status = Overlay::new(&gl);
+    let corners = [Overlay::new(&gl), Overlay::new(&gl), Overlay::new(&gl)];
 
     let mut live = Live {
         engine,
         gl,
         overlay,
-        status,
+        corners,
         context,
         surface,
         window,
@@ -964,16 +987,26 @@ mod tests {
         assert!(child.next_frame <= Instant::now() + interval);
     }
 
-    /// The corner carries what has been switched on, in one block, in
-    /// the same order however they were turned on.
+    /// Each corner carries its own thing, and says nothing at all when
+    /// it is switched off.
     #[test]
-    fn the_corner_shows_only_what_is_switched_on() {
+    fn each_corner_carries_what_was_switched_on() {
         let mut child = headless_child();
-        assert!(child.status_lines().is_empty(), "nothing on, nothing shown");
+        for what in [Status::Fps, Status::Song, Status::Preset] {
+            assert!(
+                child.corner_lines(what).is_empty(),
+                "nothing on, nothing shown"
+            );
+        }
 
         child.fps_on = true;
-        assert_eq!(child.status_lines().len(), 1);
-        assert!(child.status_lines()[0].ends_with("FPS"));
+        let fps = child.corner_lines(Status::Fps);
+        assert_eq!(fps.len(), 1);
+        assert!(fps[0].ends_with("FPS"), "the count says FPS: {}", fps[0]);
+        assert!(
+            child.corner_lines(Status::Song).is_empty(),
+            "one key, one corner"
+        );
 
         child.song = Some(vec![
             "Wish You Were Here".into(),
@@ -981,29 +1014,36 @@ mod tests {
             "Morning View".into(),
         ]);
         child.song_on = true;
-        let lines = child.status_lines();
-        assert_eq!(lines.len(), 2, "the song joins the frame rate");
-        assert!(
-            lines[0].starts_with("Wish You Were Here") && lines[0].contains("Incubus"),
-            "the song line names the song and who plays it: {}",
-            lines[0]
+        assert_eq!(
+            child.corner_lines(Status::Song),
+            vec!["Wish You Were Here", "Incubus"],
+            "the song names itself, then who plays it"
         );
-        assert!(lines[1].ends_with("FPS"), "the frame rate stays last");
 
         child.presets.files = vec![PathBuf::from("/presets/Geiss - Spiral Artifact.milk")];
         child.presets.next(true);
         child.preset_on = true;
-        let lines = child.status_lines();
         assert_eq!(
-            lines[1], "Geiss - Spiral Artifact",
-            "the preset sits between the song and the frame rate"
+            child.corner_lines(Status::Preset),
+            vec!["Geiss - Spiral Artifact"]
         );
-        assert_eq!(lines.len(), 3);
+
+        // Three corners, three places, no two the same.
+        let places: Vec<Place> = [Status::Fps, Status::Song, Status::Preset]
+            .iter()
+            .map(|what| what.place())
+            .collect();
+        assert!(
+            places[0] != places[1] && places[1] != places[2] && places[0] != places[2],
+            "each corner is its own"
+        );
 
         child.song_on = false;
         child.preset_on = false;
         child.fps_on = false;
-        assert!(child.status_lines().is_empty(), "and off again");
+        for what in [Status::Fps, Status::Song, Status::Preset] {
+            assert!(child.corner_lines(what).is_empty(), "and off again");
+        }
     }
 
     /// The count is frames over the time they took, and it says nothing

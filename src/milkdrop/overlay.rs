@@ -57,7 +57,28 @@ static FACES: LazyLock<Vec<(&'static [u8], u32)>> = LazyLock::new(|| {
 pub enum Place {
     Center,
     TopLeft,
+    TopRight,
     BottomLeft,
+    BottomRight,
+}
+
+impl Place {
+    /// Which edge the lines line up on: the one the block sits against.
+    fn align(self) -> Align {
+        match self {
+            Place::Center => Align::Center,
+            Place::TopLeft | Place::BottomLeft => Align::Left,
+            Place::TopRight | Place::BottomRight => Align::Right,
+        }
+    }
+}
+
+/// Which edge a line of its own lines up on.
+#[derive(Clone, Copy, PartialEq)]
+enum Align {
+    Left,
+    Center,
+    Right,
 }
 
 /// How an overlay sits behind its text.
@@ -222,7 +243,7 @@ struct Placed {
 
 /// The rows laid out and inked into one RGBA bitmap. `grow` takes the
 /// sizes above to this window's.
-fn block_rgba(rows: &[Row], backing: Backing, grow: f32) -> (u32, u32, Vec<u8>) {
+fn block_rgba(rows: &[Row], backing: Backing, align: Align, grow: f32) -> (u32, u32, Vec<u8>) {
     // The keys line up in a column of their own, as wide as the widest.
     let key_column = rows
         .iter()
@@ -321,9 +342,14 @@ fn block_rgba(rows: &[Row], backing: Backing, grow: f32) -> (u32, u32, Vec<u8>) 
         }
         for item in &placed {
             let ink = &item.raster;
+            let free = width as f32 - SHADOW as f32 - ink.width as f32;
             let left = match item.left {
                 Some(left) => pad as f32 + left,
-                None => (width as f32 - ink.width as f32) / 2.0,
+                None => match align {
+                    Align::Left => pad as f32,
+                    Align::Center => free / 2.0,
+                    Align::Right => free - pad as f32,
+                },
             };
             let (offset, colour) = if pass == 0 {
                 (SHADOW as f32, [0u8, 0, 0])
@@ -447,7 +473,7 @@ impl Overlay {
         window: (u32, u32),
     ) {
         let grow = (window.1.max(1) as f32 / REFERENCE_HEIGHT).clamp(1.0, 3.0);
-        let (width, height, rgba) = block_rgba(rows, backing, grow);
+        let (width, height, rgba) = block_rgba(rows, backing, place.align(), grow);
         // SAFETY: the context is current; the texture is this overlay's own.
         unsafe {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.texture));
@@ -518,10 +544,14 @@ impl Overlay {
         let (win_w, win_h) = (window.0.max(1) as f32, window.1.max(1) as f32);
         let (w, h) = (self.size.0 as f32 * drift, self.size.1 as f32 * drift);
         let margin = MARGIN * self.grow;
+        let right = (win_w - margin - w).max(0.0);
+        let bottom = (win_h - margin - h).max(0.0);
         let (left, top) = match self.place {
             Place::Center => ((win_w - w) / 2.0, (win_h - h) / 2.0),
             Place::TopLeft => (margin, margin),
-            Place::BottomLeft => (margin, (win_h - margin - h).max(0.0)),
+            Place::TopRight => (right, margin),
+            Place::BottomLeft => (margin, bottom),
+            Place::BottomRight => (right, bottom),
         };
         // Window pixels to clip space; row zero of the bitmap is its top.
         let x0 = left / win_w * 2.0 - 1.0;
@@ -656,7 +686,7 @@ mod tests {
                 does: Span::new("close", 14.0),
             },
         ];
-        let (width, height, rgba) = block_rgba(&rows, Backing::Box, 1.0);
+        let (width, height, rgba) = block_rgba(&rows, Backing::Box, Align::Left, 1.0);
         assert_eq!(rgba.len(), (width * height * 4) as usize);
         let narrow = raster(&Span::new("F", 14.0), 14.0).width;
         let wide = raster(&Span::new("Ctrl+Shift+K", 14.0), 14.0).width;
@@ -675,16 +705,45 @@ mod tests {
         let song = [Row::Line(
             Span::new("Wish You Were Here", 26.0).weight(700.0),
         )];
-        let (_, _, shadowed) = block_rgba(&song, Backing::Shadow, 1.0);
+        let (_, _, shadowed) = block_rgba(&song, Backing::Shadow, Align::Center, 1.0);
         assert!(
             shadowed.chunks(4).any(|px| px[3] == 0),
             "a shadow leaves the picture showing around it"
         );
 
-        let (width, height, boxed) = block_rgba(&song, Backing::Box, 1.0);
+        let (width, height, boxed) = block_rgba(&song, Backing::Box, Align::Center, 1.0);
         let middle = ((height / 2 * width + width / 2) * 4) as usize;
         assert!(boxed[middle + 3] > 0, "the box lies under the block");
         assert_eq!(boxed[3], 0, "the box has rounded corners");
+    }
+
+    /// A block in a right-hand corner lines its text up on the right, so
+    /// a short line sits under the end of a long one, not its middle.
+    #[test]
+    fn a_corner_lines_its_text_up_on_its_own_edge() {
+        let rows = [
+            Row::Line(Span::new("Wish You Were Here", 16.0)),
+            Row::Line(Span::new("Incubus", 13.0)),
+        ];
+        // The ink of the short line, by the column it starts in.
+        let starts_at = |align| {
+            let (width, height, rgba) = block_rgba(&rows, Backing::Shadow, align, 1.0);
+            let last = (0..height)
+                .rev()
+                .find(|y| (0..width).any(|x| rgba[((y * width + x) * 4 + 3) as usize] > 0))
+                .expect("the second line leaves ink");
+            let first_x = (0..width)
+                .find(|x| rgba[((last * width + x) * 4 + 3) as usize] > 0)
+                .expect("a row of ink starts somewhere");
+            (first_x, width)
+        };
+        let (left_start, width) = starts_at(Align::Left);
+        let (right_start, _) = starts_at(Align::Right);
+        assert!(
+            right_start > left_start,
+            "lined up right, the short line starts further in"
+        );
+        assert!(right_start * 2 > width, "and past the middle of the block");
     }
 
     /// Sizes are in the pixels of a 480-tall screen: a taller window grows
@@ -692,8 +751,8 @@ mod tests {
     #[test]
     fn type_grows_with_the_window() {
         let rows = [Row::Line(Span::new("Keys", 24.0))];
-        let (_, small, _) = block_rgba(&rows, Backing::Box, 1.0);
-        let (_, large, _) = block_rgba(&rows, Backing::Box, 2.0);
+        let (_, small, _) = block_rgba(&rows, Backing::Box, Align::Left, 1.0);
+        let (_, large, _) = block_rgba(&rows, Backing::Box, Align::Left, 2.0);
         assert!(
             large > small * 3 / 2,
             "twice the window, nearly twice the type"
