@@ -310,8 +310,11 @@ pub struct App {
     pub resume_context: Option<String>,
     pub resume_track: Option<String>,
     pub resume_position_ms: u32,
-    /// The songs that were queued behind it, queued again when it resumes.
+    /// The songs that were queued by hand, queued again when it resumes.
     pub resume_queue: Vec<String>,
+    /// What the listener queued by hand this session, oldest first; the
+    /// context's own upcoming songs never belong here.
+    pub manual_queue: Vec<String>,
     /// The account's playlist tree from Spotify, folders and all; empty
     /// until the session answers.
     pub rootlist: Vec<crate::player::RootlistEntry>,
@@ -498,7 +501,8 @@ impl App {
             resume_context: session.last_context.clone(),
             resume_track: session.last_track.clone(),
             resume_position_ms: session.last_position_ms,
-            resume_queue: session.last_queue.clone(),
+            resume_queue: session.last_added_queue.clone(),
+            manual_queue: Vec::new(),
             rootlist: Vec::new(),
             collapsed_folders: session.collapsed_folders.clone(),
             update: None,
@@ -1361,6 +1365,7 @@ impl App {
             self.session_dirty = true;
             if now.local && self.resume_track.as_deref() == Some(now.uri.as_str()) {
                 for uri in queued {
+                    self.manual_queue.push(uri.clone());
                     self.backend.api(ApiRequest::AddToQueue {
                         uri,
                         device_id: self.local_device_id.clone(),
@@ -1368,6 +1373,11 @@ impl App {
                     });
                 }
             }
+        }
+        // A hand-queued song that starts has been consumed.
+        if self.manual_queue.first().map(String::as_str) == Some(now.uri.as_str()) {
+            self.manual_queue.remove(0);
+            self.session_dirty = true;
         }
         self.last_now_playing_uri = Some(now.uri.clone());
         self.resume_context = self.playing_context_uri();
@@ -3792,6 +3802,10 @@ impl App {
     }
 
     fn add_to_queue(&mut self, uri: String, label: String) {
+        self.manual_queue.push(uri.clone());
+        if self.manual_queue.len() > 100 {
+            self.manual_queue.remove(0);
+        }
         let device_id = match self.target() {
             Target::Local => self.local_device_id.clone(),
             Target::Remote(device_id) => device_id,
@@ -4672,17 +4686,8 @@ impl App {
                 last_track: self.resume_track.clone(),
                 last_position_ms: self.resume_position_ms,
                 collapsed_folders: self.collapsed_folders.clone(),
-                last_queue: if self.resume_queue.is_empty() {
-                    self.queue
-                        .get()
-                        .map(|queue| {
-                            queue
-                                .queue
-                                .iter()
-                                .map(|item| item.uri().to_string())
-                                .collect()
-                        })
-                        .unwrap_or_default()
+                last_added_queue: if self.resume_queue.is_empty() {
+                    self.manual_queue.clone()
                 } else {
                     // Never resumed this session; the owed queue carries over.
                     self.resume_queue.clone()

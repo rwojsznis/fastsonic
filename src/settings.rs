@@ -361,8 +361,13 @@ pub struct SessionState {
     pub last_context: Option<String>,
     pub last_track: Option<String>,
     pub last_position_ms: u32,
-    /// The songs queued behind it, to queue again when it resumes.
-    pub last_queue: Vec<String>,
+    /// The songs the listener queued by hand, to queue again when the
+    /// remembered song resumes. Only hand-added songs belong here: the
+    /// whole queue also carries the context's own upcoming songs, and
+    /// saving those made duplicates. (The old `last_queue` field held
+    /// exactly that bad data, so this one has a new name and old sessions
+    /// restore nothing.)
+    pub last_added_queue: Vec<String>,
     /// Sidebar folders rolled up, by their rootlist ids.
     pub collapsed_folders: Vec<String>,
     /// Whether the listener had shuffle on, a mode that outlives contexts.
