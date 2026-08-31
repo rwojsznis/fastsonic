@@ -158,3 +158,9 @@ opt-level = 2
 # build of libprojectM is fine to develop against; releases are optimised.
 [profile.dev.package.projectm-sys]
 opt-level = 0
+
+# projectm-sys 1.2.2 hardcodes the Visual Studio 17 2022 CMake generator,
+# which GitHub's windows-latest images no longer carry; the fork lets an
+# explicit CMAKE_GENERATOR win. Drop when upstream takes the change.
+[patch.crates-io]
+projectm-sys = { git = "https://github.com/crmne/projectm-rs", branch = "respect-cmake-generator" }

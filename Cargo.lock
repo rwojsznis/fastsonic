@@ -7404,3 +7404,8 @@ dependencies = [
  "syn 3.0.4",
  "winnow",
 ]
+
+[[patch.unused]]
+name = "projectm-sys"
+version = "1.2.3"
+source = "git+https://github.com/crmne/projectm-rs?branch=respect-cmake-generator#b8d0625fda18f8458d678c7f0e0451b500f1ad43"
