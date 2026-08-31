@@ -1,51 +1,52 @@
 ---
 title: The Queue's Rules
-description: What Next up holds, what Play next does, and the promises the queue keeps.
+description: What the queue shows, what Play next does, and what the app promises about both.
 nav_order: 2
 ---
 
-Next up is two lists drawn as one. First the songs you asked for, in the
-order you asked for them. Then the songs the playing playlist, album, or
-station would reach on its own. The rules below are the whole contract;
-the queue tests in `src/app.rs` hold Fastpotify to them.
+The queue is the list of what plays next. It has two parts. On top,
+under **Playing next**, are the songs you queued yourself. Below them,
+under **Next up**, are the songs that come next in whatever playlist or
+album is playing. Your songs always play first.
 
-## The rules
+These are the rules the app follows. The queue tests in `src/app.rs`
+check every one of them.
 
-1. **What you see is what plays.** The top row of Next up is the next
-   song heard, the second row follows it, and so on down.
+1. **The list is the truth.** The top row plays next, then the second,
+   and so on down.
 
-2. **Play next queues a song.** It goes in after the songs you queued
-   before it and ahead of the playing context's own. Asking again queues
-   it again, two rows for two asks; the two clicks of a double-click are
-   one ask.
+2. **Play next adds a song to your part of the queue.** It goes after
+   the songs you queued earlier and before the playlist's songs. Queue
+   the same song twice and it plays twice. A double-click only counts
+   once.
 
-3. **A song that starts leaves Next up.** However it starts: the song
-   before it ending, the Next button, a click, another device. The same
-   song is never both Now playing and the top of Next up.
+3. **When a song starts, its row leaves the queue.** It doesn't matter
+   how it started: the song before it ended, you pressed Next, you
+   clicked it, or another device skipped to it. A song is never shown
+   as playing and as next at the same time.
 
-4. **Next pops.** The head of Next up becomes Now playing the moment the
-   button is pressed, not when Spotify confirms it.
+4. **Next removes the top row right away.** The app doesn't wait for
+   Spotify to confirm it.
 
-5. **A double-clicked row jumps the queue.** It plays at once; the rows
-   above it are consumed with it, as if Next had been pressed down to
-   it; the rows after it and the playing context stay untouched.
+5. **Playing a row from the queue skips to it.** The rows above it are
+   skipped and removed, as if you had pressed Next down to it. The rows
+   below it stay, and the playlist keeps going afterwards.
 
-6. **Starting something new keeps your songs.** Playing a playlist or
-   album replaces the context's rows under your queued songs, and the
-   queued songs still play first.
+6. **Starting a new playlist keeps your songs.** The rows underneath
+   change to the new playlist; your songs stay on top and still play
+   first.
 
-7. **Clear queue removes your songs, not the context's.** The button
-   appears where the promise can be kept: when this computer's player is
-   the device, the one queue any client is allowed to drop.
+7. **Clear queue only removes your songs.** The playlist's rows stay.
+   The button only shows while this computer is the player, because
+   that is the only queue the app can actually clear.
 
-8. **The interface acts first.** Every rule above shows its result the
-   moment you act; Spotify is told afterwards. On this computer the
-   engine is told directly, with no Web API detour.
+8. **The app acts first and tells Spotify after.** Everything above
+   happens on screen the moment you do it. When this computer is the
+   player, the app tells its own player directly instead of going
+   through the Web API.
 
-9. **A late answer never undoes what you did.** Spotify's queue answers
-   lag by seconds. An answer overtaken by a newer request is dropped
-   unread; one that contradicts what the interface just did, naming the
-   wrong playing song or still carrying a cleared row, is held back and
-   asked again. Only a story Spotify keeps telling wins, and a row you
-   queued is put back until Spotify confirms it. Nothing you did may
-   flicker away and come back.
+9. **Old answers from Spotify are ignored.** Spotify's answers about
+   the queue can run a few seconds behind. If an answer is older than
+   what you just did, the app throws it away and asks again. A song you
+   queued stays on screen until Spotify confirms it. Nothing you do
+   disappears and comes back.
