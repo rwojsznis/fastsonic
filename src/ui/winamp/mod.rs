@@ -1164,18 +1164,25 @@ fn pixel_line(app: &mut App, view: &mut View, text: &str, area: Area) {
     let ctx = view.ui.ctx().clone();
     let line = app.winamp.playlist_text.line(&ctx, text);
     let (texture, width, height) = (line.texture.id(), line.width, line.height);
-    if width == 0 || height == 0 {
+    let (ink_top, ink_height) = (line.ink_top, line.ink_height);
+    if width == 0 || ink_height == 0 {
         return;
     }
     let unit = view.unit;
-    let scale = (area.height as f32 * unit) / height as f32;
+    // Scale the ink, not the face's padded line, so the glyphs fill the bar.
+    let scale = (area.height as f32 * unit) / ink_height as f32;
     let drawn = (width as f32 * scale).min(area.width as f32 * unit);
     let rect = view.rect(area);
     let colour = view.skin.playlist.normal;
     let tint = Color32::from_rgb(colour[0], colour[1], colour[2]);
-    let image = egui::Rect::from_min_size(rect.min, vec2(drawn, height as f32 * scale));
-    let uv_right = drawn / (width as f32 * scale);
-    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(uv_right, 1.0));
+    let image = egui::Rect::from_min_size(rect.min, vec2(drawn, area.height as f32 * unit));
+    let uv = egui::Rect::from_min_max(
+        egui::pos2(0.0, ink_top as f32 / height as f32),
+        egui::pos2(
+            drawn / (width as f32 * scale),
+            (ink_top + ink_height) as f32 / height as f32,
+        ),
+    );
     view.ui.painter().image(texture, image, uv, tint);
 }
 
@@ -1193,11 +1200,13 @@ fn marquee_pixels(app: &mut App, view: &mut View, text: &str, offset: usize) {
     let ctx = view.ui.ctx().clone();
     let line = app.winamp.playlist_text.line(&ctx, &strip);
     let (texture, width, height) = (line.texture.id(), line.width, line.height);
-    if width == 0 || height == 0 {
+    let (ink_top, ink_height) = (line.ink_top, line.ink_height);
+    if width == 0 || ink_height == 0 {
         return;
     }
     let unit = view.unit;
-    let scale = (area.height as f32 * unit) / height as f32;
+    // Scale the ink, not the face's padded line, so the glyphs fill the bar.
+    let scale = (area.height as f32 * unit) / ink_height as f32;
     let strip_width = width as f32 * scale;
     let rect = view.rect(area);
     let painter = view.ui.painter_at(rect.intersect(view.ui.clip_rect()));
@@ -1208,7 +1217,10 @@ fn marquee_pixels(app: &mut App, view: &mut View, text: &str, offset: usize) {
     } else {
         0.0
     };
-    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    let uv = egui::Rect::from_min_max(
+        egui::pos2(0.0, ink_top as f32 / height as f32),
+        egui::pos2(1.0, (ink_top + ink_height) as f32 / height as f32),
+    );
     for copy in 0..2 {
         let left = rect.left() - offset_px + copy as f32 * strip_width;
         if left > rect.right() {
@@ -1216,7 +1228,7 @@ fn marquee_pixels(app: &mut App, view: &mut View, text: &str, offset: usize) {
         }
         let image = egui::Rect::from_min_size(
             egui::pos2(left, rect.top()),
-            vec2(strip_width, height as f32 * scale),
+            vec2(strip_width, area.height as f32 * unit),
         );
         painter.image(texture, image, uv, tint);
         if !scrolling {
