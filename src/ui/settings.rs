@@ -687,49 +687,58 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Frame rate",
             &match screen_hz {
-                0 => "How often the window draws. Fewer frames leave more of the machine for everything else; all the way up it draws as fast as it can.".to_string(),
+                0 => "How often the window draws. Fewer frames leave more of the machine for everything else; uncapped draws as fast as it can.".to_string(),
                 hz => format!(
-                    "How often the window draws. Your screen refreshes {hz} times a second, and drawing more often than that shows nobody anything; all the way up it draws as fast as it can."
+                    "How often the window draws. Your screen refreshes {hz} times a second, and drawing more often than that shows nobody anything; uncapped draws as fast as it can."
                 ),
             },
             |ui| {
                 let fps = app.settings.milkdrop_fps;
-                let top = *crate::milkdrop::FPS_RANGE.end() + 1;
-                // One slider says the whole thing: a number of frames a
-                // second, and past the last of them, uncapped.
-                let mut wanted = if fps == 0 {
-                    top
-                } else {
-                    fps.clamp(*crate::milkdrop::FPS_RANGE.start(), *crate::milkdrop::FPS_RANGE.end())
-                };
-                let slider = egui::Slider::new(&mut wanted, *crate::milkdrop::FPS_RANGE.start()..=top)
-                    .clamping(egui::SliderClamping::Always)
+                // The dial stops at the rates worth having and passes
+                // through nothing in between, the way a gear lever does.
+                let stops = crate::milkdrop::fps_stops(screen_hz, fps);
+                let last = stops.len().saturating_sub(1);
+                let mut at = stops.iter().position(|rate| *rate == fps).unwrap_or(1);
+                let labels: Vec<String> = stops
+                    .iter()
+                    .map(|rate| crate::milkdrop::fps_label(*rate, screen_hz))
+                    .collect();
+                let shown = labels.clone();
+                let typed = stops.clone();
+                let slider = egui::Slider::new(&mut at, 0..=last)
+                    .step_by(1.0)
                     .custom_formatter(move |value, _| {
-                        let value = value.round() as u32;
-                        if value >= top {
-                            "Uncapped".to_string()
-                        } else if value == screen_hz {
-                            format!("{value} fps, your screen")
-                        } else {
-                            format!("{value} fps")
-                        }
+                        shown
+                            .get((value.round().max(0.0) as usize).min(shown.len() - 1))
+                            .cloned()
+                            .unwrap_or_default()
                     })
-                    .custom_parser(|text| {
+                    .custom_parser(move |text| {
+                        // A rate typed in lands on the nearest stop, since
+                        // the stops are all this dial can hold.
                         let text = text.trim().to_lowercase();
                         if text.starts_with("un") {
-                            return Some(f64::from(u16::MAX));
+                            return Some(typed.len().saturating_sub(1) as f64);
                         }
-                        text.trim_end_matches(" fps").trim().parse::<f64>().ok()
+                        let wanted: u32 = text
+                            .trim_end_matches("fps")
+                            .trim()
+                            .split(',')
+                            .next()?
+                            .trim()
+                            .parse()
+                            .ok()?;
+                        typed
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, rate)| **rate > 0)
+                            .min_by_key(|(_, rate)| rate.abs_diff(wanted))
+                            .map(|(index, _)| index as f64)
                     });
-                if ui.add(slider).changed() {
-                    // The rates worth landing on catch the slider as it
-                    // passes: the two everyone knows, the screen's own,
-                    // and uncapped at the end where it already stops.
-                    if wanted < top {
-                        wanted = crate::milkdrop::snap_fps(wanted, screen_hz);
-                    }
-                    let fps = if wanted >= top { 0 } else { wanted };
-                    app.actions.push(Action::SetMilkdropFps(fps));
+                if ui.add(slider).changed()
+                    && let Some(rate) = stops.get(at)
+                {
+                    app.actions.push(Action::SetMilkdropFps(*rate));
                 }
             },
         );

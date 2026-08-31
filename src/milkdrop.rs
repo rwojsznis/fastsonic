@@ -41,21 +41,32 @@ pub const DEFAULT_FPS: u32 = 60;
 /// The frame rates a number may be set to by hand. Anything in between
 /// is fine too; these are only where the slider starts and stops.
 pub const FPS_RANGE: std::ops::RangeInclusive<u32> = 10..=360;
-/// How near a rate worth having the slider must come before it lands on
-/// it: the two everyone knows, and whatever the screen refreshes at.
-pub const FPS_SNAP: u32 = 4;
-
-/// The rate a slider lands on when it comes within `FPS_SNAP` of one
-/// worth having. `screen` is what the screen refreshes at, or zero when
-/// no screen has said.
-pub fn snap_fps(wanted: u32, screen: u32) -> u32 {
-    [30, 60, screen]
-        .into_iter()
-        .filter(|notch| *notch > 0)
-        .filter(|notch| wanted.abs_diff(*notch) <= FPS_SNAP)
-        .min_by_key(|notch| wanted.abs_diff(*notch))
-        .unwrap_or(wanted)
+/// The rates the frame rate stops at, in the order the dial passes
+/// them, with uncapped (`0`) last: the two everyone knows, the screen's
+/// own when it is neither of those, and whatever is set now, so a rate
+/// chosen by hand keeps a place of its own.
+pub fn fps_stops(screen: u32, current: u32) -> Vec<u32> {
+    let mut rates = vec![30, 60];
+    for extra in [screen, current] {
+        if extra > 0 && !rates.contains(&extra) {
+            rates.push(extra);
+        }
+    }
+    rates.sort_unstable();
+    rates.push(0);
+    rates
 }
+
+/// What a stop is called on the dial. `screen` is what the screen
+/// refreshes at, which is worth saying out loud when it is that.
+pub fn fps_label(rate: u32, screen: u32) -> String {
+    match rate {
+        0 => "Uncapped".to_string(),
+        rate if rate == screen => format!("{rate} fps, your screen"),
+        rate => format!("{rate} fps"),
+    }
+}
+
 /// The window's size when it first opens, in logical points.
 pub const DEFAULT_SIZE: [f32; 2] = [640.0, 480.0];
 /// The smallest the window may be dragged.
@@ -422,18 +433,26 @@ mod tests {
         assert!(list_presets(Path::new("/nonexistent/milkdrop")).is_empty());
     }
 
-    /// The slider lands on the rates worth having when it comes near
-    /// them, and is left alone anywhere else.
+    /// The dial stops at the two rates everyone knows, the screen's own
+    /// when it is neither of them, and uncapped, in that order.
     #[test]
-    fn the_frame_rate_lands_on_the_rates_worth_having() {
-        assert_eq!(snap_fps(31, 144), 30);
-        assert_eq!(snap_fps(58, 144), 60);
-        assert_eq!(snap_fps(143, 144), 144, "the screen's own rate catches it");
-        assert_eq!(snap_fps(100, 144), 100, "nothing near, nothing moved");
-        // The nearest of them wins, and a screen that has not said is
-        // not a rate to land on.
-        assert_eq!(snap_fps(62, 60), 60);
-        assert_eq!(snap_fps(120, 0), 120);
+    fn the_frame_rate_stops_where_it_is_worth_stopping() {
+        assert_eq!(fps_stops(144, 144), vec![30, 60, 144, 0]);
+        assert_eq!(fps_stops(0, 60), vec![30, 60, 0], "no screen has said");
+        assert_eq!(fps_stops(60, 60), vec![30, 60, 0], "and no stop twice");
+        assert_eq!(
+            fps_stops(50, 60),
+            vec![30, 50, 60, 0],
+            "a slower screen takes its place in the order"
+        );
+        assert_eq!(
+            fps_stops(144, 90),
+            vec![30, 60, 90, 144, 0],
+            "a rate set by hand keeps a stop of its own"
+        );
+        assert_eq!(fps_label(0, 144), "Uncapped");
+        assert_eq!(fps_label(144, 144), "144 fps, your screen");
+        assert_eq!(fps_label(30, 144), "30 fps");
     }
 
     /// R switches between random and the folder's own order; in order,
