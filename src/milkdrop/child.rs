@@ -172,9 +172,9 @@ struct Live {
     engine: Engine,
     gl: Arc<glow::Context>,
     overlay: Option<Overlay>,
-    /// The frame rate, which stays on screen while it is on rather than
-    /// fading like the rest.
-    meter: Option<Overlay>,
+    /// What is switched on to stay: the song, the preset's name, the
+    /// frame rate. It sits in a corner and does not fade.
+    status: Option<Overlay>,
     context: PossiblyCurrentContext,
     surface: Surface<WindowSurface>,
     window: Window,
@@ -192,9 +192,14 @@ struct Child {
     drawn: Vec<Instant>,
     /// Whether the keys are what is on show, so the same key hides them.
     showing_keys: bool,
-    /// Whether the frame rate is on, and when it was last written.
+    /// What the corner is asked to keep showing.
+    song_on: bool,
+    preset_on: bool,
     fps_on: bool,
-    fps_written: Option<Instant>,
+    /// What it says now, and when that was written, so it is redrawn
+    /// only when it would say something else.
+    status_lines: Vec<String>,
+    status_written: Option<Instant>,
     modifiers: winit::keyboard::ModifiersState,
     fps: u32,
     scale: u32,
@@ -219,8 +224,11 @@ impl Child {
             song: None,
             drawn: Vec::new(),
             showing_keys: false,
+            song_on: false,
+            preset_on: false,
             fps_on: false,
-            fps_written: None,
+            status_lines: Vec::new(),
+            status_written: None,
             modifiers: winit::keyboard::ModifiersState::empty(),
             fps,
             scale,
@@ -302,8 +310,8 @@ impl Child {
         if let Some(overlay) = &mut live.overlay {
             overlay.draw(&live.gl, (size.width, size.height));
         }
-        if let Some(meter) = &mut live.meter {
-            meter.draw(&live.gl, (size.width, size.height));
+        if let Some(status) = &mut live.status {
+            status.draw(&live.gl, (size.width, size.height));
         }
         if self.drawn.len() >= 60 {
             self.drawn.remove(0);
@@ -312,7 +320,7 @@ impl Child {
         if let Err(error) = live.surface.swap_buffers(&live.context) {
             eprintln!("MilkDrop: present failed: {error}");
         }
-        self.update_fps();
+        self.update_status();
         self.report_geometry();
     }
 
@@ -514,15 +522,11 @@ impl Child {
             Key::Character("f") | Key::Character("F") if plain => self.set_fullscreen(!fullscreen),
             // What it can tell you.
             Key::Character("?") | Key::Named(NamedKey::F1) => self.show_keys(),
-            Key::Character("i") | Key::Character("I") if plain => {
-                if self.song.is_some() {
-                    self.show_song();
-                } else {
-                    self.show_note("Nothing playing".into());
-                }
+            Key::Character("i") | Key::Character("I") if plain => self.toggle_status(Status::Song),
+            Key::Character("t") | Key::Character("T") if plain => {
+                self.toggle_status(Status::Preset)
             }
-            Key::Character("t") | Key::Character("T") if plain => self.show_preset_name(),
-            Key::Character("d") | Key::Character("D") if plain => self.toggle_fps(),
+            Key::Character("d") | Key::Character("D") if plain => self.toggle_status(Status::Fps),
             _ => {}
         }
     }
@@ -576,9 +580,9 @@ impl Child {
             heading("SHOW"),
             Row::Gap(3.0),
             keys("?  or  F1", "These keys"),
-            keys("I", "What is playing"),
-            keys("T", "This preset's name"),
-            keys("D", "FPS on or off"),
+            keys("I", "What is playing, on or off"),
+            keys("T", "This preset's name, on or off"),
+            keys("D", "FPS, on or off"),
         ];
         overlay.show(
             &live.gl,
@@ -612,58 +616,101 @@ impl Child {
         live.window.request_redraw();
     }
 
-    /// The preset playing, by name.
-    fn show_preset_name(&mut self) {
-        let name = self
-            .presets
-            .current()
-            .and_then(|path| path.file_stem())
-            .map(|stem| stem.to_string_lossy().to_string())
-            .unwrap_or_else(|| "No preset".into());
-        self.show_note(name);
-    }
-
-    /// Turns the frame rate on or off. While it is on it sits in the
-    /// corner and keeps counting, rather than fading like a note.
-    fn toggle_fps(&mut self) {
-        self.fps_on = !self.fps_on;
-        self.fps_written = None;
-        if !self.fps_on
-            && let Some(live) = &mut self.live
-            && let Some(meter) = &mut live.meter
-        {
-            meter.hide();
+    /// Keeps something in the corner, or stops keeping it there. What is
+    /// on is written into one block, so two of them cannot overlap.
+    fn toggle_status(&mut self, what: Status) {
+        match what {
+            Status::Song => self.song_on = !self.song_on,
+            Status::Preset => self.preset_on = !self.preset_on,
+            Status::Fps => self.fps_on = !self.fps_on,
         }
+        // A key press answers at once, whatever the pace above.
+        self.status_written = None;
+        self.update_status();
         if let Some(live) = &self.live {
             live.window.request_redraw();
         }
     }
 
-    /// Writes the count again, a few times a second: often enough to be
-    /// alive, seldom enough that the drawing of it costs nothing.
-    fn update_fps(&mut self) {
-        if !self.fps_on {
+    /// What the corner says now: the song, the preset, the frame rate,
+    /// in that order, and each only if it was asked for.
+    fn status_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if self.song_on {
+            let playing = self
+                .song
+                .as_ref()
+                .map(|song| {
+                    let named: Vec<&str> = song
+                        .iter()
+                        .take(2)
+                        .map(String::as_str)
+                        .filter(|line| !line.is_empty())
+                        .collect();
+                    named.join("  \u{00b7}  ")
+                })
+                .unwrap_or_default();
+            lines.push(if playing.is_empty() {
+                "Nothing playing".to_string()
+            } else {
+                playing
+            });
+        }
+        if self.preset_on {
+            lines.push(
+                self.presets
+                    .current()
+                    .and_then(|path| path.file_stem())
+                    .map(|stem| stem.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "No preset".into()),
+            );
+        }
+        if self.fps_on {
+            lines.push(format!("{:.0} FPS", frames_per_second(&self.drawn)));
+        }
+        lines
+    }
+
+    /// Writes the corner again when it would say something else, and no
+    /// more often than a few times a second while the count is moving.
+    fn update_status(&mut self) {
+        let lines = self.status_lines();
+        if lines.is_empty() {
+            self.status_lines.clear();
+            if let Some(live) = &mut self.live
+                && let Some(status) = &mut live.status
+            {
+                status.hide();
+            }
             return;
         }
-        let due = self
-            .fps_written
+        // Saying the same thing again is not worth a new bitmap, and a
+        // frame rate that flickers between two numbers is not worth one
+        // several times a second either.
+        if lines == self.status_lines {
+            return;
+        }
+        let waited = self
+            .status_written
             .is_none_or(|at| at.elapsed() >= Duration::from_millis(400));
-        if !due {
+        if !waited {
             return;
         }
-        let fps = frames_per_second(&self.drawn);
+        let rows: Vec<Row> = lines
+            .iter()
+            .map(|line| Row::Line(Span::new(line.clone(), 13.0).weight(600.0)))
+            .collect();
         let Some(live) = &mut self.live else {
             return;
         };
-        let Some(meter) = &mut live.meter else {
+        let Some(status) = &mut live.status else {
             return;
         };
-        self.fps_written = Some(Instant::now());
-        meter.show(
+        self.status_lines = lines;
+        self.status_written = Some(Instant::now());
+        status.show(
             &live.gl,
-            &[Row::Line(
-                Span::new(format!("{fps:.0} FPS"), 13.0).weight(600.0),
-            )],
+            &rows,
             Place::TopLeft,
             Backing::Shadow,
             // Long enough that it never fades on its own; the key that
@@ -711,6 +758,14 @@ impl Child {
         self.showing_keys = false;
         live.window.request_redraw();
     }
+}
+
+/// What the corner can be asked to keep showing.
+#[derive(Clone, Copy)]
+enum Status {
+    Song,
+    Preset,
+    Fps,
 }
 
 /// Frames a second, from when the last frames were drawn.
@@ -810,13 +865,13 @@ fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live
     // Text over the picture; the picture goes on without it if the
     // shaders will not take.
     let overlay = Overlay::new(&gl);
-    let meter = Overlay::new(&gl);
+    let status = Overlay::new(&gl);
 
     let mut live = Live {
         engine,
         gl,
         overlay,
-        meter,
+        status,
         context,
         surface,
         window,
@@ -833,6 +888,70 @@ fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A child with no window, for the parts that need none.
+    fn headless_child() -> Child {
+        let dir =
+            std::env::temp_dir().join(format!("fastpotify-milkdrop-child-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a place for the test's ring");
+        let shm = dir.join("ring");
+        let ring = Ring::create(&shm).expect("a ring to read");
+        Child::new(
+            Args {
+                shm,
+                presets: dir,
+                size: [640.0, 480.0],
+                pos: None,
+                fullscreen: false,
+                fps: 30,
+                seconds: 30,
+                scale: 1,
+            },
+            ring,
+        )
+    }
+
+    /// The corner carries what has been switched on, in one block, in
+    /// the same order however they were turned on.
+    #[test]
+    fn the_corner_shows_only_what_is_switched_on() {
+        let mut child = headless_child();
+        assert!(child.status_lines().is_empty(), "nothing on, nothing shown");
+
+        child.fps_on = true;
+        assert_eq!(child.status_lines().len(), 1);
+        assert!(child.status_lines()[0].ends_with("FPS"));
+
+        child.song = Some(vec![
+            "Wish You Were Here".into(),
+            "Incubus".into(),
+            "Morning View".into(),
+        ]);
+        child.song_on = true;
+        let lines = child.status_lines();
+        assert_eq!(lines.len(), 2, "the song joins the frame rate");
+        assert!(
+            lines[0].starts_with("Wish You Were Here") && lines[0].contains("Incubus"),
+            "the song line names the song and who plays it: {}",
+            lines[0]
+        );
+        assert!(lines[1].ends_with("FPS"), "the frame rate stays last");
+
+        child.presets.files = vec![PathBuf::from("/presets/Geiss - Spiral Artifact.milk")];
+        child.presets.next(true);
+        child.preset_on = true;
+        let lines = child.status_lines();
+        assert_eq!(
+            lines[1], "Geiss - Spiral Artifact",
+            "the preset sits between the song and the frame rate"
+        );
+        assert_eq!(lines.len(), 3);
+
+        child.song_on = false;
+        child.preset_on = false;
+        child.fps_on = false;
+        assert!(child.status_lines().is_empty(), "and off again");
+    }
 
     /// The count is frames over the time they took, and it says nothing
     /// at all until there are two of them to measure between.
