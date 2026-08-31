@@ -14,6 +14,8 @@ jobs:
   build:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    env:
+      CMAKE_GENERATOR: Ninja
     strategy:
       fail-fast: false
       matrix:
@@ -53,13 +55,12 @@ jobs:
         run: vcpkg install glew:x64-windows-static-md
       # projectm-sys asks CMake for the Visual Studio generator, which the
       # runner image no longer satisfies; Ninja inside the MSVC environment
-      # builds the same thing without caring which Visual Studio is on.
+      # builds the same thing without caring which Visual Studio is on. The
+      # generator is job-level env, since a GITHUB_ENV write never reached
+      # the build script.
       - name: MSVC environment for libprojectM
         if: runner.os == 'Windows' && matrix.features == ''
         uses: ilammy/msvc-dev-cmd@v1
-      - name: Use Ninja for libprojectM
-        if: runner.os == 'Windows' && matrix.features == ''
-        run: echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}

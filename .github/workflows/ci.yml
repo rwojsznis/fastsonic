@@ -47,6 +47,8 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      CMAKE_GENERATOR: Ninja
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -68,13 +70,12 @@ jobs:
         run: vcpkg install glew:x64-windows-static-md
       # projectm-sys asks CMake for the Visual Studio generator, which the
       # runner image no longer satisfies; Ninja inside the MSVC environment
-      # builds the same thing without caring which Visual Studio is on.
+      # builds the same thing without caring which Visual Studio is on. The
+      # generator is job-level env, since a GITHUB_ENV write never reached
+      # the build script.
       - name: MSVC environment for libprojectM
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
-      - name: Use Ninja for libprojectM
-        if: runner.os == 'Windows'
-        run: echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
       # The demo feature carries the headless render test that lays out every
       # page, panel, and dialog without a display.
