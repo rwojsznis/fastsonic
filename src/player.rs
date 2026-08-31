@@ -566,15 +566,17 @@ fn sink_builder(
     {
         match audio_backend::find(Some(name.to_string())) {
             Some(builder) => {
-                // The player applies the volume before these sinks see the
-                // samples; the tap is told, so the bars show the music.
+                // The player is given no volume to apply: the tap sees
+                // the music first, and the wrapper applies the volume after
+                // it, so the bars never follow the knob and zero still
+                // shows the song.
                 let applied = mixer.get_soft_volume();
                 return (
                     Box::new(move || {
                         let sink = builder(device, AudioFormat::S16);
                         Box::new(Tapped::new(sink, tap, Some(applied), eq)) as Box<dyn Sink>
                     }),
-                    mixer.get_soft_volume(),
+                    Box::new(NoOpVolume),
                 );
             }
             None => log::warn!("audio backend {name:?} is unavailable; using the default"),

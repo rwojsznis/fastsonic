@@ -32,6 +32,11 @@ Read `docs/_reference/how-it-connects.md` before changing authentication,
 Spotify requests, Connect, credential storage, or network behaviour. Read the
 nearby module tests before changing a state machine or API fallback.
 
+Every visualiser, the spectrum analyser, the oscilloscope, and MilkDrop,
+shows the signal post-equalizer and pre-volume: the EQ shapes what is
+heard so the picture follows it, and the volume knob never moves the
+picture. Zero volume still dances.
+
 ## Branches
 
 Work on `main`. Commit there directly, one topic per commit, each
