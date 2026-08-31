@@ -90,7 +90,9 @@ jump straight to it, and the trash icon beside *Playing next* clears
 what you queued while the playlist carries on. Clearing works when this
 computer is the player; Spotify offers no way to empty another device's
 queue from afar. Closing the app keeps the queue; it is back as you left it on
-the next start. The full set of rules is in
+the next start. The list-plus icon saves the queue as a new playlist of
+yours, each song once, in playing order; a song radio you like becomes
+a playlist named after its song. The full set of rules is in
 [The Queue's Rules](/queue/).
 
 ### Receivers on the local network

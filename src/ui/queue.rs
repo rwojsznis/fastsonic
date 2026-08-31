@@ -14,7 +14,12 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(8.0);
     // No refresh button: the queue keeps itself fresh, on every track
     // change, every add, and a rolling poll while it shows.
-    theme::text(ui, "Queue", theme::bold(28.0), palette.text);
+    ui.horizontal(|ui| {
+        theme::text(ui, "Queue", theme::bold(28.0), palette.text);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            save_button(app, ui);
+        });
+    });
     ui.add_space(12.0);
     contents(app, ui, false);
 }
@@ -41,6 +46,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::ToggleQueuePanel);
                 }
+                save_button(app, ui);
             });
         });
         ui.add_space(8.0);
@@ -53,6 +59,27 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     if (width - app.settings.queue_width).abs() > 1.0 {
         app.settings.queue_width = width;
         app.actions.push(Action::SettingsChanged);
+    }
+}
+
+/// The queue, made permanent: a new playlist of the playing song and
+/// every row after it. A station someone likes becomes theirs this way.
+fn save_button(app: &mut App, ui: &mut egui::Ui) {
+    if app.queue_playlist_uris().is_empty() {
+        return;
+    }
+    let palette = app.palette;
+    if theme::icon_button(
+        ui,
+        Icon::ListPlus,
+        18.0,
+        palette.secondary,
+        palette.text,
+        "Save as a playlist",
+    )
+    .clicked()
+    {
+        app.actions.push(Action::SaveQueueAsPlaylist);
     }
 }
 

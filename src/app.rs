@@ -2496,6 +2496,52 @@ impl App {
         self.toast("Queue cleared");
     }
 
+    /// The playing song and every row after it, each song once, in the
+    /// order they play: what saving the queue writes down.
+    pub fn queue_playlist_uris(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut uris = Vec::new();
+        let queued = self.queue.get();
+        let rows = self.now_playing().map(|now| now.uri).into_iter().chain(
+            queued
+                .iter()
+                .flat_map(|queue| queue.queue.iter().map(|item| item.uri().to_string())),
+        );
+        for uri in rows {
+            if seen.insert(uri.clone()) {
+                uris.push(uri);
+            }
+        }
+        uris
+    }
+
+    /// What a saved queue is called: the station's own name when a song
+    /// radio plays, otherwise the queue and the day.
+    pub fn queue_playlist_name(&self) -> String {
+        if let Some(context) = self.playing_context_uri()
+            && let Some(id) = context.strip_prefix("spotify:station:track:")
+            && let Some(track) = self.track_cache.get(id)
+        {
+            return format!("{} Radio", track.name);
+        }
+        let today = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
+        format!("Queue {today}")
+    }
+
+    /// The queue, made permanent as a new playlist of the user's.
+    fn save_queue_as_playlist(&mut self) {
+        let uris = self.queue_playlist_uris();
+        if uris.is_empty() {
+            return;
+        }
+        let name = self.queue_playlist_name();
+        self.actions.push(Action::CreatePlaylist {
+            name,
+            public: false,
+            add_uris: uris,
+        });
+    }
+
     /// The head of Next up becomes the playing row at once; the claim is
     /// held the way a clicked row's is, until a report confirms it.
     fn pop_queue_head(&mut self) {
@@ -4535,6 +4581,7 @@ impl App {
                 self.backend.send(Command::DiscoverReceivers);
             }
             Action::ClearQueue => self.clear_queue(),
+            Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::RefreshQueue => self.refresh_queue(true),
             Action::CopyLink(uri) => {
                 if let Some(url) = util::open_spotify_url(&uri) {
@@ -6047,6 +6094,56 @@ mod tests {
             1,
             "the remembered hand-queued song keeps its own section"
         );
+    }
+
+    /// Saving the queue writes the playing song and every row after it,
+    /// each song once, in playing order.
+    #[test]
+    fn saving_the_queue_writes_each_song_once_in_order() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:a",
+                "spotify:track:b",
+                "spotify:track:c",
+            ],
+        );
+        assert_eq!(
+            app.queue_playlist_uris(),
+            vec!["spotify:track:a", "spotify:track:b", "spotify:track:c"],
+            "the playing song leads and a repeat wrap adds nothing"
+        );
+    }
+
+    /// A saved song radio is named after its song; any other queue is
+    /// named after the day.
+    #[test]
+    fn a_saved_radio_is_named_after_its_song() {
+        let mut app = headless_app();
+        app.track_cache.insert(
+            "xyz".into(),
+            crate::api::models::Track {
+                id: Some("xyz".into()),
+                uri: "spotify:track:xyz".into(),
+                name: "Wish You Were Here".into(),
+                ..Default::default()
+            },
+        );
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:station:track:xyz".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+        assert_eq!(app.queue_playlist_name(), "Wish You Were Here Radio");
+        app.assumed_context = None;
+        assert!(app.queue_playlist_name().starts_with("Queue "));
     }
 
     fn headless_app() -> App {

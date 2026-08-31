@@ -590,6 +590,9 @@ pub enum Action {
     RefreshDevices,
     /// Empty Next up of its queued songs, keeping the context's own.
     ClearQueue,
+    /// The queue, made permanent: a new playlist of the playing song and
+    /// every row after it.
+    SaveQueueAsPlaylist,
     RefreshQueue,
     CopyLink(String),
     /// A web page, in the browser.

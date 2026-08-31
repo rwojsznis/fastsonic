@@ -751,9 +751,8 @@ fn list_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row], queue_uris: &[Strin
             .map(|row| row.uri.clone())
             .collect();
         uris.extend(queue_uris.iter().cloned());
-        let today = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
         app.actions.push(Action::CreatePlaylist {
-            name: format!("Queue {today}"),
+            name: app.queue_playlist_name(),
             public: false,
             add_uris: uris,
         });
