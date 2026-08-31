@@ -1544,6 +1544,7 @@ mod tests {
             volume_percent: 50,
             can_control: true,
             is_episode: false,
+            resuming: false,
         }
     }
 
