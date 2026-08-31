@@ -93,6 +93,8 @@ pub struct Presets {
     at: usize,
     /// The preset stays until the listener moves on.
     pub locked: bool,
+    /// Presets come at random, or in the folder's own order, as R says.
+    random: bool,
     pending: Option<Request>,
     download: Option<(&'static str, mpsc::Receiver<Result<usize, String>>)>,
 }
@@ -111,6 +113,7 @@ impl Presets {
             history: Vec::new(),
             at: 0,
             locked: false,
+            random: true,
             pending: None,
             download: None,
         }
@@ -167,13 +170,27 @@ impl Presets {
         self.request(true);
     }
 
+    /// Switches between presets at random and the folder's own order,
+    /// and says which is on now.
+    pub fn toggle_order(&mut self) -> bool {
+        self.random = !self.random;
+        self.random
+    }
+
     /// A preset chosen at random, not the one playing when there is a
-    /// choice.
+    /// choice; in sequential order, the one after this one.
     fn pick(&self) -> Option<PathBuf> {
         if self.files.is_empty() {
             return None;
         }
         let current = self.current();
+        if !self.random {
+            let next = current
+                .and_then(|path| self.files.iter().position(|file| file == path))
+                .map(|at| (at + 1) % self.files.len())
+                .unwrap_or(0);
+            return Some(self.files[next].clone());
+        }
         let mut index = rand::random_range(0..self.files.len());
         if self.files.len() > 1 && Some(self.files[index].as_path()) == current {
             index = (index + 1) % self.files.len();
@@ -386,6 +403,32 @@ mod tests {
                 .map(|name| name.replace('/', std::path::MAIN_SEPARATOR_STR))
         );
         assert!(list_presets(Path::new("/nonexistent/milkdrop")).is_empty());
+    }
+
+    /// R switches between random and the folder's own order; in order,
+    /// the next preset is the next file, wrapping at the end.
+    #[test]
+    fn sequential_order_walks_the_folder() {
+        let mut presets = Presets::new();
+        presets.files = vec![
+            PathBuf::from("a.milk"),
+            PathBuf::from("b.milk"),
+            PathBuf::from("c.milk"),
+        ];
+        assert!(!presets.toggle_order(), "R turns the random order off");
+        presets.next(true);
+        assert_eq!(presets.current(), Some(Path::new("a.milk")));
+        presets.next(true);
+        assert_eq!(presets.current(), Some(Path::new("b.milk")));
+        presets.next(true);
+        assert_eq!(presets.current(), Some(Path::new("c.milk")));
+        presets.next(true);
+        assert_eq!(
+            presets.current(),
+            Some(Path::new("a.milk")),
+            "the end of the folder wraps to its start"
+        );
+        assert!(presets.toggle_order(), "R turns it back on");
     }
 
     #[test]

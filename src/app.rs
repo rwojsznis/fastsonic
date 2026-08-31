@@ -1689,10 +1689,41 @@ impl App {
         if let Some(pos) = poll.pos {
             self.milkdrop_pos = Some(pos);
         }
+        for command in poll.commands {
+            self.milkdrop_command(&command);
+        }
         // Look in on the child now and then, so its close or move is noticed
         // while the app is otherwise idle.
         if self.settings.milkdrop_open {
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
+    }
+
+    /// What the MilkDrop window's playback keys asked for. They are
+    /// MilkDrop's own keys, and the player lives over here.
+    #[cfg(feature = "milkdrop")]
+    fn milkdrop_command(&mut self, command: &str) {
+        let playing = self.believed_playing();
+        match command {
+            "previous" => self.actions.push(Action::Previous),
+            "next" => self.actions.push(Action::Next),
+            "play" if !playing => self.actions.push(Action::TogglePlay),
+            "pause" if playing => self.actions.push(Action::TogglePlay),
+            // Stop pauses and rewinds, as Winamp's own stop did.
+            "stop" => {
+                if playing {
+                    self.actions.push(Action::TogglePlay);
+                }
+                self.actions.push(Action::Seek(0));
+            }
+            "shuffle" => self.actions.push(Action::ToggleShuffle),
+            "volume-up" => self.actions.push(Action::VolumeBy(5)),
+            "volume-down" => self.actions.push(Action::VolumeBy(-5)),
+            "rewind-5" => self.actions.push(Action::SeekBy(-5_000)),
+            "forward-5" => self.actions.push(Action::SeekBy(5_000)),
+            "rewind-30" => self.actions.push(Action::SeekBy(-30_000)),
+            "forward-30" => self.actions.push(Action::SeekBy(30_000)),
+            _ => {}
         }
     }
 
@@ -6188,6 +6219,37 @@ mod tests {
             Some("spotify:station:track:xyz"),
             "the station is what the interface calls playing"
         );
+    }
+
+    /// The MilkDrop window's playback keys reach the player: MilkDrop's
+    /// own Z X C V B, and stop pauses and rewinds as Winamp's did.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn the_milkdrop_window_drives_playback() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+
+        app.milkdrop_command("next");
+        app.milkdrop_command("forward-30");
+        assert!(matches!(app.actions.first(), Some(Action::Next)));
+        assert!(matches!(app.actions.get(1), Some(Action::SeekBy(30_000))));
+
+        app.actions.clear();
+        app.milkdrop_command("stop");
+        assert!(
+            matches!(app.actions.first(), Some(Action::TogglePlay))
+                && matches!(app.actions.get(1), Some(Action::Seek(0))),
+            "stop pauses and rewinds"
+        );
+
+        // Play while it is already playing must not pause it.
+        app.actions.clear();
+        app.milkdrop_command("play");
+        assert!(app.actions.is_empty());
     }
 
     fn headless_app() -> App {

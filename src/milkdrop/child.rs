@@ -31,7 +31,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Fullscreen, ResizeDirection, Window, WindowId};
 
 use super::engine::Engine;
-use super::overlay::{Overlay, Place, TextLine};
+use super::overlay::{Backing, Overlay, Place, TextLine};
 use super::shm::Ring;
 use super::{DEFAULT_FPS, DEFAULT_SECONDS, LAG, MIN_SIZE, Presets, Request};
 
@@ -51,6 +51,9 @@ struct Control {
 struct Event {
     #[serde(skip_serializing_if = "Option::is_none")]
     closed: Option<bool>,
+    /// What the window asks the app to do with the player.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pos: Option<[f32; 2]>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,6 +185,9 @@ struct Child {
     presets: Presets,
     live: Option<Live>,
     song: Option<Vec<String>>,
+    /// When the last frames were drawn, for the count F5 shows.
+    drawn: Vec<Instant>,
+    modifiers: winit::keyboard::ModifiersState,
     fps: u32,
     scale: u32,
     seconds: u32,
@@ -203,6 +209,8 @@ impl Child {
             presets: Presets::new(),
             live: None,
             song: None,
+            drawn: Vec::new(),
+            modifiers: winit::keyboard::ModifiersState::empty(),
             fps,
             scale,
             seconds,
@@ -281,9 +289,12 @@ impl Child {
             self.scale.max(1),
         );
         if let Some(overlay) = &mut live.overlay {
-            let scale = live.window.scale_factor() as f32;
-            overlay.draw(&live.gl, (size.width, size.height), scale);
+            overlay.draw(&live.gl, (size.width, size.height));
         }
+        if self.drawn.len() >= 60 {
+            self.drawn.remove(0);
+        }
+        self.drawn.push(Instant::now());
         if let Err(error) = live.surface.swap_buffers(&live.context) {
             eprintln!("MilkDrop: present failed: {error}");
         }
@@ -365,6 +376,7 @@ impl ApplicationHandler<Control> for Child {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => self.pointer = position,
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button,
@@ -443,22 +455,76 @@ impl Child {
                     self.close(event_loop);
                 }
             }
-            Key::Named(NamedKey::Space) | Key::Named(NamedKey::ArrowRight) => {
-                self.presets.next(false);
-            }
-            Key::Named(NamedKey::ArrowLeft) => self.presets.previous(),
-            Key::Character("f") | Key::Character("F") => self.set_fullscreen(!fullscreen),
+            // MilkDrop's own keys, where this window has an answer for
+            // them: presets on space and backspace, playback on the
+            // letters and the arrows.
+            Key::Named(NamedKey::Space) => self.presets.next(false),
+            Key::Character("h") | Key::Character("H") => self.presets.next(true),
+            Key::Named(NamedKey::Backspace) => self.presets.previous(),
             Key::Character("n") | Key::Character("N") => self.presets.next(false),
             Key::Character("p") | Key::Character("P") => self.presets.previous(),
-            Key::Character("l") | Key::Character("L") => {
+            Key::Named(NamedKey::ScrollLock) | Key::Character("l") | Key::Character("L") => {
                 self.presets.locked = !self.presets.locked;
+                let note = if self.presets.locked {
+                    "preset locked"
+                } else {
+                    "preset unlocked"
+                };
+                self.show_note(note.into());
             }
+            Key::Character("r") | Key::Character("R") => {
+                let random = self.presets.toggle_order();
+                let note = if random {
+                    "random preset order"
+                } else {
+                    "sequential preset order"
+                };
+                self.show_note(note.into());
+            }
+            Key::Named(NamedKey::Enter) if self.modifiers.alt_key() => {
+                self.set_fullscreen(!fullscreen)
+            }
+            Key::Character("f") | Key::Character("F") => self.set_fullscreen(!fullscreen),
             Key::Character("?") | Key::Named(NamedKey::F1) => self.show_keys(),
+            Key::Named(NamedKey::F2) => {
+                // The song title again, MilkDrop's own reminder key.
+                let song = self.song.clone().unwrap_or_default();
+                match song.first() {
+                    Some(title) => self.show_note(title.clone()),
+                    None => self.show_note("nothing playing".into()),
+                }
+            }
+            Key::Named(NamedKey::F4) => self.show_preset_name(),
+            Key::Named(NamedKey::F5) => self.show_fps(),
+            // Playback: the app is asked, since it holds the player.
+            Key::Character("z") | Key::Character("Z") => command("previous"),
+            Key::Character("x") | Key::Character("X") => command("play"),
+            Key::Character("c") | Key::Character("C") => command("pause"),
+            Key::Character("v") | Key::Character("V") => command("stop"),
+            Key::Character("b") | Key::Character("B") => command("next"),
+            Key::Character("u") | Key::Character("U") => command("shuffle"),
+            Key::Named(NamedKey::ArrowUp) => command("volume-up"),
+            Key::Named(NamedKey::ArrowDown) => command("volume-down"),
+            Key::Named(NamedKey::ArrowLeft) => {
+                command(if self.modifiers.shift_key() {
+                    "rewind-30"
+                } else {
+                    "rewind-5"
+                });
+            }
+            Key::Named(NamedKey::ArrowRight) => {
+                command(if self.modifiers.shift_key() {
+                    "forward-30"
+                } else {
+                    "forward-5"
+                });
+            }
             _ => {}
         }
     }
 
-    /// The keys, over the picture, the way MilkDrop answered F1.
+    /// The keys, over the picture, in MilkDrop's own words and layout:
+    /// its columns, its capitals, and only the keys this window answers.
     fn show_keys(&mut self) {
         let Some(live) = &mut self.live else {
             return;
@@ -466,30 +532,85 @@ impl Child {
         let Some(overlay) = &mut live.overlay else {
             return;
         };
-        let line = |text: &str| TextLine {
-            text: text.into(),
-            px: 17.0,
-        };
+        // MilkDrop's help screen: MS Sans Serif 14, bold, upper left, on
+        // a dark box. Inter's weight axis stands in for the face.
+        let line = |text: &str| TextLine::new(text, 14.0).bold();
         let lines = [
-            TextLine {
-                text: "Keys".into(),
-                px: 24.0,
-            },
-            line("N, Space, the right arrow, or a right-click \u{2014} next preset"),
-            line("P or the left arrow \u{2014} previous preset"),
-            line("L \u{2014} keep this preset"),
-            line("F or a double-click \u{2014} full screen"),
-            line("Esc \u{2014} leave full screen, or close"),
-            line("? \u{2014} these keys"),
+            line("ESC               exit fullscreen / close"),
+            line("ALT+ENTER   toggle fullscreen"),
+            line(""),
+            line("PRESET BROWSING"),
+            line("   SPACE / H       soft / hard cut to next preset"),
+            line("   BACKSPACE     go back to previous preset"),
+            line("   SCROLL LOCK  [un]lock current preset"),
+            line("   R    toggle random/sequential preset order"),
+            line(""),
+            line("Info display keys:"),
+            line("   F1  help         F4  preset name"),
+            line("   F2  song        F5  frames per sec"),
+            line(""),
+            line("PLAYBACK:"),
+            line("   Z,X,C,V,B      prev play pause stop next"),
+            line("   U     toggle shuffle"),
+            line("   up/down arrows     adjust vol."),
+            line("   left/right arrows     seek 5 sec."),
+            line("               +SHIFT     seek 30 sec."),
         ];
         overlay.show(
             &live.gl,
             &lines,
             Place::TopLeft,
-            Duration::from_secs(8),
-            live.window.scale_factor() as f32,
+            Backing::Box,
+            Duration::from_secs(10),
+            live.window.inner_size().height,
         );
         live.window.request_redraw();
+    }
+
+    /// A line of its own over the picture, where the song title goes.
+    fn show_note(&mut self, text: String) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        let Some(overlay) = &mut live.overlay else {
+            return;
+        };
+        overlay.show(
+            &live.gl,
+            &[TextLine::new(text, 18.0).italic()],
+            Place::BottomLeft,
+            Backing::Shadow,
+            Duration::from_secs(3),
+            live.window.inner_size().height,
+        );
+        live.window.request_redraw();
+    }
+
+    /// The preset playing, by name, the way F4 named it.
+    fn show_preset_name(&mut self) {
+        let name = self
+            .presets
+            .current()
+            .and_then(|path| path.file_stem())
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_else(|| "no preset".into());
+        self.show_note(name);
+    }
+
+    /// How many frames a second the window is drawing, as F5 showed.
+    fn show_fps(&mut self) {
+        let fps = match self.drawn.len() {
+            0 | 1 => 0.0,
+            count => {
+                let span = self.drawn[count - 1].duration_since(self.drawn[0]);
+                if span.is_zero() {
+                    0.0
+                } else {
+                    (count - 1) as f32 / span.as_secs_f32()
+                }
+            }
+        };
+        self.show_note(format!("{fps:.1} fps"));
     }
 
     /// The playing song, over the picture, fading away again.
@@ -500,14 +621,12 @@ impl Child {
         let (Some(overlay), Some(song)) = (&mut live.overlay, &self.song) else {
             return;
         };
+        // MilkDrop's song title: Times New Roman 18, italic, lower left,
+        // with a shadow a pixel down and right. Inter leans instead.
         let lines: Vec<TextLine> = song
             .iter()
             .take(2)
-            .enumerate()
-            .map(|(index, text)| TextLine {
-                text: text.clone(),
-                px: if index == 0 { 26.0 } else { 18.0 },
-            })
+            .map(|text| TextLine::new(text.clone(), 18.0).italic())
             .collect();
         if lines.is_empty() {
             return;
@@ -516,11 +635,20 @@ impl Child {
             &live.gl,
             &lines,
             Place::BottomLeft,
+            Backing::Shadow,
             Duration::from_secs(4),
-            live.window.scale_factor() as f32,
+            live.window.inner_size().height,
         );
         live.window.request_redraw();
     }
+}
+
+/// Asks the app for something only it can do: the player is over there.
+fn command(what: &str) {
+    report(&Event {
+        command: Some(what.to_string()),
+        ..Default::default()
+    });
 }
 
 /// Writes one event line to the app and flushes it. The line is tagged so

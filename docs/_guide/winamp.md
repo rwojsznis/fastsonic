@@ -67,11 +67,19 @@ MilkDrop's own `.milk` presets. It is a window of its own for a reason: it
 runs in a separate process with its own graphics, so it can never disturb
 the player's window. Drag the picture to move the window, double-click it or
 press **F** to fill the screen, **Esc** to come back or close it, and drag
-the bottom-right corner to resize. Presets fade into one another every
-thirty seconds (Settings sets the time); the right arrow, **N**, or space
-moves on at once, the left arrow or **P** goes back, and **L** keeps the one
-playing. Press **?** for the keys, over the picture; when the song changes,
-its name shows there for a moment too, then fades. Presets live in the `milkdrop` folder of the config directory;
+the bottom-right corner to resize.
+
+Its keys are MilkDrop's own, as far as they mean anything here. Presets
+fade into one another every thirty seconds (Settings sets the time);
+**space** or **N** moves on at once, **H** cuts on the beat, **backspace**
+or **P** goes back, **Scroll Lock** (or **L**) keeps the one playing, and
+**R** switches between random and the folder's own order. **Z X C V B**
+are previous, play, pause, stop, and next, **U** shuffles, the up and down
+arrows change the volume, and the left and right arrows seek five seconds,
+or thirty with **shift**. **F1** or **?** shows the keys, **F2** the song
+again, **F4** the preset's name, and **F5** how many frames a second it is
+drawing. When the song changes its name appears for a moment, the way
+MilkDrop showed it: bottom left, in italics, over a shadow. Presets live in the `milkdrop` folder of the config directory;
 nothing ships inside the app, and Settings fetches the two packs projectM
 curates into it: the 550 that came with MilkDrop 2, and Cream of the Crop,
 9,800 of the community's best. Until there are any, projectM shows its own

@@ -17,12 +17,21 @@ use skrifa::outline::{DrawSettings, OutlinePen};
 
 /// How long the fade at the end of an overlay's stay takes.
 const FADE: Duration = Duration::from_millis(700);
-/// Space between the text and the window's edge, in logical pixels.
-const MARGIN: f32 = 20.0;
+/// The screen MilkDrop's own type sizes were chosen for. Sizes here are
+/// its sizes, grown with the window, so the picture keeps its
+/// proportions on a screen of any size.
+const MILKDROP_SCREEN_HEIGHT: f32 = 480.0;
+/// Space between the text and the window's edge, in MilkDrop's pixels.
+const MARGIN: f32 = 10.0;
 /// Space around the text inside its bitmap, room for the shadow too.
 const PAD: u32 = 4;
-/// The shadow's offset, right and down.
-const SHADOW: u32 = 2;
+/// The shadow's offset, right and down: MilkDrop moved it one pixel.
+const SHADOW: u32 = 1;
+/// How much of black lies under the help, the way MilkDrop boxed it.
+const BOX_ALPHA: u8 = 160;
+/// The lean of the song title, which MilkDrop set in italics. Inter has
+/// no italic axis, so its upright letters lean instead.
+const ITALIC_SKEW: f32 = 0.18;
 
 /// The faces, in the order they are asked: Inter, the emoji face, then
 /// what the system lends for scripts those cannot draw.
@@ -44,10 +53,44 @@ pub enum Place {
     BottomLeft,
 }
 
-/// A line of text and the pixel size to draw it at.
+/// A line of text, at MilkDrop's size for it, in its weight and lean.
 pub struct TextLine {
     pub text: String,
+    /// The size MilkDrop drew it at, on the 480-tall screen it drew for.
     pub px: f32,
+    /// 400 for its plain fonts, 700 where it set bold.
+    pub weight: f32,
+    pub italic: bool,
+}
+
+impl TextLine {
+    pub fn new(text: impl Into<String>, px: f32) -> Self {
+        Self {
+            text: text.into(),
+            px,
+            weight: 400.0,
+            italic: false,
+        }
+    }
+
+    pub fn bold(mut self) -> Self {
+        self.weight = 700.0;
+        self
+    }
+
+    pub fn italic(mut self) -> Self {
+        self.italic = true;
+        self
+    }
+}
+
+/// How an overlay sits behind its text.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Backing {
+    /// A shadow a pixel down and right, as the song title had.
+    Shadow,
+    /// Black under the whole block, as the help screen had.
+    Box,
 }
 
 /// White ink coverage, one byte a pixel, row zero on top.
@@ -58,9 +101,9 @@ struct Raster {
 }
 
 /// One line's coverage, anti-aliased, at `px` tall type.
-fn line_raster(text: &str, px: f32) -> Raster {
+fn line_raster(line: &TextLine, px: f32) -> Raster {
+    let text = line.text.as_str();
     let size = Size::new(px);
-    let location = LocationRef::default();
     let fonts: Vec<skrifa::FontRef<'static>> = FACES
         .iter()
         .filter_map(|(bytes, index)| skrifa::FontRef::from_index(bytes, *index).ok())
@@ -73,6 +116,10 @@ fn line_raster(text: &str, px: f32) -> Raster {
     let Some(primary) = fonts.first() else {
         return empty;
     };
+    // Inter's weight axis stands in for the face MilkDrop asked for by
+    // name; a face without the axis simply draws as it is.
+    let location = primary.axes().location([("wght", line.weight)]);
+    let location = LocationRef::from(&location);
     let metrics = primary.metrics(size, location);
     let ascent = metrics.ascent.ceil();
     let height = (ascent + (-metrics.descent).ceil()).max(1.0) as u32;
@@ -110,20 +157,18 @@ fn line_raster(text: &str, px: f32) -> Raster {
         }
         x += advance;
     }
-    let width = (x.ceil() as u32).max(1);
+    let lean = if line.italic { ITALIC_SKEW } else { 0.0 };
+    let width = (x.ceil() + lean * height as f32).ceil().max(1.0) as u32;
     let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
         return empty;
     };
     let mut paint = tiny_skia::Paint::default();
     paint.set_color_rgba8(255, 255, 255, 255);
+    // The lean pushes the top of the line right and leaves the baseline
+    // where it is, the way an italic face does.
+    let transform = tiny_skia::Transform::from_row(1.0, 0.0, -lean, 1.0, lean * height as f32, 0.0);
     for path in &paths {
-        pixmap.fill_path(
-            path,
-            &paint,
-            tiny_skia::FillRule::Winding,
-            tiny_skia::Transform::identity(),
-            None,
-        );
+        pixmap.fill_path(path, &paint, tiny_skia::FillRule::Winding, transform, None);
     }
     let alpha = pixmap.pixels().iter().map(|pixel| pixel.alpha()).collect();
     Raster {
@@ -133,11 +178,12 @@ fn line_raster(text: &str, px: f32) -> Raster {
     }
 }
 
-/// The lines stacked into one RGBA bitmap, shadow first, ink on top.
-fn block_rgba(lines: &[TextLine]) -> (u32, u32, Vec<u8>) {
+/// The lines stacked into one RGBA bitmap: the backing first, ink on top.
+/// `grow` takes MilkDrop's sizes to this window's.
+fn block_rgba(lines: &[TextLine], backing: Backing, grow: f32) -> (u32, u32, Vec<u8>) {
     let rasters: Vec<Raster> = lines
         .iter()
-        .map(|line| line_raster(&line.text, line.px))
+        .map(|line| line_raster(line, line.px * grow))
         .collect();
     let width = rasters.iter().map(|r| r.width).max().unwrap_or(1) + PAD * 2 + SHADOW;
     let height = rasters.iter().map(|r| r.height).sum::<u32>() + PAD * 2 + SHADOW;
@@ -161,15 +207,25 @@ fn block_rgba(lines: &[TextLine]) -> (u32, u32, Vec<u8>) {
         }
         rgba[at + 3] = out_a as u8;
     };
-    for pass in 0..2 {
+    if backing == Backing::Box {
+        for y in 0..height {
+            for x in 0..width {
+                blend(x, y, [0, 0, 0], BOX_ALPHA);
+            }
+        }
+    }
+    let passes = if backing == Backing::Shadow { 2 } else { 1 };
+    for pass in 0..passes {
         let mut top = PAD;
         for raster in &rasters {
             for y in 0..raster.height {
                 for x in 0..raster.width {
                     let a = raster.alpha[(y * raster.width + x) as usize];
-                    match pass {
-                        0 => blend(PAD + x + SHADOW, top + y + SHADOW, [0, 0, 0], a),
-                        _ => blend(PAD + x, top + y, [255, 255, 255], a),
+                    let shadow = backing == Backing::Shadow && pass == 0;
+                    if shadow {
+                        blend(PAD + x + SHADOW, top + y + SHADOW, [0, 0, 0], a);
+                    } else {
+                        blend(PAD + x, top + y, [255, 255, 255], a);
                     }
                 }
             }
@@ -188,6 +244,8 @@ pub struct Overlay {
     alpha_at: glow::UniformLocation,
     size: (u32, u32),
     place: Place,
+    /// MilkDrop's pixels to this window's, for the margin.
+    grow: f32,
     shown: Option<(Instant, Duration)>,
 }
 
@@ -252,30 +310,26 @@ impl Overlay {
                 alpha_at,
                 size: (0, 0),
                 place: Place::TopLeft,
+                grow: 1.0,
                 shown: None,
             })
         }
     }
 
-    /// Draws the lines into the bitmap and starts its stay. `scale` is the
-    /// window's pixels per logical pixel, so the type stays one size.
+    /// Draws the lines into the bitmap and starts its stay. The type is
+    /// MilkDrop's size for the 480-tall screen it drew on, grown to this
+    /// window, so a big window shows the same picture, only larger.
     pub fn show(
         &mut self,
         gl: &glow::Context,
         lines: &[TextLine],
         place: Place,
+        backing: Backing,
         hold: Duration,
-        scale: f32,
+        window_height: u32,
     ) {
-        let scale = scale.max(0.5);
-        let scaled: Vec<TextLine> = lines
-            .iter()
-            .map(|line| TextLine {
-                text: line.text.clone(),
-                px: line.px * scale,
-            })
-            .collect();
-        let (width, height, rgba) = block_rgba(&scaled);
+        let grow = (window_height.max(1) as f32 / MILKDROP_SCREEN_HEIGHT).clamp(1.0, 3.0);
+        let (width, height, rgba) = block_rgba(lines, backing, grow);
         // SAFETY: the context is current; the texture is this overlay's own.
         unsafe {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.texture));
@@ -305,12 +359,13 @@ impl Overlay {
         }
         self.size = (width, height);
         self.place = place;
+        self.grow = grow;
         self.shown = Some((Instant::now(), hold));
     }
 
     /// Draws the overlay over the frame, fading at the end of its stay.
     /// Returns whether it is still on show, so frames keep coming.
-    pub fn draw(&mut self, gl: &glow::Context, window: (u32, u32), scale: f32) -> bool {
+    pub fn draw(&mut self, gl: &glow::Context, window: (u32, u32)) -> bool {
         let Some((since, hold)) = self.shown else {
             return false;
         };
@@ -326,7 +381,7 @@ impl Overlay {
         };
         let (win_w, win_h) = (window.0.max(1) as f32, window.1.max(1) as f32);
         let (w, h) = (self.size.0 as f32, self.size.1 as f32);
-        let margin = MARGIN * scale.max(0.5);
+        let margin = MARGIN * self.grow;
         let left = margin;
         let top = match self.place {
             Place::TopLeft => margin,
@@ -429,27 +484,51 @@ impl OutlinePen for Pen {
 mod tests {
     use super::*;
 
-    /// The rasteriser inks what it is given: some coverage, more width
-    /// for more text, and both lines inside the block.
+    /// The rasteriser inks what it is given, and bold leaves more of it
+    /// than plain does at the same size.
     #[test]
     fn text_becomes_ink() {
-        let short = line_raster("Keys", 20.0);
-        let long = line_raster("N or the right arrow plays the next preset", 20.0);
+        let short = line_raster(&TextLine::new("Keys", 20.0), 20.0);
+        let long = line_raster(
+            &TextLine::new("SPACE / H       soft / hard cut to next preset", 20.0),
+            20.0,
+        );
         assert!(short.alpha.iter().any(|a| *a > 0), "letters leave ink");
         assert!(long.width > short.width);
 
-        let (width, height, rgba) = block_rgba(&[
-            TextLine {
-                text: "Wish You Were Here".into(),
-                px: 26.0,
-            },
-            TextLine {
-                text: "Incubus — Morning View".into(),
-                px: 18.0,
-            },
-        ]);
-        assert!(width > 0 && height > 0);
-        let inked = rgba.chunks(4).filter(|px| px[3] > 0).count();
-        assert!(inked > 100, "the block carries the text and its shadow");
+        let plain = line_raster(&TextLine::new("Keys", 20.0), 20.0);
+        let bold = line_raster(&TextLine::new("Keys", 20.0).bold(), 20.0);
+        let ink = |raster: &Raster| raster.alpha.iter().map(|a| *a as u32).sum::<u32>();
+        assert!(ink(&bold) > ink(&plain), "bold is the heavier of the two");
+    }
+
+    /// A song title carries its shadow; the help sits on a dark box, and
+    /// the box covers every pixel of the block.
+    #[test]
+    fn backings_are_drawn_under_the_text() {
+        let title = [TextLine::new("Wish You Were Here", 18.0).italic()];
+        let (_, _, shadowed) = block_rgba(&title, Backing::Shadow, 1.0);
+        let clear = shadowed.chunks(4).filter(|px| px[3] == 0).count();
+        assert!(clear > 0, "a shadow leaves the picture showing around it");
+
+        let (width, height, boxed) = block_rgba(&title, Backing::Box, 1.0);
+        assert!(
+            boxed.chunks(4).all(|px| px[3] > 0),
+            "the box lies under the whole block"
+        );
+        assert_eq!(boxed.len(), (width * height * 4) as usize);
+    }
+
+    /// MilkDrop's sizes were for a 480-tall screen: a taller window grows
+    /// the type to keep the same picture.
+    #[test]
+    fn type_grows_with_the_window() {
+        let lines = [TextLine::new("Keys", 24.0)];
+        let (_, small, _) = block_rgba(&lines, Backing::Box, 1.0);
+        let (_, large, _) = block_rgba(&lines, Backing::Box, 2.0);
+        assert!(
+            large > small * 3 / 2,
+            "twice the window, nearly twice the type"
+        );
     }
 }
