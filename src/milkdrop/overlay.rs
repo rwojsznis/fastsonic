@@ -345,6 +345,10 @@ impl Overlay {
         ];
         // SAFETY: the context is current; the state touched is put back.
         unsafe {
+            // The engine leaves the viewport at the picture's inner size
+            // when a lower resolution is on; clip space maps through the
+            // viewport, so an overlay drawn into it came out small.
+            gl.viewport(0, 0, window.0.max(1) as i32, window.1.max(1) as i32);
             gl.use_program(Some(self.program));
             gl.uniform_1_f32(Some(&self.alpha_at), alpha);
             gl.active_texture(glow::TEXTURE0);
