@@ -51,6 +51,15 @@ jobs:
       - name: GLEW for libprojectM
         if: runner.os == 'Windows' && matrix.features == ''
         run: vcpkg install glew:x64-windows-static-md
+      # projectm-sys asks CMake for the Visual Studio generator, which the
+      # runner image no longer satisfies; Ninja inside the MSVC environment
+      # builds the same thing without caring which Visual Studio is on.
+      - name: MSVC environment for libprojectM
+        if: runner.os == 'Windows' && matrix.features == ''
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Use Ninja for libprojectM
+        if: runner.os == 'Windows' && matrix.features == ''
+        run: echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
