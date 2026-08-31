@@ -5334,7 +5334,9 @@ mod tests {
         assert_eq!(two.context_uri, None);
         assert_eq!(two.uris.len(), 2);
         assert_eq!(two.offset_index, Some(1));
-        assert_eq!(two.shuffle, Some(true));
+        // A chosen row keeps the list load straight; shuffle follows as a
+        // command (see a_chosen_row_in_a_list_never_loads_shuffled).
+        assert_eq!(two.shuffle, None);
         let episode = local_load(
             &PlayRequest::tracks(vec!["spotify:episode:e".into()]),
             false,
