@@ -27,6 +27,8 @@ pub mod engine;
 /// The app's side of the child process: spawning it and talking to it.
 #[cfg(feature = "milkdrop")]
 pub mod host;
+/// Fading text over the picture: the keys, the playing song.
+pub mod overlay;
 /// The shared-memory audio ring between the app and the MilkDrop child.
 #[cfg(feature = "milkdrop")]
 pub mod shm;

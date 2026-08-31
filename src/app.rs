@@ -1643,6 +1643,22 @@ impl App {
         let fps = self.settings.milkdrop_fps;
         let seconds = self.settings.milkdrop_seconds;
         let scale = self.settings.milkdrop_scale.max(1);
+        // The playing song, for the window to overlay when it changes.
+        let song = self.now_playing().filter(|now| !now.resuming).map(|now| {
+            let mut lines = vec![now.title.clone()];
+            let mut second = now.subtitle.clone();
+            if !now.album_name.is_empty() {
+                second = if second.is_empty() {
+                    now.album_name.clone()
+                } else {
+                    format!("{second} \u{2014} {}", now.album_name)
+                };
+            }
+            if !second.is_empty() {
+                lines.push(second);
+            }
+            lines
+        });
         if self.milkdrop_host.is_none() {
             let tap = std::sync::Arc::clone(&self.winamp.tap);
             self.milkdrop_host = Some(crate::milkdrop::host::Host::new(tap));
@@ -1654,6 +1670,7 @@ impl App {
                     host.open(&presets, size, pos, fullscreen, fps, seconds, scale);
                 }
                 host.update(fps, seconds, scale);
+                host.song(song);
             } else if host.is_running() {
                 host.close();
             }

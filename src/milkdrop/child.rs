@@ -31,6 +31,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Fullscreen, ResizeDirection, Window, WindowId};
 
 use super::engine::Engine;
+use super::overlay::{Overlay, Place, TextLine};
 use super::shm::Ring;
 use super::{DEFAULT_FPS, DEFAULT_SECONDS, LAG, MIN_SIZE, Presets, Request};
 
@@ -40,6 +41,8 @@ struct Control {
     fps: Option<u32>,
     seconds: Option<u32>,
     scale: Option<u32>,
+    /// The playing song, as lines to overlay when it changes.
+    song: Option<Vec<String>>,
     close: Option<bool>,
 }
 
@@ -164,6 +167,8 @@ pub fn run(args: Args) -> i32 {
 /// order and the engine frees projectM with GL calls, so it comes first.
 struct Live {
     engine: Engine,
+    gl: Arc<glow::Context>,
+    overlay: Option<Overlay>,
     context: PossiblyCurrentContext,
     surface: Surface<WindowSurface>,
     window: Window,
@@ -176,6 +181,7 @@ struct Child {
     cursor: u64,
     presets: Presets,
     live: Option<Live>,
+    song: Option<Vec<String>>,
     fps: u32,
     scale: u32,
     seconds: u32,
@@ -196,6 +202,7 @@ impl Child {
             cursor: 0,
             presets: Presets::new(),
             live: None,
+            song: None,
             fps,
             scale,
             seconds,
@@ -273,6 +280,10 @@ impl Child {
             size.height.max(1),
             self.scale.max(1),
         );
+        if let Some(overlay) = &mut live.overlay {
+            let scale = live.window.scale_factor() as f32;
+            overlay.draw(&live.gl, (size.width, size.height), scale);
+        }
         if let Err(error) = live.surface.swap_buffers(&live.context) {
             eprintln!("MilkDrop: present failed: {error}");
         }
@@ -320,6 +331,13 @@ impl ApplicationHandler<Control> for Child {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, control: Control) {
         if let Some(scale) = control.scale {
             self.scale = scale.clamp(1, 4);
+        }
+        if let Some(song) = control.song
+            && self.song.as_ref() != Some(&song)
+        {
+            // The way MilkDrop showed the title when the song turned over.
+            self.song = Some(song);
+            self.show_song();
         }
         if let Some(fps) = control.fps {
             self.fps = fps;
@@ -435,8 +453,73 @@ impl Child {
             Key::Character("l") | Key::Character("L") => {
                 self.presets.locked = !self.presets.locked;
             }
+            Key::Character("?") | Key::Named(NamedKey::F1) => self.show_keys(),
             _ => {}
         }
+    }
+
+    /// The keys, over the picture, the way MilkDrop answered F1.
+    fn show_keys(&mut self) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        let Some(overlay) = &mut live.overlay else {
+            return;
+        };
+        let line = |text: &str| TextLine {
+            text: text.into(),
+            px: 17.0,
+        };
+        let lines = [
+            TextLine {
+                text: "Keys".into(),
+                px: 24.0,
+            },
+            line("N, Space, the right arrow, or a right-click \u{2014} next preset"),
+            line("P or the left arrow \u{2014} previous preset"),
+            line("L \u{2014} keep this preset"),
+            line("F or a double-click \u{2014} full screen"),
+            line("Esc \u{2014} leave full screen, or close"),
+            line("? \u{2014} these keys"),
+        ];
+        overlay.show(
+            &live.gl,
+            &lines,
+            Place::TopLeft,
+            Duration::from_secs(8),
+            live.window.scale_factor() as f32,
+        );
+        live.window.request_redraw();
+    }
+
+    /// The playing song, over the picture, fading away again.
+    fn show_song(&mut self) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        let (Some(overlay), Some(song)) = (&mut live.overlay, &self.song) else {
+            return;
+        };
+        let lines: Vec<TextLine> = song
+            .iter()
+            .take(2)
+            .enumerate()
+            .map(|(index, text)| TextLine {
+                text: text.clone(),
+                px: if index == 0 { 26.0 } else { 18.0 },
+            })
+            .collect();
+        if lines.is_empty() {
+            return;
+        }
+        overlay.show(
+            &live.gl,
+            &lines,
+            Place::BottomLeft,
+            Duration::from_secs(4),
+            live.window.scale_factor() as f32,
+        );
+        live.window.request_redraw();
     }
 }
 
@@ -508,9 +591,14 @@ fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live
     let dirs: Vec<&std::path::Path> = texture_dirs.iter().map(|dir| dir.as_path()).collect();
     let engine = Engine::new(Arc::clone(&gl), &dirs, seconds)
         .ok_or_else(|| "needs OpenGL 3.3".to_string())?;
+    // Text over the picture; the picture goes on without it if the
+    // shaders will not take.
+    let overlay = Overlay::new(&gl);
 
     let mut live = Live {
         engine,
+        gl,
+        overlay,
         context,
         surface,
         window,

@@ -52,6 +52,8 @@ struct Running {
     fps: u32,
     seconds: u32,
     scale: u32,
+    /// The song last told to the window, which overlays a change.
+    song: Option<Vec<String>>,
 }
 
 pub struct Host {
@@ -152,6 +154,7 @@ impl Host {
             fps,
             seconds,
             scale,
+            song: None,
         });
     }
 
@@ -169,6 +172,27 @@ impl Host {
         let line = format!("{{\"fps\":{fps},\"seconds\":{seconds},\"scale\":{scale}}}\n");
         if running.stdin.write_all(line.as_bytes()).is_err() {
             // The child is gone; the next poll will report it closed.
+            self.tap.set_shm(None);
+        }
+    }
+
+    /// Tells the window the playing song when it changes; the window
+    /// overlays it, the way MilkDrop showed the title.
+    pub fn song(&mut self, lines: Option<Vec<String>>) {
+        let Some(running) = &mut self.running else {
+            return;
+        };
+        let Some(lines) = lines else {
+            return;
+        };
+        if running.song.as_ref() == Some(&lines) {
+            return;
+        }
+        let Ok(value) = serde_json::to_string(&serde_json::json!({ "song": lines })) else {
+            return;
+        };
+        running.song = Some(lines);
+        if running.stdin.write_all((value + "\n").as_bytes()).is_err() {
             self.tap.set_shm(None);
         }
     }

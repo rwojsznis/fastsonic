@@ -615,7 +615,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "MilkDrop window",
-            "Winamp's visualiser, as projectM reimplements it, in a window of its own; the vis button in the top bar, Ctrl+Shift+K, or the V on the mini player opens it too. Inside it, F or a double-click fills the screen, the arrows or N and P change the preset, L keeps one, and Esc leaves. It draws the music played on this computer.",
+            "The classic Winamp visualiser, drawn by projectM in a window of its own. Open it here, with the vis button in the top bar, with Ctrl+Shift+K, or with the V on the mini player. Press ? inside it to see the keys. It draws the music played on this computer.",
             |ui| {
                 let mut open = app.settings.milkdrop_open;
                 if widgets::switch(ui, &palette, &mut open).changed() {
