@@ -265,6 +265,9 @@ pub struct App {
     session_window_pos: Option<[f32; 2]>,
     /// Last observed window geometry, updated each frame for saving.
     last_window_size: Option<[f32; 2]>,
+    /// Where the open dialog drew itself, so its own layout can be held
+    /// to the window it has to fit inside.
+    pub dialog_rect: Option<egui::Rect>,
     last_window_pos: Option<[f32; 2]>,
     /// Where the MilkDrop window last was, as it reported, for restoring it.
     pub milkdrop_pos: Option<[f32; 2]>,
@@ -498,6 +501,7 @@ impl App {
             session_window_size: session.window_size,
             session_window_pos: session.window_pos,
             last_window_size: None,
+            dialog_rect: None,
             last_window_pos: None,
             milkdrop_pos: session.milkdrop_pos,
             #[cfg(feature = "milkdrop")]

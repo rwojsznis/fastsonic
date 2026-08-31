@@ -866,6 +866,58 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The shortcuts are longer than a small window is tall, so the
+    /// dialog scrolls them rather than running off the bottom with the
+    /// Done button somewhere past the edge of the screen.
+    #[test]
+    fn the_shortcuts_dialog_fits_a_small_window() {
+        let root =
+            std::env::temp_dir().join(format!("fastpotify-shortcuts-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        app.dialog = Some(Dialog::Shortcuts);
+
+        let height = 420.0;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, height),
+            )),
+            ..Default::default()
+        };
+        // Two frames: the dialog sizes itself on the first.
+        let mut first = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
+        first.textures_delta.clear();
+        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+
+        let dialog = app.dialog_rect.expect("the dialog drew itself");
+        let bottom = dialog.max.y;
+        assert!(
+            bottom <= height + 1.0,
+            "the dialog runs {} pixels past the bottom of a {height}-tall window",
+            bottom - height
+        );
+        app.backend.shutdown();
+    }
+
     /// Every page, panel, and dialog lays out without panicking.
     #[test]
     fn every_surface_renders_headless() {
