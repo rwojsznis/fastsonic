@@ -48,6 +48,12 @@ const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// A second look after a command, so the button settles quickly rather than
 /// waiting for the ordinary poll.
 const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
+/// A second look at the queue after a change made here, because Spotify's
+/// queue endpoint can answer with a snapshot from before the change.
+const QUEUE_RECHECK: Duration = Duration::from_millis(700);
+/// How many stale queue answers are asked again before Spotify's version
+/// of events wins anyway.
+const QUEUE_STALE_RETRIES: u8 = 6;
 const CONTAINS_BATCH: usize = 40;
 
 pub struct RemoteSnapshot {
@@ -182,6 +188,13 @@ pub struct App {
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
+    /// When to look at the queue again because the last answer told a
+    /// story from before the user's latest change.
+    queue_recheck_at: Option<Instant>,
+    queue_stale_retries: u8,
+    /// What a Clear queue just removed, so a fetched queue that still
+    /// carries those rows is recognised as stale.
+    queue_cleared: Option<(std::collections::HashSet<String>, Instant)>,
     /// What the window's title bar says, as last set.
     window_title: String,
 
@@ -427,6 +440,9 @@ impl App {
             selected_device: None,
             queue: Loadable::NotLoaded,
             queue_fetched_at: None,
+            queue_recheck_at: None,
+            queue_stale_retries: 0,
+            queue_cleared: None,
             window_title: String::new(),
             library: Library::default(),
             home: HomeData::default(),
@@ -1383,6 +1399,24 @@ impl App {
             self.manual_queue.remove(0);
             self.session_dirty = true;
         }
+        // The queue view follows at once: the song that just started stops
+        // being next up without waiting for the Web API, whose answer lags
+        // this moment by a round trip or more.
+        if let Loadable::Loaded(queue) = &mut self.queue {
+            let accounted = queue
+                .currently_playing
+                .as_ref()
+                .is_some_and(|item| item.uri() == now.uri);
+            if !accounted
+                && queue
+                    .queue
+                    .first()
+                    .is_some_and(|item| item.uri() == now.uri)
+            {
+                let item = queue.queue.remove(0);
+                queue.currently_playing = Some(item);
+            }
+        }
         self.last_now_playing_uri = Some(now.uri.clone());
         self.resume_context = self.playing_context_uri();
         self.resume_track = Some(now.uri.clone());
@@ -1508,6 +1542,16 @@ impl App {
                     .is_none_or(|at| at.elapsed() > Duration::from_secs(20))
             {
                 self.refresh_queue(false);
+            }
+            if let Some(due) = self.queue_recheck_at {
+                if Instant::now() >= due {
+                    self.queue_recheck_at = None;
+                    self.refresh_queue(true);
+                } else {
+                    ctx.request_repaint_after(
+                        (due - Instant::now()).max(Duration::from_millis(50)),
+                    );
+                }
             }
         }
 
@@ -2283,6 +2327,63 @@ impl App {
         self.backend.api(ApiRequest::Queue);
     }
 
+    /// The head of Next up becomes the playing row at once; the claim is
+    /// held the way a clicked row's is, until a report confirms it.
+    fn pop_queue_head(&mut self) {
+        let Loadable::Loaded(queue) = &mut self.queue else {
+            return;
+        };
+        if queue.queue.is_empty() {
+            return;
+        }
+        let item = queue.queue.remove(0);
+        self.intent_track = Some((item.uri().to_string(), Instant::now()));
+        queue.currently_playing = Some(item);
+    }
+
+    /// Whether a fetched queue predates the user's latest change here.
+    /// Spotify's queue endpoint can lag a skip or an add by seconds, and a
+    /// lagging answer must not undo what the interface already shows.
+    fn queue_fetch_is_stale(&self, fetched: &Queue) -> bool {
+        if self.queue_stale_retries >= QUEUE_STALE_RETRIES {
+            return false;
+        }
+        // A row was just chosen or popped: the fetch has to name it as
+        // playing before it is believed.
+        if let Some((uri, at)) = &self.intent_track
+            && at.elapsed() < PLAYBACK_HOLD
+            && fetched
+                .currently_playing
+                .as_ref()
+                .is_none_or(|item| item.uri() != uri)
+        {
+            return true;
+        }
+        // The local engine is the truth for this computer: an answer that
+        // names another song as playing is an old one. Songs advance on
+        // their own, so this holds with or without a recent click.
+        if self.local.is_active()
+            && let Some(track) = &self.local.track
+            && fetched
+                .currently_playing
+                .as_ref()
+                .is_some_and(|item| item.uri() != track.uri)
+        {
+            return true;
+        }
+        // A cleared row still on top means the clear has not landed yet.
+        if let Some((cleared, at)) = &self.queue_cleared
+            && at.elapsed() < PLAYBACK_HOLD
+            && fetched
+                .queue
+                .first()
+                .is_some_and(|item| cleared.contains(item.uri()))
+        {
+            return true;
+        }
+        false
+    }
+
     fn run_search(&mut self, query: String) {
         if query.is_empty() {
             self.search.results = Loadable::NotLoaded;
@@ -2496,6 +2597,21 @@ impl App {
                 }
             }
             ApiResponse::Queue(result) => {
+                if let Ok(fetched) = &result
+                    && self.queue_fetch_is_stale(fetched)
+                {
+                    // A snapshot from before the user's last change here:
+                    // showing it would undo what they just did. Keep the
+                    // optimistic queue and ask again shortly; if Spotify
+                    // keeps telling the old story, it eventually wins.
+                    self.queue_stale_retries += 1;
+                    self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
+                    return;
+                }
+                self.queue_stale_retries = 0;
+                if result.is_ok() {
+                    self.queue_cleared = None;
+                }
                 self.queue = Loadable::from_result(result);
                 self.reconcile_pending_queue();
                 if let Some(queue) = self.queue.get() {
@@ -3870,8 +3986,13 @@ impl App {
             .iter()
             .map(|item| item.uri().to_string())
             .collect();
+        // An add the fetch carries has landed; one that is playing has been
+        // consumed. Without the second check, skipping into a just-queued
+        // song would put its row back on top for as long as the add stayed
+        // pending.
+        let current = self.current_track_uri();
         self.pending_queue_adds
-            .retain(|(uri, _)| !fetched.contains(uri));
+            .retain(|(uri, _)| !fetched.contains(uri) && current.as_deref() != Some(uri.as_str()));
         let missing: Vec<PlayableItem> = self
             .pending_queue_adds
             .iter()
@@ -4003,10 +4124,20 @@ impl App {
             Action::Next if self.resume_only() => {
                 self.step_resume(true);
             }
-            Action::Next => match self.target() {
-                Target::Local => self.backend.player(PlayerCommand::Next),
-                Target::Remote(device_id) => self.remote(RemoteAction::Next, device_id),
-            },
+            Action::Next => {
+                // Next is a pop: the head of Next up becomes the playing
+                // row the moment the button is pressed, and Spotify's
+                // answers catch up behind it. No pop when the press can
+                // only earn the "pick something first" toast.
+                let target = self.target();
+                if !matches!(target, Target::Remote(None)) || self.remote_fresh().is_some() {
+                    self.pop_queue_head();
+                }
+                match target {
+                    Target::Local => self.backend.player(PlayerCommand::Next),
+                    Target::Remote(device_id) => self.remote(RemoteAction::Next, device_id),
+                }
+            }
             // Previous restarts the song when it is far enough in and steps
             // back otherwise, which is what librespot's own prev does; the
             // remembered song answers it the same way, from a standstill.
@@ -5220,6 +5351,140 @@ mod tests {
         // picked to match.
         let request = PlayRequest::context("spotify:playlist:x").starting_at_uri("spotify:track:a");
         assert_eq!(local_load(&request, true).shuffle, Some(true));
+    }
+
+    fn queued_song(uri: &str) -> crate::api::models::PlayableItem {
+        crate::api::models::PlayableItem::Track(crate::api::models::Track {
+            uri: uri.into(),
+            ..Default::default()
+        })
+    }
+
+    fn loaded_queue(current: &str, next: &[&str]) -> Loadable<Queue> {
+        Loadable::Loaded(Queue {
+            currently_playing: Some(queued_song(current)),
+            queue: next.iter().map(|uri| queued_song(uri)).collect(),
+        })
+    }
+
+    fn queue_uris(app: &App) -> (Option<String>, Vec<String>) {
+        let queue = app.queue.get().expect("the queue stays loaded");
+        (
+            queue
+                .currently_playing
+                .as_ref()
+                .map(|item| item.uri().to_string()),
+            queue
+                .queue
+                .iter()
+                .map(|item| item.uri().to_string())
+                .collect(),
+        )
+    }
+
+    /// Next is a pop: the head of Next up becomes the playing row the
+    /// moment the button is pressed, without waiting for the Web API.
+    #[test]
+    fn next_pops_the_queue_head_into_now_playing() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.apply(Action::Next, &ctx);
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:b"));
+        assert_eq!(next, vec!["spotify:track:c"]);
+        assert_eq!(
+            app.current_track_uri().as_deref(),
+            Some("spotify:track:b"),
+            "the popped row is already the one the interface marks as playing"
+        );
+    }
+
+    /// A song that starts consumes its queue row at once, however it came
+    /// on: pressed here, skipped from another device, or reached on its
+    /// own when the song before it ended.
+    #[test]
+    fn a_song_starting_consumes_its_queue_row() {
+        let mut app = headless_app();
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:b".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.on_now_playing_changed();
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:b"));
+        assert_eq!(next, vec!["spotify:track:c"]);
+    }
+
+    /// A queue answer from before the user's skip must not undo what the
+    /// interface already shows; only an answer Spotify keeps giving is
+    /// finally believed.
+    #[test]
+    fn a_stale_queue_answer_does_not_undo_a_skip() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.apply(Action::Next, &ctx);
+
+        let stale = Queue {
+            currently_playing: Some(queued_song("spotify:track:a")),
+            queue: vec![
+                queued_song("spotify:track:b"),
+                queued_song("spotify:track:c"),
+            ],
+        };
+        app.handle_api(ApiResponse::Queue(Ok(stale.clone())));
+        let (current, next) = queue_uris(&app);
+        assert_eq!(
+            current.as_deref(),
+            Some("spotify:track:b"),
+            "the pop stands"
+        );
+        assert_eq!(next, vec!["spotify:track:c"]);
+        assert!(
+            app.queue_recheck_at.is_some(),
+            "the stale answer is asked again rather than believed"
+        );
+
+        // Spotify telling the same story every time eventually wins.
+        for _ in 0..QUEUE_STALE_RETRIES {
+            app.handle_api(ApiResponse::Queue(Ok(stale.clone())));
+        }
+        let (current, _) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:a"));
+    }
+
+    /// A hand-queued song that has started playing must not be put back on
+    /// top of Next up by the pending add that created its row.
+    #[test]
+    fn a_played_pending_add_is_not_put_back() {
+        let mut app = headless_app();
+        app.pending_queue_adds = vec![("spotify:track:b".into(), Instant::now())];
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:b".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue("spotify:track:b", &["spotify:track:c"]);
+        app.reconcile_pending_queue();
+        let (_, next) = queue_uris(&app);
+        assert_eq!(next, vec!["spotify:track:c"], "no resurrected row on top");
+        assert!(
+            app.pending_queue_adds.is_empty(),
+            "the add has been consumed"
+        );
     }
 
     fn headless_app() -> App {

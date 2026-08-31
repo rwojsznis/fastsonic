@@ -71,13 +71,17 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         }
     };
     let now = app.now_playing();
-    let current: Option<PlayableItem> = queue.currently_playing.clone().or_else(|| {
-        now.as_ref().and_then(|now| {
-            now.id
-                .as_ref()
-                .and_then(|id| app.track_cache.get(id).cloned().map(PlayableItem::Track))
-        })
-    });
+    // The player's own report wins over the fetched snapshot: after a skip
+    // the Web API tells the old story for a second or two, and the row on
+    // top must be the song being heard, not the one before it.
+    let current: Option<PlayableItem> = match &now {
+        Some(now) => queue
+            .currently_playing
+            .clone()
+            .filter(|item| item.uri() == now.uri)
+            .or_else(|| app.now_playing_item()),
+        None => queue.currently_playing.clone(),
+    };
     if let Some(current) = &current {
         theme::text(ui, "Now playing", theme::semibold(14.0), palette.text);
         ui.add_space(4.0);
