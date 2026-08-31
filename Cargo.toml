@@ -76,6 +76,8 @@ librespot-playback = { version = "0.8", default-features = false, features = ["r
 librespot-connect = { version = "0.8", default-features = false }
 librespot-metadata = { version = "0.8", default-features = false }
 librespot-protocol = { version = "0.8", default-features = false }
+# Parses the rootlist's playlist4 protobuf, the same crate librespot generates with.
+protobuf = "3"
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
 # rodio backend unwraps the device open on the player thread, and a release
 # build aborts on panic. Same rodio and cpal versions librespot-playback uses,

@@ -436,6 +436,8 @@ pub enum Command {
     CheckForUpdates,
     /// The words of a track, from LRCLIB.
     Lyrics(Box<LyricsRequest>),
+    /// The account's playlist tree, folders and all, from the session.
+    Rootlist,
     /// Add, replace, or remove the optional personal Web API application.
     ConfigurePersonalWebApp(Option<String>),
     /// Read a playlist's cached items from disk.
@@ -483,6 +485,10 @@ pub enum Event {
     Lyrics {
         uri: String,
         result: Result<Option<crate::lyrics::Lyrics>, String>,
+    },
+    /// The account's playlist tree, folders and all.
+    Rootlist {
+        result: Result<Vec<crate::player::RootlistEntry>, String>,
     },
     /// A playlist's items as last cached, with the snapshot they belong to.
     PlaylistCache {
@@ -800,6 +806,7 @@ impl Worker {
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
                 Command::CheckForUpdates => self.check_for_updates(),
                 Command::Lyrics(request) => self.fetch_lyrics(*request),
+                Command::Rootlist => self.fetch_rootlist(),
                 Command::LoadPlaylistCache { id } => self.load_playlist_cache(id),
                 Command::StorePlaylistCache {
                     id,
@@ -1382,6 +1389,22 @@ impl Worker {
                 Ok(None) => log::debug!("this is the newest release"),
                 Err(error) => log::debug!("could not check for a newer release: {error:#}"),
             }
+        });
+    }
+
+    fn fetch_rootlist(&self) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::spawn(async move {
+            let result = engine
+                .rootlist()
+                .await
+                .map_err(|error| format!("{error:#}"));
+            let _ = events.send(Event::Rootlist { result });
+            waker.wake();
         });
     }
 

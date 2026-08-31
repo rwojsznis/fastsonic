@@ -29,6 +29,11 @@ struct Entry {
     liked: bool,
     owned: bool,
     playlist_index: Option<usize>,
+    /// A folder row: its rootlist id, whether it is rolled up, and how
+    /// many playlists it holds.
+    folder: Option<(String, bool, usize)>,
+    /// How deep inside folders the row sits, for the indent.
+    depth: u8,
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -124,6 +129,133 @@ fn art_panel(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
         });
+}
+
+/// The playlist rows in the listener's own arrangement: folders as
+/// collapsible rows, their playlists indented under them. Only playlists
+/// the library has loaded show; the rest arrive with it. (#95)
+fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
+    use crate::player::RootlistEntry;
+    let Some(playlists) = app.library.playlists.get() else {
+        return;
+    };
+    let by_uri: std::collections::HashMap<&str, (usize, &crate::api::models::Playlist)> = playlists
+        .iter()
+        .enumerate()
+        .map(|(index, playlist)| (playlist.uri.as_str(), (index, playlist)))
+        .collect();
+    let mut depth = 0u8;
+    // Rows inside a rolled-up folder stay off the list; the stack knows
+    // how deep the rolled-up one sits.
+    let mut hidden_from: Option<u8> = None;
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for row in &app.rootlist {
+        match row {
+            RootlistEntry::FolderStart { id, name } => {
+                let collapsed = app.collapsed_folders.contains(id);
+                if hidden_from.is_none() {
+                    let count = folder_playlists(&app.rootlist, id);
+                    entries.push(Entry {
+                        image: None,
+                        name: if name.is_empty() {
+                            "Folder".to_string()
+                        } else {
+                            name.clone()
+                        },
+                        subtitle: match count {
+                            1 => "Folder • 1 playlist".to_string(),
+                            n => format!("Folder • {n} playlists"),
+                        },
+                        page: Page::Home,
+                        uri: String::new(),
+                        round: false,
+                        liked: false,
+                        owned: false,
+                        playlist_index: None,
+                        folder: Some((id.clone(), collapsed, count)),
+                        depth,
+                    });
+                    if collapsed {
+                        hidden_from = Some(depth);
+                    }
+                }
+                depth += 1;
+            }
+            RootlistEntry::FolderEnd => {
+                depth = depth.saturating_sub(1);
+                if hidden_from == Some(depth) {
+                    hidden_from = None;
+                }
+            }
+            RootlistEntry::Playlist(uri) => {
+                let Some((index, playlist)) = by_uri.get(uri.as_str()) else {
+                    continue;
+                };
+                seen.insert(uri.as_str());
+                if hidden_from.is_some() {
+                    continue;
+                }
+                entries.push(playlist_entry(playlist, *index, user_id, depth));
+            }
+        }
+    }
+    // Playlists the rootlist has not met yet, the newly followed, wait at
+    // the end rather than vanish.
+    for (index, playlist) in playlists.iter().enumerate() {
+        if !seen.contains(playlist.uri.as_str()) {
+            entries.push(playlist_entry(playlist, index, user_id, 0));
+        }
+    }
+}
+
+/// How many playlists a folder holds, nested ones included.
+fn folder_playlists(rootlist: &[crate::player::RootlistEntry], id: &str) -> usize {
+    use crate::player::RootlistEntry;
+    let mut counting = false;
+    let mut depth = 0usize;
+    let mut count = 0;
+    for row in rootlist {
+        match row {
+            RootlistEntry::FolderStart { id: this, .. } => {
+                if counting {
+                    depth += 1;
+                } else if this == id {
+                    counting = true;
+                    depth = 1;
+                }
+            }
+            RootlistEntry::FolderEnd if counting => {
+                depth -= 1;
+                if depth == 0 {
+                    return count;
+                }
+            }
+            RootlistEntry::Playlist(_) if counting => count += 1,
+            _ => {}
+        }
+    }
+    count
+}
+
+fn playlist_entry(
+    playlist: &crate::api::models::Playlist,
+    index: usize,
+    user_id: &str,
+    depth: u8,
+) -> Entry {
+    Entry {
+        image: pick_image(&playlist.images, 64).map(str::to_string),
+        name: playlist.name.clone(),
+        subtitle: format!("Playlist • {}", playlist.owner_name()),
+        page: Page::Playlist(playlist.id.clone()),
+        uri: playlist.uri.clone(),
+        round: false,
+        liked: false,
+        owned: playlist.owned_by(user_id),
+        playlist_index: Some(index),
+        folder: None,
+        depth,
+    }
 }
 
 fn nav_row(
@@ -310,9 +442,20 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     liked: true,
                     owned: false,
                     playlist_index: None,
+                    folder: None,
+                    depth: 0,
                 });
             }
+            let has_folders = app
+                .rootlist
+                .iter()
+                .any(|row| matches!(row, crate::player::RootlistEntry::FolderStart { .. }));
+            let custom_order = !app.settings.sidebar_order.is_empty();
+            if has_folders && needle.is_empty() && !custom_order {
+                folder_rows(app, &user_id, &mut entries);
+            }
             match &app.library.playlists {
+                Loadable::Loaded(_) if has_folders && needle.is_empty() && !custom_order => {}
                 Loadable::Loaded(playlists) => {
                     // Recently played first, the way Spotify orders its own
                     // sidebar; the rest keep the library's order.
@@ -339,6 +482,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             liked: false,
                             owned,
                             playlist_index: Some(index),
+                            folder: None,
+                            depth: 0,
                         });
                     }
                 }
@@ -374,6 +519,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     liked: false,
                     owned: false,
                     playlist_index: None,
+                    folder: None,
+                    depth: 0,
                 });
             }
             loading = app.library.albums.loading && app.library.albums.items.is_empty();
@@ -397,6 +544,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     liked: false,
                     owned: false,
                     playlist_index: None,
+                    folder: None,
+                    depth: 0,
                 });
             }
             loading = app.library.artists.loading && app.library.artists.items.is_empty();
@@ -421,6 +570,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     liked: false,
                     owned: false,
                     playlist_index: None,
+                    folder: None,
+                    depth: 0,
                 });
             }
             loading = app.library.shows.loading && app.library.shows.items.is_empty();
@@ -535,7 +686,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 let entry = &entries[index];
                 let droppable = entry.liked || entry.owned;
                 let drop_hover = drop_target == Some(index);
-                let active = entry.page == current_page;
+                let active = entry.folder.is_none() && entry.page == current_page;
                 let playing = context_playing
                     && !entry.uri.is_empty()
                     && playing_context.as_deref() == Some(entry.uri.as_str());
@@ -608,8 +759,56 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         palette.text
                     };
-                    if compact {
-                        let text_left = rect.left() + 8.0;
+                    let indent = f32::from(entry.depth) * 14.0;
+                    if let Some((_, collapsed, _)) = &entry.folder {
+                        let chevron = if *collapsed {
+                            Icon::ChevronRight
+                        } else {
+                            Icon::ChevronDown
+                        };
+                        let left = rect.left() + 8.0 + indent;
+                        chevron.image(palette.secondary, 16.0).paint_at(
+                            ui,
+                            Rect::from_center_size(
+                                pos2(left + 8.0, rect.center().y),
+                                Vec2::splat(16.0),
+                            ),
+                        );
+                        Icon::Library.image(palette.secondary, 20.0).paint_at(
+                            ui,
+                            Rect::from_center_size(
+                                pos2(left + 30.0, rect.center().y),
+                                Vec2::splat(20.0),
+                            ),
+                        );
+                        let text_left = left + 46.0;
+                        let text_right = rect.right() - 8.0;
+                        let painter = ui.painter().with_clip_rect(Rect::from_min_max(
+                            pos2(text_left, rect.top()),
+                            pos2(text_right, rect.bottom()),
+                        ));
+                        crate::bidi::paint_line(
+                            &painter,
+                            text_left,
+                            text_right,
+                            rect.center().y - if compact { 0.0 } else { 9.0 },
+                            &entry.name,
+                            theme::medium(if compact { 13.5 } else { 14.0 }),
+                            name_color,
+                        );
+                        if !compact {
+                            crate::bidi::paint_line(
+                                &painter,
+                                text_left,
+                                text_right,
+                                rect.center().y + 10.0,
+                                &entry.subtitle,
+                                theme::regular(12.5),
+                                palette.secondary,
+                            );
+                        }
+                    } else if compact {
+                        let text_left = rect.left() + 8.0 + indent;
                         let text_right = rect.right() - if playing || pinned { 28.0 } else { 8.0 };
                         let painter = ui.painter().with_clip_rect(Rect::from_min_max(
                             pos2(text_left, rect.top()),
@@ -626,7 +825,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         );
                     } else {
                         let cover_rect = Rect::from_center_size(
-                            pos2(rect.left() + 8.0 + 22.0, rect.center().y),
+                            pos2(rect.left() + 8.0 + indent + 22.0, rect.center().y),
                             Vec2::splat(44.0),
                         );
                         if entry.liked {
@@ -764,7 +963,16 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     }
                 }
                 if response.clicked() {
-                    app.actions.push(Action::Open(entry.page.clone()));
+                    if let Some((folder_id, collapsed, _)) = &entry.folder {
+                        if *collapsed {
+                            app.collapsed_folders.retain(|held| held != folder_id);
+                        } else {
+                            app.collapsed_folders.push(folder_id.clone());
+                        }
+                        app.session_dirty = true;
+                    } else {
+                        app.actions.push(Action::Open(entry.page.clone()));
+                    }
                 }
                 if !entry.uri.is_empty() {
                     let owned_playlist = entry

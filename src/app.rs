@@ -167,7 +167,7 @@ pub struct App {
     remote_poll_seq: u64,
     /// The restorable session (sorts, recents, resume point) changed and
     /// should be written shortly, not only at exit.
-    session_dirty: bool,
+    pub session_dirty: bool,
     last_session_save: Instant,
     /// The saved zoom has been applied to the context once.
     zoom_applied: bool,
@@ -312,6 +312,11 @@ pub struct App {
     pub resume_position_ms: u32,
     /// The songs that were queued behind it, queued again when it resumes.
     pub resume_queue: Vec<String>,
+    /// The account's playlist tree from Spotify, folders and all; empty
+    /// until the session answers.
+    pub rootlist: Vec<crate::player::RootlistEntry>,
+    /// Sidebar folders rolled up, by their rootlist ids.
+    pub collapsed_folders: Vec<String>,
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
@@ -494,6 +499,8 @@ impl App {
             resume_track: session.last_track.clone(),
             resume_position_ms: session.last_position_ms,
             resume_queue: session.last_queue.clone(),
+            rootlist: Vec::new(),
+            collapsed_folders: session.collapsed_folders.clone(),
             update: None,
             last_update_check: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
@@ -973,6 +980,10 @@ impl App {
                     self.accents.insert(url, tint);
                 }
                 Event::Error(message) => self.toast_error(message),
+                Event::Rootlist { result } => match result {
+                    Ok(entries) => self.rootlist = entries,
+                    Err(error) => log::warn!("rootlist unavailable: {error}"),
+                },
                 Event::Lyrics { uri, result } => {
                     if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
                         self.lyrics = match result {
@@ -2615,6 +2626,10 @@ impl App {
                     self.library.playlists_next = next_offset;
                     if next_offset.is_some() {
                         self.load_more(Page::Home);
+                    } else {
+                        // The list is whole; ask the session how the
+                        // listener arranged it into folders.
+                        self.backend.send(Command::Rootlist);
                     }
                     if let Some(playlists) = self.library.playlists.get() {
                         for playlist in playlists {
@@ -4622,6 +4637,7 @@ impl App {
                 last_context: self.resume_context.clone(),
                 last_track: self.resume_track.clone(),
                 last_position_ms: self.resume_position_ms,
+                collapsed_folders: self.collapsed_folders.clone(),
                 last_queue: if self.resume_queue.is_empty() {
                     self.queue
                         .get()

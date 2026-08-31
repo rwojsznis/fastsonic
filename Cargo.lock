@@ -1607,6 +1607,7 @@ dependencies = [
  "pbkdf2",
  "percent-encoding",
  "projectm-sys",
+ "protobuf",
  "rand 0.9.5",
  "raw-window-handle",
  "reqwest",

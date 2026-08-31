@@ -637,6 +637,28 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             }
             "presets" => app.winamp.open_presets = true,
             "art" => app.settings.art_expanded = true,
+            "folders" => {
+                use crate::player::RootlistEntry;
+                let uri = |index: usize| format!("spotify:playlist:pl{index}");
+                app.rootlist = vec![
+                    RootlistEntry::FolderStart {
+                        id: "f1".into(),
+                        name: "Focus".into(),
+                    },
+                    RootlistEntry::Playlist(uri(1)),
+                    RootlistEntry::Playlist(uri(2)),
+                    RootlistEntry::FolderEnd,
+                    RootlistEntry::FolderStart {
+                        id: "f2".into(),
+                        name: "Weekend".into(),
+                    },
+                    RootlistEntry::Playlist(uri(3)),
+                    RootlistEntry::FolderEnd,
+                    RootlistEntry::Playlist(uri(4)),
+                    RootlistEntry::Playlist(uri(5)),
+                ];
+                app.collapsed_folders = vec!["f2".into()];
+            }
             "small" => app.settings.skin_scale = Some(1),
             "compact" => {
                 app.settings.sidebar_compact = true;
