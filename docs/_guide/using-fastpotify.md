@@ -92,7 +92,9 @@ computer is the player; Spotify offers no way to empty another device's
 queue from afar. Closing the app keeps the queue; it is back as you left it on
 the next start. The list-plus icon saves the queue as a new playlist of
 yours, each song once, in playing order; a song radio you like becomes
-a playlist named after its song. The full set of rules is in
+a playlist named after its song. *Go to song radio* in a song's context
+menu starts Spotify's station for it and opens the queue, which is
+where the station lives. The full set of rules is in
 [The Queue's Rules](/queue/).
 
 ### Receivers on the local network

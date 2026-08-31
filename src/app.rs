@@ -4337,12 +4337,24 @@ impl App {
                 let station = format!("spotify:station:track:{id}");
                 self.local_list = None;
                 self.backend.player(PlayerCommand::Load(LoadSpec {
-                    context_uri: Some(station),
+                    context_uri: Some(station.clone()),
                     play: true,
                     autoplay: false,
                     ..LoadSpec::default()
                 }));
                 self.optimistic_playing = Some((true, Instant::now()));
+                // The station is the queue, so show it: fifty songs
+                // appearing there is the whole visible result.
+                self.assumed_context = Some(AssumedContext {
+                    uri: station,
+                    shuffle: None,
+                    at: Instant::now(),
+                });
+                if !matches!(self.page(), Page::Queue) && !self.show_queue_panel {
+                    self.show_queue_panel = true;
+                    self.show_lyrics_panel = false;
+                }
+                self.refresh_queue(true);
             }
             Action::PlayUris { uris, index } => {
                 if uris.is_empty() {
@@ -6144,6 +6156,21 @@ mod tests {
         assert_eq!(app.queue_playlist_name(), "Wish You Were Here Radio");
         app.assumed_context = None;
         assert!(app.queue_playlist_name().starts_with("Queue "));
+    }
+
+    /// Song radio opens the queue: fifty songs appearing there is the
+    /// whole visible result of the click.
+    #[test]
+    fn song_radio_opens_the_queue() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.apply(Action::PlayTrackRadio("spotify:track:xyz".into()), &ctx);
+        assert!(app.show_queue_panel);
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some("spotify:station:track:xyz"),
+            "the station is what the interface calls playing"
+        );
     }
 
     fn headless_app() -> App {
