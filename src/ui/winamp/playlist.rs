@@ -368,7 +368,17 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
                 .iter()
                 .fold((0.0, 0.0, 0.0), |sum, event| match event {
                     egui::Event::MouseWheel { unit, delta, .. } => match unit {
-                        egui::MouseWheelUnit::Line => (sum.0 + delta.y, sum.1, sum.2),
+                        // One detent is one event however many lines the
+                        // system says it is worth; a free-spinning wheel's
+                        // fractions still add up.
+                        egui::MouseWheelUnit::Line => {
+                            let notch = if delta.y.abs() >= 1.0 {
+                                delta.y.signum()
+                            } else {
+                                delta.y
+                            };
+                            (sum.0 + notch, sum.1, sum.2)
+                        }
                         egui::MouseWheelUnit::Point => (sum.0, sum.1 + delta.y, sum.2),
                         egui::MouseWheelUnit::Page => (sum.0, sum.1, sum.2 + delta.y),
                     },

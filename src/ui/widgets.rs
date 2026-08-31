@@ -1347,15 +1347,12 @@ pub fn shelf(
     ui.add_space(8.0);
     theme::section_title(ui, palette, title);
     ui.add_space(4.0);
-    egui::ScrollArea::horizontal()
-        .id_salt(id)
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
-                add_contents(ui);
-            });
+    egui::ScrollArea::horizontal().id_salt(id).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
+            add_contents(ui);
         });
+    });
     ui.add_space(12.0);
 }
 
@@ -1407,16 +1404,36 @@ pub enum SliderEvent {
 }
 
 /// Whole notches the wheel turned over `response` since last asked, up
-/// being positive. A mouse reports fifty points a notch; a trackpad's
-/// finer scrolling adds up to the same steps.
+/// being positive. A mouse's detent is one event, however many lines the
+/// system multiplies it into (Windows says three by default, #103); a
+/// free-spinning wheel's fractional lines and a trackpad's points add up
+/// to the same steps, fifty points to a notch.
 pub fn wheel_notches(ui: &Ui, response: &egui::Response) -> i32 {
     const NOTCH: f32 = 50.0;
     if !response.hovered() {
         return 0;
     }
-    let delta = ui.input(|input| input.smooth_scroll_delta.y);
+    let (lines, points) = ui.input(|input| {
+        let mut lines = 0.0f32;
+        let mut points = 0.0f32;
+        for event in &input.events {
+            if let egui::Event::MouseWheel { unit, delta, .. } = event {
+                match unit {
+                    egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
+                        lines += if delta.y.abs() >= 1.0 {
+                            delta.y.signum()
+                        } else {
+                            delta.y
+                        };
+                    }
+                    egui::MouseWheelUnit::Point => points += delta.y,
+                }
+            }
+        }
+        (lines, points)
+    });
     let id = response.id.with("wheel");
-    let total = ui.data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0) + delta;
+    let total = ui.data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0) + points + lines * NOTCH;
     let notches = (total / NOTCH).trunc();
     ui.data_mut(|data| data.insert_temp(id, total - notches * NOTCH));
     notches as i32
