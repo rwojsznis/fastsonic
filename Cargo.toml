@@ -164,3 +164,14 @@ opt-level = 0
 # explicit CMAKE_GENERATOR win. Drop when upstream takes the change.
 [patch.crates-io]
 projectm-sys = { git = "https://github.com/crmne/projectm-rs", branch = "respect-cmake-generator" }
+# librespot 0.8.0 plus one patch: the loaded track's normalisation factor
+# is reported through PlayerConfig, so the visualisers can undo it the way
+# Winamp's analyser did. Every librespot crate comes from the fork so one
+# copy exists. Drop when upstream takes the change.
+librespot-audio = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
+librespot-connect = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
+librespot-core = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
+librespot-metadata = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
+librespot-oauth = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
+librespot-playback = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
+librespot-protocol = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }

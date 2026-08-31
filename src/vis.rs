@@ -161,6 +161,10 @@ pub struct Tapped {
     /// cannot work at zero, where the signal is gone. `None` when the
     /// inner sink applies the volume, also after the tap.
     apply_volume: Option<Box<dyn VolumeGetter + Send>>,
+    /// The playing track's normalisation factor, reported by the player;
+    /// the tap undoes it so the picture shows the music, not the loudness
+    /// housekeeping. Winamp's analyser compensated the same way.
+    normalisation: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Tapped {
@@ -169,12 +173,14 @@ impl Tapped {
         tap: Arc<AudioTap>,
         apply_volume: Option<Box<dyn VolumeGetter + Send>>,
         eq: crate::eq::SharedEq,
+        normalisation: Arc<std::sync::atomic::AtomicU64>,
     ) -> Self {
         Self {
             inner,
             tap,
             eq: crate::eq::Processor::new(eq),
             apply_volume,
+            normalisation,
         }
     }
 }
@@ -193,9 +199,19 @@ impl Sink for Tapped {
         let packet = match packet {
             AudioPacket::Samples(mut samples) => {
                 self.eq.process(&mut samples);
-                // Post-EQ, pre-volume: the equalizer shapes what the bars
-                // show, the volume knob never moves them.
-                self.tap.push(&samples, 1.0);
+                // Post-EQ, pre-volume, pre-normalisation: the equalizer
+                // shapes what the bars show; the volume knob and the
+                // loudness housekeeping never move them.
+                let factor = f64::from_bits(
+                    self.normalisation
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                );
+                let restore = if factor > 0.05 && factor < 20.0 {
+                    (1.0 / factor).clamp(0.125, 8.0) as f32
+                } else {
+                    1.0
+                };
+                self.tap.push(&samples, restore);
                 if let Some(volume) = &self.apply_volume {
                     let attenuation = volume.attenuation_factor();
                     for sample in &mut samples {

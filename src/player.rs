@@ -279,12 +279,17 @@ impl Engine {
             autoplay: Some(config.autoplay),
             ..SessionConfig::default()
         };
+        let normalisation_factor = Arc::new(std::sync::atomic::AtomicU64::new(1.0f64.to_bits()));
         let player_config = PlayerConfig {
             bitrate: config.bitrate(),
             gapless: config.gapless,
             normalisation: config.normalisation,
             normalisation_type: NormalisationType::Auto,
             position_update_interval: Some(Duration::from_secs(1)),
+            // The fork reports each track's normalisation factor here, so
+            // the tap can undo it for the visualisers: they show the music,
+            // not the loudness housekeeping.
+            normalisation_report: Some(Arc::clone(&normalisation_factor)),
             ..PlayerConfig::default()
         };
 
@@ -305,8 +310,13 @@ impl Engine {
             ..LocalState::default()
         }));
         let session = Session::new(session_config, Some(cache));
-        let (sink_builder, volume) =
-            sink_builder(config, Arc::clone(&state), Arc::clone(&notify), &mixer);
+        let (sink_builder, volume) = sink_builder(
+            config,
+            Arc::clone(&state),
+            Arc::clone(&notify),
+            &mixer,
+            Arc::clone(&normalisation_factor),
+        );
         let player = Player::new(player_config, session.clone(), volume, sink_builder);
         let events = player.get_player_event_channel();
         tokio::spawn(run_events(events, Arc::clone(&state), Arc::clone(&notify)));
@@ -547,6 +557,7 @@ fn sink_builder(
     state: Arc<Mutex<LocalState>>,
     notify: Notify,
     mixer: &Arc<dyn Mixer>,
+    normalisation: Arc<std::sync::atomic::AtomicU64>,
 ) -> SinkAndVolume {
     let device = config.audio_device.clone();
     let tap = Arc::clone(&config.tap);
@@ -571,10 +582,12 @@ fn sink_builder(
                 // it, so the bars never follow the knob and zero still
                 // shows the song.
                 let applied = mixer.get_soft_volume();
+                let normalisation = Arc::clone(&normalisation);
                 return (
                     Box::new(move || {
                         let sink = builder(device, AudioFormat::S16);
-                        Box::new(Tapped::new(sink, tap, Some(applied), eq)) as Box<dyn Sink>
+                        Box::new(Tapped::new(sink, tap, Some(applied), eq, normalisation))
+                            as Box<dyn Sink>
                     }),
                     Box::new(NoOpVolume),
                 );
@@ -586,7 +599,7 @@ fn sink_builder(
     (
         Box::new(move || {
             let sink = Box::new(RodioSink::new(device, report, volume));
-            Box::new(Tapped::new(sink, tap, None, eq)) as Box<dyn Sink>
+            Box::new(Tapped::new(sink, tap, None, eq, normalisation)) as Box<dyn Sink>
         }),
         Box::new(NoOpVolume),
     )
