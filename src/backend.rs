@@ -438,6 +438,8 @@ pub enum Command {
     Lyrics(Box<LyricsRequest>),
     /// The account's playlist tree, folders and all, from the session.
     Rootlist,
+    /// Check that a reconnect's pickup really started, and try again if not.
+    VerifyResume,
     /// Add, replace, or remove the optional personal Web API application.
     ConfigurePersonalWebApp(Option<String>),
     /// Read a playlist's cached items from disk.
@@ -685,6 +687,8 @@ struct Worker {
     /// What the engine was playing when it went down, to load again once
     /// the next one is up.
     resume: Option<LoadSpec>,
+    /// A pickup in flight: the load to repeat and how often it was tried.
+    resume_verify: Option<(LoadSpec, u8)>,
 }
 
 impl Worker {
@@ -720,6 +724,7 @@ impl Worker {
             pending_authorization: None,
             reconnects: Vec::new(),
             resume: None,
+            resume_verify: None,
         }
     }
 
@@ -807,6 +812,7 @@ impl Worker {
                 Command::CheckForUpdates => self.check_for_updates(),
                 Command::Lyrics(request) => self.fetch_lyrics(*request),
                 Command::Rootlist => self.fetch_rootlist(),
+                Command::VerifyResume => self.verify_resume(),
                 Command::LoadPlaylistCache { id } => self.load_playlist_cache(id),
                 Command::StorePlaylistCache {
                     id,
@@ -1129,6 +1135,7 @@ impl Worker {
         if !self.signed_in {
             return;
         }
+        self.resume_verify = None;
         if let Some(engine) = self.engine.take() {
             self.resume = engine.interrupted().map(|interrupted| LoadSpec {
                 uris: vec![interrupted.uri],
@@ -1279,14 +1286,13 @@ impl Worker {
                 let device_id = engine.device_id().to_string();
                 let engine = Arc::new(engine);
                 if let Some(spec) = self.resume.take() {
-                    log::info!(
-                        "picking {} up again at {} ms on the new session",
-                        spec.uris.join(" "),
-                        spec.position_ms
-                    );
-                    if let Err(error) = engine.command(PlayerCommand::Load(spec)) {
-                        log::warn!("unable to pick playback up again: {error}");
-                    }
+                    // Not right away: a load fired into a session spirc is
+                    // still registering came back 400 once, and the player
+                    // sat stopped until a hand moved. The check below fires
+                    // the load, sees whether anything is playing a few
+                    // seconds later, and tries again when it is not.
+                    self.resume_verify = Some((spec, 0));
+                    self.schedule_resume_check(1_500);
                 }
                 self.engine = Some(engine);
                 self.reconnects.clear();
@@ -1389,6 +1395,47 @@ impl Worker {
                 Ok(None) => log::debug!("this is the newest release"),
                 Err(error) => log::debug!("could not check for a newer release: {error:#}"),
             }
+        });
+    }
+
+    /// A moment after a reconnect's pickup, look whether anything is
+    /// actually playing; Spotify refused such a load once (a 400 from a
+    /// spirc still settling in) and nothing asked twice. Runs on the
+    /// backend's own clock, so no window needs to be awake.
+    fn verify_resume(&mut self) {
+        let Some((spec, attempts)) = self.resume_verify.take() else {
+            return;
+        };
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        if engine.interrupted().is_some() {
+            // Something is loaded and not stopped: the pickup took, or the
+            // listener started something else. Either way, done.
+            return;
+        }
+        if attempts >= 3 {
+            log::warn!("gave up picking playback up again after {attempts} tries");
+            return;
+        }
+        log::info!(
+            "picking {} up again at {} ms on the new session (try {})",
+            spec.uris.join(" "),
+            spec.position_ms,
+            attempts + 1
+        );
+        if let Err(error) = engine.command(PlayerCommand::Load(spec.clone())) {
+            log::warn!("unable to pick playback up again: {error}");
+        }
+        self.resume_verify = Some((spec, attempts + 1));
+        self.schedule_resume_check(4_000);
+    }
+
+    fn schedule_resume_check(&self, delay_ms: u64) {
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            let _ = commands.send(Command::VerifyResume);
         });
     }
 
