@@ -36,8 +36,9 @@ check every one of them.
    change to the new playlist; your songs stay on top and still play
    first.
 
-7. **Clear queue only removes your songs.** The playlist's rows stay.
-   The button only shows while this computer is the player, because
+7. **Clear only removes your songs.** The trash button sits beside the
+   *Playing next* heading and empties that section; the playlist's rows
+   below stay. It only shows while this computer is the player, because
    that is the only queue the app can actually clear.
 
 8. **The app acts first and tells Spotify after.** Everything above

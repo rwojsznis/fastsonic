@@ -2451,10 +2451,7 @@ impl App {
     pub fn can_clear_queue(&self) -> bool {
         self.local.is_active()
             && matches!(self.target(), Target::Local)
-            && self
-                .queue
-                .get()
-                .is_some_and(|queue| !queue.queue.is_empty())
+            && self.queued_rows_len() > 0
     }
 
     /// The hand-queued rows leave Next up at once, and the engine drops

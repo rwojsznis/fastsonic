@@ -14,12 +14,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(8.0);
     // No refresh button: the queue keeps itself fresh, on every track
     // change, every add, and a rolling poll while it shows.
-    ui.horizontal(|ui| {
-        theme::text(ui, "Queue", theme::bold(28.0), palette.text);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            clear_button(app, ui);
-        });
-    });
+    theme::text(ui, "Queue", theme::bold(28.0), palette.text);
     ui.add_space(12.0);
     contents(app, ui, false);
 }
@@ -46,7 +41,6 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::ToggleQueuePanel);
                 }
-                clear_button(app, ui);
             });
         });
         ui.add_space(8.0);
@@ -62,8 +56,8 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// Empties Next up of its queued songs. Only where it can keep the
-/// promise: the queue of this computer's own player.
+/// Empties Playing next. Only where it can keep the promise: the queue
+/// of this computer's own player.
 fn clear_button(app: &mut App, ui: &mut egui::Ui) {
     if !app.can_clear_queue() {
         return;
@@ -154,7 +148,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     // through both, because that is the order things play.
     let queued_len = app.queued_rows_len().min(items.len());
     if queued_len > 0 {
-        theme::text(ui, "Playing next", theme::semibold(14.0), palette.text);
+        // The trash sits with the songs it removes: only this section is
+        // the user's to clear, the context below plays itself.
+        ui.horizontal(|ui| {
+            theme::text(ui, "Playing next", theme::semibold(14.0), palette.text);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                clear_button(app, ui);
+            });
+        });
         ui.add_space(4.0);
         for index in 0..queued_len {
             queue_row(app, ui, &items, index, compact);

@@ -86,10 +86,10 @@ The queue lives behind the list icon, as a side panel or a full page.
 on top under *Playing next* and play first; the playlist or album you
 were listening to carries on underneath, under *Next up*. Point at a
 song and press the play button on its cover (or double-click it) to
-jump straight to it, and the trash icon clears what you queued while
-the playlist carries on. Clearing works when this computer is the
-player; Spotify offers no way to empty another device's queue from
-afar. Closing the app keeps the queue; it is back as you left it on
+jump straight to it, and the trash icon beside *Playing next* clears
+what you queued while the playlist carries on. Clearing works when this
+computer is the player; Spotify offers no way to empty another device's
+queue from afar. Closing the app keeps the queue; it is back as you left it on
 the next start. The full set of rules is in
 [The Queue's Rules](/queue/).
 
