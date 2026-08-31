@@ -175,6 +175,8 @@ pub struct App {
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
+    /// What the window's title bar says, as last set.
+    window_title: String,
 
     pub library: Library,
     pub home: HomeData,
@@ -405,6 +407,7 @@ impl App {
             selected_device: None,
             queue: Loadable::NotLoaded,
             queue_fetched_at: None,
+            window_title: String::new(),
             library: Library::default(),
             home: HomeData::default(),
             search: SearchState::default(),
@@ -4156,6 +4159,21 @@ impl App {
         self.tick(ctx);
         self.apply_actions(ctx);
         self.sync_media_controls();
+        self.sync_window_title(ctx);
+    }
+
+    /// The title bar carries the playing song, the way Spotify's does, so
+    /// an ungrouped taskbar button says what is on (#94).
+    fn sync_window_title(&mut self, ctx: &egui::Context) {
+        let title = match self.now_playing().filter(|now| now.playing) {
+            Some(now) if now.subtitle.is_empty() => format!("{} - Fastpotify", now.title),
+            Some(now) => format!("{} - {}", now.subtitle, now.title),
+            None => "Fastpotify".to_string(),
+        };
+        if title != self.window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
+        }
     }
 
     pub fn frame_ui(&mut self, ui: &mut egui::Ui) {
