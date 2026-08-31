@@ -4281,14 +4281,19 @@ impl App {
                 self.play_request(request, false);
             }
             Action::PlayTrackRadio(uri) => {
-                // The station Spotify seeds from this song, the engine's
-                // autoplay load. The Web API cannot start a station on
-                // another device, so the radio plays on this computer.
+                // The song's station, loaded as an ordinary context: the
+                // station uri resolves to a 50-song context (see
+                // examples/station_probe.rs), while asking the engine for
+                // autoplay of a bare track dies inside the load and left
+                // silence and an emptied queue. The Web API cannot start
+                // a station on another device, so it plays here.
+                let id = util::uri_id(&uri).unwrap_or_default();
+                let station = format!("spotify:station:track:{id}");
                 self.local_list = None;
                 self.backend.player(PlayerCommand::Load(LoadSpec {
-                    context_uri: Some(uri),
+                    context_uri: Some(station),
                     play: true,
-                    autoplay: true,
+                    autoplay: false,
                     ..LoadSpec::default()
                 }));
                 self.optimistic_playing = Some((true, Instant::now()));
