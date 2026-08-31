@@ -105,7 +105,7 @@ pub struct WinampState {
     pub playlist_scroll: usize,
     /// The rows selected, by URI; Ctrl-click adds and removes, SEL has
     /// the rest.
-    pub playlist_selection: std::collections::HashSet<String>,
+    pub playlist_selection: std::collections::HashSet<usize>,
     pub playlist_wheel: f32,
     pub playlist_resize: f32,
     /// The playlist's rows as Winamp drew them, kept once drawn.

@@ -420,14 +420,17 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
         );
         if response.clicked() {
             let adding = view.ui.ctx().input(|input| input.modifiers.command);
+            // Selection is by row, not by song: the same song can sit in
+            // the list more than once and one click means one row.
+            let index = scroll + offset;
             let selection = &mut app.winamp.playlist_selection;
             if adding {
-                if !selection.remove(&row.uri) {
-                    selection.insert(row.uri.clone());
+                if !selection.remove(&index) {
+                    selection.insert(index);
                 }
             } else {
                 selection.clear();
-                selection.insert(row.uri.clone());
+                selection.insert(index);
             }
         }
         if response.double_clicked()
@@ -439,7 +442,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], hei
                 index: index as u32,
             });
         }
-        if app.winamp.playlist_selection.contains(&row.uri) {
+        if app.winamp.playlist_selection.contains(&(scroll + offset)) {
             painter.rect_filled(rect, 0.0, rgb(style.selected_background));
         }
         let color = rgb(if row.current {
@@ -586,8 +589,9 @@ fn times(app: &App, view: &mut View, now: Option<&NowPlaying>, rows: &[Row], hei
     let total: u32 = rows.iter().map(|row| row.duration_ms).sum();
     let selected: u32 = rows
         .iter()
-        .filter(|row| app.winamp.playlist_selection.contains(&row.uri))
-        .map(|row| row.duration_ms)
+        .enumerate()
+        .filter(|(index, _)| app.winamp.playlist_selection.contains(index))
+        .map(|(_, row)| row.duration_ms)
         .sum();
     let running = format!(
         "{}/{}",
@@ -659,15 +663,15 @@ fn rem_menu(ui: &mut egui::Ui) {
 fn sel_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
     let selection = &mut app.winamp.playlist_selection;
     if ui.button("All").clicked() {
-        selection.extend(rows.iter().map(|row| row.uri.clone()));
+        selection.extend(0..rows.len());
     }
     if ui.button("None").clicked() {
         selection.clear();
     }
     if ui.button("Invert").clicked() {
-        for row in rows {
-            if !selection.remove(&row.uri) {
-                selection.insert(row.uri.clone());
+        for index in 0..rows.len() {
+            if !selection.remove(&index) {
+                selection.insert(index);
             }
         }
     }
@@ -677,7 +681,9 @@ fn sel_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
 fn misc_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
     let chosen = rows
         .iter()
-        .find(|row| app.winamp.playlist_selection.contains(&row.uri))
+        .enumerate()
+        .find(|(index, _)| app.winamp.playlist_selection.contains(index))
+        .map(|(_, row)| row)
         .or_else(|| rows.iter().find(|row| row.current));
     let Some(row) = chosen else {
         ui.add_enabled(false, egui::Button::new("Song info"));
