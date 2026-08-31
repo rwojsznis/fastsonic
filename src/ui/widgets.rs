@@ -664,6 +664,37 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
                 Icon::Mic
             },
         );
+        // Without a number column the cover carries the play control:
+        // hover shows it, a click uses it, and what plays shows there.
+        if cols.number == 0.0 {
+            let scrim = |alpha: u8| {
+                painter.rect_filled(
+                    cover_rect,
+                    CornerRadius::same(4),
+                    Color32::from_black_alpha(alpha),
+                );
+            };
+            if app.play_pending(row.item.uri()) {
+                scrim(140);
+                let mut child = ui.new_child(
+                    UiBuilder::new()
+                        .max_rect(cover_rect)
+                        .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+                );
+                theme::spinner(&mut child, 16.0, Color32::WHITE);
+            } else if hovered && !unavailable {
+                scrim(140);
+                let icon = if playing {
+                    Icon::PauseFilled
+                } else {
+                    Icon::PlayFilled
+                };
+                theme::paint_icon(ui, icon, cover_rect, 16.0, Color32::WHITE);
+            } else if playing {
+                scrim(110);
+                theme::paint_icon(ui, Icon::AudioLines, cover_rect, 16.0, palette.accent);
+            }
+        }
         x += cols.cover;
     }
     let right_fixed = cols.heart + cols.duration + cols.more + 8.0;
@@ -937,24 +968,32 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
             uri: row.item.uri().to_string(),
             index: row.index as u32,
         });
-    } else if response.clicked() && cols.number > 0.0 {
-        let number_rect = Rect::from_min_size(
-            pos2(rect.left() + 8.0, rect.top()),
-            vec2(cols.number, row_height),
-        );
-        if response
-            .interact_pointer_pos()
-            .is_some_and(|pos| number_rect.contains(pos))
-            && !unavailable
-        {
-            if is_current {
-                app.actions.push(Action::TogglePlay);
-            } else {
-                app.actions.push(Action::PlayFromRow {
-                    context: row.context.clone(),
-                    uri: row.item.uri().to_string(),
-                    index: row.index as u32,
-                });
+    } else if response.clicked() {
+        // The cell that holds the play control: the number column when
+        // there is one, the cover when there is not.
+        let control = if cols.number > 0.0 {
+            Some(vec2(cols.number, row_height))
+        } else if cols.cover > 0.0 {
+            Some(vec2(cols.cover, row_height))
+        } else {
+            None
+        };
+        if let Some(size) = control {
+            let control_rect = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top()), size);
+            if response
+                .interact_pointer_pos()
+                .is_some_and(|pos| control_rect.contains(pos))
+                && !unavailable
+            {
+                if is_current {
+                    app.actions.push(Action::TogglePlay);
+                } else {
+                    app.actions.push(Action::PlayFromRow {
+                        context: row.context.clone(),
+                        uri: row.item.uri().to_string(),
+                        index: row.index as u32,
+                    });
+                }
             }
         }
     }
