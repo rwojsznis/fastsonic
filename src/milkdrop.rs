@@ -224,6 +224,40 @@ impl Presets {
         }
     }
 
+    /// Fetches every pack in one go, for a first open with nothing
+    /// there; failures after the first pack still land what arrived.
+    pub fn download_missing(&mut self, folder: PathBuf, ctx: egui::Context) {
+        if self.download.is_some() {
+            return;
+        }
+        let (sender, receiver) = mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("milkdrop-presets".into())
+            .spawn(move || {
+                let mut total = 0usize;
+                let mut failed = None;
+                for pack in &PACKS {
+                    match fetch_pack(pack, &folder) {
+                        Ok(count) => total += count,
+                        Err(error) => {
+                            failed = Some(error);
+                            break;
+                        }
+                    }
+                }
+                let outcome = match failed {
+                    Some(error) if total == 0 => Err(error),
+                    _ => Ok(total),
+                };
+                let _ = sender.send(outcome);
+                ctx.request_repaint();
+            });
+        match spawned {
+            Ok(_) => self.download = Some(("the preset packs", receiver)),
+            Err(error) => log::warn!("could not start fetching presets: {error}"),
+        }
+    }
+
     /// The pack on its way, if one is.
     pub fn downloading(&self) -> Option<&'static str> {
         self.download.as_ref().map(|(name, _)| *name)

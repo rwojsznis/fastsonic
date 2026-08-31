@@ -1540,7 +1540,18 @@ impl App {
         let fetched = self.winamp.presets.poll();
         if let Some(fetched) = fetched {
             match fetched {
-                Ok(count) => self.toast(format!("Added {count} MilkDrop presets")),
+                Ok(count) => {
+                    self.toast(format!("Added {count} MilkDrop presets"));
+                    // The window lists presets when it starts; a running one
+                    // is bounced so the new arrivals play. It reopens on the
+                    // next frame, since the setting still says open.
+                    #[cfg(feature = "milkdrop")]
+                    if let Some(host) = self.milkdrop_host.as_mut()
+                        && host.is_running()
+                    {
+                        host.close();
+                    }
+                }
                 Err(error) => self.toast_error(format!("Couldn't fetch presets: {error}")),
             }
         }
@@ -4362,6 +4373,20 @@ impl App {
             Action::ToggleWinampMilkdrop => {
                 self.settings.milkdrop_open = !self.settings.milkdrop_open;
                 self.settings_dirty = true;
+                #[cfg(feature = "milkdrop")]
+                if self.settings.milkdrop_open {
+                    // A first open has nothing to draw but the idle preset,
+                    // which hardly answers the music; fetch the packs in the
+                    // background and the window fills up on its own.
+                    let folder = self.dirs.milkdrop_dir();
+                    self.winamp.presets.refresh(&folder);
+                    if self.winamp.presets.count() == 0
+                        && self.winamp.presets.downloading().is_none()
+                    {
+                        self.winamp.presets.download_missing(folder, ctx.clone());
+                        self.toast("Fetching MilkDrop's preset packs in the background");
+                    }
+                }
             }
             Action::SetMilkdropSeconds(seconds) => {
                 self.settings.milkdrop_seconds = seconds.clamp(1, 3600);
