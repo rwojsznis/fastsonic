@@ -657,6 +657,7 @@ pub enum Action {
     ToggleWinampMilkdrop,
     /// How long each MilkDrop preset plays, in seconds.
     SetMilkdropSeconds(u32),
+    SetMilkdropScale(u32),
     /// How many frames a second the MilkDrop window draws; 0 is uncapped.
     SetMilkdropFps(u32),
     OpenMilkdropFolder,

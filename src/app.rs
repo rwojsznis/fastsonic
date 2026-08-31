@@ -1568,6 +1568,7 @@ impl App {
         let fullscreen = self.settings.milkdrop_fullscreen;
         let fps = self.settings.milkdrop_fps;
         let seconds = self.settings.milkdrop_seconds;
+        let scale = self.settings.milkdrop_scale.max(1);
         if self.milkdrop_host.is_none() {
             let tap = std::sync::Arc::clone(&self.winamp.tap);
             self.milkdrop_host = Some(crate::milkdrop::host::Host::new(tap));
@@ -1576,9 +1577,9 @@ impl App {
             let host = self.milkdrop_host.as_mut().expect("the host was just made");
             if open {
                 if !host.is_running() {
-                    host.open(&presets, size, pos, fullscreen, fps, seconds);
+                    host.open(&presets, size, pos, fullscreen, fps, seconds, scale);
                 }
-                host.update(fps, seconds);
+                host.update(fps, seconds, scale);
             } else if host.is_running() {
                 host.close();
             }
@@ -4394,6 +4395,10 @@ impl App {
             }
             Action::SetMilkdropFps(fps) => {
                 self.settings.milkdrop_fps = fps.min(240);
+                self.settings_dirty = true;
+            }
+            Action::SetMilkdropScale(scale) => {
+                self.settings.milkdrop_scale = scale.clamp(1, 4);
                 self.settings_dirty = true;
             }
             Action::OpenMilkdropFolder => self.open_folder(self.dirs.milkdrop_dir()),

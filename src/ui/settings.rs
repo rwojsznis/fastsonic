@@ -705,6 +705,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 });
             },
         );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Resolution",
+            "The picture's inner resolution. Half or a quarter eases a slower machine; the window stretches it back up with hard pixels.",
+            |ui| {
+                let current = app.settings.milkdrop_scale.max(1);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for (scale, label) in [(1u32, "Full"), (2, "Half"), (4, "Quarter")] {
+                        if theme::soft_button(ui, &palette, None, label, scale == current).clicked()
+                            && scale != current
+                        {
+                            app.actions.push(Action::SetMilkdropScale(scale));
+                        }
+                    }
+                });
+            },
+        );
     });
 
     section(ui, &palette, "Equalizer", |ui| {

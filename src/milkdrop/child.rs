@@ -39,6 +39,7 @@ use super::{DEFAULT_FPS, DEFAULT_SECONDS, LAG, MIN_SIZE, Presets, Request};
 struct Control {
     fps: Option<u32>,
     seconds: Option<u32>,
+    scale: Option<u32>,
     close: Option<bool>,
 }
 
@@ -62,6 +63,7 @@ pub struct Args {
     pub fullscreen: bool,
     pub fps: u32,
     pub seconds: u32,
+    pub scale: u32,
 }
 
 impl Args {
@@ -79,6 +81,7 @@ impl Args {
         let mut fullscreen = false;
         let mut fps = DEFAULT_FPS;
         let mut seconds = DEFAULT_SECONDS;
+        let mut scale = 1u32;
         while let Some(arg) = all.next() {
             match arg.as_str() {
                 "--milkdrop-shm" => shm = all.next().map(PathBuf::from),
@@ -94,6 +97,9 @@ impl Args {
                 "--milkdrop-seconds" => {
                     seconds = all.next().and_then(|v| v.parse().ok()).unwrap_or(seconds);
                 }
+                "--milkdrop-scale" => {
+                    scale = all.next().and_then(|v| v.parse().ok()).unwrap_or(scale);
+                }
                 _ => {}
             }
         }
@@ -105,6 +111,7 @@ impl Args {
             fullscreen,
             fps,
             seconds,
+            scale,
         })
     }
 }
@@ -170,6 +177,7 @@ struct Child {
     presets: Presets,
     live: Option<Live>,
     fps: u32,
+    scale: u32,
     seconds: u32,
     pointer: PhysicalPosition<f64>,
     last_click: Option<Instant>,
@@ -180,6 +188,7 @@ struct Child {
 impl Child {
     fn new(args: Args, ring: Ring) -> Self {
         let fps = args.fps;
+        let scale = args.scale;
         let seconds = args.seconds;
         Self {
             args,
@@ -188,6 +197,7 @@ impl Child {
             presets: Presets::new(),
             live: None,
             fps,
+            scale,
             seconds,
             pointer: PhysicalPosition::new(0.0, 0.0),
             last_click: None,
@@ -256,8 +266,13 @@ impl Child {
         let frames = self.ring.since(&mut self.cursor, LAG);
         live.engine.feed_frames(&frames);
         let size = live.window.inner_size();
-        live.engine
-            .render(0, 0, size.width.max(1), size.height.max(1));
+        live.engine.render(
+            0,
+            0,
+            size.width.max(1),
+            size.height.max(1),
+            self.scale.max(1),
+        );
         if let Err(error) = live.surface.swap_buffers(&live.context) {
             eprintln!("MilkDrop: present failed: {error}");
         }
@@ -303,6 +318,9 @@ impl ApplicationHandler<Control> for Child {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, control: Control) {
+        if let Some(scale) = control.scale {
+            self.scale = scale.clamp(1, 4);
+        }
         if let Some(fps) = control.fps {
             self.fps = fps;
         }

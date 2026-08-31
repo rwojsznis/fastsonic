@@ -51,6 +51,7 @@ struct Running {
     reported: Arc<Mutex<Reported>>,
     fps: u32,
     seconds: u32,
+    scale: u32,
 }
 
 pub struct Host {
@@ -84,6 +85,7 @@ impl Host {
         fullscreen: bool,
         fps: u32,
         seconds: u32,
+        scale: u32,
     ) {
         if self.running.is_some() {
             return;
@@ -115,6 +117,8 @@ impl Host {
             .arg(fps.to_string())
             .arg("--milkdrop-seconds")
             .arg(seconds.to_string())
+            .arg("--milkdrop-scale")
+            .arg(scale.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
@@ -147,20 +151,22 @@ impl Host {
             reported,
             fps,
             seconds,
+            scale,
         });
     }
 
     /// Sends new settings to the window, if they changed.
-    pub fn update(&mut self, fps: u32, seconds: u32) {
+    pub fn update(&mut self, fps: u32, seconds: u32, scale: u32) {
         let Some(running) = &mut self.running else {
             return;
         };
-        if running.fps == fps && running.seconds == seconds {
+        if running.fps == fps && running.seconds == seconds && running.scale == scale {
             return;
         }
         running.fps = fps;
         running.seconds = seconds;
-        let line = format!("{{\"fps\":{fps},\"seconds\":{seconds}}}\n");
+        running.scale = scale;
+        let line = format!("{{\"fps\":{fps},\"seconds\":{seconds},\"scale\":{scale}}}\n");
         if running.stdin.write_all(line.as_bytes()).is_err() {
             // The child is gone; the next poll will report it closed.
             self.tap.set_shm(None);

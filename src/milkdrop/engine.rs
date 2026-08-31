@@ -214,8 +214,10 @@ impl Engine {
     }
 
     /// Draws a frame into the picture: `left` and `bottom` from the
-    /// window's bottom-left corner, all in pixels.
-    pub fn render(&mut self, left: i32, bottom: i32, width: u32, height: u32) {
+    /// window's bottom-left corner, all in pixels. `scale` divides the
+    /// inner resolution: the picture is drawn small and stretched back up
+    /// with hard pixels, easing a slower GPU.
+    pub fn render(&mut self, left: i32, bottom: i32, width: u32, height: u32, scale: u32) {
         // projectM halves its viewport for the blur and warp passes, so an
         // odd width or height leaves a column or row those passes never
         // wrote, which its feedback then smears into a seam. Kept even, the
@@ -225,18 +227,22 @@ impl Engine {
         if width == 0 || height == 0 {
             return;
         }
+        let scale = scale.max(1);
+        let inner_w = (width / scale).max(2) & !1;
+        let inner_h = (height / scale).max(2) & !1;
         if self
             .copy
             .as_ref()
-            .is_none_or(|copy| (copy.width, copy.height) != (width, height))
+            .is_none_or(|copy| (copy.width, copy.height) != (inner_w, inner_h))
         {
-            self.resize(width, height);
+            self.resize(inner_w, inner_h);
         }
         let Some(copy) = &self.copy else {
             return;
         };
         let gl = &self.gl;
-        let (w, h) = (width as i32, height as i32);
+        let (w, h) = (inner_w as i32, inner_h as i32);
+        let (full_w, full_h) = (width as i32, height as i32);
         // SAFETY: the context is current; every call is a plain GL call on
         // objects this engine made or the window owns.
         unsafe {
@@ -276,8 +282,8 @@ impl Engine {
                 h,
                 left,
                 bottom,
-                left + w,
-                bottom + h,
+                left + full_w,
+                bottom + full_h,
                 glow::COLOR_BUFFER_BIT,
                 glow::NEAREST,
             );
@@ -285,7 +291,7 @@ impl Engine {
             // The window is see-through wherever its alpha says so; the
             // picture is not, whatever a preset wrote there.
             gl.enable(glow::SCISSOR_TEST);
-            gl.scissor(left, bottom, w, h);
+            gl.scissor(left, bottom, full_w, full_h);
             gl.color_mask(false, false, false, true);
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
             gl.clear(glow::COLOR_BUFFER_BIT);
