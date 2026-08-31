@@ -12,23 +12,9 @@ use super::widgets::{self, TrackRow};
 pub fn page(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        theme::text(ui, "Queue", theme::bold(28.0), palette.text);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if theme::icon_button(
-                ui,
-                Icon::Refresh,
-                18.0,
-                palette.secondary,
-                palette.text,
-                "Refresh",
-            )
-            .clicked()
-            {
-                app.actions.push(Action::RefreshQueue);
-            }
-        });
-    });
+    // No refresh button: the queue keeps itself fresh, on every track
+    // change, every add, and a rolling poll while it shows.
+    theme::text(ui, "Queue", theme::bold(28.0), palette.text);
     ui.add_space(12.0);
     contents(app, ui, false);
 }
@@ -54,18 +40,6 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                     .clicked()
                 {
                     app.actions.push(Action::ToggleQueuePanel);
-                }
-                if theme::icon_button(
-                    ui,
-                    Icon::Refresh,
-                    16.0,
-                    palette.secondary,
-                    palette.text,
-                    "Refresh",
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::RefreshQueue);
                 }
             });
         });
