@@ -29,6 +29,7 @@ struct Reported {
     size: Option<[f32; 2]>,
     /// What the window's keys asked of the player, oldest first.
     commands: Vec<String>,
+    screen_hz: Option<u32>,
 }
 
 /// One line of what the child says on its stdout.
@@ -38,6 +39,7 @@ struct Event {
     pos: Option<[f32; 2]>,
     size: Option<[f32; 2]>,
     command: Option<String>,
+    screen_hz: Option<u32>,
 }
 
 /// What the app takes from the window each frame.
@@ -48,6 +50,8 @@ pub struct Poll {
     pub size: Option<[f32; 2]>,
     /// What its keys asked of the player since the last look.
     pub commands: Vec<String>,
+    /// How often the screen it is on refreshes, when it has said.
+    pub screen_hz: Option<u32>,
 }
 
 struct Running {
@@ -55,7 +59,6 @@ struct Running {
     stdin: std::process::ChildStdin,
     reported: Arc<Mutex<Reported>>,
     fps: u32,
-    fps_screen: bool,
     seconds: u32,
     scale: u32,
     /// The song last told to the window, which overlays a change.
@@ -92,7 +95,6 @@ impl Host {
         pos: Option<[f32; 2]>,
         fullscreen: bool,
         fps: u32,
-        fps_screen: bool,
         seconds: u32,
         scale: u32,
     ) {
@@ -139,9 +141,6 @@ impl Host {
         if fullscreen {
             command.arg("--milkdrop-fullscreen");
         }
-        if fps_screen {
-            command.arg("--milkdrop-fps-screen");
-        }
         let mut process = match command.spawn() {
             Ok(process) => process,
             Err(error) => {
@@ -162,7 +161,6 @@ impl Host {
             stdin,
             reported,
             fps,
-            fps_screen,
             seconds,
             scale,
             song: None,
@@ -170,24 +168,17 @@ impl Host {
     }
 
     /// Sends new settings to the window, if they changed.
-    pub fn update(&mut self, fps: u32, fps_screen: bool, seconds: u32, scale: u32) {
+    pub fn update(&mut self, fps: u32, seconds: u32, scale: u32) {
         let Some(running) = &mut self.running else {
             return;
         };
-        if running.fps == fps
-            && running.fps_screen == fps_screen
-            && running.seconds == seconds
-            && running.scale == scale
-        {
+        if running.fps == fps && running.seconds == seconds && running.scale == scale {
             return;
         }
         running.fps = fps;
-        running.fps_screen = fps_screen;
         running.seconds = seconds;
         running.scale = scale;
-        let line = format!(
-            "{{\"fps\":{fps},\"fps_screen\":{fps_screen},\"seconds\":{seconds},\"scale\":{scale}}}\n"
-        );
+        let line = format!("{{\"fps\":{fps},\"seconds\":{seconds},\"scale\":{scale}}}\n");
         if running.stdin.write_all(line.as_bytes()).is_err() {
             // The child is gone; the next poll will report it closed.
             self.tap.set_shm(None);
@@ -223,17 +214,19 @@ impl Host {
                 pos: None,
                 size: None,
                 commands: Vec::new(),
+                screen_hz: None,
             };
         };
         // The child exiting is a close, even if it said nothing.
         let exited = matches!(running.process.try_wait(), Ok(Some(_)));
-        let (closed, pos, size, commands) = {
+        let (closed, pos, size, commands, screen_hz) = {
             let mut reported = running.reported.lock().unwrap_or_else(|p| p.into_inner());
             (
                 reported.closed || exited,
                 reported.pos.take(),
                 reported.size.take(),
                 std::mem::take(&mut reported.commands),
+                reported.screen_hz.take(),
             )
         };
         if closed {
@@ -244,6 +237,7 @@ impl Host {
             pos,
             size,
             commands,
+            screen_hz,
         }
     }
 
@@ -302,6 +296,9 @@ fn spawn_reader(stdout: std::process::ChildStdout, reported: Arc<Mutex<Reported>
                 }
                 if event.size.is_some() {
                     reported.size = event.size;
+                }
+                if event.screen_hz.is_some() {
+                    reported.screen_hz = event.screen_hz;
                 }
                 if let Some(command) = event.command {
                     // A key held down cannot pile up more than a moment's

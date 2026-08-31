@@ -681,46 +681,56 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        let screen_hz = app.settings.milkdrop_screen_hz;
         widgets::setting_row(
             ui,
             &palette,
             "Frame rate",
-            "How often the window draws. Following the screen is smooth without drawing frames nobody sees; a number of your own suits a screen the app cannot ask, and uncapped runs as fast as the machine can.",
+            &match screen_hz {
+                0 => "How often the window draws. Fewer frames leave more of the machine for everything else; all the way up it draws as fast as it can.".to_string(),
+                hz => format!(
+                    "How often the window draws. Your screen refreshes {hz} times a second, and drawing more often than that shows nobody anything; all the way up it draws as fast as it can."
+                ),
+            },
             |ui| {
-                let screen = app.settings.milkdrop_fps_screen;
                 let fps = app.settings.milkdrop_fps;
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    if theme::soft_button(ui, &palette, None, "Screen", screen).clicked() && !screen
-                    {
-                        app.actions.push(Action::SetMilkdropFpsScreen(true));
-                    }
-                    let uncapped = !screen && fps == 0;
-                    if theme::soft_button(ui, &palette, None, "Uncapped", uncapped).clicked()
-                        && !uncapped
-                    {
-                        app.actions.push(Action::SetMilkdropFpsScreen(false));
-                        app.actions.push(Action::SetMilkdropFps(0));
-                    }
-                    let numbered = !screen && fps != 0;
-                    // The number itself, wherever anyone wants it: the
-                    // slider covers the usual screens and the box takes
-                    // whatever it is given.
-                    let mut wanted = if fps == 0 {
-                        crate::milkdrop::DEFAULT_FPS
-                    } else {
-                        fps
-                    };
-                    let slider = egui::Slider::new(&mut wanted, crate::milkdrop::FPS_RANGE)
-                        .suffix(" fps")
-                        .clamping(egui::SliderClamping::Edits);
-                    if ui.add(slider).changed() {
-                        if !numbered {
-                            app.actions.push(Action::SetMilkdropFpsScreen(false));
+                let top = *crate::milkdrop::FPS_RANGE.end() + 1;
+                // One slider says the whole thing: a number of frames a
+                // second, and past the last of them, uncapped.
+                let mut wanted = if fps == 0 {
+                    top
+                } else {
+                    fps.clamp(*crate::milkdrop::FPS_RANGE.start(), *crate::milkdrop::FPS_RANGE.end())
+                };
+                let slider = egui::Slider::new(&mut wanted, *crate::milkdrop::FPS_RANGE.start()..=top)
+                    .clamping(egui::SliderClamping::Always)
+                    .custom_formatter(move |value, _| {
+                        let value = value.round() as u32;
+                        if value >= top {
+                            "Uncapped".to_string()
+                        } else if value == screen_hz {
+                            format!("{value} fps, your screen")
+                        } else {
+                            format!("{value} fps")
                         }
-                        app.actions.push(Action::SetMilkdropFps(wanted));
+                    })
+                    .custom_parser(|text| {
+                        let text = text.trim().to_lowercase();
+                        if text.starts_with("un") {
+                            return Some(f64::from(u16::MAX));
+                        }
+                        text.trim_end_matches(" fps").trim().parse::<f64>().ok()
+                    });
+                if ui.add(slider).changed() {
+                    // The rates worth landing on catch the slider as it
+                    // passes: the two everyone knows, the screen's own,
+                    // and uncapped at the end where it already stops.
+                    if wanted < top {
+                        wanted = crate::milkdrop::snap_fps(wanted, screen_hz);
                     }
-                });
+                    let fps = if wanted >= top { 0 } else { wanted };
+                    app.actions.push(Action::SetMilkdropFps(fps));
+                }
             },
         );
         widgets::setting_row(

@@ -71,8 +71,8 @@ main fields are:
 | `winamp_shaded` | `false` | The main window is rolled up to its title bar |
 | `milkdrop_open` | `false` | The MilkDrop window is open |
 | `milkdrop_seconds` | `30` | How long each MilkDrop preset plays |
-| `milkdrop_fps` | `60` | The MilkDrop window's frame rate when it is not following the screen; `0` is uncapped |
-| `milkdrop_fps_screen` | `true` | Draw as often as the screen refreshes, whatever `milkdrop_fps` says |
+| `milkdrop_fps` | `60` | The MilkDrop window's frame rate; `0` is uncapped. Set to match your screen the first time the window reports one |
+| `milkdrop_screen_hz` | `0` | What that screen refreshes at, as last reported; it marks the rate worth matching |
 | `milkdrop_fullscreen` | `false` | The MilkDrop window fills the screen |
 | `milkdrop_size` | `640, 480` | The MilkDrop window's size in points |
 | `keep_playing_in_background` | `true` | Close to tray |

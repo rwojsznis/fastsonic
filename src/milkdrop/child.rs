@@ -39,7 +39,6 @@ use super::{DEFAULT_FPS, DEFAULT_SECONDS, LAG, MIN_SIZE, Presets, Request};
 #[derive(Debug, Default, Deserialize)]
 struct Control {
     fps: Option<u32>,
-    fps_screen: Option<bool>,
     seconds: Option<u32>,
     scale: Option<u32>,
     /// The playing song, as lines to overlay when it changes.
@@ -55,6 +54,9 @@ struct Event {
     /// What the window asks the app to do with the player.
     #[serde(skip_serializing_if = "Option::is_none")]
     command: Option<String>,
+    /// How often the screen it opened on refreshes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    screen_hz: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pos: Option<[f32; 2]>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,8 +71,6 @@ pub struct Args {
     pub pos: Option<[f32; 2]>,
     pub fullscreen: bool,
     pub fps: u32,
-    /// Follow the screen's refresh rate rather than the number.
-    pub fps_screen: bool,
     pub seconds: u32,
     pub scale: u32,
 }
@@ -88,7 +88,6 @@ impl Args {
         let mut size = super::DEFAULT_SIZE;
         let mut pos = None;
         let mut fullscreen = false;
-        let mut fps_screen = false;
         let mut fps = DEFAULT_FPS;
         let mut seconds = DEFAULT_SECONDS;
         let mut scale = 1u32;
@@ -103,7 +102,6 @@ impl Args {
                 }
                 "--milkdrop-pos" => pos = all.next().and_then(|value| parse_pair(&value)),
                 "--milkdrop-fullscreen" => fullscreen = true,
-                "--milkdrop-fps-screen" => fps_screen = true,
                 "--milkdrop-fps" => fps = all.next().and_then(|v| v.parse().ok()).unwrap_or(fps),
                 "--milkdrop-seconds" => {
                     seconds = all.next().and_then(|v| v.parse().ok()).unwrap_or(seconds);
@@ -121,7 +119,6 @@ impl Args {
             pos,
             fullscreen,
             fps,
-            fps_screen,
             seconds,
             scale,
         })
@@ -209,8 +206,6 @@ struct Child {
     corner_written: [Option<Instant>; 3],
     modifiers: winit::keyboard::ModifiersState,
     fps: u32,
-    /// Follow the screen rather than the number above.
-    fps_screen: bool,
     /// What the screen the window sits on refreshes at, when it says.
     screen_hz: Option<f32>,
     scale: u32,
@@ -224,7 +219,6 @@ struct Child {
 impl Child {
     fn new(args: Args, ring: Ring) -> Self {
         let fps = args.fps;
-        let fps_screen = args.fps_screen;
         let scale = args.scale;
         let seconds = args.seconds;
         Self {
@@ -241,7 +235,6 @@ impl Child {
             fps_on: false,
             corner_lines: [Vec::new(), Vec::new(), Vec::new()],
             corner_written: [None; 3],
-            fps_screen,
             screen_hz: None,
             modifiers: winit::keyboard::ModifiersState::empty(),
             fps,
@@ -276,14 +269,7 @@ impl Child {
     /// How long a frame is meant to take: the screen's own rhythm, a
     /// number of frames a second, or nothing at all when uncapped.
     fn frame_interval(&self) -> Option<Duration> {
-        let rate = if self.fps_screen {
-            // A screen that will not say what it refreshes at is taken
-            // for an ordinary one rather than left to run flat out.
-            self.screen_hz.unwrap_or(60.0)
-        } else {
-            self.fps as f32
-        };
-        (rate > 0.0).then(|| Duration::from_secs_f32(1.0 / rate))
+        (self.fps != 0).then(|| Duration::from_secs_f32(1.0 / self.fps as f32))
     }
 
     /// Asks the screen the window is on how often it refreshes.
@@ -291,11 +277,20 @@ impl Child {
         let Some(live) = &self.live else {
             return;
         };
-        self.screen_hz = live
+        let hz = live
             .window
             .current_monitor()
             .and_then(|monitor| monitor.refresh_rate_millihertz())
             .map(|millihertz| millihertz as f32 / 1000.0);
+        if hz != self.screen_hz {
+            self.screen_hz = hz;
+            if let Some(hz) = hz {
+                report(&Event {
+                    screen_hz: Some(hz.round() as u32),
+                    ..Default::default()
+                });
+            }
+        }
     }
 
     fn create(&mut self, event_loop: &ActiveEventLoop) {
@@ -436,9 +431,6 @@ impl ApplicationHandler<Control> for Child {
         }
         if let Some(fps) = control.fps {
             self.fps = fps;
-        }
-        if let Some(screen) = control.fps_screen {
-            self.fps_screen = screen;
         }
         if let Some(seconds) = control.seconds {
             self.seconds = seconds;
@@ -1018,7 +1010,6 @@ mod tests {
                 pos: None,
                 fullscreen: false,
                 fps: 30,
-                fps_screen: false,
                 seconds: 30,
                 scale: 1,
             },
@@ -1026,29 +1017,17 @@ mod tests {
         )
     }
 
-    /// The limit follows the screen when it is asked to, falls back to
-    /// an ordinary screen's rate when the screen will not say, takes any
-    /// number otherwise, and lets go entirely at zero.
+    /// The limit is the number it was given, and nothing at zero.
     #[test]
-    fn the_frame_limit_follows_the_screen_or_the_number() {
+    fn the_frame_limit_is_the_number_it_was_given() {
         let mut child = headless_child();
-        let hz = |interval: Option<Duration>| interval.map(|gap| 1.0 / gap.as_secs_f32());
-
-        child.fps_screen = true;
-        child.screen_hz = Some(144.0);
-        assert_eq!(hz(child.frame_interval()).map(|hz| hz.round()), Some(144.0));
-
-        child.screen_hz = None;
-        assert_eq!(
-            hz(child.frame_interval()).map(|hz| hz.round()),
-            Some(60.0),
-            "a screen that will not say is taken for an ordinary one"
-        );
-
-        child.fps_screen = false;
-        child.fps = 240;
-        assert_eq!(hz(child.frame_interval()).map(|hz| hz.round()), Some(240.0));
-
+        let hz = |interval: Option<Duration>| {
+            interval.map(|gap| (1.0 / gap.as_secs_f32()).round() as u32)
+        };
+        for rate in [24, 60, 144, 240] {
+            child.fps = rate;
+            assert_eq!(hz(child.frame_interval()), Some(rate));
+        }
         child.fps = 0;
         assert!(child.frame_interval().is_none(), "zero is uncapped");
     }

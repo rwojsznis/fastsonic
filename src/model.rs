@@ -669,8 +669,6 @@ pub enum Action {
     SetMilkdropScale(u32),
     /// How many frames a second the MilkDrop window draws; 0 is uncapped.
     SetMilkdropFps(u32),
-    /// Follow the screen's own refresh rate, or a number instead.
-    SetMilkdropFpsScreen(bool),
     OpenMilkdropFolder,
     /// Fetch one of projectM's preset packs into the folder, by its place
     /// in the list.

@@ -41,6 +41,21 @@ pub const DEFAULT_FPS: u32 = 60;
 /// The frame rates a number may be set to by hand. Anything in between
 /// is fine too; these are only where the slider starts and stops.
 pub const FPS_RANGE: std::ops::RangeInclusive<u32> = 10..=360;
+/// How near a rate worth having the slider must come before it lands on
+/// it: the two everyone knows, and whatever the screen refreshes at.
+pub const FPS_SNAP: u32 = 4;
+
+/// The rate a slider lands on when it comes within `FPS_SNAP` of one
+/// worth having. `screen` is what the screen refreshes at, or zero when
+/// no screen has said.
+pub fn snap_fps(wanted: u32, screen: u32) -> u32 {
+    [30, 60, screen]
+        .into_iter()
+        .filter(|notch| *notch > 0)
+        .filter(|notch| wanted.abs_diff(*notch) <= FPS_SNAP)
+        .min_by_key(|notch| wanted.abs_diff(*notch))
+        .unwrap_or(wanted)
+}
 /// The window's size when it first opens, in logical points.
 pub const DEFAULT_SIZE: [f32; 2] = [640.0, 480.0];
 /// The smallest the window may be dragged.
@@ -405,6 +420,20 @@ mod tests {
                 .map(|name| name.replace('/', std::path::MAIN_SEPARATOR_STR))
         );
         assert!(list_presets(Path::new("/nonexistent/milkdrop")).is_empty());
+    }
+
+    /// The slider lands on the rates worth having when it comes near
+    /// them, and is left alone anywhere else.
+    #[test]
+    fn the_frame_rate_lands_on_the_rates_worth_having() {
+        assert_eq!(snap_fps(31, 144), 30);
+        assert_eq!(snap_fps(58, 144), 60);
+        assert_eq!(snap_fps(143, 144), 144, "the screen's own rate catches it");
+        assert_eq!(snap_fps(100, 144), 100, "nothing near, nothing moved");
+        // The nearest of them wins, and a screen that has not said is
+        // not a rate to land on.
+        assert_eq!(snap_fps(62, 60), 60);
+        assert_eq!(snap_fps(120, 0), 120);
     }
 
     /// R switches between random and the folder's own order; in order,

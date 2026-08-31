@@ -1645,7 +1645,6 @@ impl App {
         let pos = self.milkdrop_pos;
         let fullscreen = self.settings.milkdrop_fullscreen;
         let fps = self.settings.milkdrop_fps;
-        let fps_screen = self.settings.milkdrop_fps_screen;
         let seconds = self.settings.milkdrop_seconds;
         let scale = self.settings.milkdrop_scale.max(1);
         // The playing song, for the window to overlay when it changes.
@@ -1666,11 +1665,9 @@ impl App {
             let host = self.milkdrop_host.as_mut().expect("the host was just made");
             if open {
                 if !host.is_running() {
-                    host.open(
-                        &presets, size, pos, fullscreen, fps, fps_screen, seconds, scale,
-                    );
+                    host.open(&presets, size, pos, fullscreen, fps, seconds, scale);
                 }
-                host.update(fps, fps_screen, seconds, scale);
+                host.update(fps, seconds, scale);
                 host.song(song);
             } else if host.is_running() {
                 host.close();
@@ -1693,11 +1690,32 @@ impl App {
         for command in poll.commands {
             self.milkdrop_command(&command);
         }
+        if let Some(hz) = poll.screen_hz {
+            self.learn_screen_hz(hz);
+        }
         // Look in on the child now and then, so its close or move is noticed
         // while the app is otherwise idle.
         if self.settings.milkdrop_open {
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
         }
+    }
+
+    /// What the screen the MilkDrop window opened on refreshes at. The
+    /// first time one says, the frame rate takes its word for it: a 120
+    /// hertz screen is smooth from the start without anyone being asked.
+    /// After that the number is the listener's, and stays where it is.
+    #[cfg(feature = "milkdrop")]
+    fn learn_screen_hz(&mut self, hz: u32) {
+        if hz == 0 || self.settings.milkdrop_screen_hz == hz {
+            return;
+        }
+        let first = self.settings.milkdrop_screen_hz == 0
+            && self.settings.milkdrop_fps == crate::milkdrop::DEFAULT_FPS;
+        self.settings.milkdrop_screen_hz = hz;
+        if first {
+            self.settings.milkdrop_fps = hz;
+        }
+        self.mark_settings_dirty();
     }
 
     /// What the MilkDrop window's playback keys asked for. They are
@@ -4940,10 +4958,6 @@ impl App {
                 };
                 self.settings_dirty = true;
             }
-            Action::SetMilkdropFpsScreen(on) => {
-                self.settings.milkdrop_fps_screen = on;
-                self.settings_dirty = true;
-            }
             Action::SetMilkdropScale(scale) => {
                 self.settings.milkdrop_scale = scale.clamp(1, 4);
                 self.settings_dirty = true;
@@ -6262,6 +6276,30 @@ mod tests {
         app.actions.clear();
         app.milkdrop_command("teleport");
         assert!(app.actions.is_empty());
+    }
+
+    /// The window says what its screen refreshes at, and the frame rate
+    /// takes that for its own the first time it hears it. After that the
+    /// number belongs to the listener and stays where they put it.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn the_frame_rate_matches_the_screen_the_first_time_it_is_known() {
+        let mut app = headless_app();
+        assert_eq!(app.settings.milkdrop_screen_hz, 0, "no screen has spoken");
+        assert_eq!(app.settings.milkdrop_fps, crate::milkdrop::DEFAULT_FPS);
+
+        app.learn_screen_hz(144);
+        assert_eq!(app.settings.milkdrop_screen_hz, 144);
+        assert_eq!(app.settings.milkdrop_fps, 144, "smooth without being asked");
+
+        // A number the listener chose is not overruled by another screen.
+        app.settings.milkdrop_fps = 30;
+        app.learn_screen_hz(60);
+        assert_eq!(
+            app.settings.milkdrop_screen_hz, 60,
+            "the new screen is noted"
+        );
+        assert_eq!(app.settings.milkdrop_fps, 30, "their number stands");
     }
 
     fn headless_app() -> App {
