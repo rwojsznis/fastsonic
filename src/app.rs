@@ -1649,19 +1649,13 @@ impl App {
         let scale = self.settings.milkdrop_scale.max(1);
         // The playing song, for the window to overlay when it changes.
         let song = self.now_playing().filter(|now| !now.resuming).map(|now| {
-            let mut lines = vec![now.title.clone()];
-            let mut second = now.subtitle.clone();
-            if !now.album_name.is_empty() {
-                second = if second.is_empty() {
-                    now.album_name.clone()
-                } else {
-                    format!("{second} \u{2014} {}", now.album_name)
-                };
-            }
-            if !second.is_empty() {
-                lines.push(second);
-            }
-            lines
+            // The title, the artist, the album: what the window shows in
+            // the middle of the picture when the song turns over.
+            vec![
+                now.title.clone(),
+                now.subtitle.clone(),
+                now.album_name.clone(),
+            ]
         });
         if self.milkdrop_host.is_none() {
             let tap = std::sync::Arc::clone(&self.winamp.tap);
@@ -1707,26 +1701,14 @@ impl App {
     /// MilkDrop's own keys, and the player lives over here.
     #[cfg(feature = "milkdrop")]
     fn milkdrop_command(&mut self, command: &str) {
-        let playing = self.believed_playing();
         match command {
             "previous" => self.actions.push(Action::Previous),
             "next" => self.actions.push(Action::Next),
-            "play" if !playing => self.actions.push(Action::TogglePlay),
-            "pause" if playing => self.actions.push(Action::TogglePlay),
-            // Stop pauses and rewinds, as Winamp's own stop did.
-            "stop" => {
-                if playing {
-                    self.actions.push(Action::TogglePlay);
-                }
-                self.actions.push(Action::Seek(0));
-            }
+            "play-pause" => self.actions.push(Action::TogglePlay),
+            "mute" => self.actions.push(Action::ToggleMute),
             "shuffle" => self.actions.push(Action::ToggleShuffle),
             "volume-up" => self.actions.push(Action::VolumeBy(5)),
             "volume-down" => self.actions.push(Action::VolumeBy(-5)),
-            "rewind-5" => self.actions.push(Action::SeekBy(-5_000)),
-            "forward-5" => self.actions.push(Action::SeekBy(5_000)),
-            "rewind-30" => self.actions.push(Action::SeekBy(-30_000)),
-            "forward-30" => self.actions.push(Action::SeekBy(30_000)),
             _ => {}
         }
     }
@@ -6225,8 +6207,8 @@ mod tests {
         );
     }
 
-    /// The MilkDrop window's playback keys reach the player: MilkDrop's
-    /// own Z X C V B, and stop pauses and rewinds as Winamp's did.
+    /// The MilkDrop window's playback keys reach the player, and they are
+    /// the app's own keys, so one pair of hands knows both.
     #[cfg(feature = "milkdrop")]
     #[test]
     fn the_milkdrop_window_drives_playback() {
@@ -6237,22 +6219,34 @@ mod tests {
         });
         app.local.playback = Playback::Playing;
 
+        for command in [
+            "play-pause",
+            "next",
+            "previous",
+            "mute",
+            "shuffle",
+            "volume-up",
+            "volume-down",
+        ] {
+            app.actions.clear();
+            app.milkdrop_command(command);
+            assert_eq!(
+                app.actions.len(),
+                1,
+                "{command} asks the player for one thing"
+            );
+        }
+
+        app.actions.clear();
         app.milkdrop_command("next");
-        app.milkdrop_command("forward-30");
         assert!(matches!(app.actions.first(), Some(Action::Next)));
-        assert!(matches!(app.actions.get(1), Some(Action::SeekBy(30_000))));
-
         app.actions.clear();
-        app.milkdrop_command("stop");
-        assert!(
-            matches!(app.actions.first(), Some(Action::TogglePlay))
-                && matches!(app.actions.get(1), Some(Action::Seek(0))),
-            "stop pauses and rewinds"
-        );
+        app.milkdrop_command("volume-down");
+        assert!(matches!(app.actions.first(), Some(Action::VolumeBy(-5))));
 
-        // Play while it is already playing must not pause it.
+        // A word this window never sends asks for nothing at all.
         app.actions.clear();
-        app.milkdrop_command("play");
+        app.milkdrop_command("teleport");
         assert!(app.actions.is_empty());
     }
 

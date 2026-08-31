@@ -1,10 +1,14 @@
-//! Fading text over the picture: the keys on `?`, the song on a change.
+//! Text over the picture: the keys, what is playing, and short notes.
 //!
 //! MilkDrop overlaid its help and the playing title on the picture and let
-//! them fade; this does the same. Text is drawn on the CPU with skrifa and
-//! tiny-skia, the same faces the app borrows from the system elsewhere, into
-//! one bitmap with its shadow baked in, and the bitmap rides a textured quad
+//! them fade; this does the same, in the app's own type rather than the
+//! system faces of 1998. Text is drawn on the CPU with skrifa and
+//! tiny-skia, into one bitmap, and the bitmap rides a textured quad
 //! blended over the frame projectM just drew.
+//!
+//! Sizes are in the pixels of a 480-tall screen, the size MilkDrop drew
+//! for, and grow with the window, so the picture keeps its proportions
+//! whatever the window's size.
 
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -16,22 +20,24 @@ use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlinePen};
 
 /// How long the fade at the end of an overlay's stay takes.
-const FADE: Duration = Duration::from_millis(700);
-/// The screen MilkDrop's own type sizes were chosen for. Sizes here are
-/// its sizes, grown with the window, so the picture keeps its
-/// proportions on a screen of any size.
-const MILKDROP_SCREEN_HEIGHT: f32 = 480.0;
-/// Space between the text and the window's edge, in MilkDrop's pixels.
-const MARGIN: f32 = 10.0;
-/// Space around the text inside its bitmap, room for the shadow too.
-const PAD: u32 = 4;
-/// The shadow's offset, right and down: MilkDrop moved it one pixel.
+const FADE: Duration = Duration::from_millis(900);
+/// The screen the sizes below are in the pixels of.
+const REFERENCE_HEIGHT: f32 = 480.0;
+/// Space between the text and the window's edge.
+const MARGIN: f32 = 14.0;
+/// Space around the text inside its bitmap.
+const PAD: u32 = 10;
+/// Between the key column and what it does.
+const COLUMN_GAP: f32 = 14.0;
+/// The shadow's offset, right and down, as MilkDrop moved it.
 const SHADOW: u32 = 1;
-/// How much of black lies under the help, the way MilkDrop boxed it.
-const BOX_ALPHA: u8 = 160;
-/// The lean of the song title, which MilkDrop set in italics. Inter has
-/// no italic axis, so its upright letters lean instead.
-const ITALIC_SKEW: f32 = 0.18;
+/// How much of black lies under the keys.
+const BOX_ALPHA: u8 = 190;
+/// The corner radius of that box.
+const BOX_RADIUS: f32 = 8.0;
+/// How much the playing song grows as it fades, so that it leaves the
+/// picture rather than merely going out.
+const DRIFT: f32 = 0.06;
 
 /// The faces, in the order they are asked: Inter, the emoji face, then
 /// what the system lends for scripts those cannot draw.
@@ -49,39 +55,8 @@ static FACES: LazyLock<Vec<(&'static [u8], u32)>> = LazyLock::new(|| {
 /// Where an overlay sits in the window.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Place {
-    TopLeft,
+    Center,
     BottomLeft,
-}
-
-/// A line of text, at MilkDrop's size for it, in its weight and lean.
-pub struct TextLine {
-    pub text: String,
-    /// The size MilkDrop drew it at, on the 480-tall screen it drew for.
-    pub px: f32,
-    /// 400 for its plain fonts, 700 where it set bold.
-    pub weight: f32,
-    pub italic: bool,
-}
-
-impl TextLine {
-    pub fn new(text: impl Into<String>, px: f32) -> Self {
-        Self {
-            text: text.into(),
-            px,
-            weight: 400.0,
-            italic: false,
-        }
-    }
-
-    pub fn bold(mut self) -> Self {
-        self.weight = 700.0;
-        self
-    }
-
-    pub fn italic(mut self) -> Self {
-        self.italic = true;
-        self
-    }
 }
 
 /// How an overlay sits behind its text.
@@ -89,8 +64,55 @@ impl TextLine {
 pub enum Backing {
     /// A shadow a pixel down and right, as the song title had.
     Shadow,
-    /// Black under the whole block, as the help screen had.
+    /// Black under the whole block, so a page of keys stays readable
+    /// whatever the picture is doing.
     Box,
+}
+
+/// A piece of text and how it is drawn.
+#[derive(Clone)]
+pub struct Span {
+    pub text: String,
+    /// The size on a 480-tall screen; the window grows it from there.
+    pub px: f32,
+    /// 400 plain, 600 for the keys themselves, 700 bold.
+    pub weight: f32,
+    /// White at 1.0; less for what should sit back.
+    pub tint: f32,
+}
+
+impl Span {
+    pub fn new(text: impl Into<String>, px: f32) -> Self {
+        Self {
+            text: text.into(),
+            px,
+            weight: 400.0,
+            tint: 1.0,
+        }
+    }
+
+    pub fn weight(mut self, weight: f32) -> Self {
+        self.weight = weight;
+        self
+    }
+
+    pub fn tint(mut self, tint: f32) -> Self {
+        self.tint = tint;
+        self
+    }
+}
+
+/// A line of an overlay.
+#[derive(Clone)]
+pub enum Row {
+    /// One span, on its own line, centred in the block.
+    Line(Span),
+    /// A key and what it does, in two columns.
+    Keys { key: Span, does: Span },
+    /// A heading over the keys under it.
+    Heading(Span),
+    /// A line's worth of nothing.
+    Gap(f32),
 }
 
 /// White ink coverage, one byte a pixel, row zero on top.
@@ -100,25 +122,33 @@ struct Raster {
     alpha: Vec<u8>,
 }
 
-/// One line's coverage, anti-aliased, at `px` tall type.
-fn line_raster(line: &TextLine, px: f32) -> Raster {
-    let text = line.text.as_str();
+impl Raster {
+    fn empty(px: f32) -> Self {
+        let height = px.ceil().max(1.0) as u32;
+        Self {
+            width: 1,
+            height,
+            alpha: vec![0; height as usize],
+        }
+    }
+}
+
+/// One span's coverage, at `px` tall type.
+fn raster(span: &Span, px: f32) -> Raster {
+    let px = px.max(1.0);
     let size = Size::new(px);
     let fonts: Vec<skrifa::FontRef<'static>> = FACES
         .iter()
         .filter_map(|(bytes, index)| skrifa::FontRef::from_index(bytes, *index).ok())
         .collect();
-    let empty = Raster {
-        width: 1,
-        height: px.ceil() as u32,
-        alpha: vec![0; px.ceil() as usize],
-    };
     let Some(primary) = fonts.first() else {
-        return empty;
+        return Raster::empty(px);
     };
-    // Inter's weight axis stands in for the face MilkDrop asked for by
-    // name; a face without the axis simply draws as it is.
-    let location = primary.axes().location([("wght", line.weight)]);
+    // Inter's own axes: weight for the emphasis, and the optical size it
+    // wants for type this large, which keeps big text from looking loose.
+    let location = primary
+        .axes()
+        .location([("wght", span.weight), ("opsz", px.clamp(14.0, 32.0))]);
     let location = LocationRef::from(&location);
     let metrics = primary.metrics(size, location);
     let ascent = metrics.ascent.ceil();
@@ -136,7 +166,7 @@ fn line_raster(line: &TextLine, px: f32) -> Raster {
 
     let mut paths = Vec::new();
     let mut x = 0.0f32;
-    for character in text.chars() {
+    for character in span.text.chars() {
         let Some((index, glyph)) = glyph_for(character) else {
             continue;
         };
@@ -157,18 +187,20 @@ fn line_raster(line: &TextLine, px: f32) -> Raster {
         }
         x += advance;
     }
-    let lean = if line.italic { ITALIC_SKEW } else { 0.0 };
-    let width = (x.ceil() + lean * height as f32).ceil().max(1.0) as u32;
+    let width = (x.ceil() as u32).max(1);
     let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
-        return empty;
+        return Raster::empty(px);
     };
     let mut paint = tiny_skia::Paint::default();
     paint.set_color_rgba8(255, 255, 255, 255);
-    // The lean pushes the top of the line right and leaves the baseline
-    // where it is, the way an italic face does.
-    let transform = tiny_skia::Transform::from_row(1.0, 0.0, -lean, 1.0, lean * height as f32, 0.0);
     for path in &paths {
-        pixmap.fill_path(path, &paint, tiny_skia::FillRule::Winding, transform, None);
+        pixmap.fill_path(
+            path,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            tiny_skia::Transform::identity(),
+            None,
+        );
     }
     let alpha = pixmap.pixels().iter().map(|pixel| pixel.alpha()).collect();
     Raster {
@@ -178,22 +210,84 @@ fn line_raster(line: &TextLine, px: f32) -> Raster {
     }
 }
 
-/// The lines stacked into one RGBA bitmap: the backing first, ink on top.
-/// `grow` takes MilkDrop's sizes to this window's.
-fn block_rgba(lines: &[TextLine], backing: Backing, grow: f32) -> (u32, u32, Vec<u8>) {
-    let rasters: Vec<Raster> = lines
+/// One row, laid out: what to draw and where, within the block.
+struct Placed {
+    raster: Raster,
+    /// Left edge, before padding; `None` centres the row in the block.
+    left: Option<f32>,
+    top: f32,
+    tint: f32,
+}
+
+/// The rows laid out and inked into one RGBA bitmap. `grow` takes the
+/// sizes above to this window's.
+fn block_rgba(rows: &[Row], backing: Backing, grow: f32) -> (u32, u32, Vec<u8>) {
+    // The keys line up in a column of their own, as wide as the widest.
+    let key_column = rows
         .iter()
-        .map(|line| line_raster(line, line.px * grow))
-        .collect();
-    let width = rasters.iter().map(|r| r.width).max().unwrap_or(1) + PAD * 2 + SHADOW;
-    let height = rasters.iter().map(|r| r.height).sum::<u32>() + PAD * 2 + SHADOW;
+        .filter_map(|row| match row {
+            Row::Keys { key, .. } => Some(raster(key, key.px * grow).width as f32),
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    let gap = COLUMN_GAP * grow;
+
+    let mut placed: Vec<Placed> = Vec::new();
+    let mut top = 0.0f32;
+    for row in rows {
+        match row {
+            Row::Gap(px) => top += px * grow,
+            Row::Line(span) | Row::Heading(span) => {
+                let ink = raster(span, span.px * grow);
+                let height = ink.height as f32;
+                let left = matches!(row, Row::Heading(_)).then_some(0.0);
+                placed.push(Placed {
+                    raster: ink,
+                    left,
+                    top,
+                    tint: span.tint,
+                });
+                top += height;
+            }
+            Row::Keys { key, does } => {
+                let key_ink = raster(key, key.px * grow);
+                let does_ink = raster(does, does.px * grow);
+                let height = key_ink.height.max(does_ink.height) as f32;
+                // The key sits at the right of its column, so every
+                // description starts on the same line down the block.
+                let key_left = (key_column - key_ink.width as f32).max(0.0);
+                placed.push(Placed {
+                    raster: key_ink,
+                    left: Some(key_left),
+                    top,
+                    tint: key.tint,
+                });
+                placed.push(Placed {
+                    raster: does_ink,
+                    left: Some(key_column + gap),
+                    top,
+                    tint: does.tint,
+                });
+                top += height;
+            }
+        }
+    }
+
+    let pad = (PAD as f32 * grow).round() as u32;
+    let content_width = placed
+        .iter()
+        .map(|item| item.left.unwrap_or(0.0) + item.raster.width as f32)
+        .fold(1.0f32, f32::max);
+    let width = content_width.ceil() as u32 + pad * 2 + SHADOW;
+    let height = top.ceil().max(1.0) as u32 + pad * 2 + SHADOW;
     let mut rgba = vec![0u8; (width * height * 4) as usize];
-    // Straight alpha, composited over: the shadow's black, then the ink.
-    let mut blend = |x: u32, y: u32, ink: [u8; 3], a: u8| {
-        if a == 0 || x >= width || y >= height {
+
+    // Straight alpha, composited over.
+    let mut blend = |x: i64, y: i64, ink: [u8; 3], a: u8| {
+        if a == 0 || x < 0 || y < 0 || x >= width as i64 || y >= height as i64 {
             return;
         }
-        let at = ((y * width + x) * 4) as usize;
+        let at = ((y as u32 * width + x as u32) * 4) as usize;
         let src_a = a as u32;
         let dst_a = rgba[at + 3] as u32;
         let out_a = src_a + dst_a * (255 - src_a) / 255;
@@ -207,32 +301,58 @@ fn block_rgba(lines: &[TextLine], backing: Backing, grow: f32) -> (u32, u32, Vec
         }
         rgba[at + 3] = out_a as u8;
     };
+
     if backing == Backing::Box {
+        let radius = BOX_RADIUS * grow;
         for y in 0..height {
             for x in 0..width {
-                blend(x, y, [0, 0, 0], BOX_ALPHA);
+                if inside_rounded(x as f32, y as f32, width as f32, height as f32, radius) {
+                    blend(x as i64, y as i64, [0, 0, 0], BOX_ALPHA);
+                }
             }
         }
     }
-    let passes = if backing == Backing::Shadow { 2 } else { 1 };
-    for pass in 0..passes {
-        let mut top = PAD;
-        for raster in &rasters {
-            for y in 0..raster.height {
-                for x in 0..raster.width {
-                    let a = raster.alpha[(y * raster.width + x) as usize];
-                    let shadow = backing == Backing::Shadow && pass == 0;
-                    if shadow {
-                        blend(PAD + x + SHADOW, top + y + SHADOW, [0, 0, 0], a);
+
+    // The shadow first, where there is one, then the text over it.
+    for pass in 0..2 {
+        if pass == 0 && backing != Backing::Shadow {
+            continue;
+        }
+        for item in &placed {
+            let ink = &item.raster;
+            let left = match item.left {
+                Some(left) => pad as f32 + left,
+                None => (width as f32 - ink.width as f32) / 2.0,
+            };
+            let (offset, colour) = if pass == 0 {
+                (SHADOW as f32, [0u8, 0, 0])
+            } else {
+                (0.0, [255u8, 255, 255])
+            };
+            let x0 = (left + offset).round() as i64;
+            let y0 = (pad as f32 + item.top + offset).round() as i64;
+            for y in 0..ink.height {
+                for x in 0..ink.width {
+                    let a = ink.alpha[(y * ink.width + x) as usize];
+                    let a = if pass == 0 {
+                        a
                     } else {
-                        blend(PAD + x, top + y, [255, 255, 255], a);
-                    }
+                        (a as f32 * item.tint) as u8
+                    };
+                    blend(x0 + x as i64, y0 + y as i64, colour, a);
                 }
             }
-            top += raster.height;
         }
     }
     (width, height, rgba)
+}
+
+/// Whether a pixel is inside a rectangle with rounded corners.
+fn inside_rounded(x: f32, y: f32, width: f32, height: f32, radius: f32) -> bool {
+    let radius = radius.min(width / 2.0).min(height / 2.0);
+    let dx = (radius - x).max(x - (width - 1.0 - radius)).max(0.0);
+    let dy = (radius - y).max(y - (height - 1.0 - radius)).max(0.0);
+    dx * dx + dy * dy <= radius * radius
 }
 
 /// The overlay: one bitmap at a time, drawn until its stay runs out.
@@ -244,7 +364,6 @@ pub struct Overlay {
     alpha_at: glow::UniformLocation,
     size: (u32, u32),
     place: Place,
-    /// MilkDrop's pixels to this window's, for the margin.
     grow: f32,
     shown: Option<(Instant, Duration)>,
 }
@@ -309,27 +428,25 @@ impl Overlay {
                 texture,
                 alpha_at,
                 size: (0, 0),
-                place: Place::TopLeft,
+                place: Place::Center,
                 grow: 1.0,
                 shown: None,
             })
         }
     }
 
-    /// Draws the lines into the bitmap and starts its stay. The type is
-    /// MilkDrop's size for the 480-tall screen it drew on, grown to this
-    /// window, so a big window shows the same picture, only larger.
+    /// Draws the rows into the bitmap and starts its stay.
     pub fn show(
         &mut self,
         gl: &glow::Context,
-        lines: &[TextLine],
+        rows: &[Row],
         place: Place,
         backing: Backing,
         hold: Duration,
-        window_height: u32,
+        window: (u32, u32),
     ) {
-        let grow = (window_height.max(1) as f32 / MILKDROP_SCREEN_HEIGHT).clamp(1.0, 3.0);
-        let (width, height, rgba) = block_rgba(lines, backing, grow);
+        let grow = (window.1.max(1) as f32 / REFERENCE_HEIGHT).clamp(1.0, 3.0);
+        let (width, height, rgba) = block_rgba(rows, backing, grow);
         // SAFETY: the context is current; the texture is this overlay's own.
         unsafe {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.texture));
@@ -363,6 +480,16 @@ impl Overlay {
         self.shown = Some((Instant::now(), hold));
     }
 
+    /// Sends the overlay away early, wherever it is in its stay.
+    pub fn hide(&mut self) {
+        self.shown = None;
+    }
+
+    /// Whether something is on show right now.
+    pub fn showing(&self) -> bool {
+        self.shown.is_some()
+    }
+
     /// Draws the overlay over the frame, fading at the end of its stay.
     /// Returns whether it is still on show, so frames keep coming.
     pub fn draw(&mut self, gl: &glow::Context, window: (u32, u32)) -> bool {
@@ -374,18 +501,25 @@ impl Overlay {
             self.shown = None;
             return false;
         }
-        let alpha = if age <= hold {
-            1.0
+        let gone = if age <= hold {
+            0.0
         } else {
-            1.0 - (age - hold).as_secs_f32() / FADE.as_secs_f32()
+            (age - hold).as_secs_f32() / FADE.as_secs_f32()
+        };
+        // Fading out, the song drifts a little larger, so that it dissolves
+        // into the picture rather than simply switching off.
+        let alpha = 1.0 - gone;
+        let drift = if self.place == Place::Center {
+            1.0 + DRIFT * gone
+        } else {
+            1.0
         };
         let (win_w, win_h) = (window.0.max(1) as f32, window.1.max(1) as f32);
-        let (w, h) = (self.size.0 as f32, self.size.1 as f32);
+        let (w, h) = (self.size.0 as f32 * drift, self.size.1 as f32 * drift);
         let margin = MARGIN * self.grow;
-        let left = margin;
-        let top = match self.place {
-            Place::TopLeft => margin,
-            Place::BottomLeft => (win_h - margin - h).max(0.0),
+        let (left, top) = match self.place {
+            Place::Center => ((win_w - w) / 2.0, (win_h - h) / 2.0),
+            Place::BottomLeft => (margin, (win_h - margin - h).max(0.0)),
         };
         // Window pixels to clip space; row zero of the bitmap is its top.
         let x0 = left / win_w * 2.0 - 1.0;
@@ -410,7 +544,7 @@ impl Overlay {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.texture));
             gl.bind_vertex_array(Some(self.vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytemuck_cast(&quad), glow::STREAM_DRAW);
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, quad_bytes(&quad), glow::STREAM_DRAW);
             gl.enable(glow::BLEND);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
             gl.disable(glow::DEPTH_TEST);
@@ -424,7 +558,7 @@ impl Overlay {
 }
 
 /// The quad's floats as the bytes GL takes.
-fn bytemuck_cast(quad: &[f32; 16]) -> &[u8] {
+fn quad_bytes(quad: &[f32; 16]) -> &[u8] {
     // SAFETY: f32s reread as bytes, same length, no padding.
     unsafe { std::slice::from_raw_parts(quad.as_ptr().cast::<u8>(), std::mem::size_of_val(quad)) }
 }
@@ -484,48 +618,80 @@ impl OutlinePen for Pen {
 mod tests {
     use super::*;
 
-    /// The rasteriser inks what it is given, and bold leaves more of it
-    /// than plain does at the same size.
+    /// The rasteriser inks what it is given, and a heavier weight leaves
+    /// more of it at the same size.
     #[test]
     fn text_becomes_ink() {
-        let short = line_raster(&TextLine::new("Keys", 20.0), 20.0);
-        let long = line_raster(
-            &TextLine::new("SPACE / H       soft / hard cut to next preset", 20.0),
-            20.0,
-        );
+        let short = raster(&Span::new("Keys", 20.0), 20.0);
+        let long = raster(&Span::new("next preset, on the beat", 20.0), 20.0);
         assert!(short.alpha.iter().any(|a| *a > 0), "letters leave ink");
         assert!(long.width > short.width);
 
-        let plain = line_raster(&TextLine::new("Keys", 20.0), 20.0);
-        let bold = line_raster(&TextLine::new("Keys", 20.0).bold(), 20.0);
-        let ink = |raster: &Raster| raster.alpha.iter().map(|a| *a as u32).sum::<u32>();
-        assert!(ink(&bold) > ink(&plain), "bold is the heavier of the two");
+        let ink = |span: &Span| {
+            raster(span, span.px)
+                .alpha
+                .iter()
+                .map(|a| *a as u32)
+                .sum::<u32>()
+        };
+        assert!(
+            ink(&Span::new("Keys", 20.0).weight(700.0)) > ink(&Span::new("Keys", 20.0)),
+            "bold is the heavier of the two"
+        );
     }
 
-    /// A song title carries its shadow; the help sits on a dark box, and
-    /// the box covers every pixel of the block.
+    /// The keys line up: however wide the key is, the block is wide
+    /// enough for the widest of them and its description beside it.
+    #[test]
+    fn the_key_column_lines_up() {
+        let rows = [
+            Row::Keys {
+                key: Span::new("F", 14.0),
+                does: Span::new("full screen", 14.0),
+            },
+            Row::Keys {
+                key: Span::new("Ctrl+Shift+K", 14.0),
+                does: Span::new("close", 14.0),
+            },
+        ];
+        let (width, height, rgba) = block_rgba(&rows, Backing::Box, 1.0);
+        assert_eq!(rgba.len(), (width * height * 4) as usize);
+        let narrow = raster(&Span::new("F", 14.0), 14.0).width;
+        let wide = raster(&Span::new("Ctrl+Shift+K", 14.0), 14.0).width;
+        let close = raster(&Span::new("close", 14.0), 14.0).width;
+        assert!(wide > narrow);
+        assert!(
+            width >= wide + close,
+            "the widest key and its text both fit"
+        );
+    }
+
+    /// The song sits on a shadow with the picture showing around it; the
+    /// keys sit on a box, and its corners are rounded.
     #[test]
     fn backings_are_drawn_under_the_text() {
-        let title = [TextLine::new("Wish You Were Here", 18.0).italic()];
-        let (_, _, shadowed) = block_rgba(&title, Backing::Shadow, 1.0);
-        let clear = shadowed.chunks(4).filter(|px| px[3] == 0).count();
-        assert!(clear > 0, "a shadow leaves the picture showing around it");
-
-        let (width, height, boxed) = block_rgba(&title, Backing::Box, 1.0);
+        let song = [Row::Line(
+            Span::new("Wish You Were Here", 26.0).weight(700.0),
+        )];
+        let (_, _, shadowed) = block_rgba(&song, Backing::Shadow, 1.0);
         assert!(
-            boxed.chunks(4).all(|px| px[3] > 0),
-            "the box lies under the whole block"
+            shadowed.chunks(4).any(|px| px[3] == 0),
+            "a shadow leaves the picture showing around it"
         );
-        assert_eq!(boxed.len(), (width * height * 4) as usize);
+
+        let (width, height, boxed) = block_rgba(&song, Backing::Box, 1.0);
+        let middle = ((height / 2 * width + width / 2) * 4) as usize;
+        assert!(boxed[middle + 3] > 0, "the box lies under the block");
+        assert_eq!(boxed[3], 0, "the box has rounded corners");
     }
 
-    /// MilkDrop's sizes were for a 480-tall screen: a taller window grows
+    /// Sizes are in the pixels of a 480-tall screen: a taller window grows
     /// the type to keep the same picture.
     #[test]
     fn type_grows_with_the_window() {
-        let lines = [TextLine::new("Keys", 24.0)];
-        let (_, small, _) = block_rgba(&lines, Backing::Box, 1.0);
-        let (_, large, _) = block_rgba(&lines, Backing::Box, 2.0);
+        let rows = [Row::Line(Span::new("Keys", 24.0))];
+        let (_, small, _) = block_rgba(&rows, Backing::Box, 1.0);
+        let (_, large, _) = block_rgba(&rows, Backing::Box, 2.0);
         assert!(
             large > small * 3 / 2,
             "twice the window, nearly twice the type"

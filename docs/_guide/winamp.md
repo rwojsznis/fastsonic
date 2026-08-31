@@ -69,17 +69,16 @@ the player's window. Drag the picture to move the window, double-click it or
 press **F** to fill the screen, **Esc** to come back or close it, and drag
 the bottom-right corner to resize.
 
-Its keys are MilkDrop's own, as far as they mean anything here. Presets
-fade into one another every thirty seconds (Settings sets the time);
-**space** or **N** moves on at once, **H** cuts on the beat, **backspace**
-or **P** goes back, **Scroll Lock** (or **L**) keeps the one playing, and
-**R** switches between random and the folder's own order. **Z X C V B**
-are previous, play, pause, stop, and next, **U** shuffles, the up and down
-arrows change the volume, and the left and right arrows seek five seconds,
-or thirty with **shift**. **F1** or **?** shows the keys, **F2** the song
-again, **F4** the preset's name, and **F5** how many frames a second it is
-drawing. When the song changes its name appears for a moment, the way
-MilkDrop showed it: bottom left, in italics, over a shadow. Presets live in the `milkdrop` folder of the config directory;
+Presets fade into one another every thirty seconds (Settings sets the
+time). The arrows, or **N** and **P**, move between them, **H** cuts to
+the next one on the beat, **L** keeps the one playing, and **R** switches
+between random and the folder's own order. Playback answers the same keys
+as the rest of the app: **space** plays and pauses, **Ctrl** with the
+arrows changes song and volume, **M** mutes, **S** shuffles. **?** or
+**F1** lays out every key it takes, **I** shows what is playing, **T**
+the preset's name, and **D** how many frames a second it is drawing. When
+the song changes, its title, artist, and album appear in the middle of
+the picture, then drift away as they fade. Presets live in the `milkdrop` folder of the config directory;
 nothing ships inside the app, and Settings fetches the two packs projectM
 curates into it: the 550 that came with MilkDrop 2, and Cream of the Crop,
 9,800 of the community's best. Until there are any, projectM shows its own
