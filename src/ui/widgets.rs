@@ -586,9 +586,13 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
             },
         );
     }
-    let is_current = app
-        .current_track_uri()
-        .is_some_and(|uri| uri == row.item.uri());
+    // A queue row is a position, not the song itself: the same song can
+    // sit in the queue while it plays (a repeat wrapping around, a song
+    // queued twice), and only the Now playing row is the playing one.
+    let is_current = !matches!(row.context, RowContext::Queue)
+        && app
+            .current_track_uri()
+            .is_some_and(|uri| uri == row.item.uri());
     let playing = is_current && app.believed_playing();
     let hovered = ui.rect_contains_pointer(rect);
     let unavailable = match row.item {
