@@ -11,7 +11,6 @@
 //! context still exists to free what it made.
 
 use std::ffi::{CStr, CString, c_char, c_void};
-use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -246,16 +245,19 @@ impl Engine {
         // SAFETY: the context is current; every call is a plain GL call on
         // objects this engine made or the window owns.
         unsafe {
-            let target =
-                NonZeroU32::new(gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING) as u32)
-                    .map(glow::NativeFramebuffer);
-            // egui leaves its scissor on and its viewport set to the
-            // picture's place on screen; projectM's final composite draws a
-            // quad over the current viewport, so it has to be the corner the
-            // copy reads from, not where the picture lands.
+            // The picture lands in the window's own framebuffer, always.
+            // Asking GL what is bound instead read back one of projectM's
+            // internal framebuffers, left bound from the frame before, and
+            // the stretched picture went into projectM's guts while the
+            // window kept only the small corner projectM draws directly.
+            let target = None;
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, target);
             gl.disable(glow::SCISSOR_TEST);
             gl.viewport(0, 0, w, h);
             pm::projectm_opengl_render_frame(self.handle);
+            // projectM leaves its own scissor set to the picture it just
+            // drew; left on, it clips the stretch below to that corner.
+            gl.disable(glow::SCISSOR_TEST);
             // The frame is in the window's corner; the picture overlaps it,
             // and a framebuffer copied onto itself is anyone's guess, so it
             // goes through a copy.
