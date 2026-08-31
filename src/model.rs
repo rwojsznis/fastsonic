@@ -530,6 +530,8 @@ pub enum Action {
         uri: String,
         index: u32,
     },
+    /// Spotify's station seeded by this song.
+    PlayTrackRadio(String),
     ShufflePlay(String),
     TogglePlay,
     Next,

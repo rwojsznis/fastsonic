@@ -3593,6 +3593,19 @@ impl App {
                 request.offset_position = offset_index;
                 self.play_request(request, false);
             }
+            Action::PlayTrackRadio(uri) => {
+                // The station Spotify seeds from this song, the engine's
+                // autoplay load. The Web API cannot start a station on
+                // another device, so the radio plays on this computer.
+                self.local_list = None;
+                self.backend.player(PlayerCommand::Load(LoadSpec {
+                    context_uri: Some(uri),
+                    play: true,
+                    autoplay: true,
+                    ..LoadSpec::default()
+                }));
+                self.optimistic_playing = Some((true, Instant::now()));
+            }
             Action::PlayUris { uris, index } => {
                 if uris.is_empty() {
                     return;
