@@ -1144,7 +1144,10 @@ impl App {
         if let Some(url) = now.art_small.or(now.art_url) {
             self.tint_for(Some(&url));
         }
-        if matches!(self.page(), Page::Queue) || self.show_queue_panel {
+        if matches!(self.page(), Page::Queue)
+            || self.show_queue_panel
+            || (self.settings.winamp_window && self.settings.playlist_open)
+        {
             self.refresh_queue(true);
         }
         if self.show_lyrics_panel {

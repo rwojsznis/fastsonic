@@ -280,7 +280,12 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
         _ => (None, None),
     };
     let mut rows = Vec::new();
-    let current = queue.and_then(|queue| queue.currently_playing.as_ref());
+    // The queue arrives over the Web API and lags a double-click by a
+    // round trip; what the player says is on right now wins, and a queued
+    // copy of that song is left out until the fetched queue catches up.
+    let current = queue
+        .and_then(|queue| queue.currently_playing.as_ref())
+        .filter(|item| now.is_none_or(|now| now.uri == item.uri()));
     if let Some(item) = current {
         let (album_id, artist_id) = ids(item);
         rows.push(Row {
@@ -304,7 +309,13 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
         });
     }
     let queued: &[PlayableItem] = queue.map(|queue| queue.queue.as_slice()).unwrap_or(&[]);
+    let stale = current.is_none() && queue.is_some();
+    let mut skipped_playing = false;
     for (index, item) in queued.iter().enumerate() {
+        if stale && !skipped_playing && now.is_some_and(|now| now.uri == item.uri()) {
+            skipped_playing = true;
+            continue;
+        }
         let (album_id, artist_id) = ids(item);
         rows.push(Row {
             uri: item.uri().to_string(),
