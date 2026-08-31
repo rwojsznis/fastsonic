@@ -33,8 +33,9 @@ song to play from there, Ctrl-click to select several, drag the corner to
 make it taller, and its X or PL again closes it. Its buttons do what
 Spotify allows of what Winamp's did: ADD finds music, SEL picks rows,
 MISC opens the song's pages, LIST OPTS plays one of your playlists or
-saves the queue as a new one, and REM only explains that no app can take
-from Spotify's queue. Notices that the big window shows as toasts scroll
+saves the queue as a new one, and REM's Remove all clears what you
+queued when this computer is the player (no app can take single songs
+from Spotify's queue). Notices that the big window shows as toasts scroll
 through the marquee here. **EQ** opens the equalizer between the player and the playlist: Winamp's
 ten bands and its presets, shaping the music played on this computer (a
 speaker across the room plays what Spotify sends it). The preamp goes

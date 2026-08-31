@@ -82,7 +82,11 @@ controls keep working. "Playing on …" in the top bar reminds you when sound
 is coming out of something across the room.
 
 The queue lives behind the list icon, as a side panel or a full page. Add
-anything to it from a row's context menu.
+anything to it from a row's context menu. Double-click a queued song to
+jump straight to it, and the trash icon clears what you queued while the
+playlist or album you were listening to carries on. Clearing works when
+this computer is the player; Spotify offers no way to empty another
+device's queue from afar.
 
 ### Receivers on the local network
 
