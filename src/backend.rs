@@ -1017,7 +1017,7 @@ impl Worker {
         }
         let browser_url = flow.url.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(error) = open::that(&browser_url) {
+            if let Err(error) = crate::opener::open(&browser_url) {
                 log::warn!("unable to open a browser: {error}");
             }
         });
@@ -1188,7 +1188,7 @@ impl Worker {
         self.emit(Event::Playback(LocalPlayback::Authorizing));
         let browser_url = flow.url.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(error) = open::that(&browser_url) {
+            if let Err(error) = crate::opener::open(&browser_url) {
                 log::warn!("unable to open a browser: {error}");
             }
         });

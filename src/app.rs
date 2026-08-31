@@ -1737,7 +1737,7 @@ impl App {
     /// Shows a folder of the config directory in the desktop's file
     /// manager, making it first if need be.
     fn open_folder(&mut self, folder: std::path::PathBuf) {
-        let opened = std::fs::create_dir_all(&folder).and_then(|()| open::that(&folder));
+        let opened = std::fs::create_dir_all(&folder).and_then(|()| crate::opener::open(&folder));
         if let Err(error) = opened {
             self.toast_error(format!("Couldn't open {}: {error}", folder.display()));
         }
@@ -4805,7 +4805,7 @@ impl App {
                 // guessing launcher, and a click that does nothing is worse
                 // than no link.
                 std::thread::spawn(move || {
-                    if let Err(error) = open::that(&url) {
+                    if let Err(error) = crate::opener::open(&url) {
                         log::warn!("unable to open {url}: {error}");
                     }
                 });
