@@ -234,6 +234,8 @@ pub enum PlayerCommand {
     Previous,
     /// Drop every hand-queued track, keeping the context's own.
     ClearQueue,
+    /// Queue a track or episode after the ones already queued.
+    AddToQueue(String),
     Seek(u32),
     /// The volume to keep: applied at once and told to Spotify Connect.
     Volume(u16),
@@ -483,6 +485,7 @@ impl Engine {
             PlayerCommand::Next => spirc.next()?,
             PlayerCommand::Previous => spirc.prev()?,
             PlayerCommand::ClearQueue => spirc.clear_queue()?,
+            PlayerCommand::AddToQueue(uri) => spirc.add_to_queue(uri)?,
             PlayerCommand::Seek(position_ms) => spirc.set_position_ms(position_ms)?,
             PlayerCommand::Volume(volume) => {
                 self.mixer.set_volume(volume);

@@ -54,6 +54,9 @@ const QUEUE_RECHECK: Duration = Duration::from_millis(700);
 /// How many stale queue answers are asked again before Spotify's version
 /// of events wins anyway.
 const QUEUE_STALE_RETRIES: u8 = 6;
+/// Within this window a second Play next of the same song is the same
+/// click; beyond it, it is a second wish and queues a second row.
+const QUEUE_ADD_DEBOUNCE: Duration = Duration::from_millis(1500);
 const CONTAINS_BATCH: usize = 40;
 
 pub struct RemoteSnapshot {
@@ -188,6 +191,9 @@ pub struct App {
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
+    /// The latest queue request sent; an answer to an older one is a
+    /// story already overtaken and is dropped unread.
+    queue_seq: u64,
     /// When to look at the queue again because the last answer told a
     /// story from before the user's latest change.
     queue_recheck_at: Option<Instant>,
@@ -440,6 +446,7 @@ impl App {
             selected_device: None,
             queue: Loadable::NotLoaded,
             queue_fetched_at: None,
+            queue_seq: 0,
             queue_recheck_at: None,
             queue_stale_retries: 0,
             queue_cleared: None,
@@ -2324,7 +2331,10 @@ impl App {
             self.queue = Loadable::Loading;
         }
         self.queue_fetched_at = Some(Instant::now());
-        self.backend.api(ApiRequest::Queue);
+        self.queue_seq += 1;
+        self.backend.api(ApiRequest::Queue {
+            seq: self.queue_seq,
+        });
     }
 
     /// A chosen row of Next up plays at once, and the rows above it go
@@ -2728,7 +2738,13 @@ impl App {
                     Err(error) => log::debug!("playback state unavailable: {error}"),
                 }
             }
-            ApiResponse::Queue(result) => {
+            ApiResponse::Queue { seq, result } => {
+                if seq != self.queue_seq {
+                    // Overtaken: a newer request is out. Answers must not
+                    // land out of order, or an old snapshot could erase a
+                    // row the newer answer had already confirmed.
+                    return;
+                }
                 if let Ok(fetched) = &result
                     && self.queue_fetch_is_stale(fetched)
                 {
@@ -4051,28 +4067,43 @@ impl App {
         self.backend.api(ApiRequest::Transfer { device_id, play });
     }
 
+    /// Play next: the row appears at once, after the songs already
+    /// queued and before the playing context's own, and the backend makes
+    /// it true behind it.
     fn add_to_queue(&mut self, uri: String, label: String) {
-        // The row appears at once and Spotify catches up behind; a second
-        // click while the first is still on its way is the lag talking,
-        // not a second wish.
+        // A double-click is one wish; a deliberate second ask is a second
+        // row, the way Spotify queues the same song twice.
         self.expire_pending_queue_adds();
         if self
             .pending_queue_adds
             .iter()
-            .any(|(pending, _)| *pending == uri)
+            .any(|(pending, at)| *pending == uri && at.elapsed() < QUEUE_ADD_DEBOUNCE)
         {
             return;
         }
         self.pending_queue_adds.push((uri.clone(), Instant::now()));
         let item = self.optimistic_queue_item(&uri, &label);
-        if let Loadable::Loaded(queue) = &mut self.queue {
-            queue.queue.insert(0, item);
+        if let Loadable::Loaded(queue) = &self.queue {
+            let at = Self::end_of_queued_rows(&queue.queue, &self.manual_queue);
+            if let Loadable::Loaded(queue) = &mut self.queue {
+                queue.queue.insert(at, item);
+            }
         }
         self.manual_queue.push(uri.clone());
         if self.manual_queue.len() > 100 {
             self.manual_queue.remove(0);
         }
-        self.toast(format!("Added {label} to queue"));
+        self.session_dirty = true;
+        self.toast(format!("{label} will play next"));
+        // This computer's playing engine queues directly: no round trip
+        // through the Web API, no device for it to fail to find. Anything
+        // else, and any album, goes the long way.
+        let track_like = uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:");
+        if track_like && self.local.is_active() && matches!(self.target(), Target::Local) {
+            self.backend.player(PlayerCommand::AddToQueue(uri));
+            self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
+            return;
+        }
         let device_id = match self.target() {
             Target::Local => self.local_device_id.clone(),
             Target::Remote(device_id) => device_id,
@@ -4082,6 +4113,26 @@ impl App {
             device_id,
             label,
         });
+    }
+
+    /// Where a newly queued row goes: after the leading rows that are
+    /// hand-queued songs, before the playing context's own.
+    fn end_of_queued_rows(rows: &[PlayableItem], manual: &[String]) -> usize {
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for uri in manual {
+            *counts.entry(uri.as_str()).or_insert(0) += 1;
+        }
+        let mut at = 0;
+        for item in rows {
+            match counts.get_mut(item.uri()) {
+                Some(left) if *left > 0 => {
+                    *left -= 1;
+                    at += 1;
+                }
+                _ => break,
+            }
+        }
+        at
     }
 
     /// The queued row as it can be shown right now: the cached track, or
@@ -4133,9 +4184,13 @@ impl App {
             .into_iter()
             .map(|(uri, label)| self.optimistic_queue_item(&uri, &label))
             .collect();
+        let at = match &self.queue {
+            Loadable::Loaded(queue) => Self::end_of_queued_rows(&queue.queue, &self.manual_queue),
+            _ => 0,
+        };
         if let Loadable::Loaded(queue) = &mut self.queue {
             for item in missing.into_iter().rev() {
-                queue.queue.insert(0, item);
+                queue.queue.insert(at, item);
             }
         }
     }
@@ -5579,7 +5634,10 @@ mod tests {
                 queued_song("spotify:track:c"),
             ],
         };
-        app.handle_api(ApiResponse::Queue(Ok(stale.clone())));
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(stale.clone()),
+        });
         let (current, next) = queue_uris(&app);
         assert_eq!(
             current.as_deref(),
@@ -5594,7 +5652,10 @@ mod tests {
 
         // Spotify telling the same story every time eventually wins.
         for _ in 0..QUEUE_STALE_RETRIES {
-            app.handle_api(ApiResponse::Queue(Ok(stale.clone())));
+            app.handle_api(ApiResponse::Queue {
+                seq: app.queue_seq,
+                result: Ok(stale.clone()),
+            });
         }
         let (current, _) = queue_uris(&app);
         assert_eq!(current.as_deref(), Some("spotify:track:a"));
@@ -5726,6 +5787,152 @@ mod tests {
         assert!(
             app.queue_recheck_at.is_some(),
             "a fetch follows to sweep rows queued from other devices"
+        );
+    }
+
+    /// Rule: Play next goes in after the songs already queued and ahead
+    /// of the playing context's own rows.
+    #[test]
+    fn play_next_queues_after_the_songs_already_queued() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:ctx1", "spotify:track:ctx2"],
+        );
+        app.apply(
+            Action::AddToQueue {
+                uri: "spotify:track:b".into(),
+                label: "b".into(),
+            },
+            &ctx,
+        );
+        app.apply(
+            Action::AddToQueue {
+                uri: "spotify:track:c".into(),
+                label: "c".into(),
+            },
+            &ctx,
+        );
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            vec![
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:ctx1",
+                "spotify:track:ctx2",
+            ],
+            "queued songs keep their order and stay ahead of the context"
+        );
+    }
+
+    /// Rule: asking again queues it again; only a double-click's second
+    /// click is the same ask.
+    #[test]
+    fn asking_play_next_twice_queues_two_rows() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:ctx1"]);
+        let add = Action::AddToQueue {
+            uri: "spotify:track:b".into(),
+            label: "b".into(),
+        };
+        app.apply(add.clone(), &ctx);
+        app.apply(add.clone(), &ctx);
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            vec!["spotify:track:b", "spotify:track:ctx1"],
+            "the double-click's second click is not a second wish"
+        );
+        // Deliberately asked again, later.
+        for (_, at) in &mut app.pending_queue_adds {
+            *at = Instant::now() - QUEUE_ADD_DEBOUNCE;
+        }
+        app.apply(add, &ctx);
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            vec!["spotify:track:b", "spotify:track:b", "spotify:track:ctx1"],
+            "two asks are two rows, one after the other"
+        );
+    }
+
+    /// Rule: an answer overtaken by a newer request is dropped unread,
+    /// whatever it says.
+    #[test]
+    fn an_overtaken_queue_answer_is_dropped_unread() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b"]);
+        app.queue_seq = 2;
+        let old_story = Queue {
+            currently_playing: Some(queued_song("spotify:track:a")),
+            queue: Vec::new(),
+        };
+        app.handle_api(ApiResponse::Queue {
+            seq: 1,
+            result: Ok(old_story),
+        });
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            vec!["spotify:track:b"],
+            "the overtaken answer changed nothing"
+        );
+        let current_story = Queue {
+            currently_playing: Some(queued_song("spotify:track:a")),
+            queue: vec![
+                queued_song("spotify:track:b"),
+                queued_song("spotify:track:c"),
+            ],
+        };
+        app.handle_api(ApiResponse::Queue {
+            seq: 2,
+            result: Ok(current_story),
+        });
+        let (_, next) = queue_uris(&app);
+        assert_eq!(next, vec!["spotify:track:b", "spotify:track:c"]);
+    }
+
+    /// Rule: a row you queued is put back until Spotify confirms it, in
+    /// its place after the queued section, not on top of it.
+    #[test]
+    fn a_missing_queued_row_returns_to_its_place() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()];
+        app.pending_queue_adds = vec![("spotify:track:c".into(), Instant::now())];
+        // Spotify's answer knows b already but not c yet.
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:ctx1"],
+        );
+        app.reconcile_pending_queue();
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            vec!["spotify:track:b", "spotify:track:c", "spotify:track:ctx1"],
+            "the missing row comes back after the queued section"
         );
     }
 

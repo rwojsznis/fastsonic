@@ -55,7 +55,9 @@ pub enum ApiRequest {
     PlaybackState {
         seq: u64,
     },
-    Queue,
+    Queue {
+        seq: u64,
+    },
     RecentlyPlayed {
         generation: u64,
     },
@@ -234,7 +236,10 @@ pub enum ApiResponse {
         seq: u64,
         result: ApiResult<Option<PlaybackState>>,
     },
-    Queue(ApiResult<Queue>),
+    Queue {
+        seq: u64,
+        result: ApiResult<Queue>,
+    },
     RecentlyPlayed {
         generation: u64,
         result: ApiResult<Vec<PlayHistory>>,
@@ -1625,7 +1630,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         ApiRequest::Me => Operation::CanonicalAccount,
         ApiRequest::Devices
         | ApiRequest::PlaybackState { .. }
-        | ApiRequest::Queue
+        | ApiRequest::Queue { .. }
         | ApiRequest::Remote { .. }
         | ApiRequest::Transfer { .. }
         | ApiRequest::ShufflePlay { .. }
@@ -1750,7 +1755,10 @@ async fn handle(api: &ApiGateway, request: ApiRequest) -> (ApiResponse, Option<A
             seq,
             result: routed!(playback_state()),
         },
-        ApiRequest::Queue => ApiResponse::Queue(routed!(queue())),
+        ApiRequest::Queue { seq } => ApiResponse::Queue {
+            seq,
+            result: routed!(queue()),
+        },
         ApiRequest::RecentlyPlayed { generation } => ApiResponse::RecentlyPlayed {
             generation,
             result: routed!(recently_played(50)).map(|page| page.items),

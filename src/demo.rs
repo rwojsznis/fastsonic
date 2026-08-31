@@ -833,7 +833,7 @@ mod tests {
             frame(&ctx, &mut app);
         }
         app.toasts.clear();
-        app.toast("Added Wish You Were Here to queue");
+        app.toast("Wish You Were Here will play next");
         // Two frames: an area sizes itself on its first one.
         let mut first = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
         first.textures_delta.clear();

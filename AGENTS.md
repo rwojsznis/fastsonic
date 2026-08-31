@@ -29,7 +29,9 @@ These instructions add implementation constraints for coding agents.
   the dependency when the reason is not obvious.
 
 Read `docs/_reference/how-it-connects.md` before changing authentication,
-Spotify requests, Connect, credential storage, or network behaviour. Read the
+Spotify requests, Connect, credential storage, or network behaviour. Read
+`docs/_reference/queue.md` before touching the queue: its rules are the
+contract, and the queue tests in `src/app.rs` enforce them. Read the
 nearby module tests before changing a state machine or API fallback.
 
 The interface is optimistic, always. A control shows its result the

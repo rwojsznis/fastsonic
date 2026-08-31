@@ -258,7 +258,7 @@ pub fn item_menu(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
-    if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
+    if menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
         app.actions.push(Action::AddToQueue {
             uri: uri.clone(),
             label: label.clone(),
@@ -409,7 +409,7 @@ pub fn context_menu_items(
     if kind != "artist" && menu_item(ui, &palette, Some(Icon::Shuffle), "Shuffle play") {
         app.actions.push(Action::ShufflePlay(uri.to_string()));
     }
-    if kind == "album" && menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
+    if kind == "album" && menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
         app.actions.push(Action::AddToQueue {
             uri: uri.to_string(),
             label: name.to_string(),
