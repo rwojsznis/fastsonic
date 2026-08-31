@@ -225,14 +225,17 @@ fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
                                 ToastKind::Error => (Icon::CircleAlert, palette.danger),
                             };
                             theme::icon(ui, icon, 16.0, color);
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(&toast.message)
-                                        .font(theme::medium(13.5))
-                                        .color(palette.text),
-                                )
-                                .wrap(),
+                            // Laid out at its own width. The area
+                            // remembers its size, so after a short toast a
+                            // label left to wrap at the area's width broke
+                            // long messages on every word.
+                            let galley = ui.painter().layout(
+                                toast.message.clone(),
+                                theme::medium(13.5),
+                                palette.text,
+                                280.0,
                             );
+                            ui.add(egui::Label::new(galley));
                         });
                     });
             }

@@ -793,6 +793,79 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    /// A toast lays its words out in a line. The anchored area it lives
+    /// in starts out narrow, and a label left to wrap at the area's width
+    /// broke on every word.
+    #[test]
+    fn a_toast_is_wide_enough_to_read() {
+        let root =
+            std::env::temp_dir().join(format!("fastpotify-toast-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        // A short toast first: the toasts area remembers its size, and a
+        // long toast used to inherit the narrow width and wrap inside it.
+        app.toast("Saved");
+        for _ in 0..2 {
+            frame(&ctx, &mut app);
+        }
+        app.toasts.clear();
+        app.toast("Added Wish You Were Here to queue");
+        // Two frames: an area sizes itself on its first one.
+        let mut first = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
+        first.textures_delta.clear();
+        let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+
+        fn widest_toast_text(shape: &egui::epaint::Shape) -> Option<f32> {
+            match shape {
+                egui::epaint::Shape::Text(text)
+                    if text.galley.job.text.contains("Wish You Were Here") =>
+                {
+                    Some(text.galley.rect.width())
+                }
+                egui::epaint::Shape::Vec(shapes) => {
+                    shapes.iter().filter_map(widest_toast_text).next()
+                }
+                _ => None,
+            }
+        }
+        let width = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| widest_toast_text(&clipped.shape))
+            .next()
+            .expect("the toast's text is painted");
+        assert!(
+            width > 150.0,
+            "one word per line again: the toast text is only {width}px wide"
+        );
+        app.backend.shutdown();
+    }
+
     /// Every page, panel, and dialog lays out without panicking.
     #[test]
     fn every_surface_renders_headless() {
