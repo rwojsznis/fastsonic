@@ -615,7 +615,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "MilkDrop window",
-            "Winamp's visualiser, as projectM reimplements it, in a window of its own; the vis button in the top bar, Ctrl+Shift+K, or the V on the mini player opens it too. Double-click it for full screen. It draws the music played on this computer.",
+            "Winamp's visualiser, as projectM reimplements it, in a window of its own; the vis button in the top bar, Ctrl+Shift+K, or the V on the mini player opens it too. Inside it, F or a double-click fills the screen, the arrows or N and P change the preset, L keeps one, and Esc leaves. It draws the music played on this computer.",
             |ui| {
                 let mut open = app.settings.milkdrop_open;
                 if widgets::switch(ui, &palette, &mut open).changed() {
@@ -680,23 +680,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Time per preset",
             "How long each preset plays before the next fades in.",
             |ui| {
-                let current = app.settings.milkdrop_seconds;
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    for seconds in crate::milkdrop::SECONDS_CHOICES {
-                        let label = if seconds < 60 {
-                            format!("{seconds} s")
-                        } else {
-                            format!("{} min", seconds / 60)
-                        };
-                        if theme::soft_button(ui, &palette, None, &label, seconds == current)
-                            .clicked()
-                            && seconds != current
-                        {
-                            app.actions.push(Action::SetMilkdropSeconds(seconds));
-                        }
-                    }
-                });
+                let mut seconds = app.settings.milkdrop_seconds.clamp(2, 300);
+                let slider = egui::Slider::new(&mut seconds, 2..=300)
+                    .logarithmic(true)
+                    .suffix(" s");
+                if ui.add(slider).changed() {
+                    app.actions.push(Action::SetMilkdropSeconds(seconds));
+                }
             },
         );
         widgets::setting_row(
