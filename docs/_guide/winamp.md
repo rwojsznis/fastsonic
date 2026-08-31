@@ -76,9 +76,9 @@ between random and the folder's own order. Playback answers the same keys
 as the rest of the app: **space** plays and pauses, **Ctrl** with the
 arrows changes song and volume, **M** mutes, **S** shuffles. **?** or
 **F1** lays out every key it takes, **I** shows what is playing, **T**
-the preset's name, and **D** how many frames a second it is drawing. When
-the song changes, its title, artist, and album appear in the middle of
-the picture, then drift away as they fade. Presets live in the `milkdrop` folder of the config directory;
+the preset's name, and **D** turns an FPS counter in the corner on and
+off. When the song changes, its title, artist, and album appear in the
+middle of the picture, then drift away as they fade. Presets live in the `milkdrop` folder of the config directory;
 nothing ships inside the app, and Settings fetches the two packs projectM
 curates into it: the 550 that came with MilkDrop 2, and Cream of the Crop,
 9,800 of the community's best. Until there are any, projectM shows its own

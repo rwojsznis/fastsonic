@@ -56,6 +56,7 @@ static FACES: LazyLock<Vec<(&'static [u8], u32)>> = LazyLock::new(|| {
 #[derive(Clone, Copy, PartialEq)]
 pub enum Place {
     Center,
+    TopLeft,
     BottomLeft,
 }
 
@@ -519,6 +520,7 @@ impl Overlay {
         let margin = MARGIN * self.grow;
         let (left, top) = match self.place {
             Place::Center => ((win_w - w) / 2.0, (win_h - h) / 2.0),
+            Place::TopLeft => (margin, margin),
             Place::BottomLeft => (margin, (win_h - margin - h).max(0.0)),
         };
         // Window pixels to clip space; row zero of the bitmap is its top.

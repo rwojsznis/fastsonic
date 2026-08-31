@@ -172,6 +172,9 @@ struct Live {
     engine: Engine,
     gl: Arc<glow::Context>,
     overlay: Option<Overlay>,
+    /// The frame rate, which stays on screen while it is on rather than
+    /// fading like the rest.
+    meter: Option<Overlay>,
     context: PossiblyCurrentContext,
     surface: Surface<WindowSurface>,
     window: Window,
@@ -189,6 +192,9 @@ struct Child {
     drawn: Vec<Instant>,
     /// Whether the keys are what is on show, so the same key hides them.
     showing_keys: bool,
+    /// Whether the frame rate is on, and when it was last written.
+    fps_on: bool,
+    fps_written: Option<Instant>,
     modifiers: winit::keyboard::ModifiersState,
     fps: u32,
     scale: u32,
@@ -213,6 +219,8 @@ impl Child {
             song: None,
             drawn: Vec::new(),
             showing_keys: false,
+            fps_on: false,
+            fps_written: None,
             modifiers: winit::keyboard::ModifiersState::empty(),
             fps,
             scale,
@@ -294,6 +302,9 @@ impl Child {
         if let Some(overlay) = &mut live.overlay {
             overlay.draw(&live.gl, (size.width, size.height));
         }
+        if let Some(meter) = &mut live.meter {
+            meter.draw(&live.gl, (size.width, size.height));
+        }
         if self.drawn.len() >= 60 {
             self.drawn.remove(0);
         }
@@ -301,6 +312,7 @@ impl Child {
         if let Err(error) = live.surface.swap_buffers(&live.context) {
             eprintln!("MilkDrop: present failed: {error}");
         }
+        self.update_fps();
         self.report_geometry();
     }
 
@@ -510,7 +522,7 @@ impl Child {
                 }
             }
             Key::Character("t") | Key::Character("T") if plain => self.show_preset_name(),
-            Key::Character("d") | Key::Character("D") if plain => self.show_fps(),
+            Key::Character("d") | Key::Character("D") if plain => self.toggle_fps(),
             _ => {}
         }
     }
@@ -566,7 +578,7 @@ impl Child {
             keys("?  or  F1", "These keys"),
             keys("I", "What is playing"),
             keys("T", "This preset's name"),
-            keys("D", "Frames a second"),
+            keys("D", "FPS on or off"),
         ];
         overlay.show(
             &live.gl,
@@ -611,20 +623,54 @@ impl Child {
         self.show_note(name);
     }
 
-    /// How many frames a second the window is drawing.
-    fn show_fps(&mut self) {
-        let fps = match self.drawn.len() {
-            0 | 1 => 0.0,
-            count => {
-                let span = self.drawn[count - 1].duration_since(self.drawn[0]);
-                if span.is_zero() {
-                    0.0
-                } else {
-                    (count - 1) as f32 / span.as_secs_f32()
-                }
-            }
+    /// Turns the frame rate on or off. While it is on it sits in the
+    /// corner and keeps counting, rather than fading like a note.
+    fn toggle_fps(&mut self) {
+        self.fps_on = !self.fps_on;
+        self.fps_written = None;
+        if !self.fps_on
+            && let Some(live) = &mut self.live
+            && let Some(meter) = &mut live.meter
+        {
+            meter.hide();
+        }
+        if let Some(live) = &self.live {
+            live.window.request_redraw();
+        }
+    }
+
+    /// Writes the count again, a few times a second: often enough to be
+    /// alive, seldom enough that the drawing of it costs nothing.
+    fn update_fps(&mut self) {
+        if !self.fps_on {
+            return;
+        }
+        let due = self
+            .fps_written
+            .is_none_or(|at| at.elapsed() >= Duration::from_millis(400));
+        if !due {
+            return;
+        }
+        let fps = frames_per_second(&self.drawn);
+        let Some(live) = &mut self.live else {
+            return;
         };
-        self.show_note(format!("{fps:.0} frames a second"));
+        let Some(meter) = &mut live.meter else {
+            return;
+        };
+        self.fps_written = Some(Instant::now());
+        meter.show(
+            &live.gl,
+            &[Row::Line(
+                Span::new(format!("{fps:.0} FPS"), 13.0).weight(600.0),
+            )],
+            Place::TopLeft,
+            Backing::Shadow,
+            // Long enough that it never fades on its own; the key that
+            // turned it on is what turns it off.
+            Duration::from_secs(60 * 60),
+            window_size(&live.window),
+        );
     }
 
     /// What is playing, big in the middle of the picture: the title, then
@@ -665,6 +711,18 @@ impl Child {
         self.showing_keys = false;
         live.window.request_redraw();
     }
+}
+
+/// Frames a second, from when the last frames were drawn.
+fn frames_per_second(drawn: &[Instant]) -> f32 {
+    let (Some(first), Some(last)) = (drawn.first(), drawn.last()) else {
+        return 0.0;
+    };
+    let span = last.duration_since(*first);
+    if drawn.len() < 2 || span.is_zero() {
+        return 0.0;
+    }
+    (drawn.len() - 1) as f32 / span.as_secs_f32()
 }
 
 /// The window's size in pixels, which the overlay lays itself out for.
@@ -752,11 +810,13 @@ fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live
     // Text over the picture; the picture goes on without it if the
     // shaders will not take.
     let overlay = Overlay::new(&gl);
+    let meter = Overlay::new(&gl);
 
     let mut live = Live {
         engine,
         gl,
         overlay,
+        meter,
         context,
         surface,
         window,
@@ -768,4 +828,28 @@ fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live
         live.fullscreen = true;
     }
     Ok(live)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The count is frames over the time they took, and it says nothing
+    /// at all until there are two of them to measure between.
+    #[test]
+    fn frames_a_second_are_counted_over_the_time_they_took() {
+        assert_eq!(frames_per_second(&[]), 0.0);
+        let now = Instant::now();
+        assert_eq!(frames_per_second(&[now]), 0.0, "one frame measures nothing");
+
+        // Thirty frames, a fiftieth of a second apart: fifty a second.
+        let drawn: Vec<Instant> = (0..30)
+            .map(|index| now + Duration::from_micros(20_000 * index))
+            .collect();
+        let fps = frames_per_second(&drawn);
+        assert!(
+            (fps - 50.0).abs() < 0.001,
+            "twenty milliseconds a frame is fifty a second, not {fps}"
+        );
+    }
 }
