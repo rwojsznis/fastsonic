@@ -632,48 +632,40 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Presets",
             &format!(
-                "{} in {}. Presets are .milk files; put your own there, or fetch the packs projectM keeps: {}",
+                "{} in {}. Presets are .milk files; put your own there. An empty folder fills itself the first time MilkDrop opens.",
                 match count {
                     0 => "None yet".to_string(),
                     1 => "One preset".to_string(),
                     n => format!("{n} presets"),
                 },
                 folder.display(),
-                crate::milkdrop::PACKS
-                    .iter()
-                    .map(|pack| format!("{}: {}", pack.name, pack.note))
-                    .collect::<Vec<_>>()
-                    .join(" ")
             ),
-            |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    for (index, pack) in crate::milkdrop::PACKS.iter().enumerate() {
-                        let label = match downloading {
-                            Some(name) if name == pack.name => "Fetching...".to_string(),
-                            _ => format!("Get {}", pack.name),
-                        };
-                        if theme::soft_button(ui, &palette, Some(Icon::Globe), &label, false)
-                            .clicked()
-                            && downloading.is_none()
-                        {
-                            app.actions.push(Action::DownloadMilkdropPack(index));
-                        }
-                    }
-                    if theme::soft_button(
-                        ui,
-                        &palette,
-                        Some(Icon::ExternalLink),
-                        "Open folder",
-                        false,
-                    )
-                    .clicked()
-                    {
-                        app.actions.push(Action::OpenMilkdropFolder);
-                    }
-                });
-            },
+            |_ui| {},
         );
+        // Three buttons are wider than a row's control slot; they get a
+        // line of their own under the words.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for (index, pack) in crate::milkdrop::PACKS.iter().enumerate() {
+                let label = match downloading {
+                    Some(name) if name == pack.name => "Fetching...".to_string(),
+                    _ => format!("Get {}", pack.name),
+                };
+                if theme::soft_button(ui, &palette, Some(Icon::Globe), &label, false)
+                    .on_hover_text(pack.note)
+                    .clicked()
+                    && downloading.is_none()
+                {
+                    app.actions.push(Action::DownloadMilkdropPack(index));
+                }
+            }
+            if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), "Open folder", false)
+                .clicked()
+            {
+                app.actions.push(Action::OpenMilkdropFolder);
+            }
+        });
+        ui.add_space(10.0);
         widgets::setting_row(
             ui,
             &palette,
