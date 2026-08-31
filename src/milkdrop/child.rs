@@ -194,7 +194,7 @@ struct Child {
     /// Whether the keys are what is on show, so the same key hides them.
     showing_keys: bool,
     /// What the corner is asked to keep showing.
-    song_on: bool,
+    song_shown: SongShown,
     preset_on: bool,
     fps_on: bool,
     /// What each corner says now, and when that was written, so one is
@@ -225,7 +225,7 @@ impl Child {
             song: None,
             drawn: Vec::new(),
             showing_keys: false,
-            song_on: false,
+            song_shown: SongShown::OnChange,
             preset_on: false,
             fps_on: false,
             corner_lines: [Vec::new(), Vec::new(), Vec::new()],
@@ -389,9 +389,12 @@ impl ApplicationHandler<Control> for Child {
         if let Some(song) = control.song
             && self.song.as_ref() != Some(&song)
         {
-            // The way MilkDrop showed the title when the song turned over.
             self.song = Some(song);
-            self.show_song();
+            // The card in the middle is the announcement; the corner is
+            // the reminder. One or the other, never both.
+            if self.song_shown == SongShown::OnChange {
+                self.show_song();
+            }
         }
         if let Some(fps) = control.fps {
             self.fps = fps;
@@ -542,7 +545,7 @@ impl Child {
             Key::Character("f") | Key::Character("F") if plain => self.set_fullscreen(!fullscreen),
             // What it can tell you.
             Key::Character("?") | Key::Named(NamedKey::F1) => self.show_keys(),
-            Key::Character("i") | Key::Character("I") if plain => self.toggle_status(Status::Song),
+            Key::Character("i") | Key::Character("I") if plain => self.cycle_song(),
             Key::Character("t") | Key::Character("T") if plain => {
                 self.toggle_status(Status::Preset)
             }
@@ -600,7 +603,7 @@ impl Child {
             heading("SHOW"),
             Row::Gap(3.0),
             keys("?  or  F1", "These keys"),
-            keys("I", "What is playing, on or off"),
+            keys("I", "Song title: on a change, always, off"),
             keys("T", "This preset's name, on or off"),
             keys("D", "FPS, on or off"),
         ];
@@ -636,10 +639,28 @@ impl Child {
         live.window.request_redraw();
     }
 
+    /// Moves the song title on to its next way of being shown: the card
+    /// in the middle when it changes, the corner at all times, neither.
+    fn cycle_song(&mut self) {
+        self.song_shown = match self.song_shown {
+            SongShown::OnChange => SongShown::Always,
+            SongShown::Always => SongShown::Off,
+            SongShown::Off => SongShown::OnChange,
+        };
+        let note = match self.song_shown {
+            SongShown::OnChange => "Song title: when it changes",
+            SongShown::Always => "Song title: always",
+            SongShown::Off => "Song title: off",
+        };
+        self.corner_written[Status::Song.index()] = None;
+        self.update_corners();
+        self.show_note(note.into());
+    }
+
     /// Keeps something in its corner, or stops keeping it there.
     fn toggle_status(&mut self, what: Status) {
         match what {
-            Status::Song => self.song_on = !self.song_on,
+            Status::Song => return,
             Status::Preset => self.preset_on = !self.preset_on,
             Status::Fps => self.fps_on = !self.fps_on,
         }
@@ -657,7 +678,7 @@ impl Child {
             Status::Fps if self.fps_on => {
                 vec![format!("{:.0} FPS", frames_per_second(&self.drawn))]
             }
-            Status::Song if self.song_on => match &self.song {
+            Status::Song if self.song_shown == SongShown::Always => match &self.song {
                 Some(song) => song
                     .iter()
                     .take(2)
@@ -780,6 +801,16 @@ impl Child {
         self.showing_keys = false;
         live.window.request_redraw();
     }
+}
+
+/// How the song's title is shown, which one key moves through.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SongShown {
+    /// A card in the middle of the picture when the song turns over.
+    OnChange,
+    /// In its corner, all the time.
+    Always,
+    Off,
 }
 
 /// What a corner can be asked to keep showing, and which corner it is.
@@ -1013,12 +1044,29 @@ mod tests {
             "Incubus".into(),
             "Morning View".into(),
         ]);
-        child.song_on = true;
+        // One key moves the title through its three ways of being shown.
+        assert_eq!(
+            child.song_shown,
+            SongShown::OnChange,
+            "the card, by default"
+        );
+        assert!(
+            child.corner_lines(Status::Song).is_empty(),
+            "announced on a change, it is not also kept in the corner"
+        );
+        child.cycle_song();
+        assert_eq!(child.song_shown, SongShown::Always);
         assert_eq!(
             child.corner_lines(Status::Song),
             vec!["Wish You Were Here", "Incubus"],
             "the song names itself, then who plays it"
         );
+        child.cycle_song();
+        assert_eq!(child.song_shown, SongShown::Off);
+        assert!(child.corner_lines(Status::Song).is_empty());
+        child.cycle_song();
+        assert_eq!(child.song_shown, SongShown::OnChange, "round it goes");
+        child.cycle_song();
 
         child.presets.files = vec![PathBuf::from("/presets/Geiss - Spiral Artifact.milk")];
         child.presets.next(true);
@@ -1038,7 +1086,7 @@ mod tests {
             "each corner is its own"
         );
 
-        child.song_on = false;
+        child.cycle_song();
         child.preset_on = false;
         child.fps_on = false;
         for what in [Status::Fps, Status::Song, Status::Preset] {
