@@ -48,6 +48,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             bottom: 8,
         }));
     let response = panel.show(ui, |ui| {
+        art_panel(app, ui);
         contents(app, ui);
     });
     let width = response.response.rect.width();
@@ -55,6 +56,74 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.settings.sidebar_width = width;
         app.actions.push(Action::SettingsChanged);
     }
+}
+
+/// The playing album's art, docked large at the sidebar's bottom the way
+/// Spotify expands it; the chevron on hover puts it away again. (#92)
+fn art_panel(app: &mut App, ui: &mut egui::Ui) {
+    if !app.settings.art_expanded {
+        return;
+    }
+    let Some(now) = app.now_playing() else {
+        return;
+    };
+    let Some(url) = now.art_url.clone().or_else(|| now.art_small.clone()) else {
+        return;
+    };
+    let palette = app.palette;
+    let side = ui
+        .available_width()
+        .min(ui.available_height() * 0.45)
+        .max(80.0);
+    egui::Panel::bottom("sidebar-art")
+        .exact_size(side)
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(Frame::new())
+        .show(ui, |ui| {
+            let rect = Rect::from_min_size(
+                ui.max_rect().left_top(),
+                Vec2::splat(side.min(ui.available_width())),
+            );
+            super::widgets::paint_cover(ui, &palette, Some(&url), rect, 8.0, Icon::Music);
+            let art = ui
+                .interact(rect, egui::Id::new("sidebar-art"), Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            let chevron_rect = Rect::from_center_size(
+                pos2(rect.right() - 16.0, rect.top() + 16.0),
+                Vec2::splat(20.0),
+            );
+            let over_chevron = ui.rect_contains_pointer(chevron_rect);
+            if art.hovered() || over_chevron {
+                let chevron = ui
+                    .interact(
+                        chevron_rect,
+                        egui::Id::new("sidebar-art-collapse"),
+                        Sense::click(),
+                    )
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                ui.painter().circle_filled(
+                    chevron_rect.center(),
+                    10.0,
+                    palette.panel.gamma_multiply(0.9),
+                );
+                Icon::ChevronDown.image(palette.text, 14.0).paint_at(
+                    ui,
+                    Rect::from_center_size(chevron_rect.center(), Vec2::splat(14.0)),
+                );
+                if chevron.clicked() {
+                    app.settings.art_expanded = false;
+                    app.actions.push(Action::SettingsChanged);
+                }
+            }
+            if art.clicked() && !over_chevron {
+                if let Some(id) = &now.album_id {
+                    app.actions.push(Action::Open(Page::Album(id.clone())));
+                } else if let Some(id) = &now.show_id {
+                    app.actions.push(Action::Open(Page::Show(id.clone())));
+                }
+            }
+        });
 }
 
 fn nav_row(

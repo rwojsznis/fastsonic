@@ -68,6 +68,8 @@ pub struct Settings {
     pub volume: u16,
     /// Whether the library sidebar is visible.
     pub sidebar_visible: bool,
+    /// The playing album's art docked large at the sidebar's bottom.
+    pub art_expanded: bool,
     /// Use compact single-line rows without cover art in the sidebar.
     pub sidebar_compact: bool,
     pub sidebar_width: f32,
@@ -156,6 +158,7 @@ impl Default for Settings {
             accent_from_art: true,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
+            art_expanded: false,
             sidebar_compact: false,
             sidebar_width: 250.0,
             lyrics_width: 360.0,

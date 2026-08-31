@@ -109,11 +109,39 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             Sense::click(),
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand);
-    if cover_response.clicked() {
+    // Hovering the cover offers to dock the art large at the sidebar's
+    // bottom, the way Spotify expands it. (#92)
+    let art_available = now.art_url.is_some() || now.art_small.is_some();
+    let expand_rect = Rect::from_center_size(
+        pos2(cover_rect.right() - 10.0, cover_rect.top() + 10.0),
+        Vec2::splat(18.0),
+    );
+    let offer_expand = art_available && !app.settings.art_expanded && app.settings.sidebar_visible;
+    let over_expand = offer_expand && ui.rect_contains_pointer(expand_rect);
+    if cover_response.clicked() && !over_expand {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
         } else if let Some(id) = &now.show_id {
             app.actions.push(Action::Open(Page::Show(id.clone())));
+        }
+    }
+    if offer_expand && (cover_response.hovered() || over_expand) {
+        let expand = ui
+            .interact(
+                expand_rect,
+                egui::Id::new("now-playing-art-expand"),
+                Sense::click(),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        ui.painter()
+            .circle_filled(expand_rect.center(), 9.0, palette.panel.gamma_multiply(0.9));
+        Icon::ChevronUp.image(palette.text, 12.0).paint_at(
+            ui,
+            Rect::from_center_size(expand_rect.center(), Vec2::splat(12.0)),
+        );
+        if expand.clicked() {
+            app.settings.art_expanded = true;
+            app.actions.push(Action::SettingsChanged);
         }
     }
     let heart_width = if now.is_episode { 0.0 } else { 42.0 };

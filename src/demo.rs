@@ -636,6 +636,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.eq_bands_db = crate::eq::PRESETS[13].bands_db;
             }
             "presets" => app.winamp.open_presets = true,
+            "art" => app.settings.art_expanded = true,
             "small" => app.settings.skin_scale = Some(1),
             "compact" => {
                 app.settings.sidebar_compact = true;
