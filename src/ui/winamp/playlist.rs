@@ -164,7 +164,12 @@ fn shade(app: &mut App, view: &mut View, now: Option<&NowPlaying>, focused: bool
         let time_x = width - 30 - time_width;
         view.text(&time, Area::new(time_x, 4, time_width, 6));
         let name = label(1, &now.subtitle, &now.title);
-        view.text(&name, Area::new(5, 4, time_x - 5 - 5, 6));
+        let name_area = Area::new(5, 4, time_x - 5 - 5, 6);
+        if name.chars().all(crate::skin::font::covered) {
+            view.text(&name, name_area);
+        } else {
+            super::pixel_line(app, view, &name, name_area);
+        }
     }
     if view
         .lamp_button(

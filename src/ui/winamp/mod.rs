@@ -1157,6 +1157,28 @@ fn marquee(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     }
 }
 
+/// A still line of text drawn from the pixel face, for skin areas whose
+/// bitmap font cannot say it: scaled to the area's height, cut at its
+/// edge, tinted in the playlist's colour.
+fn pixel_line(app: &mut App, view: &mut View, text: &str, area: Area) {
+    let ctx = view.ui.ctx().clone();
+    let line = app.winamp.playlist_text.line(&ctx, text);
+    let (texture, width, height) = (line.texture.id(), line.width, line.height);
+    if width == 0 || height == 0 {
+        return;
+    }
+    let unit = view.unit;
+    let scale = (area.height as f32 * unit) / height as f32;
+    let drawn = (width as f32 * scale).min(area.width as f32 * unit);
+    let rect = view.rect(area);
+    let colour = view.skin.playlist.normal;
+    let tint = Color32::from_rgb(colour[0], colour[1], colour[2]);
+    let image = egui::Rect::from_min_size(rect.min, vec2(drawn, height as f32 * scale));
+    let uv_right = drawn / (width as f32 * scale);
+    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(uv_right, 1.0));
+    view.ui.painter().image(texture, image, uv, tint);
+}
+
 /// The marquee drawn from the pixel face: the strip is rendered once,
 /// scaled to the marquee's height, and a window of it shown, wrapping
 /// through the gap the way the character marquee does.
