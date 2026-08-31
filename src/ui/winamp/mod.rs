@@ -1146,8 +1146,61 @@ fn marquee(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         app.winamp.balance_preview,
         notice.as_deref(),
     );
-    let shown = app.winamp.marquee(&text, Instant::now());
-    view.text(&shown, layout::MARQUEE);
+    let (shown, offset) = app.winamp.marquee(&text, Instant::now());
+    if text.chars().all(font::covered) {
+        view.text(&shown, layout::MARQUEE);
+    } else {
+        // The skin's bitmap font cannot say this (Japanese, say, came out
+        // as question marks, #104): the whole line is rasterised in the
+        // pixel face instead and slid past the window a cell at a time.
+        marquee_pixels(app, view, &text, offset);
+    }
+}
+
+/// The marquee drawn from the pixel face: the strip is rendered once,
+/// scaled to the marquee's height, and a window of it shown, wrapping
+/// through the gap the way the character marquee does.
+fn marquee_pixels(app: &mut App, view: &mut View, text: &str, offset: usize) {
+    let area = layout::MARQUEE;
+    let scrolling = app.winamp.marquee_scrolling();
+    let strip = if scrolling {
+        crate::winamp::marquee_strip(text)
+    } else {
+        text.to_string()
+    };
+    let ctx = view.ui.ctx().clone();
+    let line = app.winamp.playlist_text.line(&ctx, &strip);
+    let (texture, width, height) = (line.texture.id(), line.width, line.height);
+    if width == 0 || height == 0 {
+        return;
+    }
+    let unit = view.unit;
+    let scale = (area.height as f32 * unit) / height as f32;
+    let strip_width = width as f32 * scale;
+    let rect = view.rect(area);
+    let painter = view.ui.painter_at(rect.intersect(view.ui.clip_rect()));
+    let colour = view.skin.playlist.normal;
+    let tint = Color32::from_rgb(colour[0], colour[1], colour[2]);
+    let offset_px = if scrolling && strip_width > 0.0 {
+        (offset as f32 * 5.0 * unit) % strip_width
+    } else {
+        0.0
+    };
+    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    for copy in 0..2 {
+        let left = rect.left() - offset_px + copy as f32 * strip_width;
+        if left > rect.right() {
+            break;
+        }
+        let image = egui::Rect::from_min_size(
+            egui::pos2(left, rect.top()),
+            vec2(strip_width, height as f32 * scale),
+        );
+        painter.image(texture, image, uv, tint);
+        if !scrolling {
+            break;
+        }
+    }
 }
 
 /// The bitrate and sample rate, as far as they are known: the bitrate is

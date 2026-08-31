@@ -28,6 +28,11 @@ const MARQUEE_FITS: usize = 30;
 const MARQUEE_STEP: Duration = Duration::from_millis(220);
 /// What separates the end of a scrolling title from its start again.
 const MARQUEE_GAP: &str = "  ***  ";
+
+/// The text with the gap it scrolls through, for drawing it as pixels.
+pub fn marquee_strip(text: &str) -> String {
+    format!("{text}{MARQUEE_GAP}")
+}
 /// How long a listing of the skins folder is trusted.
 const CHOICES_FRESH: Duration = Duration::from_secs(5);
 /// File extensions a skin archive may carry.
@@ -279,7 +284,7 @@ impl WinampState {
 
     /// The characters the marquee shows now: the text itself when it
     /// fits, otherwise a window onto it that moves a character at a time.
-    pub fn marquee(&mut self, text: &str, now: Instant) -> String {
+    pub fn marquee(&mut self, text: &str, now: Instant) -> (String, usize) {
         if text != self.marquee_text {
             self.marquee_text = text.to_string();
             self.marquee_offset = 0;
@@ -287,19 +292,21 @@ impl WinampState {
         }
         let mut chars: Vec<char> = self.marquee_text.chars().collect();
         if chars.len() <= MARQUEE_FITS {
-            return self.marquee_text.clone();
+            return (self.marquee_text.clone(), 0);
         }
         chars.extend(MARQUEE_GAP.chars());
         let moved = self.marquee_moved.get_or_insert(now);
         let steps =
             (now.saturating_duration_since(*moved).as_millis() / MARQUEE_STEP.as_millis()) as usize;
         if steps > 0 {
-            self.marquee_offset = (self.marquee_offset + steps) % chars.len();
+            self.marquee_offset = self.marquee_offset.wrapping_add(steps);
             *moved += MARQUEE_STEP * steps as u32;
         }
-        (0..MARQUEE_CHARS)
-            .map(|index| chars[(self.marquee_offset + index) % chars.len()])
-            .collect()
+        let offset = self.marquee_offset;
+        let shown = (0..MARQUEE_CHARS)
+            .map(|index| chars[(offset + index) % chars.len()])
+            .collect();
+        (shown, offset)
     }
 
     /// Whether the marquee is on the move, and so wants frames.
@@ -380,28 +387,30 @@ mod tests {
     fn a_short_title_sits_still_and_a_long_one_scrolls() {
         let mut state = WinampState::new(None, AudioTap::new(), crate::eq::shared());
         let start = Instant::now();
-        assert_eq!(state.marquee("Fastpotify", start), "Fastpotify");
+        assert_eq!(state.marquee("Fastpotify", start).0, "Fastpotify");
         assert!(!state.marquee_scrolling());
 
         let long = "Radiohead - Everything In Its Right Place (4:11)";
-        let first = state.marquee(long, start);
+        let (first, offset) = state.marquee(long, start);
         assert_eq!(first.chars().count(), MARQUEE_CHARS);
+        assert_eq!(offset, 0);
         assert!(long.starts_with(&first));
         assert!(state.marquee_scrolling());
         // Not yet time to move.
         assert_eq!(
-            state.marquee(long, start + Duration::from_millis(100)),
+            state.marquee(long, start + Duration::from_millis(100)).0,
             first
         );
-        let later = state.marquee(long, start + MARQUEE_STEP);
+        let (later, stepped) = state.marquee(long, start + MARQUEE_STEP);
         assert!(long[1..].starts_with(&later));
+        assert_eq!(stepped, 1);
         // Eventually the start comes round again, after the gap.
         let round = long.chars().count() + MARQUEE_GAP.len();
-        let again = state.marquee(long, start + MARQUEE_STEP * round as u32);
+        let again = state.marquee(long, start + MARQUEE_STEP * round as u32).0;
         assert_eq!(again, first);
         // A new title starts from its beginning.
         let other = "Something else entirely, and just as long as before";
-        assert!(other.starts_with(&state.marquee(other, start + Duration::from_secs(9))));
+        assert!(other.starts_with(&state.marquee(other, start + Duration::from_secs(9)).0));
     }
 
     #[test]
