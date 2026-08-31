@@ -88,7 +88,17 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     {
         app.actions.push(Action::ToggleEq);
     }
-    view.sprite(sprites::EQ_AUTO_OFF, layout::EQ_AUTO);
+    // Winamp's AUTO loaded a preset per song, which Spotify has no
+    // equivalent for; here the button lays the bands flat.
+    let auto = view.button(
+        layout::EQ_AUTO,
+        sprites::EQ_AUTO_OFF,
+        sprites::EQ_AUTO_OFF_PRESSED,
+        "eq-auto",
+    );
+    if auto.clicked() {
+        app.actions.push(Action::ApplyEqPreset(0));
+    }
     let presets = view.button(
         layout::EQ_PRESETS_BUTTON,
         sprites::EQ_PRESETS,
