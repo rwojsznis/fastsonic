@@ -89,7 +89,9 @@ song and press the play button on its cover (or double-click it) to
 jump straight to it, and the trash icon clears what you queued while
 the playlist carries on. Clearing works when this computer is the
 player; Spotify offers no way to empty another device's queue from
-afar. The full set of rules is in [The Queue's Rules](/queue/).
+afar. Closing the app keeps the queue; it is back as you left it on
+the next start. The full set of rules is in
+[The Queue's Rules](/queue/).
 
 ### Receivers on the local network
 

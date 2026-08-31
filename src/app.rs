@@ -444,7 +444,16 @@ impl App {
             devices_loading: false,
             devices_fetched_at: None,
             selected_device: None,
-            queue: Loadable::NotLoaded,
+            queue: if session.last_track.is_some() && !session.last_queue_rows.is_empty() {
+                // The queue as it was at close, shown until something
+                // plays; then the live queue takes over.
+                Loadable::Loaded(Queue {
+                    currently_playing: None,
+                    queue: session.last_queue_rows.clone(),
+                })
+            } else {
+                Loadable::NotLoaded
+            },
             queue_fetched_at: None,
             queue_seq: 0,
             queue_recheck_at: None,
@@ -2324,6 +2333,11 @@ impl App {
         if !self.is_connected() {
             return;
         }
+        if self.resume_only() && matches!(self.queue, Loadable::Loaded(_)) {
+            // Nothing is playing anywhere and the queue on show is the
+            // remembered one; a fetch could only replace it with less.
+            return;
+        }
         if self.queue.is_loading() && !force {
             return;
         }
@@ -2418,8 +2432,15 @@ impl App {
     /// How many leading rows of Next up are songs the user queued here,
     /// so the view can give them their own section.
     pub fn queued_rows_len(&self) -> usize {
+        // Before anything resumes, the remembered hand-queued songs say
+        // where the user's section of the restored queue ends.
+        let manual = if self.manual_queue.is_empty() && self.resume_only() {
+            &self.resume_queue
+        } else {
+            &self.manual_queue
+        };
         match &self.queue {
-            Loadable::Loaded(queue) => Self::end_of_queued_rows(&queue.queue, &self.manual_queue),
+            Loadable::Loaded(queue) => Self::end_of_queued_rows(&queue.queue, manual),
             _ => 0,
         }
     }
@@ -5091,6 +5112,11 @@ impl App {
                     // Never resumed this session; the owed queue carries over.
                     self.resume_queue.clone()
                 },
+                last_queue_rows: self
+                    .queue
+                    .get()
+                    .map(|queue| queue.queue.iter().take(30).cloned().collect())
+                    .unwrap_or_default(),
                 shuffle_on: self.shuffle_wanted,
                 sorts: self
                     .table_sorts
@@ -5967,6 +5993,58 @@ mod tests {
         );
         app.manual_queue.clear();
         assert_eq!(app.queued_rows_len(), 0);
+    }
+
+    /// Rule: closing the app keeps the queue. The rows come back on the
+    /// next start, split where the user's own songs end, and stay until
+    /// something actually plays.
+    #[test]
+    fn the_queue_comes_back_after_a_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "fastpotify-queue-restart-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let options = AppOptions {
+            media_controls: false,
+            tray: false,
+        };
+        let mut app = App::new(
+            &Waker::default(),
+            dirs.clone(),
+            Settings::default(),
+            options,
+        );
+        app.local_ready = true;
+        app.resume_track = Some("spotify:track:a".into());
+        app.manual_queue = vec!["spotify:track:b".into()];
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:ctx1"],
+        );
+        app.save_session();
+
+        let options = AppOptions {
+            media_controls: false,
+            tray: false,
+        };
+        let app = App::new(&Waker::default(), dirs, Settings::default(), options);
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            vec!["spotify:track:b", "spotify:track:ctx1"],
+            "the queue is shown as it was left"
+        );
+        assert_eq!(
+            app.queued_rows_len(),
+            1,
+            "the remembered hand-queued song keeps its own section"
+        );
     }
 
     fn headless_app() -> App {

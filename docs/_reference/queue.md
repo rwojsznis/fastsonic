@@ -45,7 +45,12 @@ check every one of them.
    player, the app tells its own player directly instead of going
    through the Web API.
 
-9. **Old answers from Spotify are ignored.** Spotify's answers about
+9. **Closing the app keeps the queue.** Reopen it and the queue is
+   there as you left it. It is only a picture until you press play:
+   your queued songs are queued again the moment the remembered song
+   resumes, and the playlist carries on where it stopped.
+
+10. **Old answers from Spotify are ignored.** Spotify's answers about
    the queue can run a few seconds behind. If an answer is older than
    what you just did, the app throws it away and asks again. A song you
    queued stays on screen until Spotify confirms it. Nothing you do

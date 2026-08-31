@@ -368,6 +368,11 @@ pub struct SessionState {
     /// exactly that bad data, so this one has a new name and old sessions
     /// restore nothing.)
     pub last_added_queue: Vec<String>,
+    /// The queue as it looked at close, to show again on the next start.
+    /// Display only: nothing is queued from this list. Hand-added songs
+    /// are queued again from `last_added_queue` when the remembered song
+    /// resumes, and the rest belongs to the context that keeps playing.
+    pub last_queue_rows: Vec<crate::api::models::PlayableItem>,
     /// Sidebar folders rolled up, by their rootlist ids.
     pub collapsed_folders: Vec<String>,
     /// Whether the listener had shuffle on, a mode that outlives contexts.
