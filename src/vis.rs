@@ -1,5 +1,7 @@
 //! The visualiser's audio: a tap on the samples on their way out, and the
-//! sums that turn them into Winamp's bars and scope.
+//! sums that turn them into Winamp's bars and scope. The analyser is a
+//! port of the one in Winamp's own published source (Src/Winamp/
+//! classic_vis.cpp): its constants, bands, and clipping, expressed anew.
 //!
 //! The tap wraps whichever sink plays the music (this crate's, or one of
 //! librespot's) and keeps the last half second of it, mixed to mono for the
@@ -27,7 +29,7 @@ const KEPT: usize = SAMPLE_RATE as usize / 2;
 /// what the speaker is playing rather than what the sink has queued.
 pub const LAG: usize = SAMPLE_RATE as usize * 3 / 20;
 /// Samples that go into one spectrum.
-pub const FFT_SAMPLES: usize = 1024;
+pub const FFT_SAMPLES: usize = 512;
 const SPECTRUM_BINS: usize = FFT_SAMPLES / 2;
 /// Samples the scope reads, one column every seventh.
 pub const SCOPE_SAMPLES: usize = 576;
@@ -46,8 +48,11 @@ const PEAK_FALLOFF: f32 = 1.1;
 /// changed how quickly the bars fell; a frame that comes sooner than
 /// this shows the bars where they were.
 pub const STEP: Duration = Duration::from_micros(16_667);
-/// Winamp's byte-scaled input: a full-scale sample is 128 in 24ths.
-const INPUT_GAIN: f32 = 128.0 / 24.0;
+/// Winamp summed the two channels; the tap keeps their mean, so the
+/// analyser doubles it back.
+const CHANNEL_SUM: f32 = 2.0;
+/// Winamp's own scale on every magnitude.
+const SPEC_SCALE: f32 = 0.5;
 
 /// The last half second of sound, shared between the player's thread and
 /// the visualiser. The mono mix stays in this process for the skin's
@@ -205,12 +210,11 @@ impl Sink for Tapped {
     }
 }
 
-/// Nullsoft's FFT: 1024 samples in, 512 magnitudes out, windowed with a
-/// raised sine and equalised on a log scale so the treble holds its own.
+/// The classic analyser's FFT, as Winamp's own source has it: 512
+/// samples under a Hann window, 256 magnitudes out, each halved.
 struct Fft {
     bit_reversed: Vec<usize>,
     envelope: Vec<f32>,
-    equalize: Vec<f32>,
     twiddles: Vec<(f32, f32)>,
     real: Vec<f32>,
     imaginary: Vec<f32>,
@@ -238,15 +242,6 @@ impl Fft {
                 0.5 + 0.5 * (phase - std::f32::consts::FRAC_PI_2).sin()
             })
             .collect();
-        let mut bias = 0.04f32;
-        let equalize = (0..SPECTRUM_BINS)
-            .map(|i| {
-                let step = (9.0 - bias) / SPECTRUM_BINS as f32;
-                let value = (1.0 + bias + (i + 1) as f32 * step).log10();
-                bias /= 1.0025;
-                value
-            })
-            .collect();
         let mut twiddles = Vec::new();
         let mut size = 2;
         while size <= n {
@@ -257,7 +252,6 @@ impl Fft {
         Self {
             bit_reversed,
             envelope,
-            equalize,
             twiddles,
             real: vec![0.0; n],
             imaginary: vec![0.0; n],
@@ -298,7 +292,7 @@ impl Fft {
         }
         for (i, slot) in out.iter_mut().enumerate() {
             *slot = (self.real[i] * self.real[i] + self.imaginary[i] * self.imaginary[i]).sqrt()
-                * self.equalize[i];
+                * SPEC_SCALE;
         }
     }
 }
@@ -342,7 +336,7 @@ impl Default for Analyser {
 }
 
 impl Analyser {
-    /// One frame: the spectrum of `samples` (1024 of them, mono, -1 to 1)
+    /// One frame: the spectrum of `samples` (512 of them, mono, -1 to 1)
     /// moves the bars, and the bars are returned.
     pub fn step(&mut self, samples: &[f32], now: Instant) -> [Bar; BARS] {
         // Keep the step's own beat when frames come a little early or late,
@@ -352,9 +346,9 @@ impl Analyser {
             return self.bars;
         }
         self.last_step = Some(due.max(now - STEP));
-        let wave: Vec<f32> = samples.iter().map(|sample| sample * INPUT_GAIN).collect();
+        let wave: Vec<f32> = samples.iter().map(|sample| sample * CHANNEL_SUM).collect();
         self.fft.spectrum(&wave, &mut self.spectrum);
-        let columns = self.columns();
+        let columns = self.bands();
         let mut bars = [Bar::default(); BARS];
         for (bar, slot) in bars.iter_mut().enumerate() {
             let chunk = 4 * bar;
@@ -400,27 +394,57 @@ impl Analyser {
         self.bars = [Bar::default(); BARS];
     }
 
-    /// The spectrum spread over the columns: mostly logarithmic, with a
-    /// little linear mixed in, the way later Winamps swept it. One extra
-    /// silent column pads the last bar's group of four.
-    fn columns(&self) -> [f32; COLUMNS + 1] {
-        const SCALE: f32 = 0.91;
-        let max_index = SPECTRUM_BINS as f32;
-        let log_max = max_index.log10();
+    /// Winamp's own bands, from its published source: seventy-five spans
+    /// a semitone apart (`2^(x/12)`), each summing its share of the 256
+    /// bins, the fractional edges read through a Hermite curve, the sum
+    /// clipped at 255. Fifteen of those 255 fill the display, which is why
+    /// the classic analyser always looked alive. One extra silent column
+    /// pads the last bar's group of four.
+    fn bands(&self) -> [f32; COLUMNS + 1] {
+        let bla = 255.0 / 2f32.powf(75.0 / 12.0);
+        let warp = |x: f32| (2f32.powf(x / 12.0) - 1.0) * bla;
+        let sample = |index: usize| self.spectrum.get(index).copied().unwrap_or(0.0);
+        let hermite = |x: f32, y0: f32, y1: f32, y2: f32, y3: f32| {
+            let c1 = 0.5 * (y2 - y0);
+            let c3 = 1.5 * (y1 - y2) + 0.5 * (y3 - y0);
+            let c2 = y0 - y1 + c1 - c3;
+            ((c3 * x + c2) * x + c1) * x + y1
+        };
         let mut columns = [0.0; COLUMNS + 1];
+        let mut next = warp(0.0) + 1.0;
         for (x, column) in columns.iter_mut().take(COLUMNS).enumerate() {
-            let along = x as f32 / (COLUMNS - 1) as f32;
-            let linear = along * (max_index - 1.0);
-            let logarithmic = 10f32.powf(log_max * along);
-            let scaled = (1.0 - SCALE) * linear + SCALE * logarithmic;
-            let low = (scaled.floor() as usize).min(SPECTRUM_BINS - 1);
-            let high = (scaled.ceil() as usize).min(SPECTRUM_BINS - 1);
-            *column = if low == high {
-                self.spectrum[low]
-            } else {
-                let towards_high = scaled - low as f32;
-                (1.0 - towards_high) * self.spectrum[low] + towards_high * self.spectrum[high]
-            };
+            let low = next;
+            next = warp(x as f32 + 1.0) + 1.0;
+            let mut value = 0.0f32;
+            let mut bin = low.floor() as usize;
+            let end = (next.floor() as usize).min(SPECTRUM_BINS - 1);
+            let mut fraction = low;
+            let mut mult = (bin as f32 + 1.0) - low;
+            let mut herm = true;
+            loop {
+                if bin == end {
+                    mult = next - fraction;
+                    herm = true;
+                }
+                if herm {
+                    value += hermite(
+                        fraction - bin as f32,
+                        sample(bin.saturating_sub(1)),
+                        sample(bin),
+                        sample(bin + 1),
+                        sample(bin + 2),
+                    ) * mult;
+                } else {
+                    value += sample(bin);
+                }
+                herm = false;
+                bin += 1;
+                if bin > end {
+                    break;
+                }
+                fraction = bin as f32;
+            }
+            *column = value.min(255.0);
         }
         columns
     }
@@ -490,7 +514,7 @@ mod tests {
         let mut out = [0.0; SPECTRUM_BINS];
         let wave: Vec<f32> = sine(1000.0, 0.5, FFT_SAMPLES)
             .into_iter()
-            .map(|s| s * INPUT_GAIN)
+            .map(|s| s * CHANNEL_SUM)
             .collect();
         fft.spectrum(&wave, &mut out);
         let loudest = (0..SPECTRUM_BINS)
