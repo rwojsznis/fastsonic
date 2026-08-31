@@ -56,6 +56,8 @@ application rather than a shell plugin.
   they did; the logo in the skin brings the big window back. Drop a skin
   from the [Winamp Skin Museum](https://skins.webamp.org) on either window
   to add it.
+
+  ![The mini player wearing the built-in skin](docs/assets/images/winamp.png)
 - **Equalizer.** Winamp's ten bands and presets over the music played on
   this computer, in Settings and in the skin.
 - **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists

@@ -33,9 +33,11 @@ features:
   - icon: 📚
     title: Library and search
     details: Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own.
-  - icon: 🎨
-    title: Familiar interface
-    details: Pages and the player can take their colour from the album art. Choose a light or dark theme, or follow the system.
+  - icon: 📻
+    title: Winamp mini player
+    details: Ctrl+M turns it into a tiny player that wears any classic Winamp 2 skin, spectrum analyser, equalizer, and playlist included. 2000s vibes, pixel for pixel.
+    link: /winamp/
+    link_text: See it in action
   - icon: ⌨️
     title: Desktop controls
     details: Keyboard shortcuts, MPRIS media controls on Linux, and a tray option that keeps music playing after you close the window.
@@ -45,6 +47,15 @@ features:
     link: https://github.com/crmne/fastpotify
     link_text: Read the source
 ---
+
+## It turns into Winamp
+
+Load any classic `.wsz` skin from the
+[Winamp Skin Museum](https://skins.webamp.org) and Fastpotify becomes a
+period-accurate mini player: analyser, equalizer, playlist, shade modes,
+integer pixel scaling.
+
+![The mini player wearing the built-in skin](/assets/images/winamp.png)
 
 <style>
   /* The hero image slot is sized for a square logo; the screenshot needs the

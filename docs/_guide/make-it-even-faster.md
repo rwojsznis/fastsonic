@@ -1,7 +1,7 @@
 ---
 title: Make It Even Faster
 description: "Use a personal Spotify app for a separate quota while shared coverage stays active."
-nav_order: 4
+nav_order: 5
 ---
 
 ## API rate limits
