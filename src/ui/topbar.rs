@@ -65,7 +65,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.add_space(super::widgets::PAGE_PADDING);
             ui.spacing_mut().item_spacing.x = 8.0;
             if !app.settings.sidebar_visible {
-                if nav_button(ui, &palette, Icon::PanelLeft, true, "Show sidebar (Cmd+B)").clicked()
+                if nav_button(
+                    ui,
+                    &palette,
+                    Icon::PanelLeft,
+                    true,
+                    super::keys::platform_shortcut("Show sidebar (Ctrl+B)", "Show sidebar (Cmd+B)"),
+                )
+                .clicked()
                 {
                     app.actions.push(Action::ToggleSidebar);
                 }
@@ -242,7 +249,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         palette.secondary
                     },
                     palette.text,
-                    "MilkDrop visualiser (Ctrl+Shift+K)",
+                    super::keys::platform_shortcut(
+                        "MilkDrop visualiser (Ctrl+Shift+K)",
+                        "MilkDrop visualiser (Cmd+Shift+K)",
+                    ),
                 )
                 .clicked()
                 {
@@ -254,7 +264,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     19.0,
                     palette.secondary,
                     palette.text,
-                    "Winamp mini player (Ctrl+M)",
+                    super::keys::platform_shortcut(
+                        "Winamp mini player (Ctrl+M)",
+                        "Winamp mini player (Cmd+Shift+M)",
+                    ),
                 )
                 .clicked()
                 {
