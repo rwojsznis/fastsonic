@@ -240,6 +240,25 @@ impl Child {
         }
     }
 
+    /// When the next frame is due: one interval after the last one was
+    /// due, not one interval after this one finished drawing. Counting
+    /// from the end of the drawing adds its cost to every wait, which is
+    /// what turned a limit of 60 into 50 frames a second.
+    fn schedule_next_frame(&mut self) {
+        let Some(interval) = self.frame_interval() else {
+            self.next_frame = Instant::now();
+            return;
+        };
+        self.next_frame += interval;
+        let now = Instant::now();
+        if self.next_frame <= now {
+            // Slower than the limit asks for, or back from a pause: take
+            // the rhythm up from here rather than chasing frames whose
+            // moment has gone.
+            self.next_frame = now + interval;
+        }
+    }
+
     fn frame_interval(&self) -> Option<Duration> {
         (self.fps != 0).then(|| Duration::from_secs_f32(1.0 / self.fps as f32))
     }
@@ -410,7 +429,7 @@ impl ApplicationHandler<Control> for Child {
             }
             WindowEvent::RedrawRequested => {
                 self.render();
-                self.next_frame = Instant::now() + self.frame_interval().unwrap_or(Duration::ZERO);
+                self.schedule_next_frame();
             }
             _ => {}
         }
@@ -909,6 +928,40 @@ mod tests {
             },
             ring,
         )
+    }
+
+    /// The frame limit is a rhythm, not a wait between frames: each one
+    /// is due an interval after the last was due, so the drawing's own
+    /// cost does not stretch every interval and drop the rate.
+    #[test]
+    fn the_frame_limit_does_not_drift_with_the_drawing() {
+        let mut child = headless_child();
+        child.fps = 60;
+        let interval = Duration::from_secs_f32(1.0 / 60.0);
+        let start = Instant::now();
+        child.next_frame = start;
+
+        // Ten frames, each taking a third of an interval to draw.
+        for frame in 1..=10 {
+            child.schedule_next_frame();
+            assert_eq!(
+                child.next_frame,
+                start + interval * frame,
+                "frame {frame} is due on the beat"
+            );
+            // The drawing of the next one starts late, as it always does.
+            std::thread::sleep(interval / 3);
+        }
+
+        // Falling behind for good does not pile up a debt of frames to
+        // catch up on: the rhythm picks up from now.
+        child.next_frame = Instant::now() - Duration::from_secs(5);
+        child.schedule_next_frame();
+        assert!(
+            child.next_frame > Instant::now(),
+            "a missed stretch is let go, not chased"
+        );
+        assert!(child.next_frame <= Instant::now() + interval);
     }
 
     /// The corner carries what has been switched on, in one block, in
