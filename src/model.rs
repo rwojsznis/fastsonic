@@ -588,6 +588,8 @@ pub enum Action {
     /// Hand the account to a receiver found on the local network.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
+    /// Empty Next up of its queued songs, keeping the context's own.
+    ClearQueue,
     RefreshQueue,
     CopyLink(String),
     /// A web page, in the browser.

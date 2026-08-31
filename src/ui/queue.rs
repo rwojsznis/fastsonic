@@ -14,7 +14,12 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(8.0);
     // No refresh button: the queue keeps itself fresh, on every track
     // change, every add, and a rolling poll while it shows.
-    theme::text(ui, "Queue", theme::bold(28.0), palette.text);
+    ui.horizontal(|ui| {
+        theme::text(ui, "Queue", theme::bold(28.0), palette.text);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            clear_button(app, ui);
+        });
+    });
     ui.add_space(12.0);
     contents(app, ui, false);
 }
@@ -41,6 +46,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::ToggleQueuePanel);
                 }
+                clear_button(app, ui);
             });
         });
         ui.add_space(8.0);
@@ -53,6 +59,27 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     if (width - app.settings.queue_width).abs() > 1.0 {
         app.settings.queue_width = width;
         app.actions.push(Action::SettingsChanged);
+    }
+}
+
+/// Empties Next up of its queued songs. Only where it can keep the
+/// promise: the queue of this computer's own player.
+fn clear_button(app: &mut App, ui: &mut egui::Ui) {
+    if !app.can_clear_queue() {
+        return;
+    }
+    let palette = app.palette;
+    if theme::icon_button(
+        ui,
+        Icon::Trash,
+        18.0,
+        palette.secondary,
+        palette.text,
+        "Clear queue",
+    )
+    .clicked()
+    {
+        app.actions.push(Action::ClearQueue);
     }
 }
 

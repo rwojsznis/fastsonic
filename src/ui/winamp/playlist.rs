@@ -631,7 +631,7 @@ fn menus(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], he
             unit,
             |ui| match name {
                 "add" => add_menu(app, ui),
-                "rem" => rem_menu(ui),
+                "rem" => rem_menu(app, ui),
                 "sel" => sel_menu(app, ui, rows),
                 "misc" => misc_menu(app, ui, rows),
                 _ => list_menu(app, ui, rows, queue_uris),
@@ -652,11 +652,15 @@ fn add_menu(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-fn rem_menu(ui: &mut egui::Ui) {
-    let why = "Spotify keeps its queue; no app can take from it.";
-    for label in ["Remove selected", "Remove all"] {
-        ui.add_enabled(false, egui::Button::new(label))
-            .on_disabled_hover_text(why);
+fn rem_menu(app: &mut App, ui: &mut egui::Ui) {
+    ui.add_enabled(false, egui::Button::new("Remove selected"))
+        .on_disabled_hover_text("Spotify has no way to take one song from the queue.");
+    if ui
+        .add_enabled(app.can_clear_queue(), egui::Button::new("Remove all"))
+        .on_disabled_hover_text("Only this computer's own queue can be cleared.")
+        .clicked()
+    {
+        app.actions.push(Action::ClearQueue);
     }
 }
 

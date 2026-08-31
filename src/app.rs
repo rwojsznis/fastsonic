@@ -2405,6 +2405,60 @@ impl App {
         }
     }
 
+    /// Whether Clear queue can truly clear: the queue has rows and this
+    /// computer's engine is the playing device, the only device whose
+    /// queue any client is allowed to drop.
+    pub fn can_clear_queue(&self) -> bool {
+        self.local.is_active()
+            && matches!(self.target(), Target::Local)
+            && self
+                .queue
+                .get()
+                .is_some_and(|queue| !queue.queue.is_empty())
+    }
+
+    /// The hand-queued rows leave Next up at once, and the engine drops
+    /// its queued tracks behind them. The context's own upcoming songs
+    /// stay: that is what Spotify's own Clear queue keeps too.
+    fn clear_queue(&mut self) {
+        if !matches!(self.target(), Target::Local) {
+            return;
+        }
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for uri in self
+            .manual_queue
+            .iter()
+            .chain(self.pending_queue_adds.iter().map(|(uri, _)| uri))
+        {
+            *counts.entry(uri.clone()).or_insert(0) += 1;
+        }
+        if let Loadable::Loaded(queue) = &mut self.queue {
+            // Each record removes one row, front first: a song queued once
+            // that the context also carries keeps its context row.
+            queue.queue.retain(|item| match counts.get_mut(item.uri()) {
+                Some(left) if *left > 0 => {
+                    *left -= 1;
+                    false
+                }
+                _ => true,
+            });
+        }
+        let cleared: std::collections::HashSet<String> = counts.into_keys().collect();
+        if !self.manual_queue.is_empty() {
+            self.session_dirty = true;
+        }
+        self.manual_queue.clear();
+        self.pending_queue_adds.clear();
+        if !cleared.is_empty() {
+            self.queue_cleared = Some((cleared, Instant::now()));
+        }
+        self.backend.player(PlayerCommand::ClearQueue);
+        // The engine also drops queued tracks this app never saw added;
+        // the fetch behind this recheck sweeps their rows away.
+        self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
+        self.toast("Queue cleared");
+    }
+
     /// The head of Next up becomes the playing row at once; the claim is
     /// held the way a clicked row's is, until a report confirms it.
     fn pop_queue_head(&mut self) {
@@ -4393,6 +4447,7 @@ impl App {
                 self.refresh_devices();
                 self.backend.send(Command::DiscoverReceivers);
             }
+            Action::ClearQueue => self.clear_queue(),
             Action::RefreshQueue => self.refresh_queue(true),
             Action::CopyLink(uri) => {
                 if let Some(url) = util::open_spotify_url(&uri) {
@@ -5634,6 +5689,43 @@ mod tests {
         assert!(
             next.is_empty(),
             "the row above the chosen song went with it"
+        );
+    }
+
+    /// Clear queue takes the hand-queued rows out at once and keeps the
+    /// context's upcoming songs; a song queued once that the context also
+    /// carries keeps its context row.
+    #[test]
+    fn clear_queue_takes_the_hand_queued_rows_and_keeps_the_context() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()];
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:c",
+                "spotify:track:d",
+            ],
+        );
+        assert!(app.can_clear_queue());
+        app.apply(Action::ClearQueue, &ctx);
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            vec!["spotify:track:c", "spotify:track:d"],
+            "one queued c goes, the context's own c stays"
+        );
+        assert!(app.manual_queue.is_empty());
+        assert!(
+            app.queue_recheck_at.is_some(),
+            "a fetch follows to sweep rows queued from other devices"
         );
     }
 
