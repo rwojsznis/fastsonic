@@ -991,11 +991,17 @@ fn build(event_loop: &ActiveEventLoop, args: &Args, seconds: u32) -> Result<Live
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_RING: AtomicU64 = AtomicU64::new(0);
 
     /// A child with no window, for the parts that need none.
     fn headless_child() -> Child {
-        let dir =
-            std::env::temp_dir().join(format!("fastpotify-milkdrop-child-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "fastpotify-milkdrop-child-{}-{}",
+            std::process::id(),
+            NEXT_RING.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(&dir).expect("a place for the test's ring");
         let shm = dir.join("ring");
         let ring = Ring::create(&shm).expect("a ring to read");
