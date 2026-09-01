@@ -14,10 +14,13 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(8.0);
     // No refresh button: the queue keeps itself fresh, on every track
     // change, every add, and a rolling poll while it shows.
+    let offer_save = !app.queue_playlist_uris().is_empty();
     ui.horizontal(|ui| {
         theme::text(ui, "Queue", theme::bold(28.0), palette.text);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            save_button(app, ui);
+            if save_button(ui, &palette, offer_save) {
+                app.actions.push(Action::SaveQueueAsPlaylist);
+            }
         });
     });
     ui.add_space(12.0);
@@ -37,20 +40,48 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 .inner_margin(Margin::symmetric(12, 12)),
         );
     let response = panel.show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add_space(4.0);
-            tabs(app, ui);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if theme::icon_button(ui, Icon::X, 18.0, palette.secondary, palette.text, "Close")
-                    .clicked()
-                {
-                    app.actions.push(Action::ToggleQueuePanel);
-                }
-                if app.queue_tab == QueueTab::Queue {
-                    save_button(app, ui);
-                }
-            });
-        });
+        // The buttons are measured first and the chips get what is left
+        // (`shrink_left`; left to itself, `Sides` lets both grow and the
+        // problem comes back). Laid out as an ordinary row, the chips
+        // claim the whole width for their own wrapping and the buttons
+        // come down on top of them, which put the close button through
+        // "Recently played". Squeezed hard enough, the chips wrap onto a
+        // second line, which is a narrow panel rather than a broken one.
+        let tab = app.queue_tab;
+        let offer_save = tab == QueueTab::Queue && !app.queue_playlist_uris().is_empty();
+        let mut picked = None;
+        let mut close = false;
+        let mut save = false;
+        egui::Sides::new().shrink_left().show(
+            ui,
+            |ui| {
+                ui.add_space(4.0);
+                picked = widgets::chips(
+                    ui,
+                    &palette,
+                    &[
+                        (QueueTab::Queue, "Queue"),
+                        (QueueTab::Recents, "Recently played"),
+                    ],
+                    tab,
+                );
+            },
+            |ui| {
+                close =
+                    theme::icon_button(ui, Icon::X, 18.0, palette.secondary, palette.text, "Close")
+                        .clicked();
+                save = save_button(ui, &palette, offer_save);
+            },
+        );
+        if let Some(tab) = picked {
+            app.actions.push(Action::SetQueueTab(tab));
+        }
+        if close {
+            app.actions.push(Action::ToggleQueuePanel);
+        }
+        if save {
+            app.actions.push(Action::SaveQueueAsPlaylist);
+        }
         ui.add_space(8.0);
         // Lazy load recents when tab becomes visible.
         if app.queue_tab == QueueTab::Recents
@@ -76,43 +107,19 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// The panel's two lists, on the same chips the library uses for its
-/// own shelves, so one row of buttons means the same thing everywhere.
-fn tabs(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
-    let picked = widgets::chips(
-        ui,
-        &palette,
-        &[
-            (QueueTab::Queue, "Queue"),
-            (QueueTab::Recents, "Recently played"),
-        ],
-        app.queue_tab,
-    );
-    if let Some(tab) = picked {
-        app.actions.push(Action::SetQueueTab(tab));
-    }
-}
-
 /// The queue, made permanent: a new playlist of the playing song and
 /// every row after it. A station someone likes becomes theirs this way.
-fn save_button(app: &mut App, ui: &mut egui::Ui) {
-    if app.queue_playlist_uris().is_empty() {
-        return;
-    }
-    let palette = app.palette;
-    if theme::icon_button(
-        ui,
-        Icon::ListPlus,
-        18.0,
-        palette.secondary,
-        palette.text,
-        "Save as a playlist",
-    )
-    .clicked()
-    {
-        app.actions.push(Action::SaveQueueAsPlaylist);
-    }
+fn save_button(ui: &mut egui::Ui, palette: &crate::theme::Palette, offer: bool) -> bool {
+    offer
+        && theme::icon_button(
+            ui,
+            Icon::ListPlus,
+            18.0,
+            palette.secondary,
+            palette.text,
+            "Save as a playlist",
+        )
+        .clicked()
 }
 
 /// Empties Playing next. Only where it can keep the promise: the queue
