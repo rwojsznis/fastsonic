@@ -11,7 +11,7 @@ use crate::api::models::{
 };
 use crate::backend::{
     ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
-    PLAYLIST_PAGE_SIZE, RemoteAction, Waker,
+    PLAYLIST_PAGE_SIZE, RecentsFor, RemoteAction, Waker,
 };
 use crate::media::{MediaCommand, MediaState, MediaTrack};
 use crate::media_controls::MediaService;
@@ -372,6 +372,13 @@ const TRACKPAD_SCALE: f32 = 1.8;
 /// The glide's exponential decay time, in seconds; the speed below which a
 /// lift starts no glide; and the speed at which a glide stops, points per
 /// second.
+/// How many plays the Home shelf asks for: it shows sixteen cards.
+const HOME_RECENTS: u32 = 50;
+/// How many plays the Recents tab asks for at a time. Spotify's own
+/// ceiling for this endpoint is fifty, and a page shorter than what was
+/// asked for is how the end of the history is known.
+const RECENTS_PAGE: u32 = 50;
+
 const GLIDE_DECAY: f32 = 0.35;
 const GLIDE_START: f32 = 120.0;
 const GLIDE_STOP: f32 = 40.0;
@@ -2215,9 +2222,10 @@ impl App {
             self.home.top_tracks = Loadable::Loading;
         }
         self.backend.api(ApiRequest::RecentlyPlayed {
+            who: RecentsFor::Home,
             generation,
-            after: None,
             before: None,
+            limit: HOME_RECENTS,
         });
         self.backend.api(ApiRequest::TopArtists { generation });
         self.backend.api(ApiRequest::TopTracks {
@@ -2271,11 +2279,15 @@ impl App {
         self.recents.error = None;
         self.recents_generation = self.recents_generation.wrapping_add(1);
         let generation = self.recents_generation;
+        // `CursorList::after` is simply "the cursor that continues this
+        // list"; for this endpoint Spotify pages backwards and calls it
+        // `before`.
         let before = self.recents.after.clone();
         self.backend.api(ApiRequest::RecentlyPlayed {
+            who: RecentsFor::Panel,
             generation,
-            after: None,
             before,
+            limit: RECENTS_PAGE,
         });
     }
 
@@ -2948,109 +2960,36 @@ impl App {
                 }
             }
             ApiResponse::RecentlyPlayed {
+                who,
                 generation,
-                after: _,
-                before: _,
+                limit,
                 result,
-            } => {
-                let is_home = generation == self.home.generation;
-                let is_recents = generation == self.recents_generation;
-                if !is_home && !is_recents {
-                    return;
-                }
-                if is_home {
-                    if let Ok(page) = &result {
-                        let contexts: Vec<String> = page
-                            .items
-                            .iter()
-                            .rev()
-                            .filter_map(|play| {
-                                play.context.as_ref().map(|context| context.uri.clone())
-                            })
-                            .collect();
-                        for context in contexts {
-                            self.note_recent_context(&context);
-                        }
-                    }
-                    let mapped = result
-                        .as_ref()
-                        .map(|page| page.items.clone())
-                        .map_err(|e| e.to_string());
-                    self.home.recently_played.refresh(mapped);
-                    if !is_recents {
+            } => match who {
+                RecentsFor::Home => {
+                    if generation != self.home.generation {
                         return;
                     }
-                    // Generation collision: also handle recents below, contexts already noted.
+                    if let Ok(page) = &result {
+                        self.note_recent_contexts(&page.items);
+                    }
+                    let items = result
+                        .as_ref()
+                        .map(|page| page.items.clone())
+                        .map_err(|error| error.to_string());
+                    self.home.recently_played.refresh(items);
                 }
-                // Recents handling
-                if is_recents {
+                RecentsFor::Panel => {
+                    if generation != self.recents_generation {
+                        return;
+                    }
+                    self.recents.loading = false;
+                    self.recents.loaded_once = true;
                     match result {
-                        Ok(page) => {
-                            if !is_home {
-                                let contexts: Vec<String> = page
-                                    .items
-                                    .iter()
-                                    .rev()
-                                    .filter_map(|play| {
-                                        play.context.as_ref().map(|context| context.uri.clone())
-                                    })
-                                    .collect();
-                                for context in contexts {
-                                    self.note_recent_context(&context);
-                                }
-                            }
-                            let cursors = page.cursors.clone();
-                            let items_len = page.items.len();
-                            let next_before = cursors.as_ref().and_then(|c| c.before.clone());
-                            let fallback_after = cursors.as_ref().and_then(|c| c.after.clone());
-                            let mut seen: std::collections::HashSet<String> = self
-                                .recents
-                                .items
-                                .iter()
-                                .filter_map(|p| p.track.id.clone())
-                                .collect();
-                            let mut new_items = Vec::new();
-                            for entry in page.items {
-                                if let Some(id) = entry.track.id.clone()
-                                    && !seen.insert(id)
-                                {
-                                    continue;
-                                }
-                                new_items.push(entry);
-                            }
-                            let new_len = new_items.len();
-                            self.recents.items.extend(new_items);
-                            let cursor = next_before.or(fallback_after);
-                            if cursor.is_none() || items_len == 0 || items_len < 50 {
-                                self.recents.complete = true;
-                                self.recents.after = None;
-                            } else {
-                                self.recents.after = cursor;
-                                // If deduplication consumed everything, still keep cursor but not complete.
-                                if new_len == 0 && self.recents.after.is_some() {
-                                    // keep trying, not complete
-                                    self.recents.complete = false;
-                                }
-                            }
-                            self.recents.loading = false;
-                            self.recents.loaded_once = true;
-                            self.recents.error = None;
-                            let uris: Vec<String> = self
-                                .recents
-                                .items
-                                .iter()
-                                .map(|h| h.track.uri.clone())
-                                .collect();
-                            self.request_contains(uris);
-                        }
-                        Err(error) => {
-                            self.recents.loading = false;
-                            self.recents.error = Some(error.to_string());
-                            self.recents.loaded_once = true;
-                        }
+                        Ok(page) => self.absorb_recents(page, limit),
+                        Err(error) => self.recents.error = Some(error.to_string()),
                     }
                 }
-            }
+            },
             ApiResponse::TopTracks {
                 offset,
                 full,
@@ -3814,6 +3753,65 @@ impl App {
         self.recent_contexts.retain(|held| held != uri);
         self.recent_contexts.insert(0, uri.to_string());
         self.recent_contexts.truncate(60);
+    }
+
+    /// Notes every context in a page of play history, oldest first, so
+    /// the newest ends up at the front of the sidebar's order.
+    fn note_recent_contexts(&mut self, history: &[crate::api::models::PlayHistory]) {
+        let contexts: Vec<String> = history
+            .iter()
+            .rev()
+            .filter_map(|play| play.context.as_ref().map(|context| context.uri.clone()))
+            .collect();
+        for context in contexts {
+            self.note_recent_context(&context);
+        }
+    }
+
+    /// Adds a page of play history to the Recents tab.
+    ///
+    /// A song played twice is two rows here, each with its own time: this
+    /// is a history, and collapsing repeats would lose the very thing it
+    /// is for. What is dropped is the same play arriving twice, which
+    /// paging can do when something is played while the list is open, and
+    /// a play is the pair of a song and the moment it started.
+    ///
+    /// Spotify pages this list backwards, so the cursor that continues it
+    /// is `before`, and a page shorter than the one asked for is the end.
+    fn absorb_recents(
+        &mut self,
+        page: crate::api::models::CursorPage<crate::api::models::PlayHistory>,
+        limit: u32,
+    ) {
+        self.note_recent_contexts(&page.items);
+        self.recents.error = None;
+        let short_page = (page.items.len() as u32) < limit;
+        let cursor = page.cursors.as_ref().and_then(|c| c.before.clone());
+        let mut seen: std::collections::HashSet<(String, Option<String>)> = self
+            .recents
+            .items
+            .iter()
+            .map(|play| (play.track.uri.clone(), play.played_at.clone()))
+            .collect();
+        let fresh: Vec<crate::api::models::PlayHistory> = page
+            .items
+            .into_iter()
+            .filter(|play| seen.insert((play.track.uri.clone(), play.played_at.clone())))
+            .collect();
+        let uris: Vec<String> = fresh.iter().map(|play| play.track.uri.clone()).collect();
+        self.recents.items.extend(fresh);
+        match cursor {
+            Some(cursor) if !short_page => self.recents.after = Some(cursor),
+            _ => {
+                self.recents.complete = true;
+                self.recents.after = None;
+            }
+        }
+        // Only the songs just added need asking about; the ones already
+        // here were asked about when they arrived.
+        if !uris.is_empty() {
+            self.request_contains(uris);
+        }
     }
 
     /// A random playable track of a context the app has rows for: the
@@ -6268,6 +6266,144 @@ mod tests {
         );
         app.manual_queue.clear();
         assert_eq!(app.queued_rows_len(), 0);
+    }
+
+    fn test_app(name: &str) -> App {
+        let root =
+            std::env::temp_dir().join(format!("fastpotify-{name}-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        App::new(
+            &Waker::default(),
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        )
+    }
+
+    fn play(uri: &str, at: &str) -> crate::api::models::PlayHistory {
+        crate::api::models::PlayHistory {
+            track: crate::api::models::Track {
+                uri: uri.to_string(),
+                ..Default::default()
+            },
+            played_at: Some(at.to_string()),
+            context: None,
+        }
+    }
+
+    fn history(
+        items: Vec<crate::api::models::PlayHistory>,
+        before: Option<&str>,
+    ) -> crate::api::models::CursorPage<crate::api::models::PlayHistory> {
+        crate::api::models::CursorPage {
+            items,
+            cursors: Some(crate::api::models::Cursors {
+                before: before.map(str::to_string),
+                after: None,
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Rule: the Recents tab is a history, so the same song played twice
+    /// is two rows. Collapsing repeats would lose what the list is for.
+    #[test]
+    fn recents_keep_a_song_played_twice() {
+        let mut app = test_app("recents-repeat");
+        let page = history(
+            vec![
+                play("spotify:track:a", "2026-09-01T10:00:00Z"),
+                play("spotify:track:a", "2026-09-01T09:00:00Z"),
+                play("spotify:track:b", "2026-09-01T08:00:00Z"),
+            ],
+            Some("cursor-1"),
+        );
+        app.absorb_recents(page, 3);
+        assert_eq!(app.recents.items.len(), 3, "both plays of a are kept");
+    }
+
+    /// Rule: the same play arriving twice is dropped. Paging can hand back
+    /// a row already held when something plays while the list is open.
+    #[test]
+    fn recents_drop_a_play_that_arrives_twice() {
+        let mut app = test_app("recents-dedup");
+        app.absorb_recents(
+            history(
+                vec![
+                    play("spotify:track:a", "2026-09-01T10:00:00Z"),
+                    play("spotify:track:b", "2026-09-01T09:00:00Z"),
+                ],
+                Some("cursor-1"),
+            ),
+            2,
+        );
+        app.absorb_recents(
+            history(
+                vec![
+                    play("spotify:track:b", "2026-09-01T09:00:00Z"),
+                    play("spotify:track:c", "2026-09-01T08:00:00Z"),
+                ],
+                Some("cursor-2"),
+            ),
+            2,
+        );
+        let uris: Vec<&str> = app
+            .recents
+            .items
+            .iter()
+            .map(|play| play.track.uri.as_str())
+            .collect();
+        assert_eq!(
+            uris,
+            vec!["spotify:track:a", "spotify:track:b", "spotify:track:c"]
+        );
+    }
+
+    /// Rule: a page shorter than the one asked for is the end of the
+    /// history, cursor or no cursor.
+    #[test]
+    fn a_short_page_ends_the_recents_list() {
+        let mut app = test_app("recents-short");
+        app.absorb_recents(
+            history(
+                vec![play("spotify:track:a", "2026-09-01T10:00:00Z")],
+                Some("more"),
+            ),
+            50,
+        );
+        assert!(
+            app.recents.complete,
+            "a page of one against fifty is the end"
+        );
+        assert!(
+            app.recents.after.is_none(),
+            "and there is nothing to ask for"
+        );
+    }
+
+    /// Rule: a full page with a cursor keeps the list going.
+    #[test]
+    fn a_full_page_leaves_the_recents_list_open() {
+        let mut app = test_app("recents-full");
+        app.absorb_recents(
+            history(
+                vec![
+                    play("spotify:track:a", "2026-09-01T10:00:00Z"),
+                    play("spotify:track:b", "2026-09-01T09:00:00Z"),
+                ],
+                Some("cursor-1"),
+            ),
+            2,
+        );
+        assert!(!app.recents.complete);
+        assert_eq!(app.recents.after.as_deref(), Some("cursor-1"));
     }
 
     /// Rule: closing the app keeps the queue. The rows come back on the

@@ -48,6 +48,14 @@ pub enum RemoteAction {
     Repeat,
 }
 
+/// Which of the two readers of the recently-played endpoint an answer
+/// belongs to: the shelf on Home, or the Recents tab in the queue panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecentsFor {
+    Home,
+    Panel,
+}
+
 #[derive(Clone, Debug)]
 pub enum ApiRequest {
     Me,
@@ -59,9 +67,15 @@ pub enum ApiRequest {
         seq: u64,
     },
     RecentlyPlayed {
+        /// Who asked. The Home shelf and the queue panel's Recents tab
+        /// both read this endpoint and each count their own requests, so
+        /// the generation alone cannot tell their answers apart: two
+        /// counters that both start at zero agree far more often than
+        /// not, and an answer meant for one would land in the other.
+        who: RecentsFor,
         generation: u64,
-        after: Option<String>,
         before: Option<String>,
+        limit: u32,
     },
     TopTracks {
         offset: u32,
@@ -243,9 +257,9 @@ pub enum ApiResponse {
         result: ApiResult<Queue>,
     },
     RecentlyPlayed {
+        who: RecentsFor,
         generation: u64,
-        after: Option<String>,
-        before: Option<String>,
+        limit: u32,
         result: ApiResult<CursorPage<PlayHistory>>,
     },
     TopTracks {
@@ -1764,14 +1778,15 @@ async fn handle(api: &ApiGateway, request: ApiRequest) -> (ApiResponse, Option<A
             result: routed!(queue()),
         },
         ApiRequest::RecentlyPlayed {
+            who,
             generation,
-            after,
             before,
+            limit,
         } => ApiResponse::RecentlyPlayed {
+            who,
             generation,
-            after: after.clone(),
-            before: before.clone(),
-            result: routed!(recently_played(50, after.as_deref(), before.as_deref())),
+            limit,
+            result: routed!(recently_played(limit, None, before.as_deref())),
         },
         ApiRequest::TopTracks {
             offset,
