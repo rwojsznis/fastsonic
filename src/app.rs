@@ -405,17 +405,27 @@ impl App {
             settings.web_client_id.clone(),
             waker.clone(),
         );
+        let session = SessionState::load(&dirs.session_file());
         let wake = waker.clone();
         let media_controls = options
             .media_controls
             .then(|| MediaService::spawn(move || wake.wake()));
+        #[cfg(target_os = "macos")]
+        let media_controls = {
+            let mut media_controls = media_controls;
+            if let (Some(controls), Some(track)) =
+                (&mut media_controls, session.last_track.as_deref())
+            {
+                controls.claim_resume(track, session.last_position_ms);
+            }
+            media_controls
+        };
         let wake = waker.clone();
         let tray = options
             .tray
             .then(|| TrayService::spawn(move || wake.wake()))
             .flatten();
 
-        let session = SessionState::load(&dirs.session_file());
         let first_page = session
             .last_page
             .as_deref()
@@ -3944,7 +3954,9 @@ impl App {
                 if matches!(
                     self.local_playback,
                     LocalPlayback::Connecting | LocalPlayback::Authorizing
-                ) {
+                ) || (self.settings.playback_authorized
+                    && matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting))
+                {
                     self.queued_play = Some(request);
                 } else {
                     self.clear_play_pending();
@@ -5732,6 +5744,23 @@ mod tests {
             request.position_ms, 19_566,
             "the song resumes where it stopped, not at zero"
         );
+    }
+
+    /// A media key can arrive before startup has reported that the saved
+    /// local player is connecting. Its intent must survive that race.
+    #[test]
+    fn pressing_play_while_startup_connects_is_held_for_the_player() {
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.local_playback = LocalPlayback::Unavailable;
+        app.auth = AuthStatus::Starting;
+        app.settings.playback_authorized = true;
+        app.resume_track = Some("spotify:track:abc".into());
+
+        app.toggle_play();
+
+        assert!(app.queued_play.is_some());
+        assert!(!app.show_devices, "startup is not a missing-device error");
     }
 
     /// Previous and Next move a restored track without starting playback.
