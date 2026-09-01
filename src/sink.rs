@@ -34,14 +34,14 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often playback looks at which output the system calls its default.
 const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Default device buffer length in milliseconds.
+/// Default Windows device buffer length in milliseconds.
 ///
 /// Small platform defaults can click under load (#88). A 100 ms buffer avoids
 /// these underruns while keeping controls responsive.
 pub const DEFAULT_BUFFER_MS: u32 = 100;
 
-/// Allowed device buffer range. Lower values can click; higher values delay
-/// playback controls.
+/// Allowed Windows device buffer range. Lower values can click; higher values
+/// delay playback controls.
 pub const BUFFER_MS_RANGE: std::ops::RangeInclusive<u32> = 20..=500;
 
 /// The buffer to ask the device for, in frames.
@@ -90,6 +90,9 @@ struct Output {
     /// not Spotify's.
     sample_rate: u32,
     resampler: Option<Resampler>,
+    /// Whether this track has supplied audio since its last stop.
+    fed: bool,
+    last_write: Option<Instant>,
 }
 
 impl Output {
@@ -181,7 +184,7 @@ impl Sink for RodioSink {
         self.follow_default(true);
         self.ensure_open()?;
         self.apply_volume();
-        if let Some(output) = &self.output {
+        if let Some(output) = &mut self.output {
             output.sink.play();
         }
         Ok(())
@@ -189,12 +192,14 @@ impl Sink for RodioSink {
 
     /// Never fails: librespot exits the process when a sink cannot stop.
     fn stop(&mut self) -> SinkResult<()> {
-        if let Some(output) = &self.output {
+        if let Some(output) = &mut self.output {
             let deadline = Instant::now() + DRAIN_TIMEOUT;
             while !output.sink.empty() && !output.failed() && Instant::now() < deadline {
                 thread::sleep(Duration::from_millis(10));
             }
             output.sink.pause();
+            output.fed = false;
+            output.last_write = None;
         }
         Ok(())
     }
@@ -216,11 +221,21 @@ impl Sink for RodioSink {
             Some(resampler) => resampler.process(&samples),
             None => samples,
         };
+        let now = Instant::now();
+        if output.fed && output.sink.empty() && !output.sink.is_paused() {
+            let late_ms = output
+                .last_write
+                .map(|last| now.duration_since(last).as_millis())
+                .unwrap_or(0);
+            log::warn!("audio queue ran dry; next packet arrived after {late_ms} ms");
+        }
         output.sink.append(rodio::buffer::SamplesBuffer::new(
             NUM_CHANNELS as rodio::ChannelCount,
             output.sample_rate as rodio::SampleRate,
             samples,
         ));
+        output.fed = true;
+        output.last_write = Some(now);
         // Let rodio drain a little; without this the whole track would be
         // decoded into memory at once.
         while output.sink.len() > QUEUE_LIMIT {
@@ -261,19 +276,25 @@ fn open_stream(
             builder
         })
     };
-    if let Ok(stream) = builder(SAMPLE_RATE, true)?.open_stream() {
+    // The fixed engine buffer addresses Windows shared-mode underruns (#88).
+    // CoreAudio, ALSA, PulseAudio, and PipeWire keep their proven
+    // driver-selected callback periods.
+    let fixed_buffer = cfg!(windows);
+    if let Ok(stream) = builder(SAMPLE_RATE, fixed_buffer)?.open_stream() {
         return Ok(stream);
     }
     if let Ok(config) = device.default_output_config()
-        && let Ok(stream) = builder(config.sample_rate().0, true)?.open_stream()
+        && let Ok(stream) = builder(config.sample_rate().0, fixed_buffer)?.open_stream()
     {
         return Ok(stream);
     }
     builder(SAMPLE_RATE, false)?.open_stream_or_fallback()
 }
 
-/// Gives the decoder thread precedence over ordinary application work so the
-/// bounded audio queue stays fed under load (#88).
+/// Raises the Windows decoder thread one step above normal to prevent queued
+/// audio from running out under load (#88).
+///
+/// Linux requires rtkit; CoreAudio owns its real-time callback on macOS.
 #[cfg(windows)]
 fn take_precedence() {
     use windows_sys::Win32::System::Threading::{
@@ -286,27 +307,7 @@ fn take_precedence() {
     }
 }
 
-/// `USER_INITIATED` is appropriate for work whose result the listener is
-/// actively waiting for. The CoreAudio callback has its own real-time thread;
-/// this only keeps the producer that feeds it ahead of background and UI work.
-#[cfg(target_os = "macos")]
-fn take_precedence() {
-    type QosClass = u32;
-    const QOS_CLASS_USER_INITIATED: QosClass = 0x19;
-
-    unsafe extern "C" {
-        fn pthread_set_qos_class_self_np(qos_class: QosClass, relative_priority: i32) -> i32;
-    }
-
-    // SAFETY: this changes only the calling thread's scheduling class. Zero is
-    // the documented relative priority for this QoS class.
-    let result = unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0) };
-    if result != 0 {
-        log::warn!("cannot give the audio decoder macOS playback QoS: error {result}");
-    }
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 fn take_precedence() {}
 
 /// Last default-output name, polled on a worker thread because Windows device
@@ -411,6 +412,8 @@ fn open_output(preferred: Option<&str>, buffer_ms: u32) -> Result<Output, OpenEr
         failed,
         sample_rate,
         resampler,
+        fed: false,
+        last_write: None,
     })
 }
 

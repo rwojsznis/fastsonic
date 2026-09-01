@@ -370,6 +370,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 },
             );
         }
+        #[cfg(windows)]
         widgets::setting_row(
             ui,
             &palette,

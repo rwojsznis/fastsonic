@@ -59,8 +59,8 @@ pub struct Settings {
     /// librespot backend name; `None` picks the platform default.
     pub audio_backend: Option<String>,
     pub audio_device: Option<String>,
-    /// Output buffer in milliseconds. Smaller values may click under load;
-    /// larger values delay playback controls.
+    /// Windows output buffer in milliseconds. Smaller values may click under
+    /// load; larger values delay playback controls.
     /// See [`crate::sink::DEFAULT_BUFFER_MS`].
     #[serde(default = "default_buffer_ms")]
     pub audio_buffer_ms: u32,

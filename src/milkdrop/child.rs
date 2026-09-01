@@ -377,12 +377,16 @@ impl Child {
         let Some(live) = &self.live else {
             return;
         };
-        let size = live.window.inner_size();
-        let size = [size.width as f32, size.height as f32];
+        let scale = live.window.scale_factor();
+        let size = live.window.inner_size().to_logical::<f32>(scale);
+        let size = [size.width, size.height];
         let pos = live
             .window
             .outer_position()
-            .map(|pos| [pos.x as f32, pos.y as f32])
+            .map(|pos| {
+                let pos = pos.to_logical::<f32>(scale);
+                [pos.x, pos.y]
+            })
             .unwrap_or([0.0, 0.0]);
         if self.reported != Some((pos, size)) {
             self.reported = Some((pos, size));
