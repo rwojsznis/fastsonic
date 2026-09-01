@@ -26,6 +26,11 @@ type Wake = Arc<dyn Fn() + Send + Sync>;
 /// How far a seek button without an amount moves.
 const SEEK_STEP_MS: i64 = 10_000;
 
+#[cfg(any(target_os = "macos", test))]
+fn should_claim_now_playing(claimed: bool, state: &MediaState) -> bool {
+    !claimed && state.track.is_some() && state.playback != Playback::Playing
+}
+
 fn command_for(event: MediaControlEvent, track_uri: &str) -> Option<MediaCommand> {
     let step = |direction: SeekDirection, ms: i64| match direction {
         SeekDirection::Forward => MediaCommand::SeekBy(ms),
@@ -59,6 +64,9 @@ struct Bridge {
     last: MediaState,
     /// The playing track, for a "set position" request to name.
     track_uri: Arc<std::sync::Mutex<String>>,
+    /// macOS routes media keys to the last active Now Playing owner. Merely
+    /// attaching handlers does not make an app that owner.
+    claimed: bool,
 }
 
 impl Bridge {
@@ -89,6 +97,7 @@ impl Bridge {
             controls,
             last: MediaState::default(),
             track_uri,
+            claimed: false,
         })
     }
 
@@ -119,8 +128,20 @@ impl Bridge {
                 log::debug!("media controls refused the metadata: {error}");
             }
         }
+        // A paused remembered track is useful: Play resumes it. macOS does
+        // not route the keyboard to newly attached handlers until their Now
+        // Playing centre has been active once, so establish ownership when
+        // that track arrives, then immediately publish its truthful state.
+        #[cfg(target_os = "macos")]
+        if should_claim_now_playing(self.claimed, &state) {
+            self.set_playback(Playback::Playing, state.position_ms);
+            self.claimed = true;
+        }
         if track_changed || state.playback != self.last.playback {
             self.set_playback(state.playback, state.position_ms);
+        }
+        if state.playback == Playback::Playing {
+            self.claimed = true;
         }
         self.last = state;
     }
@@ -140,6 +161,27 @@ impl Bridge {
         if let Err(error) = self.controls.set_playback(playback) {
             log::debug!("media controls refused the playback state: {error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_remembered_paused_track_claims_the_media_keys_once() {
+        let mut state = MediaState {
+            track: Some(crate::media::MediaTrack {
+                uri: "spotify:track:remembered".into(),
+                ..Default::default()
+            }),
+            playback: Playback::Paused,
+            ..Default::default()
+        };
+        assert!(should_claim_now_playing(false, &state));
+        assert!(!should_claim_now_playing(true, &state));
+        state.track = None;
+        assert!(!should_claim_now_playing(false, &state));
     }
 }
 
