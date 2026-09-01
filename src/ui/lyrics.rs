@@ -23,7 +23,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let panel = egui::Panel::right("lyrics-panel")
         .resizable(true)
         .default_size(app.settings.lyrics_width)
-        .size_range(280.0..=640.0)
+        .size_range(theme::SIDE_PANEL_MIN_WIDTH..=640.0)
         .show_separator_line(false)
         .frame(
             Frame::new()

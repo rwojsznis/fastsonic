@@ -1059,7 +1059,7 @@ mod tests {
         app.attach(&ctx);
         populate(&mut app);
         app.show_queue_panel = true;
-        app.settings.queue_width = crate::ui::queue::MIN_WIDTH;
+        app.settings.queue_width = crate::theme::SIDE_PANEL_MIN_WIDTH;
 
         // Where each piece of text was actually drawn.
         let mut placed: Vec<(String, f32)> = Vec::new();
@@ -1097,11 +1097,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{label} was never drawn: {placed:?}"))
                 .1
         };
-        let (queue, recents) = (at("Queue"), at("Recently played"));
+        let (queue, recents) = (at("Queue"), at("Recent"));
         assert!(
             (queue - recents).abs() < 1.0,
-            "both chips sit on one line at {} wide: Queue at {queue}, Recently played at {recents}",
-            crate::ui::queue::MIN_WIDTH
+            "both chips sit on one line at {} wide: Queue at {queue}, Recent at {recents}",
+            crate::theme::SIDE_PANEL_MIN_WIDTH
         );
         app.backend.shutdown();
     }
