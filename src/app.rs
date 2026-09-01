@@ -5647,6 +5647,7 @@ pub fn engine_config(
         autoplay: settings.autoplay,
         gapless: settings.gapless,
         backend: settings.platform_backend(),
+        buffer_ms: settings.audio_buffer_ms,
         audio_device: settings
             .audio_device
             .clone()
