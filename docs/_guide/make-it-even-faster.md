@@ -1,7 +1,7 @@
 ---
 title: Make It Even Faster
 description: "Use a personal Spotify app for a separate API quota."
-nav_order: 5
+nav_order: 6
 ---
 
 ## API rate limits

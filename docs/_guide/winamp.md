@@ -67,36 +67,3 @@ from the main window scroll through the mini player's text display.
 **EQ** opens the ten-band equalizer. It affects playback on this computer, not
 other Spotify Connect devices. The preamp ranges from -12 to 12 dB. **AUTO**
 resets all bands. The same controls and presets are in Settings.
-
-## MilkDrop
-
-Open MilkDrop from the top-bar visualiser button, the mini player's **V** menu,
-Ctrl+Shift+K, or Settings. It uses
-[projectM](https://github.com/projectM-visualizer/projectm) to play `.milk`
-presets in a separate process.
-
-Drag the image to move the window. Double-click or press **F** for fullscreen.
-Press **Esc** to leave fullscreen or close the window. Drag the lower-right
-corner to resize it.
-
-Presets change every ten seconds by default. Change the interval in Settings.
-MilkDrop also supports these keys:
-
-- **N** or right arrow: next preset.
-- **P** or left arrow: previous preset.
-- **H**: switch on the next beat.
-- **L**: keep the current preset.
-- **R**: switch between random and folder order.
-- **T**: show or hide the preset name.
-- **D**: show or hide the frame rate.
-- **I**: cycle the song display between a change notification, always visible,
-  and hidden.
-- **?** or **F1**: show all shortcuts.
-
-The normal playback shortcuts also work. MilkDrop uses the same post-equalizer,
-pre-volume audio as the other visualisers. It stays flat when another device is
-playing.
-
-Presets live in the config directory's `milkdrop` folder. Settings can download
-the 550 MilkDrop 2 presets and the 9,800-preset Cream of the Crop pack. Until a
-preset is installed, projectM shows its idle preset.

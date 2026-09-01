@@ -38,6 +38,11 @@ features:
     details: Ctrl+M opens a small player for classic Winamp 2 skins, with a spectrum analyser, equalizer, and playlist.
     link: /winamp/
     link_text: See it in action
+  - icon: 🌀
+    title: MilkDrop
+    details: Run projectM's MilkDrop visualiser in its own window, with fullscreen, preset packs, and keyboard controls.
+    link: /milkdrop/
+    link_text: Open the guide
   - icon: ⌨️
     title: Desktop controls
     details: Keyboard shortcuts, MPRIS media controls on Linux, and a tray option that keeps music playing after you close the window.

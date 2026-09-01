@@ -54,9 +54,9 @@ everyday use, and connection details.
   ![The mini player wearing the built-in skin](docs/assets/images/winamp.png)
 - **Equalizer.** Winamp's ten bands and presets over the music played on
   this computer, in Settings and in the skin.
-- **MilkDrop.** Winamp's visualiser, powered by
-  [projectM](https://github.com/projectM-visualizer/projectm), runs in a
-  separate window and process. It supports fullscreen and `.milk` presets.
+- **MilkDrop.** The visualiser, powered by
+  [projectM](https://github.com/projectM-visualizer/projectm), runs in its own
+  window and process. It supports fullscreen and `.milk` presets.
 - **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists
   them).
 - **Keeps playing when you close the window.** Fastpotify stays in the system
@@ -170,7 +170,7 @@ those things, and [CONTRIBUTING.md](CONTRIBUTING.md) prohibits them.
 | `Ctrl+H` / `Ctrl+L` | Home / Liked Songs |
 | `Ctrl+Shift+A` / `Ctrl+Shift+B` | Playing artist / album |
 | `Ctrl+M` | Winamp mini player |
-| `Ctrl+Shift+K` | MilkDrop, under the mini player |
+| `Ctrl+Shift+K` | MilkDrop |
 | `Ctrl+,` | Settings |
 | `Ctrl+/` or `?` | All shortcuts |
 | `Ctrl+Q` | Quit |

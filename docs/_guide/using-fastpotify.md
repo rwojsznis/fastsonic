@@ -141,6 +141,11 @@ and tracks without a transcription show an unavailable message.
 Ctrl+M (Cmd+Shift+M on macOS) opens the Winamp mini player. See the
 [Winamp guide](/winamp/) for skins and controls.
 
+## MilkDrop
+
+Ctrl+Shift+K opens the MilkDrop visualiser in a separate window. See the
+[MilkDrop guide](/milkdrop/) for presets and controls.
+
 ## The tray
 
 Closing the window keeps the music playing: Fastpotify stays in the system
