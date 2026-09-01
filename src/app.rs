@@ -127,6 +127,18 @@ impl Default for AppOptions {
     }
 }
 
+/// A song being listened to, and how much of it has really been heard.
+///
+/// `listened` is the stretches already finished; `playing_since` is when
+/// the current stretch began, and is `None` while paused, so paused time
+/// never counts towards a play.
+struct Listening {
+    uri: String,
+    listened: std::time::Duration,
+    playing_since: Option<Instant>,
+    recorded: bool,
+}
+
 pub struct App {
     pub dirs: AppDirs,
     pub settings: Settings,
@@ -207,7 +219,17 @@ pub struct App {
 
     pub library: Library,
     pub home: HomeData,
+    /// What was played here. Spotify never hears about it, so nothing
+    /// else can tell us later. See [`crate::history`].
+    pub plays: crate::history::History,
+    /// The song being listened to and how long for, so a play is written
+    /// down once it has really been listened to rather than skipped past.
+    listening: Option<Listening>,
     pub recents: crate::model::CursorList<crate::api::models::PlayHistory>,
+    /// The Recently played tab's rows: what was played here and what
+    /// Spotify knows of the other devices, as one list. Rebuilt when
+    /// either side changes rather than every frame.
+    pub recents_view: Vec<crate::api::models::PlayHistory>,
     pub recents_generation: u64,
     pub queue_tab: QueueTab,
     pub search: SearchState,
@@ -390,6 +412,7 @@ const GLIDE_STOP: f32 = 40.0;
 
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, settings: Settings, options: AppOptions) -> Self {
+        let plays = crate::history::History::load(&dirs.history_file());
         let tap = crate::vis::AudioTap::new();
         let eq = crate::eq::shared();
         if let Ok(mut shared) = eq.lock() {
@@ -481,7 +504,10 @@ impl App {
             window_title: String::new(),
             library: Library::default(),
             home: HomeData::default(),
+            plays,
+            listening: None,
             recents: crate::model::CursorList::default(),
+            recents_view: Vec::new(),
             recents_generation: 0,
             queue_tab: session
                 .queue_tab
@@ -574,6 +600,9 @@ impl App {
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
         };
         app.local.volume = app.settings.volume;
+        // What was played here is on disk and needs nothing from the
+        // network, so the tab has rows before Spotify has answered.
+        app.rebuild_recents();
         app
     }
 
@@ -3774,6 +3803,15 @@ impl App {
         }
     }
 
+    /// Puts the two histories together for the Recently played tab.
+    ///
+    /// Spotify is never told about a play made here, so what it knows and
+    /// what this app knows are two halves of the same list rather than
+    /// two versions of it. See [`crate::history`].
+    fn rebuild_recents(&mut self) {
+        self.recents_view = crate::history::merged(self.plays.plays(), &self.recents.items);
+    }
+
     /// Adds a page of play history to the Recents tab.
     ///
     /// A song played twice is two rows here, each with its own time: this
@@ -3818,6 +3856,7 @@ impl App {
         if !uris.is_empty() {
             self.request_contains(uris);
         }
+        self.rebuild_recents();
     }
 
     /// A random playable track of a context the app has rows for: the
@@ -4989,6 +5028,12 @@ impl App {
                     }
                 });
             }
+            Action::ClearPlayHistory => {
+                self.plays.clear();
+                self.plays.save(&self.dirs.history_file());
+                self.rebuild_recents();
+                self.toast("Play history cleared".to_string());
+            }
             Action::ClearArtCache => match self.backend.art().clear_disk_cache() {
                 Ok(bytes) => {
                     ctx.forget_all_images();
@@ -5286,6 +5331,7 @@ impl App {
         self.handle_media_commands();
         self.handle_tray();
         self.tick(ctx);
+        self.note_listening();
         // MilkDrop is a window of its own, in a child process; the app opens,
         // updates, and hears back from it here. This is the frame that runs
         // whether or not the main window exists, which is the point: the
@@ -5297,6 +5343,65 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls();
         self.sync_window_title(ctx);
+    }
+
+    /// Watches the playing song and writes it down once it has really
+    /// been listened to.
+    ///
+    /// The clock only runs while the song is actually playing, so a song
+    /// left paused never creeps up on the threshold, and it starts from
+    /// nothing when the song changes. Seeking forward buys nothing
+    /// either: what counts is time spent listening, not where the needle
+    /// sits. A song is written down once, when it crosses.
+    fn note_listening(&mut self) {
+        let Some(now) = self.now_playing() else {
+            self.listening = None;
+            return;
+        };
+        // A remembered song shown paused from the last session has not
+        // been played by anyone yet.
+        if now.resuming {
+            self.listening = None;
+            return;
+        }
+        let listening = match &mut self.listening {
+            Some(held) if held.uri == now.uri => held,
+            _ => {
+                self.listening = Some(Listening {
+                    uri: now.uri.clone(),
+                    listened: std::time::Duration::ZERO,
+                    playing_since: now.playing.then(Instant::now),
+                    recorded: false,
+                });
+                return;
+            }
+        };
+        match (now.playing, listening.playing_since) {
+            // Paused: bank the stretch that just ended and stop the clock,
+            // or the time spent paused would count as listening.
+            (false, Some(since)) => {
+                listening.listened += since.elapsed();
+                listening.playing_since = None;
+            }
+            (true, None) => listening.playing_since = Some(Instant::now()),
+            _ => {}
+        }
+        if listening.recorded {
+            return;
+        }
+        let listened = listening.listened
+            + listening
+                .playing_since
+                .map(|since| since.elapsed())
+                .unwrap_or_default();
+        if listened < crate::history::counts_after(now.duration_ms) {
+            return;
+        }
+        listening.recorded = true;
+        self.plays
+            .record(crate::history::played_track(&now), jiff::Timestamp::now());
+        self.plays.save(&self.dirs.history_file());
+        self.rebuild_recents();
     }
 
     /// The title bar carries the playing song, the way Spotify's does, so

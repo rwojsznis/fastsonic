@@ -843,6 +843,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
+            "Play history",
+            &format!(
+                "Spotify is never told what plays here, so Recently played keeps its own list, in {}. It is never sent anywhere.",
+                app.dirs.history_file().display()
+            ),
+            |ui| {
+                if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear history", false)
+                    .clicked()
+                {
+                    app.actions.push(Action::ClearPlayHistory);
+                }
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
             "Sign-in",
             &format!(
                 "Credentials are kept in {}",

@@ -110,6 +110,25 @@ menu starts Spotify's station for it and opens the queue, which is
 where the station lives. The full set of rules is in
 [The Queue's Rules](/queue/).
 
+### Recently played
+
+The panel's second tab lists what you have listened to, newest first.
+
+It comes from two places. Spotify records what its own apps play, so your
+phone and the official desktop client are in the list. It does not record
+what Fastpotify plays, because Spotify offers no way for a client like
+this one to tell it, so Fastpotify keeps its own list of what it played
+and shows both together.
+
+A song is added once you have listened to about half a minute of it, or
+half the song when the song is shorter than that, so skipping through a
+playlist does not fill the list up. Pausing stops the clock, and skipping
+ahead does not count.
+
+That list is a file on your computer, `history.json` beside the other
+settings, and it is never sent anywhere. Settings, Storage says where it
+is and has a **Clear history** button that empties it.
+
 ### Receivers on the local network
 
 A receiver running librespot or spotifyd, and some hardware speakers, appears

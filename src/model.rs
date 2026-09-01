@@ -692,6 +692,10 @@ pub enum Action {
     ShowWindow,
     HideWindow,
     ClearArtCache,
+    /// Forgets what was played here. The listening history is personal
+    /// and lives on this computer, so there has to be a way to be rid of
+    /// it.
+    ClearPlayHistory,
     /// Open or close the Winamp window.
     ToggleWinampWindow,
     /// Wear a skin from the skins folder, or the built-in one for `None`.

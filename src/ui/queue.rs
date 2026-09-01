@@ -1,6 +1,6 @@
 //! The playback queue, as a page or as a side panel.
 
-use egui::{Align, Frame, Layout, Margin, Stroke, Vec2, pos2};
+use egui::{Align, Frame, Layout, Margin};
 
 use crate::api::models::PlayableItem;
 use crate::app::App;
@@ -76,57 +76,22 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// The panel's two lists, on the same chips the library uses for its
+/// own shelves, so one row of buttons means the same thing everywhere.
 fn tabs(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let current = app.queue_tab;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 16.0;
-        for (tab, label) in [
+    let picked = widgets::chips(
+        ui,
+        &palette,
+        &[
             (QueueTab::Queue, "Queue"),
             (QueueTab::Recents, "Recently played"),
-        ] {
-            let active = current == tab;
-            let color = if active {
-                palette.text
-            } else {
-                palette.secondary
-            };
-            let font = if active {
-                theme::semibold(14.0)
-            } else {
-                theme::regular(14.0)
-            };
-            let galley = ui
-                .painter()
-                .layout_no_wrap(label.to_string(), font.clone(), color);
-            let size = galley.size() + Vec2::new(4.0, 6.0);
-            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-            if ui.is_rect_visible(rect) {
-                let pos = pos2(
-                    rect.center().x - galley.size().x / 2.0,
-                    rect.center().y - galley.size().y / 2.0,
-                );
-                ui.painter().galley(pos, galley, color);
-                if active {
-                    let y = rect.bottom() + 2.0;
-                    ui.painter()
-                        .hline(rect.x_range(), y, Stroke::new(2.0, palette.accent));
-                }
-                if response.hovered() && !active {
-                    let y = rect.bottom() + 2.0;
-                    ui.painter()
-                        .hline(rect.x_range(), y, Stroke::new(1.0, palette.outline));
-                }
-            }
-            if response
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-                && !active
-            {
-                app.actions.push(Action::SetQueueTab(tab));
-            }
-        }
-    });
+        ],
+        app.queue_tab,
+    );
+    if let Some(tab) = picked {
+        app.actions.push(Action::SetQueueTab(tab));
+    }
 }
 
 /// The queue, made permanent: a new playlist of the playing song and
@@ -269,8 +234,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
 
 fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    // Snapshot to avoid borrow issues while drawing.
-    let items = app.recents.items.clone();
+    // Snapshot to avoid borrow issues while drawing. The rows are both
+    // histories as one: what was played here, which Spotify is never told
+    // about, and what Spotify knows of every other device.
+    let items = app.recents_view.clone();
     let loading = app.recents.loading;
     let error = app.recents.error.clone();
     let complete = app.recents.complete;

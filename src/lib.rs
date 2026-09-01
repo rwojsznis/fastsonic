@@ -8,6 +8,7 @@ pub mod bidi;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
 pub mod eq;
+pub mod history;
 pub mod images;
 pub mod limiter;
 pub mod lyrics;
