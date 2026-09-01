@@ -167,6 +167,10 @@ pub struct Tapped {
     /// underneath applies it instead, also after the tap, which lets a
     /// turn of the knob be heard in sound already queued.
     applies_volume: bool,
+    /// The one thing in the chain that says "no louder", held here
+    /// because this is the last place that knows what the volume is
+    /// going to be. See [`crate::limiter`].
+    limiter: crate::limiter::Limiter,
     /// The playing track's normalisation factor, reported by the player;
     /// the tap undoes it so the picture shows the music, not the loudness
     /// housekeeping. Winamp's analyser compensated the same way.
@@ -188,34 +192,27 @@ impl Tapped {
             eq: crate::eq::Processor::new(eq),
             volume,
             applies_volume,
+            limiter: crate::limiter::Limiter::new(f64::from(SAMPLE_RATE)),
             normalisation,
         }
     }
 }
 
-/// Holds `samples` to full scale as it will be heard.
+/// Where full scale sits in the numbers `Tapped` is about to hand on.
 ///
-/// The equalizer works in floats and leaves its boosts whole, so a preamp
-/// at +12 dB really is four times the signal by the time it arrives here.
-/// Someone who asks for that at full volume gets what they asked for and
-/// it clips; the same boost three notches down has room and must not,
-/// which is the whole reason the ceiling waits until the volume is known.
-///
-/// `applied` says whether the volume has been multiplied in already. If it
-/// has, full scale is 1. If the sink underneath is going to multiply
-/// afterwards, the ceiling is the level that lands on 1 once it has, so a
-/// quarter volume passes four times the signal. Silence needs no ceiling:
-/// nothing survives being multiplied by zero.
-fn hold_to_full_scale(samples: &mut [f64], volume: f64, applied: bool) {
-    let ceiling = if applied {
-        1.0
+/// One when the volume has already been multiplied in. When the sink
+/// underneath is going to multiply afterwards, it is the level that lands
+/// on full scale once it has, so a quarter volume leaves room for four
+/// times the signal.
+fn full_scale(volume: f64, applied: bool) -> Option<f64> {
+    if applied {
+        Some(1.0)
     } else if volume > f64::EPSILON {
-        1.0 / volume
+        Some(1.0 / volume)
     } else {
-        return;
-    };
-    for sample in samples {
-        *sample = sample.clamp(-ceiling, ceiling);
+        // Multiplied by zero nothing survives, and there is no ceiling
+        // to speak of.
+        None
     }
 }
 
@@ -252,7 +249,9 @@ impl Sink for Tapped {
                         *sample *= attenuation;
                     }
                 }
-                hold_to_full_scale(&mut samples, attenuation, self.applies_volume);
+                if let Some(full_scale) = full_scale(attenuation, self.applies_volume) {
+                    self.limiter.process(&mut samples, full_scale);
+                }
                 AudioPacket::Samples(samples)
             }
             raw => raw,
@@ -661,49 +660,16 @@ mod tests {
         assert_eq!(scope_shade(15), 4);
     }
 
-    /// Full volume has no room to give: what is over full scale clips,
-    /// which is what someone asking for a +12 dB preamp asked for.
+    /// Rule: full scale is one when the volume is already in, and the
+    /// level that lands on one when the output has yet to apply it.
+    /// Getting this wrong would hold a quiet listener to a quarter of
+    /// what their speaker could have had. The limiting itself is
+    /// [`crate::limiter`]'s, and tested there.
     #[test]
-    fn full_volume_holds_the_signal_to_full_scale() {
-        let mut samples = vec![1.6, -1.6, 0.5];
-        hold_to_full_scale(&mut samples, 1.0, false);
-        assert_eq!(samples, vec![1.0, -1.0, 0.5]);
-    }
-
-    /// The same signal at half volume fits, and must arrive whole: the
-    /// output multiplies by a half after this and lands on full scale.
-    #[test]
-    fn a_boost_the_volume_leaves_room_for_survives() {
-        let mut samples = vec![1.6, -1.6];
-        hold_to_full_scale(&mut samples, 0.5, false);
-        assert_eq!(samples, vec![1.6, -1.6]);
-        // What the output will make of it, which is the point.
-        assert!(samples.iter().all(|sample| (sample * 0.5).abs() <= 1.0));
-    }
-
-    /// Past what even the volume leaves room for, the ceiling still holds,
-    /// at the level that lands on full scale once the volume is applied.
-    #[test]
-    fn past_the_volume_s_room_the_ceiling_still_holds() {
-        let mut samples = vec![8.0, -8.0];
-        hold_to_full_scale(&mut samples, 0.25, false);
-        assert_eq!(samples, vec![4.0, -4.0]);
-        assert!(samples.iter().all(|sample| (sample * 0.25).abs() <= 1.0));
-    }
-
-    /// When the volume has already been multiplied in, full scale is one.
-    #[test]
-    fn an_applied_volume_leaves_the_ceiling_at_one() {
-        let mut samples = vec![1.6, -0.4];
-        hold_to_full_scale(&mut samples, 0.5, true);
-        assert_eq!(samples, vec![1.0, -0.4]);
-    }
-
-    /// Silence needs no ceiling, and asking for one would divide by zero.
-    #[test]
-    fn silence_is_left_alone() {
-        let mut samples = vec![9.0, -9.0];
-        hold_to_full_scale(&mut samples, 0.0, false);
-        assert_eq!(samples, vec![9.0, -9.0]);
+    fn full_scale_follows_the_volume_still_to_come() {
+        assert_eq!(full_scale(0.5, true), Some(1.0), "already applied: one");
+        assert_eq!(full_scale(0.25, false), Some(4.0), "a quarter to come");
+        assert_eq!(full_scale(1.0, false), Some(1.0), "full volume to come");
+        assert_eq!(full_scale(0.0, false), None, "silence has no ceiling");
     }
 }

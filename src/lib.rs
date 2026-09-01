@@ -9,6 +9,7 @@ pub mod bidi;
 pub mod demo;
 pub mod eq;
 pub mod images;
+pub mod limiter;
 pub mod lyrics;
 #[cfg(target_os = "macos")]
 pub mod mac_menu;
