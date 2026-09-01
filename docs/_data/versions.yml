@@ -1,12 +1,8 @@
-current: v0.5.0-rc1
+current: v0.4.1
 items:
-  - id: v0.5.0-rc1
-    title: v0.5.0-rc1
-    url: /download/
   - id: v0.4.1
     title: v0.4.1
-    url: https://github.com/crmne/fastpotify/releases/tag/v0.4.1
-    external: true
+    url: /download/
   - title: Changelog
     url: https://github.com/crmne/fastpotify/releases
     external: true
