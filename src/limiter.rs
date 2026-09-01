@@ -43,6 +43,21 @@
 
 /// Where limiting is complete, under full scale. Room for the peaks
 /// between samples, which a resampler downstream can turn into real ones.
+///
+/// This and [`KNEE_DB`] also decide where this limiter meets librespot's.
+/// librespot has one of its own, for the gain volume normalisation adds,
+/// and it runs inside its player: upstream of the equalizer, the preamp
+/// and the volume, so it cannot see anything this crate does and is not
+/// a substitute for this one. It holds its output to about -2 dBFS
+/// (`normalisation_threshold_dbfs`), and unity here reaches exactly that
+/// far: threshold minus half the knee is -2 dB. So with normalisation
+/// on, a flat equalizer and full volume, what librespot hands over sits
+/// precisely at the foot of this knee and passes untouched, and this
+/// limiter only ever acts on gain added after librespot had its say.
+///
+/// That the two numbers meet is worth keeping. Moving either threshold
+/// or the knee without looking at the other puts two limiters on the
+/// same signal for no reason.
 const THRESHOLD_DB: f64 = -1.0;
 /// How far below the threshold gain reduction starts to come in. Under
 /// this the limiter is exactly unity, so ordinary music never meets it.
