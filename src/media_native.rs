@@ -164,27 +164,6 @@ impl Bridge {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_remembered_paused_track_claims_the_media_keys_once() {
-        let mut state = MediaState {
-            track: Some(crate::media::MediaTrack {
-                uri: "spotify:track:remembered".into(),
-                ..Default::default()
-            }),
-            playback: Playback::Paused,
-            ..Default::default()
-        };
-        assert!(should_claim_now_playing(false, &state));
-        assert!(!should_claim_now_playing(true, &state));
-        state.track = None;
-        assert!(!should_claim_now_playing(false, &state));
-    }
-}
-
 /// What the app sends to the controls' thread.
 #[cfg(windows)]
 enum Update {
@@ -415,5 +394,26 @@ impl MediaService {
         {
             act(bridge);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_remembered_paused_track_claims_the_media_keys_once() {
+        let mut state = MediaState {
+            track: Some(crate::media::MediaTrack {
+                uri: "spotify:track:remembered".into(),
+                ..Default::default()
+            }),
+            playback: Playback::Paused,
+            ..Default::default()
+        };
+        assert!(should_claim_now_playing(false, &state));
+        assert!(!should_claim_now_playing(true, &state));
+        state.track = None;
+        assert!(!should_claim_now_playing(false, &state));
     }
 }
