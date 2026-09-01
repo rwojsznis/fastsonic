@@ -1,11 +1,8 @@
 //! Album art: fetched once, kept on disk, decoded by egui on demand.
 //!
-//! [`ArtLoader`] plugs into egui's image pipeline as a bytes loader for
-//! `http(s)` URIs, so every view simply asks for `ui.image(url)`. The first
-//! request for a URL starts a background download (or a disk-cache read);
-//! until it lands egui shows a placeholder. Entries that no view has drawn
-//! for a while are evicted so a long browsing session does not accumulate
-//! textures without bound.
+//! [`ArtLoader`] handles `http(s)` URIs in egui's image pipeline. The first
+//! request starts a background download or disk-cache read. A size limit keeps
+//! long sessions from retaining unlimited textures.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,20 +12,13 @@ use std::time::Instant;
 use egui::load::{Bytes, BytesLoadResult, BytesLoader, BytesPoll, LoadError};
 use sha1::{Digest, Sha1};
 
-/// How much artwork to hold before letting the oldest of it go.
+/// Maximum artwork bytes held in memory.
 ///
-/// This used to be a stopwatch: anything not asked for in two and a half
-/// minutes was dropped. The trouble is what "asked for" means here. egui
-/// asks a bytes loader for an image once, turns it into a texture, and
-/// from then on draws from the texture without ever asking again. So the
-/// clock never restarted for a picture sitting in plain sight, and every
-/// two and a half minutes the whole page of covers was thrown away and
-/// fetched back: the window blinked empty and filled in again, over and
-/// over, for as long as it was open (#129).
+/// Time-based eviction does not work here: after creating a texture, egui no
+/// longer requests its source bytes. Visible images were therefore evicted and
+/// reloaded every two and a half minutes (#129).
 ///
-/// Size is the honest measure anyway. Nothing is dropped until there is
-/// a real amount of it, which a normal evening of listening never
-/// reaches, so nothing blinks.
+/// Size-based eviction keeps visible images stable.
 const HELD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ART_BYTES: usize = 8 * 1024 * 1024;
 
@@ -71,9 +61,7 @@ impl ArtLoader {
         self.inner.fetch(url).await
     }
 
-    /// Lets go of the oldest artwork once there is more of it than the
-    /// budget allows, and of anything that failed, so a long session does
-    /// not gather pictures without end.
+    /// Evicts failed entries and the oldest artwork above the memory limit.
     pub fn evict(&self, ctx: &egui::Context) {
         let letting_go: Vec<String> = {
             let entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -81,8 +69,7 @@ impl ArtLoader {
             let mut held: Vec<(String, Instant, usize)> = Vec::new();
             for (url, entry) in entries.iter() {
                 match entry {
-                    // A failure is worth another try later, and costs
-                    // nothing to forget.
+                    // Forget failures so a later request can retry.
                     Entry::Failed(_) => failed.push(url.clone()),
                     Entry::Ready { bytes, last_used } => {
                         held.push((url.clone(), *last_used, bytes.len()))

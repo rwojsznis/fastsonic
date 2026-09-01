@@ -1,10 +1,7 @@
 //! The app's side of the MilkDrop child process.
 //!
-//! `Host` spawns the child (this same binary with `--milkdrop-child`),
-//! points the audio tap at a shared-memory ring the child reads, sends it
-//! settings and a close on its stdin, and reads back on its stdout where the
-//! window sits and when it closes. It hides all of that behind open/close and
-//! a per-frame poll, so the app treats MilkDrop like any other window.
+//! `Host` starts this binary with `--milkdrop-child`, connects the audio tap to
+//! shared memory, sends settings over stdin, and reads window state from stdout.
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};

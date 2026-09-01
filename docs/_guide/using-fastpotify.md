@@ -15,43 +15,34 @@ The player bar shows what is playing locally or on another device. Click the
 title to open its album, the artist name to open the artist, or the heart to
 save the track.
 
-When you start Fastpotify and nothing is playing anywhere, the player bar
-shows the song the last session ended on, paused at the second it stopped at.
-Press play and it carries on from there rather than starting the song again.
-The rest of the transport works from that standstill too: next and previous
-step through the playlist it was left in without starting anything, previous
-restarts the song when it is more than a few seconds in, and dragging the
-progress bar moves where play will resume from.
+If nothing is playing when Fastpotify starts, the player bar shows the last
+song at its saved position. Press play to resume. Next, previous, and seek also
+work before playback starts.
 
-Music played on this computer follows the system's default output: plug in
-headphones, connect a Bluetooth speaker, or pick another device in the sound
-settings, and playback moves there within a couple of seconds.
+Local playback uses the system's default audio output. Change the output in
+your system sound settings.
 
 ## Home
 
 Home previews your most-played songs. Select **Your top songs** or **Show
 more top songs** to open the complete ranked list.
 
-Track tables sort by their column headings: click **Title**, **Album**,
-**Date added**, or the clock to sort by it, again to reverse, and a third
-time to return to the list's own order. Recent additions say how long ago
-they were added; entries at least a month old show their calendar date.
+Click a track-table heading to sort by it. Click again to reverse the order,
+and a third time to restore the original order. Recent additions show relative
+dates; entries at least a month old show calendar dates.
 
 ![A playlist showing relative dates for recent additions](/assets/images/date-added-relative-demo.png)
 
 ## Your Library
 
-Pinned entries sit in a block right under Liked Songs: pin one from its
-context menu, drag a row into the block to pin it where you drop it,
-drag within the block to reorder it, and drag a pinned row below the
-block to unpin it.
+Pinned entries appear below Liked Songs. Pin one from its context menu, drag
+it into the pinned group, or drag it out to unpin it. Drag pinned entries to
+reorder them.
 
-Below the pins, the sidebar starts out sorting playlists by when you
-last played them. Drag one to a new place and the rest of the shelf
-switches to your own order instead: rows stay exactly where you drop
-them, and new playlists wait just under the pins until you place them.
-Choose **Sort by recently played** from any playlist's context menu to
-go back; dragging a row switches to your own order again.
+By default, the sidebar sorts playlists by when you last played them. Drag a
+playlist to switch to a custom order. New playlists appear below the pinned
+group. Choose **Sort by recently played** from a playlist's context menu to
+restore the default order.
 
 The Albums, Artists, and Podcasts shelves pin the same way: drag into
 the block, within it, or below it.
@@ -60,26 +51,20 @@ Use the chips to filter the sidebar by Playlists, Albums, Artists, or Podcasts,
 or use the magnifier to search it. Liked Songs stays at the top. The current
 page is highlighted, and the playing playlist has a small speaker icon.
 
-**Playlists you own** are fully editable: create one with the **+** button,
-add songs from any row's menu or by dragging them onto a playlist in the
-sidebar, remove and reorder from the playlist page, and rename or delete
-from its context menu. Reordering works by dragging a row to its new
-place, or from its menu; while the table is sorted or filtered, rows
-keep their place. Dropping a song on Liked Songs saves it. Playlists
-you follow can be followed and unfollowed.
+You can create and edit your own playlists. Add songs from a row menu or drag
+them to a playlist in the sidebar. Remove and reorder songs on the playlist
+page. Rename or delete a playlist from its context menu. Reordering is disabled
+while the table is sorted or filtered. Drop a song on Liked Songs to save it.
 
 ### Picking out several songs
 
-On a playlist, album, or Liked Songs, click a song once to pick it out.
-Ctrl-click (Cmd-click on macOS) adds another, and shift-click takes
-everything between it and the last one you picked on its own. Right-click
-any of them and the menu acts on the whole set: play them all next, save
-or remove them all, or add them all to a playlist. Escape lets them go,
-and so does clicking a single picked song again.
+On a playlist, album, or Liked Songs, click a song to select it. Ctrl-click
+(Cmd-click on macOS) adds another. Shift-click selects a range. Right-click a
+selected song to act on the whole selection: play next, save, remove, or add
+to a playlist. Press Escape to clear the selection.
 
-Picking songs does not play anything: double-click a song, or click its
-number, to play as before. Sorting or filtering the list lets the picked
-songs go, since the rows are no longer the ones you picked.
+Selecting songs does not play them. Double-click a song or click its number
+to play it. Sorting or filtering clears the selection.
 
 ## Search
 
@@ -94,40 +79,31 @@ your account. Click one and the music moves there mid-song; the same
 controls keep working. "Playing on …" in the top bar reminds you when sound
 is coming out of something across the room.
 
-The queue lives behind the list icon, as a side panel or a full page.
-*Play next* in a row's context menu queues a song. Songs you queued sit
-on top under *Playing next* and play first; the playlist or album you
-were listening to carries on underneath, under *Next up*. Point at a
-song and press the play button on its cover (or double-click it) to
-jump straight to it, and the trash icon beside *Playing next* clears
-what you queued while the playlist carries on. Clearing works when this
-computer is the player; Spotify offers no way to empty another device's
-queue from afar. Closing the app keeps the queue; it is back as you left it on
-the next start. The list-plus icon saves the queue as a new playlist of
-yours, each song once, in playing order; a song radio you like becomes
-a playlist named after its song. *Go to song radio* in a song's context
-menu starts Spotify's station for it and opens the queue, which is
-where the station lives. The full set of rules is in
+The list icon opens the queue as a side panel or full page. Choose *Play next*
+from a row's context menu to add a song. Your songs appear under *Playing
+next*, before the current playlist or album under *Next up*. Double-click a
+song to jump to it. The trash icon clears the songs you added, but only when
+this computer is playing. Spotify does not let Fastpotify clear another
+device's queue.
+
+Fastpotify saves the queue when it closes. The list-plus icon saves it as a
+new playlist with duplicate songs removed. *Go to song radio* starts a Spotify
+station and opens its queue. The full rules are in
 [The Queue's Rules](/queue/).
 
 ### Recent
 
 The panel's second tab lists what you have listened to, newest first.
 
-It comes from two places. Spotify records what its own apps play, so your
-phone and the official desktop client are in the list. It does not record
-what Fastpotify plays, because Spotify offers no way for a client like
-this one to tell it, so Fastpotify keeps its own list of what it played
-and shows both together.
+The list combines Spotify's history with Fastpotify's local history. Spotify
+does not record tracks played through third-party clients, so Fastpotify saves
+those tracks itself.
 
-A song is added once you have listened to about half a minute of it, or
-half the song when the song is shorter than that, so skipping through a
-playlist does not fill the list up. Pausing stops the clock, and skipping
-ahead does not count.
+A song is added after about 30 seconds, or halfway through a shorter song.
+Paused time and seeking do not count.
 
-That list is a file on your computer, `history.json` beside the other
-settings, and it is never sent anywhere. Settings, Storage says where it
-is and has a **Clear history** button that empties it.
+The local list is stored in `history.json` and is never uploaded. Settings →
+Storage shows its location and has a **Clear history** button.
 
 ### Receivers on the local network
 
@@ -135,11 +111,10 @@ A receiver running librespot or spotifyd, and some hardware speakers, appears
 in Spotify's device list only after it has received an account credential.
 Before then, the Web API cannot see it.
 
-Fastpotify searches the local network when you open the device picker. It
-lists discovered receivers as *on your network*. Choose one to send it the
-stored playback credential, encrypted so that only that receiver can read it.
-Once connected, it appears as an ordinary Spotify Connect device and playback
-moves to it.
+Fastpotify searches the local network when you open the device picker.
+Discovered receivers are marked *on your network*. Select one to send it the
+stored playback credential. The credential is encrypted for that receiver.
+After connecting, it appears as a Spotify Connect device.
 
 This uses the credential stored for playing on this computer, so enable
 playback here first (see [Getting Started](/getting-started/)). Receivers
@@ -148,9 +123,8 @@ that ask for a different kind of login are not connected this way yet.
 ## Lyrics
 
 The microphone button in the player bar (or `L`) opens lyrics for the playing
-track beside the page. For timed lyrics, the current line is
-highlighted and the panel scrolls automatically; click a line to seek to it.
-Manual scrolling pauses automatic following, and **Follow** resumes it.
+track. Timed lyrics scroll with the song and highlight the current line. Click
+a line to seek. Manual scrolling pauses this; **Follow** starts it again.
 Fastpotify requests lyrics from Spotify when local playback is authorized.
 Otherwise, or when Spotify has no lyrics for a track, it uses
 [LRCLIB](https://lrclib.net), an open database that needs no account. Podcasts
@@ -160,8 +134,8 @@ and tracks without a transcription show an unavailable message.
 
 ## The Winamp mini player
 
-Ctrl+M (Cmd+Shift+M on macOS) turns Fastpotify into a small player that
-wears classic Winamp skins. It has [a page of its own](/winamp/).
+Ctrl+M (Cmd+Shift+M on macOS) opens the Winamp mini player. See the
+[Winamp guide](/winamp/) for skins and controls.
 
 ## The tray
 
@@ -173,9 +147,7 @@ media keys, and your desktop's players widget working the whole time.
 
 ## One window, one instance
 
-Starting Fastpotify while it is already running brings the existing window
-forward instead of opening a second instance. This avoids duplicate Spotify
-Connect devices and conflicting media-key handlers.
+Starting Fastpotify again brings the existing window forward.
 
 ## Keyboard shortcuts
 
@@ -203,20 +175,13 @@ On macOS, `Cmd` replaces `Ctrl`.
 
 ## Settings
 
-Settings (Ctrl+,) includes the Connect device name, audio quality up to
-320 kbps, volume normalisation, autoplay, gapless playback, the audio backend
-on Linux, the output buffer, the audio cache size, the equalizer, themes,
-album-art tinting,
-compact views of the sidebar and of track lists (Spotify's compact views:
-names only, one line a row, no covers),
-the mini player's skin and size, and close-to-tray behaviour. Applying playback settings restarts the local player. Other
-settings take effect immediately.
+Settings (Ctrl+,) includes playback, audio, appearance, Winamp, MilkDrop,
+equalizer, storage, and update options. Playback changes need a local-player
+restart. Other settings apply immediately.
 
 ### Output buffer
 
-**Output buffer** is how much sound Fastpotify hands the speaker at a time.
-The default of 100 ms suits every machine we know of. Raise it to 200 ms if
-you hear clicks or crackles while something else is busy on the computer,
-and lower it to 50 ms if you want pause and skip to answer a fraction sooner.
-It applies when you press **Apply and restart playback**, and a device that
-cannot manage the size you pick is given the nearest one it can.
+The **Output buffer** controls how much audio Fastpotify sends at once. The
+default is 100 ms. Try 200 ms if you hear clicks or crackles. Use 50 ms for
+faster pause and skip response. Press **Apply and restart playback** after
+changing it. Unsupported values use the nearest available size.
