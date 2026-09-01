@@ -11,10 +11,6 @@ playlist to switch to a custom order. New playlists appear below the pinned
 group. Choose **Sort by recently played** from a playlist's context menu to
 restore the default order.
 
-Spotify playlist folders appear in the sidebar when it uses the default order.
-Click a folder to fold it closed or open it again. Fastpotify remembers which
-folders are closed. Filtering or setting a custom order shows a flat list.
-
 ## Recent
 
 The queue panel's second tab combines Spotify's history with tracks played

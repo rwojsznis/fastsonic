@@ -28,8 +28,7 @@ everyday use, and connection details.
   and supported hardware receivers over mDNS. Once connected, they appear as
   Spotify Connect devices.
 - **Library.** Browse playlists, Liked Songs, saved albums, followed artists,
-  podcasts, and saved episodes. Spotify playlist folders appear in the sidebar
-  and can be folded closed. Filter, pin, and reorder sidebar items.
+  podcasts, and saved episodes. Filter, pin, and reorder sidebar items.
 - **Search** across songs, artists, albums, playlists, podcasts, and episodes,
   with a top result and per-type views.
 - **Home** with Made for you, Recently played, your top artists and songs, and
