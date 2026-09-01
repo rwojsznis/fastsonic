@@ -253,6 +253,34 @@ impl<T> PagedList<T> {
 
 type Page_<T> = crate::api::models::Page<T>;
 
+/// Which rows of a track table are picked out, so several songs can be
+/// queued, saved, or added to a playlist in one go.
+///
+/// Held by the page they belong to. Leaving a page and coming back does
+/// not carry the old set back with it, and a table whose rows moved
+/// underneath (a sort, a filter, a page of rows arriving) drops it,
+/// because a row number means nothing once the order has changed.
+#[derive(Clone, Debug, Default)]
+pub struct RowSelection {
+    pub rows: std::collections::BTreeSet<usize>,
+    /// The row a shift-click measures from: the last one picked on its
+    /// own, the way every list on every desktop does it.
+    pub anchor: Option<usize>,
+}
+
+/// What a click on a row body asked for. A plain click on a row is
+/// otherwise nothing (playing is a double-click, or a click on the play
+/// control), which is what leaves room for this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowPick {
+    /// Just this row, dropping whatever was picked before.
+    Only,
+    /// Add this row to the set, or take it back out.
+    Toggle,
+    /// Everything from the anchor to here.
+    Range,
+}
+
 /// A cursor-paginated list (followed artists).
 #[derive(Clone, Debug)]
 pub struct CursorList<T> {
@@ -582,6 +610,17 @@ pub enum Action {
         label: String,
     },
     ToggleSaved(String),
+    /// Queue several songs at once, in the order they are given, with one
+    /// word about it rather than one per song.
+    QueueMany {
+        songs: Vec<(String, String)>,
+    },
+    /// Save or unsave several songs at once. Not a toggle: with some
+    /// saved and some not, nobody could say what a toggle would do.
+    SetSavedMany {
+        uris: Vec<String>,
+        saved: bool,
+    },
     AddToPlaylist {
         playlist_id: String,
         playlist_name: String,

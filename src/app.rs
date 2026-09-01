@@ -324,6 +324,11 @@ pub struct App {
     /// When the last scroll event arrived, for lifts nobody announces.
     scroll_last_event: Option<Instant>,
     /// How each table is sorted, per page, for as long as the app runs.
+    /// The rows picked out in a track table, and the page they belong to.
+    /// One table at a time: picking rows on another page replaces it.
+    /// The page it belongs to, what that page's list looked like when the
+    /// rows were picked, and the rows.
+    pub selection: Option<(Page, String, RowSelection)>,
     pub table_sorts: HashMap<Page, TableSort>,
     /// User ids resolved to display names; `None` while unknown, so an id
     /// is asked about only once per run.
@@ -547,6 +552,7 @@ impl App {
             scroll_accum: egui::Vec2::ZERO,
             glide: None,
             scroll_last_event: None,
+            selection: None,
             table_sorts: session
                 .sorts
                 .iter()
@@ -4332,6 +4338,14 @@ impl App {
     /// queued and before the playing context's own, and the backend makes
     /// it true behind it.
     fn add_to_queue(&mut self, uri: String, label: String) {
+        self.queue_one(uri, label, true);
+    }
+
+    /// Puts one song at the end of what was queued by hand.
+    ///
+    /// `announce` is off when several are queued together, so a run of
+    /// twelve songs says so once instead of twelve times.
+    fn queue_one(&mut self, uri: String, label: String, announce: bool) {
         // A double-click is one wish; a deliberate second ask is a second
         // row, the way Spotify queues the same song twice.
         self.expire_pending_queue_adds();
@@ -4355,7 +4369,9 @@ impl App {
             self.manual_queue.remove(0);
         }
         self.session_dirty = true;
-        self.toast(format!("{label} will play next"));
+        if announce {
+            self.toast(format!("{label} will play next"));
+        }
         // This computer's playing engine queues directly: no round trip
         // through the Web API, no device for it to fail to find. Anything
         // else, and any album, goes the long way.
@@ -4669,6 +4685,24 @@ impl App {
             }
             Action::SetRepeat(mode) => self.set_repeat(mode),
             Action::AddToQueue { uri, label } => self.add_to_queue(uri, label),
+            Action::QueueMany { songs } => {
+                let count = songs.len();
+                for (uri, label) in songs {
+                    self.queue_one(uri, label, false);
+                }
+                self.toast(match count {
+                    1 => "1 song will play next".to_string(),
+                    count => format!("{count} songs will play next"),
+                });
+            }
+            Action::SetSavedMany { uris, saved } => {
+                for uri in &uris {
+                    self.saved.insert(uri.clone(), saved);
+                }
+                if !uris.is_empty() {
+                    self.backend.api(ApiRequest::SetSaved { uris, saved });
+                }
+            }
             Action::ToggleSaved(uri) => {
                 let saved = self.saved.get(&uri).copied().unwrap_or(false);
                 self.set_saved(uri, !saved);
@@ -5143,6 +5177,86 @@ impl App {
     }
 
     /// Playlists the signed-in user can add to.
+    /// The rows picked out on `page`, if any are.
+    pub fn picked_rows(&self, page: &Page) -> Option<&std::collections::BTreeSet<usize>> {
+        self.selection
+            .as_ref()
+            .filter(|(owner, _, _)| owner == page)
+            .map(|(_, _, selection)| &selection.rows)
+            .filter(|rows| !rows.is_empty())
+    }
+
+    /// Lets the picked rows go unless `page` still looks the way it did
+    /// when they were picked. A row number means one song in one list;
+    /// sort it, filter it, or let another page of songs arrive, and the
+    /// same number is a different song.
+    pub fn keep_picked_rows_for(&mut self, page: &Page, view: &str) {
+        let stale = self
+            .selection
+            .as_ref()
+            .is_some_and(|(owner, seen, _)| owner == page && seen != view);
+        if stale {
+            self.selection = None;
+        }
+    }
+
+    /// Acts on a click on a row body: picks it out on its own, adds it to
+    /// what is already picked, or takes in everything back to the anchor.
+    ///
+    /// `len` is how many rows the table has, so a range cannot reach past
+    /// its end when rows have gone since the anchor was set.
+    pub fn pick_row(&mut self, page: &Page, view: &str, row: usize, pick: RowPick, len: usize) {
+        let mut selection = match self.selection.take() {
+            Some((owner, seen, selection)) if owner == *page && seen == view => selection,
+            _ => RowSelection::default(),
+        };
+        match pick {
+            RowPick::Only => {
+                // Clicking a row already picked out on its own lets it go,
+                // so there is a way back to nothing without hunting for
+                // empty space.
+                let only_this = selection.rows.len() == 1 && selection.rows.contains(&row);
+                selection.rows.clear();
+                if only_this {
+                    selection.anchor = None;
+                } else {
+                    selection.rows.insert(row);
+                    selection.anchor = Some(row);
+                }
+            }
+            RowPick::Toggle => {
+                if !selection.rows.remove(&row) {
+                    selection.rows.insert(row);
+                }
+                selection.anchor = Some(row);
+            }
+            RowPick::Range => {
+                // With nothing to measure from, a shift-click is a plain
+                // one, which is what a list with no selection yet does.
+                let anchor = selection.anchor.unwrap_or(row);
+                let (from, to) = if anchor <= row {
+                    (anchor, row)
+                } else {
+                    (row, anchor)
+                };
+                selection.rows.clear();
+                selection.rows.extend((from..=to).filter(|row| *row < len));
+                selection.anchor = Some(anchor);
+            }
+        }
+        if selection.rows.is_empty() {
+            self.selection = None;
+        } else {
+            self.selection = Some((page.clone(), view.to_string(), selection));
+        }
+    }
+
+    /// Lets every row go. The rows underneath moved, or the listener
+    /// pressed Escape, or they went somewhere else.
+    pub fn clear_picked_rows(&mut self) {
+        self.selection = None;
+    }
+
     pub fn editable_playlists(&self) -> Vec<(String, String)> {
         let Some(user_id) = self.user_id() else {
             return Vec::new();
@@ -6266,6 +6380,97 @@ mod tests {
         );
         app.manual_queue.clear();
         assert_eq!(app.queued_rows_len(), 0);
+    }
+
+    fn picked(app: &App, page: &Page) -> Vec<usize> {
+        app.picked_rows(page)
+            .map(|rows| rows.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    /// Rule: a plain click picks one row and drops the rest; clicking the
+    /// one already picked on its own lets it go, so there is a way back
+    /// to nothing without hunting for empty space.
+    #[test]
+    fn a_plain_click_picks_one_row_and_a_second_lets_it_go() {
+        let mut app = test_app("pick-one");
+        let page = Page::LikedSongs;
+        app.pick_row(&page, "v", 3, RowPick::Only, 10);
+        assert_eq!(picked(&app, &page), vec![3]);
+        app.pick_row(&page, "v", 5, RowPick::Only, 10);
+        assert_eq!(picked(&app, &page), vec![5], "the first one is dropped");
+        app.pick_row(&page, "v", 5, RowPick::Only, 10);
+        assert!(picked(&app, &page).is_empty(), "clicking it again lets go");
+    }
+
+    /// Rule: ctrl-click adds and removes one row at a time.
+    #[test]
+    fn ctrl_click_adds_and_removes_one_row() {
+        let mut app = test_app("pick-toggle");
+        let page = Page::LikedSongs;
+        app.pick_row(&page, "v", 1, RowPick::Only, 10);
+        app.pick_row(&page, "v", 4, RowPick::Toggle, 10);
+        app.pick_row(&page, "v", 7, RowPick::Toggle, 10);
+        assert_eq!(picked(&app, &page), vec![1, 4, 7]);
+        app.pick_row(&page, "v", 4, RowPick::Toggle, 10);
+        assert_eq!(
+            picked(&app, &page),
+            vec![1, 7],
+            "the same click takes it out"
+        );
+    }
+
+    /// Rule: shift-click takes everything back to the last row picked on
+    /// its own, in either direction, and never past the end of the list.
+    #[test]
+    fn shift_click_takes_the_run_back_to_the_anchor() {
+        let mut app = test_app("pick-range");
+        let page = Page::LikedSongs;
+        app.pick_row(&page, "v", 2, RowPick::Only, 10);
+        app.pick_row(&page, "v", 5, RowPick::Range, 10);
+        assert_eq!(picked(&app, &page), vec![2, 3, 4, 5]);
+        // Back the other way, from the same anchor.
+        app.pick_row(&page, "v", 0, RowPick::Range, 10);
+        assert_eq!(picked(&app, &page), vec![0, 1, 2]);
+        // A list that has since shrunk cannot be reached past its end.
+        app.pick_row(&page, "v", 9, RowPick::Range, 4);
+        assert_eq!(picked(&app, &page), vec![2, 3]);
+    }
+
+    /// Rule: with nothing picked yet, a shift-click is a plain one.
+    #[test]
+    fn shift_click_with_no_anchor_picks_one_row() {
+        let mut app = test_app("pick-no-anchor");
+        let page = Page::LikedSongs;
+        app.pick_row(&page, "v", 6, RowPick::Range, 10);
+        assert_eq!(picked(&app, &page), vec![6]);
+    }
+
+    /// Rule: rows belong to the list they were picked in. Sorting it,
+    /// filtering it, or another page of songs arriving lets them go,
+    /// because row four is a different song afterwards.
+    #[test]
+    fn the_rows_let_go_when_the_list_moves_underneath() {
+        let mut app = test_app("pick-stale");
+        let page = Page::LikedSongs;
+        app.pick_row(&page, "by-name|", 3, RowPick::Only, 10);
+        app.keep_picked_rows_for(&page, "by-name|");
+        assert_eq!(picked(&app, &page), vec![3], "the same list keeps them");
+        app.keep_picked_rows_for(&page, "by-date|");
+        assert!(picked(&app, &page).is_empty(), "a re-sort lets them go");
+    }
+
+    /// Rule: one table at a time. Picking rows somewhere else replaces
+    /// what was picked, and the old page has nothing picked.
+    #[test]
+    fn picking_rows_on_another_page_replaces_the_first() {
+        let mut app = test_app("pick-other-page");
+        let liked = Page::LikedSongs;
+        let album = Page::Album("a".to_string());
+        app.pick_row(&liked, "v", 1, RowPick::Only, 10);
+        app.pick_row(&album, "v", 2, RowPick::Only, 10);
+        assert_eq!(picked(&app, &album), vec![2]);
+        assert!(picked(&app, &liked).is_empty());
     }
 
     fn test_app(name: &str) -> App {

@@ -217,6 +217,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 compact,
                 thin: false,
                 shift: 0.0,
+                picked: false,
+                picked_songs: &[],
             },
         );
         ui.add_space(14.0);
@@ -339,6 +341,8 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
                 compact: true,
                 thin: false,
                 shift: 0.0,
+                picked: false,
+                picked_songs: &[],
             },
         );
     });
@@ -388,6 +392,8 @@ fn queue_row(
             compact,
             thin: false,
             shift: 0.0,
+            picked: false,
+            picked_songs: &[],
         },
     );
 }

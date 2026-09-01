@@ -68,6 +68,19 @@ place, or from its menu; while the table is sorted or filtered, rows
 keep their place. Dropping a song on Liked Songs saves it. Playlists
 you follow can be followed and unfollowed.
 
+### Picking out several songs
+
+On a playlist, album, or Liked Songs, click a song once to pick it out.
+Ctrl-click (Cmd-click on macOS) adds another, and shift-click takes
+everything between it and the last one you picked on its own. Right-click
+any of them and the menu acts on the whole set: play them all next, save
+or remove them all, or add them all to a playlist. Escape lets them go,
+and so does clicking a single picked song again.
+
+Picking songs does not play anything: double-click a song, or click its
+number, to play as before. Sorting or filtering the list lets the picked
+songs go, since the rows are no longer the ones you picked.
+
 ## Search
 
 Ctrl+F (or `/`) focuses search from anywhere. Results are grouped into top
