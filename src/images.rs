@@ -71,9 +71,9 @@ impl ArtLoader {
         self.inner.fetch(url).await
     }
 
-    /// Lets go of the oldest artwork once there is more of it than
-    /// [`HELD_BYTES`], and of anything that failed, so a long session
-    /// does not gather pictures without end.
+    /// Lets go of the oldest artwork once there is more of it than the
+    /// budget allows, and of anything that failed, so a long session does
+    /// not gather pictures without end.
     pub fn evict(&self, ctx: &egui::Context) {
         let letting_go: Vec<String> = {
             let entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
