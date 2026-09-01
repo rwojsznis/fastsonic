@@ -272,10 +272,8 @@ fn open_stream(
     builder(SAMPLE_RATE, false)?.open_stream_or_fallback()
 }
 
-/// Raises the Windows decoder thread one step above normal to prevent queued
-/// audio from running out under load (#88).
-///
-/// Linux requires rtkit for this; macOS would require a QoS class.
+/// Gives the decoder thread precedence over ordinary application work so the
+/// bounded audio queue stays fed under load (#88).
 #[cfg(windows)]
 fn take_precedence() {
     use windows_sys::Win32::System::Threading::{
@@ -288,7 +286,27 @@ fn take_precedence() {
     }
 }
 
-#[cfg(not(windows))]
+/// `USER_INITIATED` is appropriate for work whose result the listener is
+/// actively waiting for. The CoreAudio callback has its own real-time thread;
+/// this only keeps the producer that feeds it ahead of background and UI work.
+#[cfg(target_os = "macos")]
+fn take_precedence() {
+    type QosClass = u32;
+    const QOS_CLASS_USER_INITIATED: QosClass = 0x19;
+
+    unsafe extern "C" {
+        fn pthread_set_qos_class_self_np(qos_class: QosClass, relative_priority: i32) -> i32;
+    }
+
+    // SAFETY: this changes only the calling thread's scheduling class. Zero is
+    // the documented relative priority for this QoS class.
+    let result = unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0) };
+    if result != 0 {
+        log::warn!("cannot give the audio decoder macOS playback QoS: error {result}");
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn take_precedence() {}
 
 /// Last default-output name, polled on a worker thread because Windows device
