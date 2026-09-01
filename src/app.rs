@@ -1640,7 +1640,7 @@ impl App {
 
         if self.last_eviction.elapsed() > Duration::from_secs(20) {
             self.last_eviction = now;
-            self.backend.art().evict_stale(ctx);
+            self.backend.art().evict(ctx);
         }
         self.sync_skin(ctx);
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
