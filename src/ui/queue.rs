@@ -9,6 +9,21 @@ use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
 
+/// The narrowest the queue panel goes.
+///
+/// Wide enough that its header stays on one line: both chips, the save
+/// button, and the close button, with the panel's margins. Dragging it
+/// narrower than its own title bar only bought a second row of chips,
+/// which is a lot of panel spent saying what two words already said.
+///
+/// Three hundred fits on this machine; the rest is room for a wider
+/// system font, since the interface takes whatever the desktop hands it
+/// and "Recently played" is not the same width everywhere.
+/// `the_narrowest_panel_keeps_its_header_on_one_row` checks this on each
+/// platform CI builds, so renaming a tab cannot quietly bring the
+/// wrapping back.
+pub const MIN_WIDTH: f32 = 328.0;
+
 pub fn page(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
@@ -32,7 +47,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let panel = egui::Panel::right("queue-panel")
         .resizable(true)
         .default_size(app.settings.queue_width)
-        .size_range(280.0..=560.0)
+        .size_range(MIN_WIDTH..=560.0)
         .show_separator_line(false)
         .frame(
             Frame::new()
