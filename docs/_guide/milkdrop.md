@@ -9,7 +9,7 @@ the mini player's **V** menu. It uses
 [projectM](https://github.com/projectM-visualizer/projectm) to play `.milk`
 presets in its own window and process.
 
-![MilkDrop running in its own window](/assets/images/milkdrop.gif)
+[![Watch projectM's MilkDrop demo](https://i3.ytimg.com/vi/QlfqpVvo4zM/maxresdefault.jpg)](https://www.youtube.com/watch?v=jJmLQGhYWys&list=PLFLkbObX4o6TK1jGL6pm1wMwvq2FXnpYJ)
 
 MilkDrop is included in the Linux, macOS, and x86_64 Windows builds. The
 Windows on ARM build leaves it out.
