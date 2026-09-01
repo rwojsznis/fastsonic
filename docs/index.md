@@ -56,14 +56,6 @@ features:
     link_text: Read the source
 ---
 
-## Winamp mini player
-
-Load a classic `.wsz` skin from the
-[Winamp Skin Museum](https://skins.webamp.org). The mini player includes an
-analyser, equalizer, playlist, shade modes, and integer pixel scaling.
-
-![The mini player wearing the built-in skin](/assets/images/winamp.png)
-
 <style>
   /* The hero image slot is sized for a square logo; the screenshot needs the
      room. Page-scoped overrides, so the theme stays untouched. */

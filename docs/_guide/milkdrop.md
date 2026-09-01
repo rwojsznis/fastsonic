@@ -9,17 +9,9 @@ the mini player's **V** menu. It uses
 [projectM](https://github.com/projectM-visualizer/projectm) to play `.milk`
 presets in its own window and process.
 
-<div style="aspect-ratio: 16 / 9; width: 100%;">
-  <iframe
-    src="https://www.youtube-nocookie.com/embed/jJmLQGhYWys?list=PLFLkbObX4o6TK1jGL6pm1wMwvq2FXnpYJ"
-    title="projectM MilkDrop demo"
-    loading="lazy"
-    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-    referrerpolicy="strict-origin-when-cross-origin"
-    allowfullscreen
-    style="width: 100%; height: 100%; border: 0;"
-  ></iframe>
-</div>
+<video autoplay loop muted playsinline preload="metadata" aria-label="MilkDrop running in Fastpotify" style="width: 100%; height: auto;">
+  <source src="/assets/images/milkdrop.mp4" type="video/mp4">
+</video>
 
 MilkDrop is included in the Linux, macOS, and x86_64 Windows builds. The
 Windows on ARM build leaves it out.

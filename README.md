@@ -56,6 +56,8 @@ everyday use, and connection details.
 - **MilkDrop.** The visualiser, powered by
   [projectM](https://github.com/projectM-visualizer/projectm), runs in its own
   window and process. It supports fullscreen and `.milk` presets.
+
+  https://github.com/user-attachments/assets/0d408524-2c31-4e43-bd05-73eef3a20f1e
 - **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists
   them).
 - **Keeps playing when you close the window.** Fastpotify stays in the system
