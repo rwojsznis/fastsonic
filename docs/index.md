@@ -33,6 +33,9 @@ features:
   - icon: 📚
     title: Library and search
     details: Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own.
+  - icon: 🎨
+    title: Themes
+    details: Use light, dark, or system mode. Pages and the player bar can take their colour from the album art.
   - icon: 📻
     title: Winamp mini player
     details: Ctrl+M opens a small player for classic Winamp 2 skins, with a spectrum analyser, equalizer, and playlist.
