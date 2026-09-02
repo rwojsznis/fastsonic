@@ -1,15 +1,13 @@
 ---
 title: Getting Started
-description: Install Fastsonic, sign in through your browser, and enable playback on this computer.
+description: Build Fastsonic, connect it to your music server, and start local playback.
 nav_order: 2
 ---
 
 ## Install
 
-The [Download page](/download/) has installers and archives for macOS,
-Windows, and Linux.
-
-Or build from source with [Rust](https://rustup.rs) 1.95 or newer:
+There are no release packages yet. Build from source with
+[Rust](https://rustup.rs) 1.95 or newer:
 
 ```sh
 git clone https://github.com/rwojsznis/fastsonic
@@ -17,56 +15,57 @@ cd fastsonic
 cargo install --path .
 ```
 
-On Linux, install the GUI and audio development packages. On Arch:
+MilkDrop is enabled by default and builds projectM from source, which also
+needs CMake, a C++ compiler, and libclang. Use `--no-default-features` if you
+do not want MilkDrop. The repository's `nix develop` environment includes the
+complete toolchain.
+
+On Arch Linux:
 
 ```sh
-sudo pacman -S --needed alsa-lib libpulse libxkbcommon wayland
+sudo pacman -S --needed alsa-lib libpulse libxkbcommon wayland cmake clang
 ```
 
 On Debian or Ubuntu:
 
 ```sh
-sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev \
+  libgl1-mesa-dev cmake clang libclang-dev
 ```
 
+On Windows, the default build needs Visual Studio 2022, CMake, LLVM, and vcpkg
+with `glew:x64-windows-static-md`; set `VCPKG_INSTALLATION_ROOT` to the vcpkg
+folder.
+
 Fastsonic uses system fonts for scripts that its interface font does not
-cover, including Chinese, Japanese, Korean, Arabic, Hebrew, Thai, and Indic
-scripts. macOS and Windows include fonts for the common cases. On Linux,
-install `noto-fonts` and `noto-fonts-cjk` (Arch) or `fonts-noto` and
-`fonts-noto-cjk` (Debian or Ubuntu) if titles appear as empty boxes.
+cover. On Linux, install `noto-fonts` and `noto-fonts-cjk` (Arch) or
+`fonts-noto` and `fonts-noto-cjk` (Debian or Ubuntu) if titles appear as empty
+boxes.
 
-![Japanese, Chinese, and Korean titles in a playlist](/assets/images/scripts.png)
+## Connect to your server
 
-A desktop entry ships in `packaging/applications/fastsonic.desktop`.
+Start the app and enter:
 
-## Sign in
+1. The base URL of your server, such as `https://music.example.net` or
+   `http://192.168.1.20:4533`.
+2. Your server username.
+3. Your password.
 
-Start the app and press **Sign in with Spotify**. Your browser opens Spotify's
-consent page, so Fastsonic never sees your password. When the browser returns
-to the app, your library loads.
+Press **Connect**. Fastsonic sends the password once to Navidrome's login
+endpoint and stores the salted Subsonic token returned by the server, not the
+password. A bare host is treated as `http://`; HTTPS certificates must be
+trusted by the operating system. See [How It Connects](/how-it-connects/) for
+the exact network and credential behavior.
 
-Fastsonic stores a refresh token in your platform's state directory
-(`~/.local/state/fastsonic` on Linux). You normally need the browser only
-once per machine.
-
-## Enable playback on this computer
-
-Playing music *on this machine* needs a second browser approval because
-Spotify authorizes streaming separately ([why](/how-it-connects/)). Open the
-device menu in the player bar and select **Set up playback here**, or use
-Settings. This needs Spotify Premium. Fastsonic saves the playback credential.
-
-The computer then appears as a Spotify Connect device named **Fastsonic**.
-You can rename it in Settings.
+Fastsonic targets Navidrome and the Subsonic/OpenSubsonic protocol. Other
+compatible servers can provide the core library and playback features;
+Navidrome-only personalisation sections may be empty.
 
 ## Basics
 
-- **Closing the window does not stop the music.** Fastsonic keeps playing
-  from the system tray; reopen it from the tray icon and quit from the tray
-  menu or Ctrl+Q. On macOS you can also reopen it from the Dock. Settings can
-  turn this off.
-- **Play buttons show progress.** The button spins until Spotify responds.
-- **Common actions have shortcuts.** Space plays and pauses, Ctrl+F or `/`
-  searches, and `Q` opens the queue. Ctrl+/ shows the full list.
-- **Rows and cards have context menus.** Right-click a song, playlist, album,
-  or artist to see actions such as queue, save, add to playlist, and copy link.
+- Closing the window keeps music playing from the system tray by default.
+  Reopen it from the tray or Dock, and quit from the tray menu or Ctrl+Q.
+- Space plays and pauses, Ctrl+F or `/` searches, and `Q` opens the queue.
+  Ctrl+/ shows every shortcut. On macOS, Cmd replaces Ctrl.
+- Right-click a song, playlist, album, or artist for actions such as Play
+  next, star, add to playlist, and copy link.

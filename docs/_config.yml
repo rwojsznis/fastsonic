@@ -1,6 +1,5 @@
 title: Fastsonic
-fastsonic_version: "0.4.1"
-description: A fast, native Spotify client for Linux, macOS, and Windows, written in Rust.
+description: A fast, native client for self-hosted Subsonic music servers.
 lang: en-US
 timezone: Europe/Berlin
 url: https://rwojsznis.github.io
@@ -30,11 +29,11 @@ defaults:
       layout: default
       image: /screenshot.png
       topics:
-        - Spotify client
+        - Subsonic client
+        - self-hosted music
+        - Navidrome
         - Rust
         - egui
-        - librespot
-        - Spotify Connect
         - Linux music player
   - scope:
       type: guide
@@ -60,13 +59,12 @@ jekyll_vitepress:
   llms:
     title: Fastsonic
     description: >-
-      Documentation for Fastsonic, a native Spotify client for Linux, macOS,
-      and Windows. It covers local playback, library access, and Spotify
-      Connect.
+      Documentation for Fastsonic, a native client for self-hosted Subsonic
+      music servers on Linux, macOS, and Windows.
     full: true
     details: >-
-      Covers installation, sign-in, everyday use, settings, and Spotify
-      connections. Source is on
+      Covers installation, server sign-in, local playback, settings, files,
+      and network connections. Source is on
       [GitHub](https://github.com/rwojsznis/fastsonic).
   branding:
     site_title: Fastsonic
@@ -80,7 +78,7 @@ jekyll_vitepress:
     enabled: true
     show_on_docs: false
     copyright: >-
-      <span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Fastsonic is an independent project, not affiliated with or endorsed by Spotify AB. Spotify is a trademark of Spotify AB.</span>
+      <span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Fastsonic is an independent open-source project.</span>
   doc_footer:
     enabled: true
     previous_label: Previous page

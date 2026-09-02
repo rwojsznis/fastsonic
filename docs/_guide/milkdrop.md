@@ -23,8 +23,7 @@ Press **Esc** to leave fullscreen or close the window. Drag the lower-right
 corner to resize it.
 
 MilkDrop uses the same post-equalizer, pre-volume audio as the other
-visualisers. It keeps moving at zero volume and stays flat when another device
-is playing.
+visualisers. It keeps moving at zero volume.
 
 ## Presets
 

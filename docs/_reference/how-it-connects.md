@@ -1,74 +1,63 @@
 ---
 title: How It Connects
-description: Fastsonic's independent Spotify grants, what is stored, and how API traffic is routed.
+description: Fastsonic's server protocols, stored credential, and outbound network traffic.
 nav_order: 1
 ---
 
-## Independent grants, once each
+Fastsonic has no hosted service or application account. It connects directly
+from this computer to the one music server entered on the sign-in screen.
 
-Fastsonic uses separate credentials for Web API access, a personal app, and
-local playback:
+## Sign-in and authentication
 
-1. **The shared Web API app** keeps full catalogue and playlist coverage.
-2. **Your optional personal Web API app** handles supported playback, library,
-   catalog, playlist creation, and owned or collaborative playlist requests
-   without using the shared app's quota. Complete playlist-library views and
-   playlist-bearing search stay on the shared app so Spotify-owned results are
-   not filtered out. Both Web API grants must verify as the same Spotify
-   account.
-3. **Local playback** uses
-   [librespot](https://github.com/librespot-org/librespot). It needs one more
-   browser approval and stores its own reusable credential. Spotify Premium
-   is required.
+For Navidrome, sign-in is one `POST /auth/login` request containing the server
+username and password. The response contains two different credentials:
 
-Local playback authorization stays separate from both Web API grants.
+- A Subsonic salt and token pair used for `/rest/*.view` calls. The token is
+  MD5 of the password and salt because that is the protocol's wire format.
+  Fastsonic stores this pair and never stores the password. The pair is still
+  password-equivalent for that server and must be kept private.
+- A Navidrome JWT used only by the small native-API module. It supplies
+  personalisation that Subsonic cannot, and normally expires after 24 hours.
+  Navidrome administrators can change that period with `ND_SESSIONTIMEOUT`.
 
-By default, Fastsonic uses the public app shared with spotify-player, ncspot,
-and Omarchy Spotify. Spotify divides its quota among all users. A personal app
-adds a separate Development Mode quota. See
-[Use a Personal Spotify App](/make-it-even-faster/).
+The salted token continues to provide library browsing and playback after the
+JWT expires. Personalised Home sections then appear empty until the next
+password sign-in. On a compatible non-Navidrome server, the same core features
+can work while Navidrome-only sections remain empty.
 
-## What the client stores
+An empty password field retries the stored Subsonic credential, which is
+useful after a server was temporarily unreachable. Signing out removes both
+stored credentials.
 
-- Shared and personal Web API refresh tokens, plus librespot's credential, in
-  the state directory with owner-only permissions
-  ([file locations](/settings-and-files/)).
-- Downloaded audio and artwork, in the cache directory, within the budget
-  you set.
-- Lyrics, in the cache directory, for a month.
-- Fastsonic has no telemetry, analytics, or hosted service. When the lyrics
-  panel is open and Spotify has no lyrics, it sends the track's artist, title,
-  album, and length to [lrclib.net](https://lrclib.net). It also checks
-  api.github.com once a day for updates. You can turn off update checks in
-  Settings.
+Every Subsonic request carries the username, salt, and token. Fastsonic strips
+credential query parameters and authorization headers from logs. Artwork is
+cached under an opaque `sonic:art:` key rather than a credential-bearing URL.
 
-## When Spotify pushes back
+## Server requests
 
-Each Web API session has separate concurrency and rate limits. A `Retry-After`
-response pauses only that session. Fastsonic routes each request once and
-does not retry it through the other app.
+Library, search, playlists, stars, artwork, lyrics supplied by the server,
+streams, and scrobbles use Subsonic/OpenSubsonic. Playlist edits use form POST
+when necessary. Playback requests the original file, without transcoding, so
+HTTP byte ranges remain available for seeking and the in-process decoder sees
+the library's real format.
 
-## Receivers on the local network
+The audio engine runs outside the UI thread. It reads the HTTP stream through
+a bounded on-disk block cache, decodes and resamples it, applies ReplayGain and
+the equalizer, sends post-EQ/pre-volume samples to the visualisers, then sends
+the volume-adjusted signal to the selected local output device. The queue is
+owned by this engine and does not exist on the server.
 
-Spotify's device list only shows signed-in receivers. A new librespot or
-spotifyd receiver is therefore invisible to the Web API.
+## Other outbound traffic
 
-Receivers announce themselves over mDNS as `_spotify-connect._tcp` and answer
-a small HTTP interface. Fastsonic encrypts the stored librespot credential
-with a receiver-specific key and a key from a Diffie-Hellman exchange. The
-encrypted value only works for that receiver and exchange. Fastsonic does not
-save another copy of the credential.
+- When the lyrics panel is open and the server has no lyrics, Fastsonic sends
+  the track's artist, title, album, and duration to
+  [LRCLIB](https://lrclib.net). Lyrics are cached locally for a month.
+- If update checks are enabled, Fastsonic asks GitHub's API once a day whether
+  a newer release exists.
+- Settings can download optional MilkDrop preset packs from their documented
+  upstream sources.
 
-The receiver then signs in and appears in Spotify's device list. Fastsonic
-uses the Web API for subsequent control requests.
-
-## The engine
-
-Playback runs on a separate runtime. Librespot maintains the Spotify Connect
-session, exposes this computer as a device, receives transfers, and reports
-playback state. If the session drops, it reconnects with the stored credential.
-
-The engine discovers access points through `apresolve.spotify.com` and
-connects over TCP in the resolver's preference order: port 4070 first,
-falling back to 443 and 80. Only outbound connections are needed; no
-inbound ports have to be open.
+There is no telemetry, analytics, inbound listener, receiver discovery,
+peer-to-peer traffic, or server-side playback control. TLS certificates use
+the operating system's trust decisions; there is currently no switch to allow
+a self-signed certificate.
