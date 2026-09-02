@@ -16,7 +16,6 @@ enum Filter {
     Playlists,
     Albums,
     Artists,
-    Podcasts,
 }
 
 struct Entry {
@@ -120,12 +119,11 @@ fn art_panel(app: &mut App, ui: &mut egui::Ui) {
                     app.actions.push(Action::SettingsChanged);
                 }
             }
-            if art.clicked() && !over_chevron {
-                if let Some(id) = &now.album_id {
-                    app.actions.push(Action::Open(Page::Album(id.clone())));
-                } else if let Some(id) = &now.show_id {
-                    app.actions.push(Action::Open(Page::Show(id.clone())));
-                }
+            if art.clicked()
+                && !over_chevron
+                && let Some(id) = &now.album_id
+            {
+                app.actions.push(Action::Open(Page::Album(id.clone())));
             }
         });
 }
@@ -248,7 +246,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             (Filter::Playlists, "Playlists"),
             (Filter::Albums, "Albums"),
             (Filter::Artists, "Artists"),
-            (Filter::Podcasts, "Podcasts"),
         ] {
             if theme::soft_button(ui, &palette, None, label, filter == value).clicked() {
                 filter = value;
@@ -283,11 +280,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         Filter::Artists => {
             if !app.library.artists.loaded_once && !app.library.artists.loading {
                 app.actions.push(Action::LoadMore(Page::Artists));
-            }
-        }
-        Filter::Podcasts => {
-            if !app.library.shows.loaded_once && !app.library.shows.loading {
-                app.actions.push(Action::LoadMore(Page::Podcasts));
             }
         }
     }
@@ -415,32 +407,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             error = app.library.artists.error.clone();
             if app.library.artists.can_load_more() {
                 more_page = Some(Page::Artists);
-            }
-        }
-        Filter::Podcasts => {
-            for saved in &app.library.shows.items {
-                let show = &saved.show;
-                if !needle.is_empty() && !show.name.to_lowercase().contains(&needle) {
-                    continue;
-                }
-                entries.push(Entry {
-                    image: pick_image(&show.images, 64).map(str::to_string),
-                    name: show.name.clone(),
-                    subtitle: format!("Podcast • {}", show.publisher),
-                    page: Page::Show(show.id.clone()),
-                    uri: show.uri.clone(),
-                    round: false,
-                    liked: false,
-                    owned: false,
-                    playlist_index: None,
-                    folder: None,
-                    depth: 0,
-                });
-            }
-            loading = app.library.shows.loading && app.library.shows.items.is_empty();
-            error = app.library.shows.error.clone();
-            if app.library.shows.can_load_more() {
-                more_page = Some(Page::Podcasts);
             }
         }
     }
@@ -1017,7 +983,7 @@ fn full_playlist_order(app: &App) -> Vec<String> {
         .collect()
 }
 
-/// Reorders pinned albums, artists, and podcasts. Dropping below the pinned
+/// Reorders pinned albums and artists. Dropping below the pinned
 /// block unpins the row. Liked Songs never moves.
 fn drop_row(
     app: &mut App,

@@ -15,12 +15,9 @@ pub enum Page {
     LikedSongs,
     Albums,
     Artists,
-    Podcasts,
-    Episodes,
     Playlist(String),
     Album(String),
     Artist(String),
-    Show(String),
     Queue,
     Settings,
 }
@@ -34,12 +31,9 @@ impl Page {
             Page::LikedSongs => "liked".into(),
             Page::Albums => "albums".into(),
             Page::Artists => "artists".into(),
-            Page::Podcasts => "podcasts".into(),
-            Page::Episodes => "episodes".into(),
             Page::Playlist(id) => format!("playlist:{id}"),
             Page::Album(id) => format!("album:{id}"),
             Page::Artist(id) => format!("artist:{id}"),
-            Page::Show(id) => format!("show:{id}"),
             Page::Queue => "queue".into(),
             Page::Settings => "settings".into(),
         }
@@ -53,8 +47,6 @@ impl Page {
             "liked" => Page::LikedSongs,
             "albums" => Page::Albums,
             "artists" => Page::Artists,
-            "podcasts" => Page::Podcasts,
-            "episodes" => Page::Episodes,
             "queue" => Page::Queue,
             "settings" => Page::Settings,
             other => {
@@ -63,7 +55,6 @@ impl Page {
                     "playlist" => Page::Playlist(id.into()),
                     "album" => Page::Album(id.into()),
                     "artist" => Page::Artist(id.into()),
-                    "show" => Page::Show(id.into()),
                     _ => return None,
                 }
             }
@@ -80,7 +71,6 @@ impl Page {
             "playlist" => Page::Playlist(id),
             "album" => Page::Album(id),
             "artist" => Page::Artist(id),
-            "show" => Page::Show(id),
             _ => return None,
         })
     }
@@ -317,8 +307,6 @@ pub struct Library {
     pub liked: PagedList<SavedTrack>,
     pub albums: PagedList<SavedAlbum>,
     pub artists: CursorList<Artist>,
-    pub shows: PagedList<SavedShow>,
-    pub episodes: PagedList<SavedEpisode>,
     pub filter: String,
 }
 
@@ -367,19 +355,15 @@ pub enum SearchFilter {
     Artists,
     Albums,
     Playlists,
-    Podcasts,
-    Episodes,
 }
 
 impl SearchFilter {
-    pub const ALL: [SearchFilter; 7] = [
+    pub const ALL: [SearchFilter; 5] = [
         Self::All,
         Self::Songs,
         Self::Artists,
         Self::Albums,
         Self::Playlists,
-        Self::Podcasts,
-        Self::Episodes,
     ];
 
     pub fn label(self) -> &'static str {
@@ -389,9 +373,23 @@ impl SearchFilter {
             Self::Artists => "Artists",
             Self::Albums => "Albums",
             Self::Playlists => "Playlists",
-            Self::Podcasts => "Podcasts",
-            Self::Episodes => "Episodes",
         }
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::{Page, SearchFilter};
+
+    #[test]
+    fn podcast_pages_and_search_filters_are_no_longer_exposed() {
+        assert_eq!(Page::decode("podcasts"), None);
+        assert_eq!(Page::decode("episodes"), None);
+        assert_eq!(Page::decode("show:old-id"), None);
+        assert_eq!(
+            SearchFilter::ALL.map(SearchFilter::label),
+            ["All", "Songs", "Artists", "Albums", "Playlists"]
+        );
     }
 }
 
@@ -468,12 +466,6 @@ pub struct ArtistPage {
     pub related: Loadable<Vec<Artist>>,
     pub filter: DiscographyFilter,
     pub show_all_top: bool,
-}
-
-#[derive(Default)]
-pub struct ShowPage {
-    pub show: Loadable<Show>,
-    pub episodes: PagedList<Episode>,
 }
 
 /// A table's sort, chosen by clicking a column heading.

@@ -853,8 +853,6 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
-        } else if let Some(id) = &now.show_id {
-            app.actions.push(Action::Open(Page::Show(id.clone())));
         }
         app.actions.push(Action::ToggleWinampWindow);
     }
@@ -1525,7 +1523,6 @@ mod tests {
             subtitle: subtitle.into(),
             album_name: String::new(),
             album_id: None,
-            show_id: None,
             art_url: None,
             art_small: None,
             duration_ms,
@@ -1536,7 +1533,6 @@ mod tests {
             repeat: RepeatMode::Off,
             volume_percent: 50,
             can_control: true,
-            is_episode: false,
             resuming: false,
         }
     }
@@ -1549,10 +1545,10 @@ mod tests {
             "Radiohead - Karma Police (4:24)"
         );
         assert_eq!(marquee_text(None, None, None, None, None), "Fastsonic");
-        let untitled = now("Episode 12", "", 0);
+        let untitled = now("Untitled", "", 0);
         assert_eq!(
             marquee_text(Some(&untitled), None, None, None, None),
-            "Episode 12"
+            "Untitled"
         );
     }
 

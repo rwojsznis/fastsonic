@@ -118,12 +118,11 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     );
     let offer_expand = art_available && !app.settings.art_expanded && app.settings.sidebar_visible;
     let over_expand = offer_expand && ui.rect_contains_pointer(expand_rect);
-    if cover_response.clicked() && !over_expand {
-        if let Some(id) = &now.album_id {
-            app.actions.push(Action::Open(Page::Album(id.clone())));
-        } else if let Some(id) = &now.show_id {
-            app.actions.push(Action::Open(Page::Show(id.clone())));
-        }
+    if cover_response.clicked()
+        && !over_expand
+        && let Some(id) = &now.album_id
+    {
+        app.actions.push(Action::Open(Page::Album(id.clone())));
     }
     if offer_expand && (cover_response.hovered() || over_expand) {
         let expand = ui
@@ -144,7 +143,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             app.actions.push(Action::SettingsChanged);
         }
     }
-    let heart_width = if now.is_episode { 0.0 } else { 42.0 };
+    let heart_width = 42.0;
     let text_left = cover_rect.right() + 12.0;
     let text_width = (region.right() - text_left - heart_width).max(40.0);
     let text_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
@@ -157,21 +156,13 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     text_ui.set_clip_rect(text_rect.intersect(ui.clip_rect()));
     text_ui.spacing_mut().item_spacing.y = 2.0;
     let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text);
-    if title_response.clicked() {
-        if let Some(id) = &now.album_id {
-            app.actions.push(Action::Open(Page::Album(id.clone())));
-        } else if let Some(id) = &now.show_id {
-            app.actions.push(Action::Open(Page::Show(id.clone())));
-        }
+    if title_response.clicked()
+        && let Some(id) = &now.album_id
+    {
+        app.actions.push(Action::Open(Page::Album(id.clone())));
     }
     text_ui.horizontal_top(|ui| {
-        if now.artists.is_empty() {
-            if theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary).clicked()
-                && let Some(id) = &now.show_id
-            {
-                app.actions.push(Action::Open(Page::Show(id.clone())));
-            }
-        } else {
+        if !now.artists.is_empty() {
             super::widgets::artist_links(
                 ui,
                 app,
@@ -191,7 +182,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         }
     }
 
-    if !now.is_episode {
+    {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
         let (icon, color, tooltip) = if saved {
             (Icon::HeartFilled, palette.accent, "Remove from Liked Songs")

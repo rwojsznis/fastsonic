@@ -124,12 +124,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 }
             }
             Action::OpenUri(kind) if kind == "album" => {
-                if let Some(now) = app.now_playing() {
-                    if let Some(id) = now.album_id {
-                        app.actions.push(Action::Open(Page::Album(id)));
-                    } else if let Some(id) = now.show_id {
-                        app.actions.push(Action::Open(Page::Show(id)));
-                    }
+                if let Some(now) = app.now_playing()
+                    && let Some(id) = now.album_id
+                {
+                    app.actions.push(Action::Open(Page::Album(id)));
                 }
             }
             other => app.actions.push(other),

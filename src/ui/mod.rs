@@ -12,7 +12,6 @@ pub mod player_bar;
 pub mod queue;
 pub mod search;
 pub mod settings;
-pub mod show;
 pub mod sidebar;
 pub mod topbar;
 pub mod widgets;
@@ -78,12 +77,6 @@ fn page_tint(app: &mut App) -> Option<Color32> {
             .and_then(|page| page.artist.get())
             .and_then(|artist| pick_image(&artist.images, 300))
             .map(str::to_string),
-        Page::Show(id) => app
-            .show_pages
-            .get(id)
-            .and_then(|page| page.show.get())
-            .and_then(|show| pick_image(&show.images, 300))
-            .map(str::to_string),
         Page::LikedSongs => return Some(Color32::from_rgb(0x50, 0x38, 0xc8)),
         _ => None,
     };
@@ -137,13 +130,10 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                                 Page::TopSongs => collection::top_songs(app, ui),
                                 Page::Search => search::show(app, ui),
                                 Page::LikedSongs => collection::liked(app, ui),
-                                Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {
-                                    library::show(app, ui, page)
-                                }
+                                Page::Albums | Page::Artists => library::show(app, ui, page),
                                 Page::Playlist(id) => collection::playlist(app, ui, &id),
                                 Page::Album(id) => collection::album(app, ui, &id),
                                 Page::Artist(id) => artist::show(app, ui, &id),
-                                Page::Show(id) => show::show(app, ui, &id),
                                 Page::Queue => queue::page(app, ui),
                                 Page::Settings => settings::show(app, ui),
                             }

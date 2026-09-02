@@ -2,7 +2,7 @@
 //!
 //! Vendored from the `opensubsonic` crate 0.4.0 (`src/data/`), MIT OR
 //! Apache-2.0, Copyright (c) 2026 Gianluca Boiano — see `THIRD-PARTY.md`.
-//! Only the types this client reads are kept; podcasts, jukebox, chat,
+//! Only the types this client reads are kept; jukebox, chat,
 //! bookmarks, internet radio, sharing and video are dropped.
 //!
 //! Two changes to the vendored shapes, both from measuring Navidrome 0.63.2
@@ -313,8 +313,7 @@ pub struct PlaylistWithSongs {
 
 // ---- search -------------------------------------------------------------
 
-/// `search3`. Artists, albums and songs only: there is no playlist, show or
-/// episode bucket.
+/// `search3`. Artists, albums and songs only: there is no playlist bucket.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SearchResult3 {
@@ -382,7 +381,6 @@ pub struct User {
     pub playlist_role: Option<bool>,
     pub cover_art_role: Option<bool>,
     pub comment_role: Option<bool>,
-    pub podcast_role: Option<bool>,
     pub stream_role: Option<bool>,
     pub jukebox_role: Option<bool>,
     pub share_role: Option<bool>,

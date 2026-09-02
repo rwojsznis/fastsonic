@@ -418,10 +418,8 @@ pub fn search_results(results: &SearchResult3, offset: u32, limit: u32) -> Searc
             offset,
             limit,
         )),
-        // search3 has no playlist, show or episode bucket.
+        // search3 has no playlist bucket.
         playlists: None,
-        shows: None,
-        episodes: None,
     }
 }
 

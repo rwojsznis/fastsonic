@@ -8,7 +8,7 @@
 //!
 //! Two fields did not come across, because nothing behind them exists any
 //! more: `LocalState::active_client` (which Connect client is driving this
-//! device) and `LocalTrack::is_episode` (podcasts). `EngineEvent` lost
+//! device). `EngineEvent` lost
 //! `SessionEnded` for the same reason: an HTTP client has no session to
 //! drop.
 //!

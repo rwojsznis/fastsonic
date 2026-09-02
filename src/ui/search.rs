@@ -50,8 +50,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         SearchFilter::Artists => artists_grid(app, ui, &results),
         SearchFilter::Albums => albums_grid(app, ui, &results),
         SearchFilter::Playlists => playlists_grid(app, ui, &results),
-        SearchFilter::Podcasts => shows_grid(app, ui, &results),
-        SearchFilter::Episodes => episodes(app, ui, &results, usize::MAX),
     }
 }
 
@@ -63,8 +61,8 @@ fn recent(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             Icon::Search,
-            "Search Spotify",
-            "Find songs, artists, albums, playlists, and podcasts.",
+            "Search your library",
+            "Find songs, artists, albums, and playlists.",
         );
         return;
     }
@@ -164,17 +162,6 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                     Some(playlist.uri.clone()),
                     Page::Playlist(playlist.id.clone()),
                 );
-            } else if let Some(show) = results.shows.as_ref().and_then(|page| page.items.first()) {
-                top_result(
-                    app,
-                    ui,
-                    pick_image(&show.images, 300),
-                    &show.name,
-                    &format!("Podcast • {}", show.publisher),
-                    false,
-                    Some(show.uri.clone()),
-                    Page::Show(show.id.clone()),
-                );
             }
         });
         if wide {
@@ -192,16 +179,6 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
     shelf_artists(app, ui, results);
     shelf_albums(app, ui, results);
     shelf_playlists(app, ui, results);
-    shelf_shows(app, ui, results);
-    if results
-        .episodes
-        .as_ref()
-        .is_some_and(|page| !page.items.is_empty())
-    {
-        theme::section_title(ui, &palette, "Episodes");
-        ui.add_space(4.0);
-        episodes(app, ui, results, 4);
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -494,52 +471,6 @@ fn playlists_grid(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
             playlist_card(app, ui, playlist);
         }
     });
-}
-
-fn show_card(app: &mut App, ui: &mut egui::Ui, show: &crate::api::models::Show) {
-    let card = widgets::card(
-        ui,
-        app,
-        pick_image(&show.images, 300),
-        &show.name,
-        &show.publisher,
-        false,
-        false,
-    );
-    if card.clicked {
-        app.actions.push(Action::Open(Page::Show(show.id.clone())));
-    }
-}
-
-fn shelf_shows(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
-    let palette = app.palette;
-    let Some(page) = &results.shows else { return };
-    if page.items.is_empty() {
-        return;
-    }
-    widgets::shelf(ui, &palette, "search-shows", "Podcasts", |ui| {
-        for show in &page.items {
-            show_card(app, ui, show);
-        }
-    });
-}
-
-fn shows_grid(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
-    let Some(page) = &results.shows else { return };
-    widgets::grid(ui, |ui| {
-        for show in &page.items {
-            show_card(app, ui, show);
-        }
-    });
-}
-
-fn episodes(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize) {
-    let Some(page) = &results.episodes else {
-        return;
-    };
-    for episode in page.items.iter().take(limit) {
-        super::show::episode_row(app, ui, episode, None);
-    }
 }
 
 #[allow(dead_code)]

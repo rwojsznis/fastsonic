@@ -66,7 +66,6 @@ pub struct NowPlaying {
     pub subtitle: String,
     pub album_name: String,
     pub album_id: Option<String>,
-    pub show_id: Option<String>,
     pub art_url: Option<String>,
     pub art_small: Option<String>,
     pub duration_ms: u32,
@@ -77,7 +76,6 @@ pub struct NowPlaying {
     pub repeat: RepeatMode,
     pub volume_percent: u8,
     pub can_control: bool,
-    pub is_episode: bool,
     /// The remembered song from the last session, shown paused before a
     /// first press. Nothing is playing yet.
     pub resuming: bool,
@@ -190,7 +188,6 @@ pub struct App {
     load_generation: u64,
     pub album_pages: HashMap<String, AlbumPage>,
     pub artist_pages: HashMap<String, ArtistPage>,
-    pub show_pages: HashMap<String, ShowPage>,
     pub track_cache: HashMap<String, Track>,
     track_requests: HashSet<String>,
 
@@ -457,7 +454,6 @@ impl App {
             load_generation: 0,
             album_pages: HashMap::new(),
             artist_pages: HashMap::new(),
-            show_pages: HashMap::new(),
             track_cache: HashMap::new(),
             track_requests: HashSet::new(),
             history: vec![first_page],
@@ -706,9 +702,6 @@ impl App {
     /// Current item for menus, using cached track details when available.
     pub fn now_playing_item(&self) -> Option<PlayableItem> {
         let now = self.now_playing()?;
-        if now.is_episode {
-            return None;
-        }
         if let Some(track) = now.id.as_deref().and_then(|id| self.track_cache.get(id)) {
             return Some(PlayableItem::Track(track.clone()));
         }
@@ -762,7 +755,6 @@ impl App {
                 album_id: cached
                     .and_then(|cached| cached.album.as_ref())
                     .map(|album| album.id.clone()),
-                show_id: None,
                 art_url: track.art_url.clone(),
                 art_small: track
                     .art_small_url
@@ -776,7 +768,6 @@ impl App {
                 repeat: self.local.repeat,
                 volume_percent: volume_to_percent(self.local.volume),
                 can_control: true,
-                is_episode: false,
                 resuming: false,
             });
         }
@@ -799,7 +790,6 @@ impl App {
                 .map(|album| album.name.clone())
                 .unwrap_or_default(),
             album_id: track.album.as_ref().map(|album| album.id.clone()),
-            show_id: None,
             art_url: track.image(640).map(str::to_string),
             art_small: track.image(64).map(str::to_string),
             duration_ms: track.duration_ms,
@@ -810,7 +800,6 @@ impl App {
             repeat: RepeatMode::Off,
             volume_percent: volume_to_percent(self.local.volume),
             can_control: true,
-            is_episode: false,
             resuming: true,
         })
     }
@@ -991,7 +980,6 @@ impl App {
         self.playlist_pages.clear();
         self.album_pages.clear();
         self.artist_pages.clear();
-        self.show_pages.clear();
         self.saved.clear();
         self.saved_pending.clear();
         self.queue = Queue::default();
@@ -1322,8 +1310,7 @@ impl App {
         self.resume_track = Some(now.uri.clone());
         self.resume_context_track = self.context_row_under(&now.uri);
         self.resume_position_ms = 0;
-        if !now.is_episode
-            && let Some(id) = &now.id
+        if let Some(id) = &now.id
             && !self.track_cache.contains_key(id)
             && self.track_requests.insert(id.clone())
         {
@@ -1337,8 +1324,7 @@ impl App {
         }
     }
 
-    /// Asks for the playing track's lyrics unless they are here or on the
-    /// way. Podcasts have no lyrics to ask for.
+    /// Asks for the playing track's lyrics unless they are here or on the way.
     pub fn request_lyrics(&mut self) {
         let Some(now) = self.now_playing() else {
             return;
@@ -1351,7 +1337,7 @@ impl App {
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
         self.lyrics_line_shown = None;
-        if now.is_episode || self.offline {
+        if self.offline {
             self.lyrics = Loadable::Loaded(None);
             return;
         }
@@ -1856,16 +1842,6 @@ impl App {
                     self.load_more(Page::Artists);
                 }
             }
-            Page::Podcasts => {
-                if !self.library.shows.loaded_once {
-                    self.load_more(Page::Podcasts);
-                }
-            }
-            Page::Episodes => {
-                if !self.library.episodes.loaded_once {
-                    self.load_more(Page::Episodes);
-                }
-            }
             Page::Playlist(id) => {
                 let needs_generation = self
                     .playlist_pages
@@ -1921,13 +1897,6 @@ impl App {
                     }
                     self.backend
                         .api(ApiRequest::RelatedArtists { id: id.clone() });
-                }
-            }
-            Page::Show(id) => {
-                let page = self.show_pages.entry(id.clone()).or_default();
-                if page.show.needs_load() {
-                    page.show = Loadable::Loading;
-                    self.backend.api(ApiRequest::Show { id: id.clone() });
                 }
             }
             // The queue page has nothing to load: the engine's last word
@@ -2071,20 +2040,6 @@ impl App {
                     });
                 }
             }
-            Page::Podcasts => {
-                let list = &mut self.library.shows;
-                if let Some(offset) = list.next_offset.filter(|_| list.can_load_more()) {
-                    list.loading = true;
-                    self.backend.api(ApiRequest::SavedShows { offset });
-                }
-            }
-            Page::Episodes => {
-                let list = &mut self.library.episodes;
-                if let Some(offset) = list.next_offset.filter(|_| list.can_load_more()) {
-                    list.loading = true;
-                    self.backend.api(ApiRequest::SavedEpisodes { offset });
-                }
-            }
             Page::Playlist(id) => {
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
                     let list = &mut page.items;
@@ -2107,15 +2062,6 @@ impl App {
                     }
                 }
             }
-            Page::Show(id) => {
-                if let Some(page) = self.show_pages.get_mut(&id) {
-                    let list = &mut page.episodes;
-                    if let Some(offset) = list.next_offset.filter(|_| list.can_load_more()) {
-                        list.loading = true;
-                        self.backend.api(ApiRequest::ShowEpisodes { id, offset });
-                    }
-                }
-            }
             Page::Home => {
                 if let Some(offset) = self.library.playlists_next.take() {
                     self.backend.api(ApiRequest::MyPlaylists { offset });
@@ -2132,8 +2078,6 @@ impl App {
             Page::LikedSongs => self.library.liked.reset(),
             Page::Albums => self.library.albums.reset(),
             Page::Artists => self.library.artists.reset(),
-            Page::Podcasts => self.library.shows.reset(),
-            Page::Episodes => self.library.episodes.reset(),
             Page::Playlist(id) => {
                 if let Some(playlist) = self.playlist_pages.get_mut(id) {
                     self.load_generation += 1;
@@ -2158,9 +2102,6 @@ impl App {
             }
             Page::Artist(id) => {
                 self.artist_pages.remove(id);
-            }
-            Page::Show(id) => {
-                self.show_pages.remove(id);
             }
             // The queue page has nothing to throw away and reload: the
             // engine is the only thing that knows what the queue is.
@@ -2765,24 +2706,6 @@ impl App {
                     Err(error) => list.error = Some(error.to_string()),
                 }
             }
-            ApiResponse::SavedShows { offset, result } => match result {
-                Ok(page) => {
-                    for item in &page.items {
-                        self.saved.insert(item.show.uri.clone(), true);
-                    }
-                    self.library.shows.absorb(offset, page);
-                }
-                Err(error) => self.library.shows.fail(error.to_string()),
-            },
-            ApiResponse::SavedEpisodes { offset, result } => match result {
-                Ok(page) => {
-                    for item in &page.items {
-                        self.saved.insert(item.episode.uri.clone(), true);
-                    }
-                    self.library.episodes.absorb(offset, page);
-                }
-                Err(error) => self.library.episodes.fail(error.to_string()),
-            },
             ApiResponse::SavedChanged {
                 uris,
                 saved,
@@ -2822,8 +2745,6 @@ impl App {
                                 }
                                 Some("album") => self.library.albums.reset(),
                                 Some("artist") => self.library.artists.reset(),
-                                Some("show") => self.library.shows.reset(),
-                                Some("episode") => self.library.episodes.reset(),
                                 _ => {}
                             }
                         }
@@ -2955,36 +2876,6 @@ impl App {
                 // A sorted table means the whole list, not the loaded part.
                 if self.table_sorts.contains_key(&Page::Album(id.clone())) {
                     self.load_more(Page::Album(id));
-                }
-            }
-            ApiResponse::Show { id, result } => {
-                if let Ok(show) = &result
-                    && let Some(image) = pick_image(&show.images, 300)
-                {
-                    self.tint_for(Some(image));
-                }
-                if let Some(page) = self.show_pages.get_mut(&id) {
-                    match result {
-                        Ok(mut show) => {
-                            if let Some(episodes) = show.episodes.take() {
-                                page.episodes.absorb(0, episodes);
-                            }
-                            page.show = Loadable::Loaded(show);
-                            if !page.episodes.loaded_once {
-                                page.episodes.loading = true;
-                                self.backend.api(ApiRequest::ShowEpisodes { id, offset: 0 });
-                            }
-                        }
-                        Err(error) => page.show = Loadable::Failed(error.to_string()),
-                    }
-                }
-            }
-            ApiResponse::ShowEpisodes { id, offset, result } => {
-                if let Some(page) = self.show_pages.get_mut(&id) {
-                    match result {
-                        Ok(episodes) => page.episodes.absorb(offset, episodes),
-                        Err(error) => page.episodes.fail(error.to_string()),
-                    }
                 }
             }
             ApiResponse::Track { id, result } => {
@@ -3386,7 +3277,7 @@ impl App {
     fn queue_one(&mut self, uri: String, label: String, announce: bool) {
         if convert::id_of(&uri, Kind::Track).is_none() {
             // Nothing else can be queued: an album or a playlist is played
-            // rather than queued, and there are no episodes to queue.
+            // rather than queued.
             return;
         }
         // One double-click is one wish; two separate asks are two rows.
@@ -6079,9 +5970,6 @@ mod tests {
         // A chosen row keeps the list load straight; shuffle follows as a
         // command (see a_chosen_row_in_a_list_never_loads_shuffled).
         assert_eq!(two.shuffle, None);
-        let episode = local_load(&PlayRequest::tracks(vec!["sonic:episode:e".into()]), false);
-        assert_eq!(episode.context_uri, None);
-        assert_eq!(episode.uris.len(), 1);
     }
 
     fn snapshot_at(percent: u8) -> LocalState {

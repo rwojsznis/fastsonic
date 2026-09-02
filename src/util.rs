@@ -28,17 +28,6 @@ pub fn format_total_ms(ms: u64) -> String {
     }
 }
 
-/// Episode lengths read as `1 hr 12 min` or `38 min`.
-pub fn format_episode_ms(ms: u32) -> String {
-    let minutes = ms / 60_000;
-    let hours = minutes / 60;
-    if hours > 0 {
-        format!("{hours} hr {} min", minutes % 60)
-    } else {
-        format!("{} min", minutes.max(1))
-    }
-}
-
 pub fn format_count(count: u64) -> String {
     let digits = count.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
@@ -230,7 +219,6 @@ mod tests {
         assert_eq!(format_duration_ms(3_723_000), "1:02:03");
         assert_eq!(format_total_ms(7_980_000), "2 hr 13 min");
         assert_eq!(format_total_ms(2_712_000), "45 min 12 sec");
-        assert_eq!(format_episode_ms(4_320_000), "1 hr 12 min");
     }
 
     #[test]

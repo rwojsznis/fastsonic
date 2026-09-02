@@ -331,7 +331,7 @@ pub fn item_menu(
             label: label.clone(),
         });
     }
-    if item.is_track() {
+    {
         let saved = app.is_saved(&uri).unwrap_or(false);
         let (icon, text) = if saved {
             (Icon::HeartFilled, "Remove from Liked Songs")
@@ -369,8 +369,6 @@ pub fn item_menu(
                     }
                 });
         });
-    } else if menu_item(ui, &palette, Some(Icon::Bookmark), "Save episode") {
-        app.actions.push(Action::ToggleSaved(uri.clone()));
     }
     if let Some(RowContext::Context {
         editable_playlist: Some((playlist_id, _)),
@@ -432,13 +430,6 @@ pub fn item_menu(
             {
                 app.actions
                     .push(Action::Open(Page::Album(album.id.clone())));
-            }
-        }
-        PlayableItem::Episode(episode) => {
-            if let Some(show) = &episode.show
-                && menu_item(ui, &palette, Some(Icon::Mic), "Go to podcast")
-            {
-                app.actions.push(Action::Open(Page::Show(show.id.clone())));
             }
         }
     }
@@ -637,7 +628,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
         return None;
     }
     // Start a sidebar drag only after egui's drag threshold.
-    if row.item.is_track() && response.drag_started_by(egui::PointerButton::Primary) {
+    if response.drag_started_by(egui::PointerButton::Primary) {
         // Keep the source index for moves within an editable playlist.
         let from = match row.context {
             RowContext::Context {
@@ -667,7 +658,6 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     let hovered = ui.rect_contains_pointer(rect);
     let unavailable = match row.item {
         PlayableItem::Track(track) => track.is_playable == Some(false) || track.is_local,
-        PlayableItem::Episode(_) => false,
     };
 
     if row.picked {
@@ -743,11 +733,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
             row.item.image(64),
             cover_rect,
             4.0,
-            if row.item.is_track() {
-                Icon::Music
-            } else {
-                Icon::Mic
-            },
+            Icon::Music,
         );
         // Without a number column the cover carries the play control:
         // hover shows it, a click uses it, and what plays shows there.
@@ -849,45 +835,6 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
                     }
                 }
             }
-            PlayableItem::Episode(episode) => {
-                let subtitle = episode
-                    .show
-                    .as_ref()
-                    .map(|show| show.name.clone())
-                    .unwrap_or_default();
-                if !subtitle.is_empty() {
-                    theme::text(
-                        &mut child,
-                        "•",
-                        theme::regular(12.0),
-                        palette.secondary.gamma_multiply(0.6),
-                    );
-                    let show_id = episode.show.as_ref().map(|show| show.id.clone());
-                    let response =
-                        theme::link(&mut child, subtitle, theme::regular(13.0), subtitle_color);
-                    if response.clicked()
-                        && let Some(id) = show_id
-                    {
-                        app.actions.push(Action::Open(Page::Show(id)));
-                    }
-                }
-                if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
-                    && cols.added == 0.0
-                {
-                    theme::text(
-                        &mut child,
-                        "•",
-                        theme::regular(12.0),
-                        palette.secondary.gamma_multiply(0.6),
-                    );
-                    let label = util::format_relative_date(added, jiff::Timestamp::now());
-                    theme::text(&mut child, &label, theme::regular(12.0), palette.secondary);
-                    if label.ends_with(" ago") {
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_secs(1));
-                    }
-                }
-            }
         }
     } else {
         let mut child = ui.new_child(
@@ -935,36 +882,6 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
                         }
                     }
                 }
-                PlayableItem::Episode(episode) => {
-                    let subtitle = episode
-                        .show
-                        .as_ref()
-                        .map(|show| show.name.clone())
-                        .unwrap_or_default();
-                    let show_id = episode.show.as_ref().map(|show| show.id.clone());
-                    let response = theme::link(ui, subtitle, theme::regular(12.5), subtitle_color);
-                    if response.clicked()
-                        && let Some(id) = show_id
-                    {
-                        app.actions.push(Action::Open(Page::Show(id)));
-                    }
-                    if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
-                        && cols.added == 0.0
-                    {
-                        theme::text(
-                            ui,
-                            "•",
-                            theme::regular(12.0),
-                            palette.secondary.gamma_multiply(0.6),
-                        );
-                        let label = util::format_relative_date(added, jiff::Timestamp::now());
-                        theme::text(ui, &label, theme::regular(12.0), palette.secondary);
-                        if label.ends_with(" ago") {
-                            ui.ctx()
-                                .request_repaint_after(std::time::Duration::from_secs(1));
-                        }
-                    }
-                }
             }
         });
     }
@@ -972,9 +889,8 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
 
     // Album.
     if cols.album > 0.0 {
-        if let PlayableItem::Track(track) = row.item
-            && let Some(album) = &track.album
-        {
+        let PlayableItem::Track(track) = row.item;
+        if let Some(album) = &track.album {
             let album_rect = Rect::from_min_max(
                 pos2(x, rect.top()),
                 pos2(x + cols.album - 12.0, rect.bottom()),
@@ -1049,7 +965,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     if cols.heart > 0.0 {
         let saved = app.is_saved(row.item.uri());
         let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
-        if row.item.is_track() && (hovered || saved == Some(true)) {
+        if hovered || saved == Some(true) {
             let mut child = ui.new_child(
                 UiBuilder::new()
                     .max_rect(heart_rect)

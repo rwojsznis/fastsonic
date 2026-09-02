@@ -565,7 +565,6 @@ fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> V
                         .map(|album| album.name.as_str())
                         .unwrap_or("")
                 ),
-                PlayableItem::Episode(episode) => episode.name.clone(),
             };
             haystack.to_lowercase().contains(needle)
         })
@@ -578,11 +577,9 @@ fn view_indices(items: &[TableItem], needle: &str, sort: Option<TableSort>) -> V
                 .as_ref()
                 .map(|album| album.name.to_lowercase())
                 .unwrap_or_default(),
-            PlayableItem::Episode(_) => String::new(),
         };
         let duration_of = |item: &PlayableItem| match item {
             PlayableItem::Track(track) => track.duration_ms,
-            PlayableItem::Episode(episode) => episode.duration_ms,
         };
         visible.sort_by(|a, b| {
             let (item_a, added_a, adder_a) = &items[*a];

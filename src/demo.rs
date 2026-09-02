@@ -732,8 +732,7 @@ pub fn populate(app: &mut App) {
     app.recents.complete = false;
     app.rebuild_recents();
 
-    // Search. `search3` has three buckets and no more: no playlists, no
-    // podcasts (`convert::search_results`).
+    // Search. `search3` has three buckets and no playlists.
     app.search.query = "Bonobo".into();
     app.search.committed = "Bonobo".into();
     app.search.results = Loadable::Loaded(SearchResults {
@@ -741,8 +740,6 @@ pub fn populate(app: &mut App) {
         artists: Some(page(artists.iter().take(6).cloned().collect())),
         albums: Some(page(albums.iter().take(6).cloned().collect())),
         playlists: None,
-        shows: None,
-        episodes: None,
     });
     app.settings.search_history = vec!["Khruangbin".into(), "ambient".into(), "immunity".into()];
 
@@ -943,13 +940,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     }
                 }
                 for (item, names) in app.queue.queue.iter_mut().zip(titles) {
-                    if let PlayableItem::Track(track) = item {
-                        rename(track, names);
-                    }
+                    let PlayableItem::Track(track) = item;
+                    rename(track, names);
                 }
-                if let Some(item) = &mut app.queue.currently_playing
-                    && let PlayableItem::Track(track) = item
-                {
+                if let Some(item) = &mut app.queue.currently_playing {
+                    let PlayableItem::Track(track) = item;
                     rename(track, titles[0]);
                 }
                 if let Some(track) = &mut app.local.track {
@@ -1344,10 +1339,6 @@ mod tests {
             Page::LikedSongs,
             Page::Albums,
             Page::Artists,
-            // Nothing on this server has podcasts on it, so these two draw
-            // their empty state until P5.3 takes the pages out.
-            Page::Podcasts,
-            Page::Episodes,
             Page::Playlist("pl1".into()),
             // Somebody else's public playlist, which offers no editing.
             Page::Playlist("pl0".into()),

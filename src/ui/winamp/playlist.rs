@@ -279,7 +279,6 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
             track.album.as_ref().map(|album| album.id.clone()),
             track.artists.first().and_then(|artist| artist.id.clone()),
         ),
-        _ => (None, None),
     };
     let mut rows = Vec::new();
     // The engine publishes the queue and what is playing together, so the
@@ -755,7 +754,7 @@ mod tests {
     #[test]
     fn rows_are_numbered_the_way_winamp_did() {
         assert_eq!(label(1, "Bonobo", "Rosewood"), "1. Bonobo - Rosewood");
-        assert_eq!(label(12, "", "Episode 12"), "12. Episode 12");
+        assert_eq!(label(12, "", "Untitled"), "12. Untitled");
     }
 
     #[test]

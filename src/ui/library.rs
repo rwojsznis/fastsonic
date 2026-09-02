@@ -1,4 +1,4 @@
-//! Full-page library grids: albums, artists, podcasts, episodes.
+//! Full-page library grids: albums and artists.
 
 use crate::api::models::{join_names, pick_image};
 use crate::app::App;
@@ -17,15 +17,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
             "No followed artists",
             "Followed artists appear here.",
         ),
-        Page::Podcasts => (
-            "Podcasts",
-            "No podcasts yet",
-            "Followed podcasts appear here.",
-        ),
         _ => (
-            "Episodes",
-            "No saved episodes",
-            "Saved episodes appear here.",
+            "Artists",
+            "No followed artists",
+            "Followed artists appear here.",
         ),
     };
     theme::text(ui, title, theme::bold(28.0), palette.text);
@@ -131,86 +126,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 Icon::Users,
             );
         }
-        Page::Podcasts => {
-            let shows: Vec<_> = app
-                .library
-                .shows
-                .items
-                .iter()
-                .map(|saved| saved.show.clone())
-                .collect();
-            widgets::grid(ui, |ui| {
-                for show in &shows {
-                    let card = widgets::card(
-                        ui,
-                        app,
-                        pick_image(&show.images, 300),
-                        &show.name,
-                        &show.publisher,
-                        false,
-                        false,
-                    );
-                    if card.clicked {
-                        app.actions.push(Action::Open(Page::Show(show.id.clone())));
-                    }
-                }
-            });
-            let list = &app.library.shows;
-            let (loading, error, can_load, empty) = (
-                list.loading,
-                list.error.clone(),
-                list.can_load_more(),
-                list.items.is_empty() && list.loaded_once,
-            );
-            footer(
-                app,
-                ui,
-                page,
-                loading,
-                error,
-                can_load,
-                empty,
-                empty_title,
-                empty_body,
-                Icon::Mic,
-            );
-        }
-        _ => {
-            let episodes: Vec<_> = app
-                .library
-                .episodes
-                .items
-                .iter()
-                .map(|saved| saved.episode.clone())
-                .collect();
-            widgets::virtual_rows(
-                ui,
-                episodes.len(),
-                super::show::EPISODE_ROW_HEIGHT,
-                |ui, index| {
-                    super::show::episode_row(app, ui, &episodes[index], None);
-                },
-            );
-            let list = &app.library.episodes;
-            let (loading, error, can_load, empty) = (
-                list.loading,
-                list.error.clone(),
-                list.can_load_more(),
-                list.items.is_empty() && list.loaded_once,
-            );
-            footer(
-                app,
-                ui,
-                page,
-                loading,
-                error,
-                can_load,
-                empty,
-                empty_title,
-                empty_body,
-                Icon::Bookmark,
-            );
-        }
+        _ => unreachable!("library grid only draws albums and artists"),
     }
 }
 

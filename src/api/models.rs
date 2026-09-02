@@ -301,71 +301,6 @@ pub fn join_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-pub struct ResumePoint {
-    #[serde(default)]
-    pub fully_played: bool,
-    #[serde(default)]
-    pub resume_position_ms: u32,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-pub struct Episode {
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub id: String,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub name: String,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub uri: String,
-    #[serde(default)]
-    pub duration_ms: u32,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub description: String,
-    #[serde(default, deserialize_with = "null_default")]
-    pub images: Vec<Image>,
-    #[serde(default)]
-    pub release_date: Option<String>,
-    #[serde(default)]
-    pub explicit: bool,
-    #[serde(default)]
-    pub resume_point: Option<ResumePoint>,
-    #[serde(default)]
-    pub show: Option<Show>,
-    #[serde(default)]
-    pub external_urls: ExternalUrls,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-pub struct Show {
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub id: String,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub name: String,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub uri: String,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub publisher: String,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub description: String,
-    #[serde(default, deserialize_with = "null_default")]
-    pub images: Vec<Image>,
-    #[serde(default)]
-    pub total_episodes: Option<u32>,
-    #[serde(default)]
-    pub episodes: Option<Page<Episode>>,
-    #[serde(default)]
-    pub external_urls: ExternalUrls,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Owner {
     #[serde(default)]
     pub id: Option<String>,
@@ -463,7 +398,6 @@ impl Starred for PlayableItem {
     fn starred_flag(&self) -> Option<(&str, bool)> {
         match self {
             Self::Track(track) => track.starred_flag(),
-            Self::Episode(_) => None,
         }
     }
 }
@@ -492,68 +426,48 @@ impl Starred for PlayHistory {
     }
 }
 
-/// A track or an episode, as returned wherever Spotify mixes both.
+/// A playable song returned in a playlist or queue.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum PlayableItem {
     Track(Track),
-    Episode(Episode),
 }
 
 impl PlayableItem {
     pub fn uri(&self) -> &str {
         match self {
             Self::Track(track) => &track.uri,
-            Self::Episode(episode) => &episode.uri,
         }
     }
 
     pub fn id(&self) -> Option<&str> {
         match self {
             Self::Track(track) => track.id.as_deref(),
-            Self::Episode(episode) => Some(&episode.id),
         }
     }
 
     pub fn name(&self) -> &str {
         match self {
             Self::Track(track) => &track.name,
-            Self::Episode(episode) => &episode.name,
         }
     }
 
     pub fn duration_ms(&self) -> u32 {
         match self {
             Self::Track(track) => track.duration_ms,
-            Self::Episode(episode) => episode.duration_ms,
         }
     }
 
     pub fn subtitle(&self) -> String {
         match self {
             Self::Track(track) => track.artist_names(),
-            Self::Episode(episode) => episode
-                .show
-                .as_ref()
-                .map(|show| show.name.clone())
-                .unwrap_or_default(),
         }
     }
 
     pub fn image(&self, target: u32) -> Option<&str> {
         match self {
             Self::Track(track) => track.image(target),
-            Self::Episode(episode) => pick_image(&episode.images, target).or_else(|| {
-                episode
-                    .show
-                    .as_ref()
-                    .and_then(|show| pick_image(&show.images, target))
-            }),
         }
-    }
-
-    pub fn is_track(&self) -> bool {
-        matches!(self, Self::Track(_))
     }
 }
 
@@ -600,20 +514,6 @@ pub struct SavedAlbum {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-pub struct SavedShow {
-    #[serde(default)]
-    pub added_at: Option<String>,
-    pub show: Show,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-pub struct SavedEpisode {
-    #[serde(default)]
-    pub added_at: Option<String>,
-    pub episode: Episode,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct FollowedArtists {
     pub artists: CursorPage<Artist>,
 }
@@ -655,10 +555,6 @@ pub struct SearchResults {
     pub albums: Option<Page<Album>>,
     #[serde(default)]
     pub playlists: Option<Page<Playlist>>,
-    #[serde(default)]
-    pub shows: Option<Page<Show>>,
-    #[serde(default)]
-    pub episodes: Option<Page<Episode>>,
 }
 
 impl SearchResults {
@@ -674,10 +570,6 @@ impl SearchResults {
                 .as_ref()
                 .is_none_or(|page| page.items.is_empty()),
             self.playlists
-                .as_ref()
-                .is_none_or(|page| page.items.is_empty()),
-            self.shows.as_ref().is_none_or(|page| page.items.is_empty()),
-            self.episodes
                 .as_ref()
                 .is_none_or(|page| page.items.is_empty()),
         ]
@@ -808,13 +700,12 @@ mod tests {
     #[test]
     fn playlist_items_accept_both_item_and_track_keys() {
         let classic = r#"{"items":[{"added_at":"2024-01-01T00:00:00Z","track":{"type":"track","id":"a","name":"One","uri":"spotify:track:a","duration_ms":1000,"artists":[{"name":"Artist"}]}}],"total":1}"#;
-        let modern = r#"{"items":[{"added_at":"2024-01-01T00:00:00Z","item":{"type":"episode","id":"e","name":"Ep","uri":"spotify:episode:e","duration_ms":2000}}, null],"total":2}"#;
+        let modern = r#"{"items":[{"added_at":"2024-01-01T00:00:00Z","item":{"type":"track","id":"b","name":"Two","uri":"spotify:track:b","duration_ms":2000}}, null],"total":2}"#;
         let classic: Page<PlaylistItem> = serde_json::from_str(classic).unwrap();
         let modern: Page<PlaylistItem> = serde_json::from_str(modern).unwrap();
         assert_eq!(classic.items[0].playable().unwrap().name(), "One");
         assert_eq!(modern.items.len(), 1);
-        assert_eq!(modern.items[0].playable().unwrap().name(), "Ep");
-        assert!(!modern.items[0].playable().unwrap().is_track());
+        assert_eq!(modern.items[0].playable().unwrap().name(), "Two");
     }
 
     #[test]

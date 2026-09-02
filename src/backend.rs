@@ -186,12 +186,6 @@ pub enum ApiRequest {
     FollowedArtists {
         after: Option<String>,
     },
-    SavedShows {
-        offset: u32,
-    },
-    SavedEpisodes {
-        offset: u32,
-    },
     SetSaved {
         uris: Vec<String>,
         saved: bool,
@@ -218,13 +212,6 @@ pub enum ApiRequest {
         id: String,
     },
     AlbumTracks {
-        id: String,
-        offset: u32,
-    },
-    Show {
-        id: String,
-    },
-    ShowEpisodes {
         id: String,
         offset: u32,
     },
@@ -317,14 +304,6 @@ pub enum ApiResponse {
         after: Option<String>,
         result: ApiResult<CursorPage<Artist>>,
     },
-    SavedShows {
-        offset: u32,
-        result: ApiResult<Page<SavedShow>>,
-    },
-    SavedEpisodes {
-        offset: u32,
-        result: ApiResult<Page<SavedEpisode>>,
-    },
     SavedChanged {
         uris: Vec<String>,
         saved: bool,
@@ -361,15 +340,6 @@ pub enum ApiResponse {
         id: String,
         offset: u32,
         result: ApiResult<Page<Track>>,
-    },
-    Show {
-        id: String,
-        result: ApiResult<Show>,
-    },
-    ShowEpisodes {
-        id: String,
-        offset: u32,
-        result: ApiResult<Page<Episode>>,
     },
     Track {
         id: String,
@@ -1202,13 +1172,7 @@ fn observe(scrobbler: &Mutex<Scrobbler>, state: &LocalState) -> Vec<Report> {
         .observe(song, position, duration, playing, now_ms)
 }
 
-/// One request, one answer — or none at all.
-///
-/// `None` is what the cut requests get: podcasts and
-/// recommendations have no call to make and no honest answer to give, so
-/// they leave the interface holding what it already had rather than being
-/// told an empty list is the truth. `migration/03-removals.md` is where
-/// their askers go in Phase 5.
+/// One request, one answer.
 async fn handle(
     client: &SubsonicClient,
     native: &NativeClient,
@@ -1444,12 +1408,6 @@ async fn handle(
             result: client.track(&id).await,
             id,
         },
-
-        // Cut, and answered by saying nothing.
-        ApiRequest::SavedShows { .. }
-        | ApiRequest::SavedEpisodes { .. }
-        | ApiRequest::Show { .. }
-        | ApiRequest::ShowEpisodes { .. } => return None,
     };
     Some(response)
 }
