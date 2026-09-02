@@ -89,6 +89,8 @@ work done with the maintainer, does not go through them.
 - Run the full checks from `CONTRIBUTING.md`. Do not weaken a lint, delete a
   test, or add an `allow` merely to make CI green without explaining why the
   underlying rule does not apply.
+- Run Cargo test commands with `--quiet` so successful test output stays
+  compact and does not overwhelm agent context.
 - Report platform coverage honestly. Do not claim a platform was tested when
   it was only compiled or reasoned about.
 
