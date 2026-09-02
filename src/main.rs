@@ -229,7 +229,7 @@ fn main() -> eframe::Result<()> {
         std::process::exit(run_control(control));
     }
     let default_filter = if cli.verbose {
-        "info,librespot=info,fastsonic=debug"
+        "info,fastsonic=debug"
     } else {
         "warn,fastsonic=info"
     };

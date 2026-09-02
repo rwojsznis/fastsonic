@@ -5,8 +5,7 @@
 //! them once per packet and rebuilds filters only after changes.
 //!
 //! This stage does not clip boosted samples. The limiter after it does,
-//! once the output volume is known — `engine::chain` on the new engine,
-//! `vis::Tapped` on the old one.
+//! once the output volume is known, in `engine::chain`.
 //!
 //! The filters are built for one sample rate and the rate is not a
 //! constant any more: a self-hosted music library can contain several sample
@@ -503,7 +502,7 @@ impl Processor {
                 // the one ceiling in the chain sits at the end, past the
                 // volume: a boost that would clip at full volume is fine
                 // three notches down, and holding it back here would take
-                // that away for good. See `vis::Tapped`.
+                // that away for good. See `engine::chain`.
                 *sample *= gain;
             }
         }

@@ -13,19 +13,17 @@
 //! moving before the speaker moves. [`LAG`] covers the device's own buffer,
 //! which does not change; the sound waiting in the sink does change, so the
 //! engine reports it as it goes ([`AudioTap::set_lead`]) and every read
-//! looks that much further back. Under librespot the lead stays zero and
-//! `LAG` alone is the whole of it, as it always was.
+//! looks that much further back.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use librespot_playback::audio_backend::{Sink, SinkResult};
-use librespot_playback::convert::Converter;
-use librespot_playback::decoder::AudioPacket;
-use librespot_playback::mixer::VolumeGetter;
-use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
+/// The engine feeds the visualiser stereo samples.
+const CHANNELS: usize = 2;
+/// Winamp's analyser constants are defined for 44.1 kHz audio.
+const SAMPLE_RATE: u32 = 44_100;
 
 /// How much audio is kept: a second and a half at 48 kHz, which is the
 /// half second the engine keeps in front of the device, plus [`LAG`], plus
@@ -128,7 +126,7 @@ impl AudioTap {
     /// attached, MilkDrop's stereo shared-memory ring.
     pub fn push(&self, interleaved: &[f64], gain: f32) {
         let mut samples = self.samples.lock().unwrap_or_else(|p| p.into_inner());
-        let (frames, _) = interleaved.as_chunks::<{ NUM_CHANNELS as usize }>();
+        let (frames, _) = interleaved.as_chunks::<CHANNELS>();
         #[cfg(feature = "milkdrop")]
         let shm = self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone();
         #[cfg(feature = "milkdrop")]
@@ -184,103 +182,6 @@ impl AudioTap {
             .unwrap_or_else(|p| p.into_inner())
             .clear();
         self.set_lead(0);
-    }
-}
-
-/// Runs the equalizer and taps the signal before passing it to the real sink.
-pub struct Tapped {
-    inner: Box<dyn Sink>,
-    tap: Arc<AudioTap>,
-    eq: crate::eq::Processor,
-    /// Player volume, used to calculate the limiter ceiling.
-    volume: Box<dyn VolumeGetter + Send>,
-    /// Whether this wrapper applies volume after the tap. Otherwise the inner
-    /// sink applies it, still after the tap and to already queued audio.
-    applies_volume: bool,
-    /// Final limiter, placed here because this stage knows the output volume.
-    limiter: crate::limiter::Limiter,
-    /// Track normalization factor. The tap removes it so visualizers show the
-    /// source dynamics, as Winamp's analyser did.
-    normalisation: Arc<std::sync::atomic::AtomicU64>,
-}
-
-impl Tapped {
-    pub fn new(
-        inner: Box<dyn Sink>,
-        tap: Arc<AudioTap>,
-        volume: Box<dyn VolumeGetter + Send>,
-        applies_volume: bool,
-        eq: crate::eq::SharedEq,
-        normalisation: Arc<std::sync::atomic::AtomicU64>,
-    ) -> Self {
-        Self {
-            inner,
-            tap,
-            eq: crate::eq::Processor::new(eq, SAMPLE_RATE),
-            volume,
-            applies_volume,
-            limiter: crate::limiter::Limiter::new(f64::from(SAMPLE_RATE)),
-            normalisation,
-        }
-    }
-}
-
-/// Full-scale level for samples leaving `Tapped`.
-///
-/// This is 1.0 after volume is applied. Before volume, it is the level that
-/// becomes 1.0 after the inner sink applies volume.
-fn full_scale(volume: f64, applied: bool) -> Option<f64> {
-    if applied {
-        Some(1.0)
-    } else if volume > f64::EPSILON {
-        Some(1.0 / volume)
-    } else {
-        // At zero volume, no finite pre-volume ceiling is needed.
-        None
-    }
-}
-
-impl Sink for Tapped {
-    fn start(&mut self) -> SinkResult<()> {
-        self.inner.start()
-    }
-
-    fn stop(&mut self) -> SinkResult<()> {
-        self.tap.clear();
-        self.inner.stop()
-    }
-
-    fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
-        let packet = match packet {
-            AudioPacket::Samples(mut samples) => {
-                self.eq.process(&mut samples);
-                // Post-EQ, pre-volume, pre-normalisation: the equalizer
-                // shapes what the bars show; the volume knob and the
-                // loudness housekeeping never move them.
-                let factor = f64::from_bits(
-                    self.normalisation
-                        .load(std::sync::atomic::Ordering::Relaxed),
-                );
-                let restore = if factor > 0.05 && factor < 20.0 {
-                    (1.0 / factor).clamp(0.125, 8.0) as f32
-                } else {
-                    1.0
-                };
-                self.tap.push(&samples, restore);
-                let attenuation = self.volume.attenuation_factor();
-                if self.applies_volume {
-                    for sample in &mut samples {
-                        *sample *= attenuation;
-                    }
-                }
-                if let Some(full_scale) = full_scale(attenuation, self.applies_volume) {
-                    self.limiter.process(&mut samples, full_scale);
-                }
-                AudioPacket::Samples(samples)
-            }
-            raw => raw,
-        };
-        self.inner.write(packet, converter)
     }
 }
 
@@ -682,18 +583,5 @@ mod tests {
         assert_eq!(scope_shade(7), 0);
         assert_eq!(scope_shade(0), 3);
         assert_eq!(scope_shade(15), 4);
-    }
-
-    /// Rule: full scale is one when the volume is already in, and the
-    /// level that lands on one when the output has yet to apply it.
-    /// Getting this wrong would hold a quiet listener to a quarter of
-    /// what their speaker could have had. The limiting itself is
-    /// [`crate::limiter`]'s, and tested there.
-    #[test]
-    fn full_scale_follows_the_volume_still_to_come() {
-        assert_eq!(full_scale(0.5, true), Some(1.0), "already applied: one");
-        assert_eq!(full_scale(0.25, false), Some(4.0), "a quarter to come");
-        assert_eq!(full_scale(1.0, false), Some(1.0), "full volume to come");
-        assert_eq!(full_scale(0.0, false), None, "silence has no ceiling");
     }
 }

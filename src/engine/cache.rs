@@ -131,9 +131,9 @@ impl Cache {
     ///
     /// The directory is read once here so that the budget can be enforced
     /// without walking the disk again, and anything in it that is not an
-    /// entry of this version is left alone — the same directory held
-    /// librespot's cache until P3.9, and a cache has no business deleting
-    /// files it did not write.
+    /// entry of this version is removed. This directory is dedicated to audio
+    /// blocks, so entries without our metadata are leftovers from the player
+    /// replaced at P3.9 or interrupted writes.
     pub fn open(root: PathBuf, budget: u64) -> Result<Arc<Self>> {
         Self::with_block(root, budget, BLOCK)
     }
@@ -185,10 +185,16 @@ impl Cache {
                 continue;
             };
             let dir = entry.path();
-            // Not ours, or of a layout this build does not read. The first
-            // is left alone; the second is deleted, because it is ours and
-            // it is unusable.
+            // The directory is dedicated to audio cache entries. Anything
+            // without readable metadata is either from the retired player or
+            // an interrupted write, and would otherwise sit outside the
+            // configured budget forever.
             let Some(meta) = read_meta(&dir) else {
+                log::debug!(
+                    "dropping an unrecognised audio cache entry: {}",
+                    dir.display()
+                );
+                let _ = std::fs::remove_dir_all(&dir);
                 continue;
             };
             if meta.version != VERSION || meta.block as usize != self.block {
@@ -1105,7 +1111,7 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_of_another_layout_is_thrown_away_and_a_stranger_is_left_alone() {
+    fn entries_without_the_current_layout_are_thrown_away() {
         let temp = Temp::new("layouts");
         let cache = cache_at(&temp, 8 * 1024 * 1024, 1024);
         let body = tones(1024);
@@ -1114,8 +1120,7 @@ mod tests {
         assert_eq!(read_all(&mut source), body);
         drop(source);
 
-        // librespot's cache lived in this directory until P3.9, and a
-        // cache has no business deleting what it did not write.
+        // The retired player's entries had no metadata in our format.
         let stranger = temp.path().join("aa");
         std::fs::create_dir_all(&stranger).expect("a stranger");
         std::fs::write(stranger.join("some-file-id"), b"not ours").expect("a stranger");
@@ -1133,7 +1138,7 @@ mod tests {
         let cache = cache_at(&temp, 8 * 1024 * 1024, 1024);
         assert_eq!(cache.stats().entries, 0);
         assert!(!mine.exists());
-        assert!(stranger.join("some-file-id").exists());
+        assert!(!stranger.exists());
     }
 
     #[test]

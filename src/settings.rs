@@ -54,7 +54,7 @@ pub struct Settings {
     pub normalisation: bool,
     pub autoplay: bool,
     pub gapless: bool,
-    /// librespot backend name; `None` picks the platform default.
+    /// Legacy backend setting retained so existing settings files stay readable.
     pub audio_backend: Option<String>,
     pub audio_device: Option<String>,
     /// Windows output buffer in milliseconds. Smaller values may click under
