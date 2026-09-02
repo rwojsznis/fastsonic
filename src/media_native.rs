@@ -26,6 +26,23 @@ type Wake = Arc<dyn Fn() + Send + Sync>;
 /// How far a seek button without an amount moves.
 const SEEK_STEP_MS: i64 = 10_000;
 
+/// Souvlaki loads cover art itself. Fastsonic's `sonic:art:` values are
+/// authenticated requests understood by our image loader, not URLs that the
+/// operating system can open. Worse, souvlaki 0.8.3 dereferences a null
+/// `NSImage` on macOS whenever an artwork load fails, including an ordinary
+/// URL while offline, so do not give that backend artwork at all.
+fn souvlaki_cover_url(art_url: Option<&str>) -> Option<&str> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = art_url;
+        None
+    }
+    #[cfg(windows)]
+    {
+        art_url.filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+    }
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn should_claim_now_playing(claimed: bool, state: &MediaState) -> bool {
     !claimed && state.track.is_some() && state.playback != Playback::Playing
@@ -119,7 +136,7 @@ impl Bridge {
                     title: Some(track.title.as_str()),
                     album: Some(track.album.as_str()),
                     artist: Some(artist.as_str()),
-                    cover_url: track.art_url.as_deref(),
+                    cover_url: souvlaki_cover_url(track.art_url.as_deref()),
                     duration: Some(Duration::from_millis(u64::from(track.duration_ms))),
                 },
                 None => MediaMetadata::default(),
@@ -400,6 +417,22 @@ impl MediaService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deferred_cover_art_is_not_sent_to_native_media_controls() {
+        assert_eq!(souvlaki_cover_url(Some("sonic:art:640:album-1")), None);
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            souvlaki_cover_url(Some("https://music.example/cover.jpg")),
+            None
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            souvlaki_cover_url(Some("https://music.example/cover.jpg")),
+            Some("https://music.example/cover.jpg")
+        );
+        assert_eq!(souvlaki_cover_url(None), None);
+    }
 
     #[test]
     fn a_remembered_paused_track_claims_the_media_keys_once() {
