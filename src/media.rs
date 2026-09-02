@@ -3,7 +3,7 @@
 //! Platform modules translate this interface to MPRIS on Linux, System Media
 //! Transport Controls on Windows, and Now Playing on macOS.
 
-use crate::player::{Playback, RepeatMode};
+use crate::engine::{Playback, RepeatMode};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MediaCommand {

@@ -1,10 +1,10 @@
-title: Fastpotify
-fastpotify_version: "0.4.1"
+title: Fastsonic
+fastsonic_version: "0.4.1"
 description: A fast, native Spotify client for Linux, macOS, and Windows, written in Rust.
 lang: en-US
 timezone: Europe/Berlin
-url: https://fastpotify.rocks
-baseurl: ""
+url: https://rwojsznis.github.io
+baseurl: "/fastsonic"
 logo: /assets/images/logo.svg
 image: /screenshot.png
 
@@ -50,39 +50,37 @@ jekyll_vitepress:
     page_type: TechArticle
     image:
       path: /screenshot.png
-      alt: Fastpotify showing a playlist with the queue open and a track playing
+      alt: Fastsonic showing a playlist with the queue open and a track playing
     publisher:
       type: Person
-      name: Carmine Paolino
-      url: https://paolino.me
+      name: Rafal Wojsznis
+      url: https://github.com/rwojsznis
       same_as:
-        - https://github.com/crmne/fastpotify
+        - https://github.com/rwojsznis/fastsonic
   llms:
-    title: Fastpotify
+    title: Fastsonic
     description: >-
-      Documentation for Fastpotify, a native Spotify client for Linux, macOS,
+      Documentation for Fastsonic, a native Spotify client for Linux, macOS,
       and Windows. It covers local playback, library access, and Spotify
       Connect.
     full: true
     details: >-
       Covers installation, sign-in, everyday use, settings, and Spotify
       connections. Source is on
-      [GitHub](https://github.com/crmne/fastpotify).
+      [GitHub](https://github.com/rwojsznis/fastsonic).
   branding:
-    site_title: Fastpotify
+    site_title: Fastsonic
     logo:
       default: /assets/images/logo.svg
-      alt: Fastpotify
+      alt: Fastsonic
   syntax:
     light_theme: github
     dark_theme: github.dark
   footer:
     enabled: true
     show_on_docs: false
-    message: >-
-      Brought to you by <a href="https://paolino.me" target="_blank" rel="noreferrer">Carmine Paolino</a>, maker of
     copyright: >-
-      <span class="footer-brand-links"><a href="https://chatwithwork.com" class="footer-chatwithwork-link" target="_blank" rel="noreferrer"><img class="footer-chatwithwork-logo theme-image light" src="https://chatwithwork.com/logotype.svg" alt="Chat with Work"><img class="footer-chatwithwork-logo theme-image dark" src="https://chatwithwork.com/logotype-dark.svg" alt="Chat with Work"></a><a href="https://rubyllm.com" class="footer-rubyllm-link" target="_blank" rel="noreferrer"><img class="footer-rubyllm-logo theme-image light" src="https://rubyllm.com/assets/images/logotype.svg" alt="RubyLLM"><img class="footer-rubyllm-logo theme-image dark" src="https://rubyllm.com/assets/images/logotype_dark.svg" alt="RubyLLM"></a></span><br><span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Fastpotify is an independent project, not affiliated with or endorsed by Spotify AB. Spotify is a trademark of Spotify AB.</span>
+      <span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Fastsonic is an independent project, not affiliated with or endorsed by Spotify AB. Spotify is a trademark of Spotify AB.</span>
   doc_footer:
     enabled: true
     previous_label: Previous page
@@ -93,17 +91,15 @@ jekyll_vitepress:
     format: "%Y-%m-%d %H:%M"
   edit_link:
     enabled: true
-    pattern: "https://github.com/crmne/fastpotify/edit/main/docs/:path"
+    pattern: "https://github.com/rwojsznis/fastsonic/edit/main/docs/:path"
     text: Edit this page on GitHub
   github_star:
     enabled: true
-    repository: crmne/fastpotify
+    repository: rwojsznis/fastsonic
     text: Star
     show_count: true
   github_sponsor:
-    enabled: true
-    user: crmne
-    text: Sponsor
+    enabled: false
 
 plugins:
   - jekyll-vitepress-theme

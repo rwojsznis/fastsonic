@@ -1,7 +1,7 @@
 //! Lyrics for the playing track, from Spotify or LRCLIB.
 //!
 //! [LRCLIB](https://lrclib.net) provides plain and LRC-synced lyrics without an
-//! account or key. Fastpotify tries Spotify's transcription first when the
+//! account or key. Fastsonic tries Spotify's transcription first when the
 //! playback session is signed in, then LRCLIB.
 //!
 //! Matching starts with an exact lookup, then ranks search results. Track
@@ -62,28 +62,35 @@ impl Lyrics {
     }
 }
 
-/// Parses Spotify's `color-lyrics` response.
-pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
-    let lyrics = json.get("lyrics")?;
-    let synced = lyrics.get("syncType").and_then(|value| value.as_str()) == Some("LINE_SYNCED");
-    let lines: Vec<Line> = lyrics
-        .get("lines")?
-        .as_array()?
+/// The server's own words, from `getLyricsBySongId`.
+///
+/// This replaces Spotify's transcription and is better than what it
+/// replaces: `start` is already in milliseconds, per line, and the server
+/// says outright whether the set is synced. `offset` shifts every line, the
+/// way an `.lrc` file's `[offset:]` tag does.
+///
+/// A song may carry several sets — translations and pronunciations under
+/// `songLyrics` v2 — so the main set in the first language is the one taken;
+/// choosing between languages is an interface question nobody has asked yet.
+pub fn from_subsonic(list: &crate::api::subsonic::LyricsList) -> Option<Lyrics> {
+    let set = list
+        .structured_lyrics
+        .iter()
+        .find(|set| set.kind.as_deref().unwrap_or("main") == "main")
+        .or_else(|| list.structured_lyrics.first())?;
+    let offset = set.offset.unwrap_or_default();
+    let lines: Vec<Line> = set
+        .line
         .iter()
         .filter_map(|line| {
-            let text = line.get("words")?.as_str()?.trim();
+            let text = line.value.trim();
             if text.is_empty() || text == "\u{266a}" {
                 return None;
             }
             let at_ms = line
-                .get("startTimeMs")
-                .and_then(|value| {
-                    value
-                        .as_str()
-                        .and_then(|text| text.parse().ok())
-                        .or_else(|| value.as_u64().and_then(|n| u32::try_from(n).ok()))
-                })
-                .filter(|_| synced);
+                .start
+                .filter(|_| set.synced)
+                .map(|start| (start + offset).max(0.0) as u32);
             Some(Line {
                 at_ms,
                 text: text.to_string(),
@@ -93,10 +100,9 @@ pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
     if lines.is_empty() {
         return None;
     }
-    let synced = synced && lines.iter().all(|line| line.at_ms.is_some());
     Some(Lyrics {
+        synced: set.synced && lines.iter().all(|line| line.at_ms.is_some()),
         lines,
-        synced,
         instrumental: false,
     })
 }

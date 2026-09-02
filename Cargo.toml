@@ -1,20 +1,20 @@
 [package]
-name = "fastpotify"
+name = "fastsonic"
 version = "0.5.0-rc2"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
 description = "A native Spotify client"
-repository = "https://github.com/crmne/fastpotify"
+repository = "https://github.com/rwojsznis/fastsonic"
 keywords = ["spotify", "music", "egui", "librespot", "player"]
 categories = ["multimedia::audio"]
 
 [lib]
-name = "fastpotify"
+name = "fastsonic"
 path = "src/lib.rs"
 
 [[bin]]
-name = "fastpotify"
+name = "fastsonic"
 path = "src/main.rs"
 
 [dependencies]
@@ -65,7 +65,7 @@ raw-window-handle = { version = "0.6", optional = true }
 # librespot-core depends on hyper-proxy2 for HTTP proxy support, whose only
 # published release (0.1.0) pins rustls 0.22 and so drags in rustls-webpki
 # 0.102, which carries advisories against its CRL and name-constraint
-# handling. Fastpotify never configures a proxy (SessionConfig.proxy stays
+# handling. Fastsonic never configures a proxy (SessionConfig.proxy stays
 # None), so that TLS client is compiled in but never used to verify anything.
 # Every connection this app actually makes (the Web API through reqwest, and
 # librespot's own sessions) goes through rustls 0.23 with a patched
@@ -76,6 +76,20 @@ librespot-playback = { version = "0.8", default-features = false, features = ["r
 librespot-connect = { version = "0.8", default-features = false }
 librespot-metadata = { version = "0.8", default-features = false }
 librespot-protocol = { version = "0.8", default-features = false }
+# Decoding what the music server streams. D12 asks for the file as it is on
+# disk, so the library's formats are this client's to decode: FLAC beside
+# 320k MP3 beside AAC in MP4. librespot brings symphonia 0.5 along for
+# Spotify's one codec; this is 0.6 named directly, and the old copy leaves
+# with librespot (P3.9).
+symphonia = { version = "0.6", default-features = false, features = ["flac", "mp3", "vorbis", "ogg", "isomp4", "aac", "alac", "wav", "aiff", "pcm", "adpcm", "all-meta", "opt-simd"] }
+# The one codec symphonia does not carry, in any version, and an ordinary
+# thing to find in a self-hosted library. Pure Rust with no dependencies of
+# its own, so it adds no C build the way libopus would (Q7 in
+# migration/00-decisions.md, where the four options are measured); its decode
+# of the fixture library is byte-equal to libopus's. `src/opus.rs` wraps it
+# as a symphonia decoder, and is the only file that knows which
+# implementation this is.
+opus-pure = "0.2"
 # Parses the rootlist's playlist4 protobuf, the same crate librespot generates with.
 protobuf = "3"
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
@@ -84,11 +98,24 @@ protobuf = "3"
 # so nothing new is compiled.
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
 cpal = "0.16"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "gzip", "http2", "blocking"] }
+# 0.13 dropped the `rustls-tls-native-roots` feature. Its replacement,
+# `rustls`, means aws-lc-rs, whose C build would put cmake (and NASM on
+# Windows) in front of every packager. `rustls-no-provider` leaves the choice
+# here instead: ring, the provider librespot already links, installed once at
+# startup by `install_tls_provider`. Roots now come from
+# rustls-platform-verifier, which asks the operating system rather than
+# reading its trust store.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "query", "form", "gzip", "http2", "blocking"] }
+# Named directly only to pick the crypto provider reqwest no longer picks.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # `fs` is used by the playlist cache in `backend.rs`. On Linux the
 # mpris-server dependency happens to turn it on, which is why leaving it out
 # built there and nowhere else.
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs"] }
+# Subsonic authenticates with `t=md5(password + salt)`. MD5 is the
+# protocol's choice, not a security claim of ours: it is a wire format here,
+# and the pair it produces is stored instead of the password (D10).
+md-5 = "0.10"
 sha1 = "0.10"
 sha2 = "0.10"
 base64 = "0.22"

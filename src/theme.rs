@@ -326,7 +326,7 @@ macro_rules! icons {
     ($($variant:ident => $file:literal),* $(,)?) => {
         &[$((
             Icon::$variant,
-            concat!("bytes://fastpotify-icon-", $file, ".svg"),
+            concat!("bytes://fastsonic-icon-", $file, ".svg"),
             include_bytes!(concat!("../assets/icons/", $file, ".svg")).as_slice(),
         )),*]
     };
@@ -581,7 +581,7 @@ pub fn icon_button(
 /// Horizontal offset that optically centers play triangles.
 ///
 /// Lucide includes a 1/24-width shift; a measured 3% shift centers the icon at
-/// Fastpotify's sizes. Use this everywhere instead of per-call adjustments.
+/// Fastsonic's sizes. Use this everywhere instead of per-call adjustments.
 pub fn play_glyph_offset(icon: Icon, icon_size: f32) -> Vec2 {
     if matches!(icon, Icon::PlayFilled | Icon::Play) {
         Vec2::new(icon_size * (0.03 - 1.0 / 24.0), 0.0)

@@ -2,13 +2,22 @@
 
 use egui::{CornerRadius, Rect, Sense, Vec2, pos2, vec2};
 
-use crate::api::models::{PlayableItem, Playlist, pick_image};
+use crate::api::models::{Album, PlayableItem, pick_image};
 use crate::app::App;
-use crate::model::{Action, DISCOVER_TERMS, Loadable, Page, RowContext};
+use crate::model::{Action, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
 
+/// Home, as a self-hosted library rather than an editorial front page.
+///
+/// The shelves are in the order they are useful on a server you own. What
+/// you just added comes first — importing a record and playing it is the
+/// commonest thing anyone does here. Then what the server knows you play,
+/// which is empty until this app has scrobbled something and empty again if
+/// the native session behind it has lapsed (D11, D13) — so the two shelves
+/// that always have something in them, recently added and the random one,
+/// are the first and the last, and Home never reads as broken between them.
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(6.0);
@@ -17,11 +26,91 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     quick_access(app, ui);
     ui.add_space(16.0);
 
-    made_for_you(app, ui);
+    album_shelf(app, ui, "newest", "Recently added", Shelf::Newest);
     recently_played(app, ui);
-    top_artists(app, ui);
     top_tracks(app, ui);
-    recommendations(app, ui);
+    album_shelf(app, ui, "frequent", "Most played", Shelf::Frequent);
+    top_artists(app, ui);
+    album_shelf(app, ui, "random", "Something at random", Shelf::Random);
+}
+
+/// Which of Home's album shelves is being drawn. Mirrors
+/// `backend::AlbumShelf`, which is what asks for it.
+#[derive(Clone, Copy)]
+enum Shelf {
+    Newest,
+    Frequent,
+    Random,
+}
+
+impl Shelf {
+    fn albums(self, app: &App) -> Loadable<Vec<Album>> {
+        match self {
+            Self::Newest => app.home.newest_albums.clone(),
+            Self::Frequent => app.home.frequent_albums.clone(),
+            Self::Random => app.home.random_albums.clone(),
+        }
+    }
+}
+
+/// A row of records: recently added, most played, or a handful at random.
+///
+/// An empty shelf is drawn as nothing at all rather than as an empty box.
+/// "Most played" has nothing in it until the server has counted some plays,
+/// and a shelf that says so would be five words of apology on every Home.
+fn album_shelf(app: &mut App, ui: &mut egui::Ui, id: &str, title: &str, shelf: Shelf) {
+    let palette = app.palette;
+    let albums = match shelf.albums(app) {
+        Loadable::Loaded(albums) => albums,
+        Loadable::Loading | Loadable::NotLoaded => {
+            widgets::shelf(ui, &palette, id, title, |ui| {
+                widgets::loading_row(ui, &palette)
+            });
+            return;
+        }
+        Loadable::Failed(message) => {
+            widgets::shelf(ui, &palette, id, title, |ui| {
+                widgets::error_row(ui, app, &message, Some(Page::Home));
+            });
+            return;
+        }
+    };
+    if albums.is_empty() {
+        return;
+    }
+    widgets::shelf(ui, &palette, id, title, |ui| {
+        for album in &albums {
+            let names = crate::api::models::join_names(
+                album.artists.iter().map(|artist| artist.name.as_str()),
+            );
+            let subtitle = match (names.is_empty(), album.year()) {
+                (false, Some(year)) => format!("{names} • {year}"),
+                (false, None) => names,
+                (true, Some(year)) => year.to_string(),
+                (true, None) => String::new(),
+            };
+            let card = widgets::card(
+                ui,
+                app,
+                pick_image(&album.images, 300),
+                &album.name,
+                &subtitle,
+                false,
+                true,
+            );
+            if card.play {
+                app.actions.push(Action::PlayContext {
+                    uri: album.uri.clone(),
+                    offset_uri: None,
+                    offset_index: None,
+                });
+            }
+            if card.clicked {
+                app.actions
+                    .push(Action::Open(Page::Album(album.id.clone())));
+            }
+        }
+    });
 }
 
 struct Tile {
@@ -38,10 +127,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
         image: None,
         name: "Liked Songs".to_string(),
         page: Page::LikedSongs,
-        uri: app
-            .user
-            .as_ref()
-            .map(|user| format!("spotify:user:{}:collection", user.id)),
+        uri: Some(crate::api::subsonic::convert::COLLECTION_URI.to_string()),
         liked: true,
     }];
     if let Some(playlists) = app.library.playlists.get() {
@@ -148,69 +234,6 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
             }
         });
     }
-}
-
-fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
-    let mut playlists: Vec<Playlist> = Vec::new();
-    let mut loading = false;
-    let mut failed = false;
-    for term in DISCOVER_TERMS {
-        match app.home.discover.get(*term) {
-            Some(Loadable::Loaded(list)) => {
-                for playlist in list {
-                    let duplicate = playlists.iter().any(|existing| {
-                        existing.id == playlist.id
-                            || existing.name.eq_ignore_ascii_case(&playlist.name)
-                    });
-                    if !duplicate {
-                        playlists.push(playlist.clone());
-                    }
-                }
-            }
-            Some(Loadable::Loading) => loading = true,
-            Some(Loadable::Failed(_)) => failed = true,
-            _ => {}
-        }
-    }
-    if playlists.is_empty() && !loading && !failed {
-        return;
-    }
-    widgets::shelf(ui, &palette, "made-for-you", "Made for you", |ui| {
-        if playlists.is_empty() && loading {
-            widgets::loading_row(ui, &palette);
-        } else if playlists.is_empty() && failed {
-            widgets::error_row(ui, app, "Couldn't load this shelf", Some(Page::Home));
-        }
-        for playlist in &playlists {
-            let subtitle = playlist
-                .description
-                .as_deref()
-                .map(crate::util::strip_html)
-                .filter(|d| !d.is_empty())
-                .unwrap_or_else(|| format!("By {}", playlist.owner_name()));
-            let card = widgets::card(
-                ui,
-                app,
-                pick_image(&playlist.images, 300),
-                &playlist.name,
-                &subtitle,
-                false,
-                true,
-            );
-            if card.play {
-                app.actions.push(Action::PlayContext {
-                    uri: playlist.uri.clone(),
-                    offset_uri: None,
-                    offset_index: None,
-                });
-            }
-            if card.clicked {
-                app.actions
-                    .push(Action::Open(Page::Playlist(playlist.id.clone())));
-            }
-        }
-    });
 }
 
 fn recently_played(app: &mut App, ui: &mut egui::Ui) {
@@ -407,9 +430,4 @@ fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
         Some(Page::TopSongs),
         Some("Show more top songs"),
     );
-}
-
-fn recommendations(app: &mut App, ui: &mut egui::Ui) {
-    let tracks = app.home.recommendations.clone();
-    track_list(app, ui, "Recommended for you", tracks, 20, None, None);
 }

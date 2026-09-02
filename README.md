@@ -1,6 +1,15 @@
-# Fastpotify
+# Fastsonic
 
-**Spotify, native and fast.** Fastpotify is a Spotify client written in
+> **This is a fork in the middle of a migration.** Fastsonic is
+> [Fastpotify](https://github.com/crmne/fastpotify) being turned into a native
+> client for a self-hosted [Navidrome](https://www.navidrome.org) server: the
+> interface, the Winamp skins, the equalizer and the visualisers stay; the
+> Spotify Web API and librespot go. Today it is still the Spotify client
+> described below, and everything on this page is true of the current build.
+> The plan, the decisions and the progress board are in
+> [`migration/`](migration/README.md). Nothing here is released yet.
+
+**Spotify, native and fast.** Fastsonic is a Spotify client written in
 Rust with [egui](https://github.com/emilk/egui). It plays music through
 [librespot](https://github.com/librespot-org/librespot). It typically uses
 100–250 MB of RAM, while Spotify's desktop app often uses 600 MB to over 1 GB.
@@ -8,23 +17,23 @@ It runs on Linux, macOS, and Windows, starts in well under a second, and has no
 browser engine.
 
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
-cannot play music through Fastpotify on this computer or another device.
+cannot play music through Fastsonic on this computer or another device.
 
-![Fastpotify showing a playlist, with the queue open and a track playing on a remote speaker](docs/screenshot.png)
+![Fastsonic showing a playlist, with the queue open and a track playing on a remote speaker](docs/screenshot.png)
 
-See [fastpotify.rocks](https://fastpotify.rocks/) for installation, setup,
+See [rwojsznis.github.io/fastsonic](https://rwojsznis.github.io/fastsonic/) for installation, setup,
 everyday use, and connection details.
 
 ## What it does
 
-- **Plays music on this computer.** Fastpotify appears as a Spotify Connect
+- **Plays music on this computer.** Fastsonic appears as a Spotify Connect
   device. Select it from your phone or play music in the app. Playback is
   gapless and supports up to 320 kbps, with
   optional volume normalisation and an on-disk audio cache.
 - **Controls other devices.** Move playback to a speaker, a phone, or
   another computer from the device picker, and keep controlling it: play,
   pause, skip, seek, shuffle, repeat, volume.
-- **Finds speakers on your network.** Fastpotify finds librespot, spotifyd,
+- **Finds speakers on your network.** Fastsonic finds librespot, spotifyd,
   and supported hardware receivers over mDNS. Once connected, they appear as
   Spotify Connect devices.
 - **Library.** Browse playlists, Liked Songs, saved albums, followed artists,
@@ -60,7 +69,7 @@ everyday use, and connection details.
   https://github.com/user-attachments/assets/0d408524-2c31-4e43-bd05-73eef3a20f1e
 - **Keyboard-first.** Every common action has a shortcut (`Ctrl+/` or `?` lists
   them).
-- **Keeps playing when you close the window.** Fastpotify stays in the system
+- **Keeps playing when you close the window.** Fastsonic stays in the system
   tray. Use the tray icon or media controls to reopen it, and quit from the
   tray menu or with `Ctrl+Q`. You can make the close button quit in Settings.
   On macOS, the Dock icon also reopens the window.
@@ -69,27 +78,13 @@ everyday use, and connection details.
 - **One instance.** Launching it again brings the existing window forward
   instead of starting a second copy, on every platform.
 - **Desktop integration.** MPRIS on Linux, so media keys, the shell, and
-  `playerctl` see Fastpotify like any other player. On macOS and Windows,
-  `fastpotify next` and its siblings drive the running app from a terminal,
+  `playerctl` see Fastsonic like any other player. On macOS and Windows,
+  `fastsonic next` and its siblings drive the running app from a terminal,
   a launcher, or a hotkey.
 
 ## Install
 
-On Arch Linux, Fastpotify is in the AUR:
-
-```bash
-yay -S fastpotify-bin      # the released build, ready made
-yay -S fastpotify          # the release, built from source
-yay -S fastpotify-git      # built from the latest commit
-```
-
-On macOS, with [Homebrew](https://brew.sh):
-
-```sh
-brew install --cask crmne/tap/fastpotify
-```
-
-Everywhere else, build the single binary with Rust 1.95 or newer:
+There are no packages yet. Build the single binary with Rust 1.95 or newer:
 
 ```bash
 cargo install --path .
@@ -119,20 +114,20 @@ vcpkg (`vcpkg install glew:x64-windows-static-md`, with
 With [Nix](https://nixos.org), `nix develop` provides all of it, along with
 the exact toolchain `rust-toolchain.toml` pins.
 
-Fastpotify uses system fonts for scripts not covered by its interface font,
+Fastsonic uses system fonts for scripts not covered by its interface font,
 including Chinese, Japanese, Korean, Arabic, Hebrew, Thai, and Indic scripts.
 macOS and Windows include common fonts. On Linux, install `noto-fonts` and
 `noto-fonts-cjk` (Arch) or `fonts-noto` and `fonts-noto-cjk` (Debian or
 Ubuntu) if titles appear as empty boxes.
 
-A desktop entry is provided in `packaging/applications/fastpotify.desktop`.
+A desktop entry is provided in `packaging/applications/fastsonic.desktop`.
 
 ## Sign in
 
 Press **Sign in with Spotify**. Your browser opens Spotify's consent page
-(Authorization Code with PKCE), so Fastpotify never sees your password. The
+(Authorization Code with PKCE), so Fastsonic never sees your password. The
 app stores a refresh token in the platform's state directory
-(`~/.local/state/fastpotify` on Linux). You usually sign in once per machine.
+(`~/.local/state/fastsonic` on Linux). You usually sign in once per machine.
 
 Playing music **on this computer** needs a second, one-time browser approval.
 Spotify handles streaming separately from library access. Start it from the
@@ -140,18 +135,18 @@ device menu (**Set up playback here**) or Settings. It needs Spotify
 Premium, and librespot stores a reusable credential for later sessions.
 
 The Web API uses a shared app by default. You can add a personal Spotify
-Development Mode app in Settings → Account for a separate quota. Fastpotify
+Development Mode app in Settings → Account for a separate quota. Fastsonic
 still uses the shared app for requests that personal apps do not support.
 
 ## Account safety
 
-We are not aware of a Spotify account being suspended for using Fastpotify
+We are not aware of a Spotify account being suspended for using Fastsonic
 or another librespot player with Premium. Sign-in happens on Spotify's own
 pages, audio uses the quality included with Premium, DRM stays intact, and
-Fastpotify does not rip tracks or block ads.
+Fastsonic does not rip tracks or block ads.
 
 Reported suspensions usually involve modded apps that remove ads from free
-accounts, track ripping, or stream manipulation. Fastpotify does none of
+accounts, track ripping, or stream manipulation. Fastsonic does none of
 those things, and [CONTRIBUTING.md](CONTRIBUTING.md) prohibits them.
 
 ## Keyboard shortcuts
@@ -180,23 +175,23 @@ On macOS, `Cmd` replaces `Ctrl`.
 
 ## Controlling it from outside
 
-On Linux, Fastpotify is an MPRIS player, so `playerctl --player=fastpotify
+On Linux, Fastsonic is an MPRIS player, so `playerctl --player=fastsonic
 play-pause` already works.
 
 macOS and Windows have no such bus, so the same verbs are subcommands. They
 talk to the instance already running and print nothing on success:
 
 ```
-fastpotify play-pause          fastpotify volume 40
-fastpotify play                fastpotify volume-up [percent]
-fastpotify pause               fastpotify volume-down [percent]
-fastpotify next                fastpotify mute
-fastpotify previous            fastpotify shuffle [on|off]
-fastpotify seek 15             fastpotify repeat [off|context|track]
-fastpotify seek -- -15         fastpotify like
-fastpotify seek-to 90          fastpotify play-uri spotify:playlist:37i9…
-fastpotify show                fastpotify transfer <device-id>
-fastpotify now-playing [--raw] fastpotify devices [--raw]
+fastsonic play-pause          fastsonic volume 40
+fastsonic play                fastsonic volume-up [percent]
+fastsonic pause               fastsonic volume-down [percent]
+fastsonic next                fastsonic mute
+fastsonic previous            fastsonic shuffle [on|off]
+fastsonic seek 15             fastsonic repeat [off|context|track]
+fastsonic seek -- -15         fastsonic like
+fastsonic seek-to 90          fastsonic play-uri spotify:playlist:37i9…
+fastsonic show                fastsonic transfer <device-id>
+fastsonic now-playing [--raw] fastsonic devices [--raw]
 ```
 
 `shuffle` and `repeat` toggle when used without an argument. Pass a state to
@@ -211,14 +206,14 @@ loading. New fields are appended to keep older scripts working.
 marked with `*`. `--raw` prints JSON. The command refreshes the device list,
 so the first call after startup may be empty. Run it again if needed.
 
-A verb exits non-zero when Fastpotify is not running.
+A verb exits non-zero when Fastsonic is not running.
 
 Launchers such as Raycast or Alfred can use these commands. The Stream Deck
 plugin uses the same interface.
 
 ## Settings
 
-Settings live in one readable JSON file (`~/.config/fastpotify/settings.json`
+Settings live in one readable JSON file (`~/.config/fastsonic/settings.json`
 on Linux). They include the Connect device name, bitrate, normalisation,
 autoplay, gapless playback, the audio backend (PulseAudio/PipeWire or ALSA on
 Linux), audio cache size, theme, sidebar state, whether pages take colour
@@ -238,12 +233,12 @@ any time without signing you out.
 - `src/app.rs`, `src/model.rs`, `src/ui/`: state, navigation, and views.
 - `src/mpris.rs`: Linux media controls.
 
-Fastpotify pins its Rust toolchain in `rust-toolchain.toml`; `cargo test`
+Fastsonic pins its Rust toolchain in `rust-toolchain.toml`; `cargo test`
 covers the API models, dual-session routing, PKCE, the player state machine,
 and a headless render of every page, panel, and dialog.
 
-To look at the interface without a Spotify account, build with the `demo`
-feature and start it with sample data:
+To look at the interface without a server to sign in to, build with the
+`demo` feature and start it with sample data:
 
 ```bash
 cargo run --features demo -- --demo --demo-page playlist:pl1 --demo-show queue
@@ -259,11 +254,11 @@ request. It covers project scope and required checks.
 
 ## Acknowledgements
 
-Fastpotify uses [librespot](https://github.com/librespot-org/librespot),
+Fastsonic uses [librespot](https://github.com/librespot-org/librespot),
 [egui](https://github.com/emilk/egui), the [Inter](https://rsms.me/inter/)
 typeface (OFL), and [Lucide](https://lucide.dev) icons (ISC).
 
-Fastpotify is an independent project and is not affiliated with Spotify.
+Fastsonic is an independent project and is not affiliated with Spotify.
 Spotify is a trademark of Spotify AB.
 
 Licensed under the [MIT License](LICENSE).

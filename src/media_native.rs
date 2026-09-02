@@ -18,8 +18,8 @@ use souvlaki::{
     SeekDirection,
 };
 
+use crate::engine::Playback;
 use crate::media::{MediaCommand, MediaState};
-use crate::player::Playback;
 
 type Wake = Arc<dyn Fn() + Send + Sync>;
 
@@ -76,8 +76,8 @@ impl Bridge {
         wake: Wake,
     ) -> Result<Self, String> {
         let mut controls = MediaControls::new(PlatformConfig {
-            display_name: "Fastpotify",
-            dbus_name: "fastpotify",
+            display_name: "Fastsonic",
+            dbus_name: "fastsonic",
             hwnd,
         })
         .map_err(|error| error.to_string())?;
@@ -190,8 +190,8 @@ mod host {
 
     /// A window that is never shown, for the controls to belong to.
     fn create_hidden_window() -> Result<HWND, String> {
-        let class_name = wide("FastpotifyMediaControls");
-        let title = wide("Fastpotify");
+        let class_name = wide("FastsonicMediaControls");
+        let title = wide("Fastsonic");
         let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
         let class = WNDCLASSW {
             style: 0,
@@ -240,7 +240,7 @@ mod host {
     ) -> Result<u32, String> {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let spawned = std::thread::Builder::new()
-            .name("fastpotify-media".to_owned())
+            .name("fastsonic-media".to_owned())
             .spawn(move || {
                 // The controls are WinRT objects, which want COM on the thread
                 // that makes them; apartment-threaded, so their callbacks
@@ -405,7 +405,7 @@ mod tests {
     fn a_remembered_paused_track_claims_the_media_keys_once() {
         let mut state = MediaState {
             track: Some(crate::media::MediaTrack {
-                uri: "spotify:track:remembered".into(),
+                uri: "sonic:track:remembered".into(),
                 ..Default::default()
             }),
             playback: Playback::Paused,

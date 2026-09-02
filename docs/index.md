@@ -1,10 +1,10 @@
 ---
 layout: home
-title: Fastpotify
+title: Fastsonic
 description: A fast, native Spotify client for Linux, macOS, and Windows, written in Rust.
 permalink: /
 hero:
-  name: Fastpotify
+  name: Fastsonic
   text: Spotify, native and fast
   tagline: A lightweight Spotify client with local playback, library access, and Spotify Connect controls for Linux, macOS, and Windows.
   actions:
@@ -12,14 +12,14 @@ hero:
       text: Download
       link: /download/
     - theme: alt
-      text: What is Fastpotify?
-      link: /what-is-fastpotify/
+      text: What is Fastsonic?
+      link: /what-is-fastsonic/
     - theme: alt
       text: GitHub
-      link: https://github.com/crmne/fastpotify
+      link: https://github.com/rwojsznis/fastsonic
   image:
     src: /screenshot.png
-    alt: "Fastpotify showing the Late night focus playlist with the queue panel open, a track playing, and the library in the sidebar"
+    alt: "Fastsonic showing the Late night focus playlist with the queue panel open, a track playing, and the library in the sidebar"
     width: 1894
     height: 1037
 
@@ -52,7 +52,7 @@ features:
   - icon: 🔓
     title: Open source
     details: MIT-licensed Rust built with egui and librespot. The docs explain its connections and stored credentials.
-    link: https://github.com/crmne/fastpotify
+    link: https://github.com/rwojsznis/fastsonic
     link_text: Read the source
 ---
 

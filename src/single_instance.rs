@@ -15,7 +15,7 @@
 //! control channel. The operating system releases the port when the process
 //! ends.
 //!
-//! On macOS and Windows, clients send one `fastpotify:<verb>` line and receive
+//! On macOS and Windows, clients send one `fastsonic:<verb>` line and receive
 //! one reply. Commands enter the same action queue as tray and media-key
 //! events. Read commands use snapshots, so the listener thread never accesses
 //! app state. Linux uses MPRIS for these controls.
@@ -29,11 +29,11 @@
 
 /// The name held for the lifetime of the running instance.
 #[cfg(target_os = "linux")]
-const INSTANCE_NAME: &str = "rocks.fastpotify.Instance";
+const INSTANCE_NAME: &str = "io.github.rwojsznis.Fastsonic.Instance";
 
 /// The MPRIS player to ask when another instance already holds the name.
 #[cfg(target_os = "linux")]
-const MPRIS_NAME: &str = "org.mpris.MediaPlayer2.fastpotify";
+const MPRIS_NAME: &str = "org.mpris.MediaPlayer2.fastsonic";
 
 pub enum Outcome {
     /// This process is the only instance. Hold the guard until it exits.
@@ -64,12 +64,12 @@ pub enum ControlCommand {
     /// Set shuffle explicitly, avoiding missed toggle updates.
     SetShuffle(bool),
     /// Repeat set outright, for the same reason.
-    SetRepeat(crate::player::RepeatMode),
+    SetRepeat(crate::engine::RepeatMode),
     /// Absolute position, in milliseconds.
     SeekTo(u32),
     /// Save the playing track to the library, or take it back out.
     ToggleSaved,
-    /// Play a `spotify:` URI: a track, album, playlist, artist, or show.
+    /// Play a `sonic:` URI: a song, album, playlist, or artist.
     PlayUri(String),
     /// Move playback to a Spotify Connect device, by id.
     Transfer(String),
@@ -115,20 +115,22 @@ pub const NOTHING_PLAYING: &str = "stopped";
 pub const NO_DEVICES: &str = "[]";
 
 /// Loopback port that marks a running instance on platforms without a bus.
-/// Registered to nothing; chosen high and out of the ephemeral range.
+/// Registered to nothing; chosen high and out of the ephemeral range. One
+/// past upstream Fastpotify's 47113, so the two can be installed side by side
+/// and each still guards itself against a second copy.
 #[cfg(not(target_os = "linux"))]
-const INSTANCE_PORT: u16 = 47_113;
+const INSTANCE_PORT: u16 = 47_114;
 
 /// Every request and reply starts with this, so a foreign program that
-/// happens to hold the port is never mistaken for Fastpotify.
+/// happens to hold the port is never mistaken for Fastsonic.
 #[cfg(not(target_os = "linux"))]
-const PREFIX: &str = "fastpotify:";
+const PREFIX: &str = "fastsonic:";
 #[cfg(not(target_os = "linux"))]
-const OK_REPLY: &str = "fastpotify:ok";
+const OK_REPLY: &str = "fastsonic:ok";
 #[cfg(not(target_os = "linux"))]
-const NOW_REPLY: &str = "fastpotify:now ";
+const NOW_REPLY: &str = "fastsonic:now ";
 #[cfg(not(target_os = "linux"))]
-const DEVICES_REPLY: &str = "fastpotify:devices ";
+const DEVICES_REPLY: &str = "fastsonic:devices ";
 
 /// What the running instance said back.
 #[cfg(not(target_os = "linux"))]
@@ -174,7 +176,7 @@ fn send_to(port: u16, verb: &str) -> std::io::Result<Reply> {
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "the port is held by something other than Fastpotify",
+            "the port is held by something other than Fastsonic",
         ))
     }
 }
@@ -193,12 +195,12 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
     let listener = match TcpListener::bind((Ipv4Addr::LOCALHOST, INSTANCE_PORT)) {
         Ok(listener) => listener,
         Err(_) => {
-            // Raise the existing instance only if the port answers as Fastpotify.
+            // Raise the existing instance only if the port answers as Fastsonic.
             let answered = send("show").is_ok_and(|reply| matches!(reply, Reply::Ok));
             if answered {
                 return Outcome::Surfaced;
             }
-            log::warn!("port {INSTANCE_PORT} is busy but not with Fastpotify; running unguarded");
+            log::warn!("port {INSTANCE_PORT} is busy but not with Fastsonic; running unguarded");
             return Outcome::Only(unguarded());
         }
     };
@@ -209,7 +211,7 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
     let devices = Arc::clone(&guard.devices);
     let waker = waker.clone();
     let spawned = std::thread::Builder::new()
-        .name("fastpotify-instance".to_owned())
+        .name("fastsonic-instance".to_owned())
         .spawn(move || serve(listener, &commands, &now_playing, &devices, &waker));
     if let Err(error) = spawned {
         log::warn!("cannot listen for other launches: {error}");
@@ -303,15 +305,15 @@ fn parse(line: &str) -> Option<Request> {
         ("repeat", None) => ControlCommand::CycleRepeat,
         // Match explicitly because `RepeatMode::from_api` maps unknown values
         // to `off`; control clients should reject them.
-        ("repeat-set", Some("off")) => ControlCommand::SetRepeat(crate::player::RepeatMode::Off),
+        ("repeat-set", Some("off")) => ControlCommand::SetRepeat(crate::engine::RepeatMode::Off),
         ("repeat-set", Some("context")) => {
-            ControlCommand::SetRepeat(crate::player::RepeatMode::Context)
+            ControlCommand::SetRepeat(crate::engine::RepeatMode::Context)
         }
         ("repeat-set", Some("track")) => {
-            ControlCommand::SetRepeat(crate::player::RepeatMode::Track)
+            ControlCommand::SetRepeat(crate::engine::RepeatMode::Track)
         }
         ("save-toggle", None) => ControlCommand::ToggleSaved,
-        ("play-uri", Some(uri)) => ControlCommand::PlayUri(spotify_uri(uri)?),
+        ("play-uri", Some(uri)) => ControlCommand::PlayUri(object_uri(uri)?),
         ("transfer", Some(id)) => ControlCommand::Transfer(device_id(id)?),
         ("nowplaying", None) => return Some(Request::NowPlaying),
         ("devices", None) => return Some(Request::Devices),
@@ -320,11 +322,11 @@ fn parse(line: &str) -> Option<Request> {
     Some(Request::Command(command))
 }
 
-/// Validates the scheme, length, and characters of a Spotify URI received over
-/// the local control port.
+/// Validates the scheme, length, and characters of a `sonic:` URI received
+/// over the local control port.
 #[cfg(not(target_os = "linux"))]
-fn spotify_uri(text: &str) -> Option<String> {
-    let shaped = text.starts_with("spotify:")
+fn object_uri(text: &str) -> Option<String> {
+    let shaped = crate::api::subsonic::convert::parse_uri(text).is_some()
         && text.len() <= 128
         && text
             .chars()
@@ -332,8 +334,7 @@ fn spotify_uri(text: &str) -> Option<String> {
     shaped.then(|| text.to_owned())
 }
 
-/// A Spotify Connect device id: the opaque hex-ish string the Web API hands
-/// out. Checked for the same reason as [`spotify_uri`].
+/// A playback device id. Checked for the same reason as [`object_uri`].
 #[cfg(not(target_os = "linux"))]
 fn device_id(text: &str) -> Option<String> {
     let shaped = !text.is_empty()
@@ -400,7 +401,7 @@ pub fn acquire(_waker: &crate::backend::Waker) -> Outcome {
         Ok(_) | Err(mpris_server::zbus::Error::NameTaken) => {
             if !raise_running_instance(&connection) {
                 log::warn!(
-                    "Fastpotify is already running but did not answer; not starting a second copy"
+                    "Fastsonic is already running but did not answer; not starting a second copy"
                 );
             }
             Outcome::Surfaced
@@ -437,7 +438,7 @@ fn raise_running_instance(connection: &mpris_server::zbus::blocking::Connection)
 #[cfg(all(test, not(target_os = "linux")))]
 mod tests {
     use super::*;
-    use crate::player::RepeatMode;
+    use crate::engine::RepeatMode;
 
     fn command(line: &str) -> Option<ControlCommand> {
         match parse(line) {
@@ -449,113 +450,117 @@ mod tests {
     #[test]
     fn parses_every_control_verb() {
         // #given / #when / #then
-        assert_eq!(command("fastpotify:show\n"), Some(ControlCommand::Show));
+        assert_eq!(command("fastsonic:show\n"), Some(ControlCommand::Show));
         assert_eq!(
-            command("fastpotify:playpause"),
+            command("fastsonic:playpause"),
             Some(ControlCommand::PlayPause)
         );
-        assert_eq!(command("fastpotify:play"), Some(ControlCommand::Play));
-        assert_eq!(command("fastpotify:pause"), Some(ControlCommand::Pause));
-        assert_eq!(command("fastpotify:next"), Some(ControlCommand::Next));
+        assert_eq!(command("fastsonic:play"), Some(ControlCommand::Play));
+        assert_eq!(command("fastsonic:pause"), Some(ControlCommand::Pause));
+        assert_eq!(command("fastsonic:next"), Some(ControlCommand::Next));
         assert_eq!(
-            command("fastpotify:previous"),
+            command("fastsonic:previous"),
             Some(ControlCommand::Previous)
         );
         assert_eq!(
-            command("fastpotify:seek-by -10000"),
+            command("fastsonic:seek-by -10000"),
             Some(ControlCommand::SeekBy(-10_000))
         );
         assert_eq!(
-            command("fastpotify:volume-by +5"),
+            command("fastsonic:volume-by +5"),
             Some(ControlCommand::VolumeBy(5))
         );
         assert_eq!(
-            command("fastpotify:volume-set 40"),
+            command("fastsonic:volume-set 40"),
             Some(ControlCommand::SetVolume(40))
         );
-        assert_eq!(command("fastpotify:mute"), Some(ControlCommand::ToggleMute));
+        assert_eq!(command("fastsonic:mute"), Some(ControlCommand::ToggleMute));
         assert_eq!(
-            command("fastpotify:shuffle"),
+            command("fastsonic:shuffle"),
             Some(ControlCommand::ToggleShuffle)
         );
         assert_eq!(
-            command("fastpotify:repeat"),
+            command("fastsonic:repeat"),
             Some(ControlCommand::CycleRepeat)
         );
         assert_eq!(
-            command("fastpotify:shuffle-set on"),
+            command("fastsonic:shuffle-set on"),
             Some(ControlCommand::SetShuffle(true))
         );
         assert_eq!(
-            command("fastpotify:shuffle-set off"),
+            command("fastsonic:shuffle-set off"),
             Some(ControlCommand::SetShuffle(false))
         );
         assert_eq!(
-            command("fastpotify:repeat-set track"),
+            command("fastsonic:repeat-set track"),
             Some(ControlCommand::SetRepeat(RepeatMode::Track))
         );
         assert_eq!(
-            command("fastpotify:repeat-set context"),
+            command("fastsonic:repeat-set context"),
             Some(ControlCommand::SetRepeat(RepeatMode::Context))
         );
         assert_eq!(
-            command("fastpotify:repeat-set off"),
+            command("fastsonic:repeat-set off"),
             Some(ControlCommand::SetRepeat(RepeatMode::Off))
         );
         assert_eq!(
-            command("fastpotify:seek-to 90000"),
+            command("fastsonic:seek-to 90000"),
             Some(ControlCommand::SeekTo(90_000))
         );
         assert_eq!(
-            command("fastpotify:save-toggle"),
+            command("fastsonic:save-toggle"),
             Some(ControlCommand::ToggleSaved)
         );
         assert_eq!(
-            command("fastpotify:play-uri spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"),
+            command("fastsonic:play-uri sonic:playlist:37i9dQZF1DXcBWIGoYBM5M"),
             Some(ControlCommand::PlayUri(
-                "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M".to_owned()
+                "sonic:playlist:37i9dQZF1DXcBWIGoYBM5M".to_owned()
             ))
         );
         assert_eq!(
-            command("fastpotify:transfer a1b2c3d4e5"),
+            command("fastsonic:transfer a1b2c3d4e5"),
             Some(ControlCommand::Transfer("a1b2c3d4e5".to_owned()))
         );
         assert!(matches!(
-            parse("fastpotify:nowplaying"),
+            parse("fastsonic:nowplaying"),
             Some(Request::NowPlaying)
         ));
-        assert!(matches!(
-            parse("fastpotify:devices"),
-            Some(Request::Devices)
-        ));
+        assert!(matches!(parse("fastsonic:devices"), Some(Request::Devices)));
     }
 
     #[test]
     fn rejects_lines_that_are_not_ours() {
         assert!(parse("GET / HTTP/1.1").is_none());
-        assert!(parse("fastpotify:frobnicate").is_none());
-        assert!(parse("fastpotify:seek-by soon").is_none());
-        assert!(parse("fastpotify:volume-set 999").is_none());
-        assert!(parse("fastpotify:next please").is_none());
+        assert!(parse("fastsonic:frobnicate").is_none());
+        assert!(parse("fastsonic:seek-by soon").is_none());
+        assert!(parse("fastsonic:volume-set 999").is_none());
+        assert!(parse("fastsonic:next please").is_none());
         assert!(parse("").is_none());
     }
 
     /// Free-text control arguments are validated before reaching the app.
     #[test]
-    fn refuses_arguments_that_are_not_shaped_like_spotifys_own() {
+    fn refuses_arguments_that_are_not_shaped_like_the_apps_own() {
         // #given / #when / #then
-        assert!(command("fastpotify:play-uri http://example.com/pwn").is_none());
-        assert!(command("fastpotify:play-uri spotify:track:a b").is_none());
-        assert!(command("fastpotify:play-uri ../../etc/passwd").is_none());
-        assert!(command("fastpotify:play-uri").is_none());
-        assert!(command(&format!("fastpotify:play-uri spotify:{}", "x".repeat(200))).is_none());
-        assert!(command("fastpotify:transfer ../secrets").is_none());
-        assert!(command("fastpotify:transfer").is_none());
+        assert!(command("fastsonic:play-uri http://example.com/pwn").is_none());
+        assert!(command("fastsonic:play-uri sonic:track:a b").is_none());
+        assert!(command("fastsonic:play-uri spotify:track:a").is_none());
+        assert!(command("fastsonic:play-uri ../../etc/passwd").is_none());
+        assert!(command("fastsonic:play-uri").is_none());
+        assert!(
+            command(&format!(
+                "fastsonic:play-uri sonic:track:{}",
+                "x".repeat(200)
+            ))
+            .is_none()
+        );
+        assert!(command("fastsonic:transfer ../secrets").is_none());
+        assert!(command("fastsonic:transfer").is_none());
         // A word that is not one of the three is refused rather than read
         // as `off`, which is what `RepeatMode::from_api` would have done.
-        assert!(command("fastpotify:repeat-set sometimes").is_none());
-        assert!(command("fastpotify:shuffle-set maybe").is_none());
-        assert!(command("fastpotify:seek-to -1").is_none());
+        assert!(command("fastsonic:repeat-set sometimes").is_none());
+        assert!(command("fastsonic:shuffle-set maybe").is_none());
+        assert!(command("fastsonic:seek-to -1").is_none());
     }
 
     /// Socket commands reach the queue and reads return published snapshots.

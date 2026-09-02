@@ -1,21 +1,21 @@
-# Fastpotify as a Flatpak, built from source: the manifest Flathub builds
+# Fastsonic as a Flatpak, built from source: the manifest Flathub builds
 # from. The copy in the Flathub repository names a tag and its commit in
 # the source below and carries cargo-sources.json next to it; flathub.sh
 # writes both. For a local build, this one takes the checkout as it is:
 #
 #   flatpak-builder --user --install --force-clean build-dir \
-#       packaging/flatpak/rocks.fastpotify.Fastpotify.yml
+#       packaging/flatpak/io.github.rwojsznis.Fastsonic.yml
 #
 # The release workflow does not build from source twice: it packages the
 # binary the Linux job already built, through the bundle manifest beside
 # this one, whose finish-args are the same as these.
-id: rocks.fastpotify.Fastpotify
+id: io.github.rwojsznis.Fastsonic
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: fastpotify
+command: fastsonic
 finish-args:
   # Wayland first, X11 when that is what there is.
   - --socket=wayland
@@ -30,24 +30,24 @@ finish-args:
   # The tray item, media keys and Now Playing over MPRIS, and the name the
   # single instance is found by.
   - --talk-name=org.kde.StatusNotifierWatcher
-  - --own-name=org.mpris.MediaPlayer2.fastpotify
-  - --own-name=rocks.fastpotify.Instance
+  - --own-name=org.mpris.MediaPlayer2.fastsonic
+  - --own-name=io.github.rwojsznis.Fastsonic.Instance
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
-    CARGO_HOME: /run/build/fastpotify/cargo
+    CARGO_HOME: /run/build/fastsonic/cargo
 modules:
-  - name: fastpotify
+  - name: fastsonic
     buildsystem: simple
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --locked
-      - install -Dm755 target/release/fastpotify /app/bin/fastpotify
-      - install -Dm644 packaging/applications/fastpotify.desktop /app/share/applications/rocks.fastpotify.Fastpotify.desktop
-      - sed -i 's/^Icon=fastpotify$/Icon=rocks.fastpotify.Fastpotify/' /app/share/applications/rocks.fastpotify.Fastpotify.desktop
-      - install -Dm644 packaging/icons/fastpotify.svg /app/share/icons/hicolor/scalable/apps/rocks.fastpotify.Fastpotify.svg
-      - install -Dm644 packaging/flatpak/rocks.fastpotify.Fastpotify.metainfo.xml /app/share/metainfo/rocks.fastpotify.Fastpotify.metainfo.xml
-      - install -Dm644 LICENSE /app/share/licenses/fastpotify/LICENSE
+      - install -Dm755 target/release/fastsonic /app/bin/fastsonic
+      - install -Dm644 packaging/applications/fastsonic.desktop /app/share/applications/io.github.rwojsznis.Fastsonic.desktop
+      - sed -i 's/^Icon=fastsonic$/Icon=io.github.rwojsznis.Fastsonic/' /app/share/applications/io.github.rwojsznis.Fastsonic.desktop
+      - install -Dm644 packaging/icons/fastsonic.svg /app/share/icons/hicolor/scalable/apps/io.github.rwojsznis.Fastsonic.svg
+      - install -Dm644 packaging/flatpak/io.github.rwojsznis.Fastsonic.metainfo.xml /app/share/metainfo/io.github.rwojsznis.Fastsonic.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/fastsonic/LICENSE
     sources:
       - type: dir
         path: ../..

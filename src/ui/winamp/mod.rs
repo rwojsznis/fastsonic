@@ -15,8 +15,8 @@ use egui::{
 };
 
 use crate::app::{App, NowPlaying};
+use crate::engine::RepeatMode;
 use crate::model::{Action, Page};
-use crate::player::RepeatMode;
 use crate::settings::VisMode;
 use crate::skin::layout::{self, Area};
 use crate::skin::{Mask, Sheet, Skin, Sprite, font, sprites};
@@ -1143,7 +1143,7 @@ pub fn marquee_text(
         return notice.to_string();
     }
     let Some(now) = now else {
-        return "Fastpotify".to_string();
+        return "Fastsonic".to_string();
     };
     if let Some(fraction) = seek_preview
         && now.duration_ms > 0
@@ -1526,7 +1526,7 @@ mod tests {
         NowPlaying {
             local: true,
             device_name: None,
-            uri: "spotify:track:x".into(),
+            uri: "sonic:track:x".into(),
             id: None,
             title: title.into(),
             artists: Vec::new(),
@@ -1556,7 +1556,7 @@ mod tests {
             marquee_text(Some(&playing), None, None, None, None),
             "Radiohead - Karma Police (4:24)"
         );
-        assert_eq!(marquee_text(None, None, None, None, None), "Fastpotify");
+        assert_eq!(marquee_text(None, None, None, None, None), "Fastsonic");
         let untitled = now("Episode 12", "", 0);
         assert_eq!(
             marquee_text(Some(&untitled), None, None, None, None),

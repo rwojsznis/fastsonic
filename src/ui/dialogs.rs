@@ -133,7 +133,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         egui::Label::new(
                             egui::RichText::new(
                                 "Playback needs Spotify Premium. Free accounts can browse \
-                                 and search, but cannot play music through Fastpotify.",
+                                 and search, but cannot play music through Fastsonic.",
                             )
                             .font(theme::regular(14.0))
                             .color(palette.secondary),

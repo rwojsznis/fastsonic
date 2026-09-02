@@ -1,5 +1,5 @@
 name: Feature request
-description: Something Fastpotify should do.
+description: Something Fastsonic should do.
 labels: [enhancement]
 body:
   - type: checkboxes
@@ -14,7 +14,7 @@ body:
   - type: textarea
     id: problem
     attributes:
-      label: What problem should Fastpotify solve?
+      label: What problem should Fastsonic solve?
       description: Explain what you are trying to do and what stops you.
       placeholder: "When I ..., I cannot ..., so I currently have to ..."
     validations:
@@ -29,7 +29,7 @@ body:
   - type: textarea
     id: fit
     attributes:
-      label: Why does this fit Fastpotify?
+      label: Why does this fit Fastsonic?
       description: Explain why it belongs in a small, native Spotify client.
     validations:
       required: true

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::api::models::*;
+use crate::backend::AlbumShelf;
 
 /// Every screen the central panel can show.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -331,16 +332,32 @@ pub struct HomeData {
     pub top_songs: Loadable<Vec<Track>>,
     pub top_songs_loading: bool,
     pub top_songs_complete: bool,
-    pub recommendations: Loadable<Vec<Track>>,
-    pub discover: HashMap<String, Loadable<Vec<Playlist>>>,
-    pub discover_pending: HashMap<String, Loadable<Vec<Playlist>>>,
+    /// Recently added to the library.
+    pub newest_albums: Loadable<Vec<Album>>,
+    /// Most played, by the server's own counts.
+    pub frequent_albums: Loadable<Vec<Album>>,
+    /// A different handful each time Home loads.
+    pub random_albums: Loadable<Vec<Album>>,
     pub generation: u64,
     pub top_songs_generation: u64,
     pub requested: bool,
     pub loaded_at: Option<Instant>,
 }
 
-pub const DISCOVER_TERMS: &[&str] = &["Discover Weekly", "Release Radar", "Daily Mix", "daylist"];
+impl HomeData {
+    /// The slot one of Home's album shelves loads into.
+    pub fn shelf_mut(&mut self, shelf: AlbumShelf) -> &mut Loadable<Vec<Album>> {
+        match shelf {
+            AlbumShelf::Newest => &mut self.newest_albums,
+            AlbumShelf::Frequent => &mut self.frequent_albums,
+            AlbumShelf::Random => &mut self.random_albums,
+        }
+    }
+}
+
+/// Home's album shelves, in the order they are asked for.
+pub const ALBUM_SHELVES: [AlbumShelf; 3] =
+    [AlbumShelf::Newest, AlbumShelf::Frequent, AlbumShelf::Random];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchFilter {
@@ -574,7 +591,6 @@ pub enum Action {
         index: u32,
     },
     /// Spotify's station seeded by this song.
-    PlayTrackRadio(String),
     ShufflePlay(String),
     TogglePlay,
     Next,
@@ -589,7 +605,7 @@ pub enum Action {
     ToggleShuffle,
     CycleRepeat,
     SetShuffle(bool),
-    SetRepeat(crate::player::RepeatMode),
+    SetRepeat(crate::engine::RepeatMode),
     AddToQueue {
         uri: String,
         label: String,
@@ -640,7 +656,6 @@ pub enum Action {
     ClearQueue,
     /// Save the current and upcoming queue as a playlist.
     SaveQueueAsPlaylist,
-    RefreshQueue,
     CopyLink(String),
     /// Open a web page in the browser.
     OpenUrl(String),
@@ -674,6 +689,7 @@ pub enum Action {
     ShowWindow,
     HideWindow,
     ClearArtCache,
+    ClearAudioCache,
     /// Clear local play history.
     ClearPlayHistory,
     /// Open or close the Winamp window.

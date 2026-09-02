@@ -84,10 +84,10 @@ mod mac_impl {
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
-        #[name = "FastpotifyMenuHandler"]
-        pub struct FastpotifyMenuHandler;
+        #[name = "FastsonicMenuHandler"]
+        pub struct FastsonicMenuHandler;
 
-        impl FastpotifyMenuHandler {
+        impl FastsonicMenuHandler {
             #[unsafe(method(openSettings:))]
             fn open_settings(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Settings);
@@ -263,8 +263,8 @@ mod mac_impl {
             return;
         }
 
-        let handler: Retained<FastpotifyMenuHandler> =
-            unsafe { objc2::msg_send![mtm.alloc::<FastpotifyMenuHandler>(), init] };
+        let handler: Retained<FastsonicMenuHandler> =
+            unsafe { objc2::msg_send![mtm.alloc::<FastsonicMenuHandler>(), init] };
         let target: &NSObject = &handler;
 
         // 1. Settings item in app menu (first menu)
@@ -536,7 +536,7 @@ mod mac_impl {
         ));
         help_menu.addItem(&create_item(
             mtm,
-            ns_string!("Fastpotify on GitHub"),
+            ns_string!("Fastsonic on GitHub"),
             Some(sel!(openRepo:)),
             ns_string!(""),
             None,

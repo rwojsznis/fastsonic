@@ -1,6 +1,6 @@
 //! Local play history.
 //!
-//! Spotify does not record playback from librespot clients. Fastpotify stores
+//! Spotify does not record playback from librespot clients. Fastsonic stores
 //! local plays and merges them with `/me/player/recently-played`, which covers
 //! other devices. A track counts only after enough listening time, so skips do
 //! not fill the history.
@@ -202,18 +202,18 @@ mod tests {
     #[test]
     fn the_two_histories_interleave_by_time() {
         let local = vec![
-            play("spotify:track:here-late", "2026-09-01T15:00:00Z"),
-            play("spotify:track:here-early", "2026-09-01T09:00:00Z"),
+            play("sonic:track:here-late", "2026-09-01T15:00:00Z"),
+            play("sonic:track:here-early", "2026-09-01T09:00:00Z"),
         ];
-        let remote = vec![play("spotify:track:phone", "2026-09-01T12:00:00Z")];
+        let remote = vec![play("sonic:track:phone", "2026-09-01T12:00:00Z")];
         let rows = merged(&local, &remote);
         let uris: Vec<&str> = rows.iter().map(|play| play.track.uri.as_str()).collect();
         assert_eq!(
             uris,
             vec![
-                "spotify:track:here-late",
-                "spotify:track:phone",
-                "spotify:track:here-early"
+                "sonic:track:here-late",
+                "sonic:track:phone",
+                "sonic:track:here-early"
             ]
         );
     }
@@ -222,8 +222,8 @@ mod tests {
     #[test]
     fn the_same_song_played_twice_is_two_rows() {
         let local = vec![
-            play("spotify:track:a", "2026-09-01T15:00:00Z"),
-            play("spotify:track:a", "2026-09-01T09:00:00Z"),
+            play("sonic:track:a", "2026-09-01T15:00:00Z"),
+            play("sonic:track:a", "2026-09-01T09:00:00Z"),
         ];
         assert_eq!(merged(&local, &[]).len(), 2);
     }
@@ -231,22 +231,22 @@ mod tests {
     /// A play reported by both sources appears once.
     #[test]
     fn one_play_seen_twice_is_one_row() {
-        let local = vec![play("spotify:track:a", "2026-09-01T15:00:00Z")];
-        let remote = vec![play("spotify:track:a", "2026-09-01T15:00:20Z")];
+        let local = vec![play("sonic:track:a", "2026-09-01T15:00:00Z")];
+        let remote = vec![play("sonic:track:a", "2026-09-01T15:00:20Z")];
         assert_eq!(merged(&local, &remote).len(), 1, "twenty seconds apart");
-        let distant = vec![play("spotify:track:a", "2026-09-01T15:05:00Z")];
+        let distant = vec![play("sonic:track:a", "2026-09-01T15:05:00Z")];
         assert_eq!(merged(&local, &distant).len(), 2, "five minutes apart");
     }
 
     /// A play without a timestamp sorts to the end.
     #[test]
     fn a_play_with_no_time_sinks_to_the_end() {
-        let mut timeless = play("spotify:track:timeless", "");
+        let mut timeless = play("sonic:track:timeless", "");
         timeless.played_at = None;
-        let local = vec![timeless, play("spotify:track:a", "2026-09-01T09:00:00Z")];
+        let local = vec![timeless, play("sonic:track:a", "2026-09-01T09:00:00Z")];
         let rows = merged(&local, &[]);
         let uris: Vec<&str> = rows.iter().map(|play| play.track.uri.as_str()).collect();
-        assert_eq!(uris, vec!["spotify:track:a", "spotify:track:timeless"]);
+        assert_eq!(uris, vec!["sonic:track:a", "sonic:track:timeless"]);
     }
 
     /// The newest play comes first and the list is capped.
@@ -257,7 +257,7 @@ mod tests {
         for index in 0..KEPT + 10 {
             history.record(
                 Track {
-                    uri: format!("spotify:track:{index}"),
+                    uri: format!("sonic:track:{index}"),
                     ..Track::default()
                 },
                 at,
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(history.plays().len(), KEPT, "the oldest fall off the end");
         assert_eq!(
             history.plays()[0].track.uri,
-            format!("spotify:track:{}", KEPT + 9),
+            format!("sonic:track:{}", KEPT + 9),
             "the newest is first"
         );
     }

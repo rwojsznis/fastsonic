@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>rocks.fastpotify.Fastpotify</id>
-  <name>Fastpotify</name>
+  <id>io.github.rwojsznis.Fastsonic</id>
+  <name>Fastsonic</name>
   <summary>A native Spotify client</summary>
-  <developer id="me.paolino">
-    <name>Carmine Paolino</name>
+  <developer id="io.github.rwojsznis">
+    <name>Rafal Wojsznis</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
@@ -21,19 +21,19 @@
       Playback needs Spotify Premium.
     </p>
   </description>
-  <launchable type="desktop-id">rocks.fastpotify.Fastpotify.desktop</launchable>
-  <url type="homepage">https://fastpotify.rocks/</url>
-  <url type="bugtracker">https://github.com/crmne/fastpotify/issues</url>
-  <url type="help">https://fastpotify.rocks/getting-started/</url>
-  <url type="vcs-browser">https://github.com/crmne/fastpotify</url>
+  <launchable type="desktop-id">io.github.rwojsznis.Fastsonic.desktop</launchable>
+  <url type="homepage">https://rwojsznis.github.io/fastsonic/</url>
+  <url type="bugtracker">https://github.com/rwojsznis/fastsonic/issues</url>
+  <url type="help">https://rwojsznis.github.io/fastsonic/getting-started/</url>
+  <url type="vcs-browser">https://github.com/rwojsznis/fastsonic</url>
   <screenshots>
     <screenshot type="default">
       <caption>A playlist, with the queue open and a track playing on a remote speaker</caption>
-      <image>https://raw.githubusercontent.com/crmne/fastpotify/main/docs/screenshot.png</image>
+      <image>https://raw.githubusercontent.com/rwojsznis/fastsonic/main/docs/screenshot.png</image>
     </screenshot>
     <screenshot>
       <caption>The mini player wearing the built-in Winamp skin</caption>
-      <image>https://raw.githubusercontent.com/crmne/fastpotify/main/docs/assets/images/winamp.png</image>
+      <image>https://raw.githubusercontent.com/rwojsznis/fastsonic/main/docs/assets/images/winamp.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -51,16 +51,16 @@
   </supports>
   <releases>
     <release version="0.5.0-rc1" date="2026-09-01" type="development">
-      <url>https://github.com/crmne/fastpotify/releases/tag/v0.5.0-rc1</url>
+      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.5.0-rc1</url>
     </release>
     <release version="0.4.1" date="2026-08-31">
-      <url>https://github.com/crmne/fastpotify/releases/tag/v0.4.1</url>
+      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.4.1</url>
     </release>
     <release version="0.4.0" date="2026-08-30">
-      <url>https://github.com/crmne/fastpotify/releases/tag/v0.4.0</url>
+      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.4.0</url>
     </release>
     <release version="0.3.0" date="2026-08-29">
-      <url>https://github.com/crmne/fastpotify/releases/tag/v0.3.0</url>
+      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.3.0</url>
     </release>
   </releases>
 </component>

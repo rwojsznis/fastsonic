@@ -19,14 +19,14 @@ if [ ! -f "$generator" ]; then
 fi
 mkdir -p "$out"
 python3 "$generator" "$root/Cargo.lock" -o "$out/cargo-sources.json"
-python3 - "$here/rocks.fastpotify.Fastpotify.yml" "$out/rocks.fastpotify.Fastpotify.yml" "$tag" "$commit" <<'PY'
+python3 - "$here/io.github.rwojsznis.Fastsonic.yml" "$out/io.github.rwojsznis.Fastsonic.yml" "$tag" "$commit" <<'PY'
 import sys
 src, dst, tag, commit = sys.argv[1:]
 text = open(src).read()
 old = "      - type: dir\n        path: ../..\n"
-new = f"      - type: git\n        url: https://github.com/crmne/fastpotify.git\n        tag: {tag}\n        commit: {commit}\n"
+new = f"      - type: git\n        url: https://github.com/rwojsznis/fastsonic.git\n        tag: {tag}\n        commit: {commit}\n"
 assert old in text, "the source block moved"
 open(dst, "w").write(text.replace(old, new))
 PY
-cp "$here/rocks.fastpotify.Fastpotify.metainfo.xml" "$out/" 2>/dev/null || true
-echo "wrote $out/rocks.fastpotify.Fastpotify.yml and cargo-sources.json for $tag ($commit)"
+cp "$here/io.github.rwojsznis.Fastsonic.metainfo.xml" "$out/" 2>/dev/null || true
+echo "wrote $out/io.github.rwojsznis.Fastsonic.yml and cargo-sources.json for $tag ($commit)"

@@ -128,7 +128,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             |ui| {
                 if theme::pill_button(ui, &palette, "Setup guide", false).clicked() {
                     app.actions.push(Action::OpenUrl(
-                        "https://fastpotify.rocks/make-it-even-faster/".into(),
+                        "https://rwojsznis.github.io/fastsonic/make-it-even-faster/".into(),
                     ));
                 }
             },
@@ -187,23 +187,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         let (status, detail, action) = match &app.local_playback {
             crate::backend::LocalPlayback::Ready { .. } => (
                 "Ready",
-                "This computer is a Spotify Connect device.".to_string(),
-                None,
-            ),
-            crate::backend::LocalPlayback::Authorizing => (
-                "Setting up",
-                "Finish authorizing in your browser.".to_string(),
+                "Music is streamed from your server and decoded here.".to_string(),
                 None,
             ),
             crate::backend::LocalPlayback::Connecting => {
-                ("Connecting", "Connecting to Spotify…".to_string(), None)
+                ("Starting", "Opening the audio device…".to_string(), None)
             }
             crate::backend::LocalPlayback::Failed(message) => {
                 ("Unavailable", message.clone(), Some("Try again"))
             }
             crate::backend::LocalPlayback::Unavailable => (
                 "Not set up",
-                "Requires Spotify Premium and a one-time browser sign-in.".to_string(),
+                "Sign in to your music server first.".to_string(),
                 Some("Enable playback here"),
             ),
         };
@@ -316,8 +311,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Keep music playing when the window closes",
             super::keys::platform_shortcut(
-                "Fastpotify hides to the system tray. Quit from the tray menu or with Ctrl+Q.",
-                "Fastpotify hides to the system tray. Quit from the tray menu or with Cmd+Q.",
+                "Fastsonic hides to the system tray. Quit from the tray menu or with Ctrl+Q.",
+                "Fastsonic hides to the system tray. Quit from the tray menu or with Cmd+Q.",
             ),
             |ui| {
                 if widgets::switch(ui, &palette, &mut app.settings.keep_playing_in_background)
@@ -583,7 +578,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             },
         );
         let choices = app.winamp.choices.clone();
-        let mut options: Vec<(usize, &str)> = vec![(0, "Fastpotify")];
+        let mut options: Vec<(usize, &str)> = vec![(0, "Fastsonic")];
         options.extend(
             choices
                 .iter()
@@ -666,7 +661,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Presets",
             &format!(
-                "{} in {}. Add .milk files here. Fastpotify downloads presets when MilkDrop first opens with an empty folder.",
+                "{} in {}. Add .milk files here. Fastsonic downloads presets when MilkDrop first opens with an empty folder.",
                 match count {
                     0 => "None yet".to_string(),
                     1 => "One preset".to_string(),
@@ -861,7 +856,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Audio cache",
             &format!("Stored in {}", app.dirs.audio_cache_dir().display()),
-            |_| {},
+            |ui| {
+                if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear audio", false)
+                    .clicked()
+                {
+                    app.actions.push(Action::ClearAudioCache);
+                }
+            },
         );
         widgets::setting_row(
             ui,
@@ -884,8 +885,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Sign-in",
             &format!(
-                "Credentials are kept in {}",
-                app.dirs.credentials_dir().display()
+                "The server's credential is kept in {}",
+                app.dirs.credentials_file().display()
             ),
             |_| {},
         );
@@ -898,7 +899,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.vertical(|ui| {
                 theme::text(
                     ui,
-                    format!("Fastpotify {}", env!("CARGO_PKG_VERSION")),
+                    format!("Fastsonic {}", env!("CARGO_PKG_VERSION")),
                     theme::semibold(15.0),
                     palette.text,
                 );

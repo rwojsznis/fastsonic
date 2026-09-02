@@ -936,7 +936,7 @@ mod tests {
             buffer_ms: crate::sink::DEFAULT_BUFFER_MS,
             tap: AudioTap::new(),
             eq: crate::eq::shared(),
-            device_name: "Fastpotify".into(),
+            device_name: "Fastsonic".into(),
             bitrate_kbps: 320,
             normalisation: false,
             autoplay: true,

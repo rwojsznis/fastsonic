@@ -345,7 +345,7 @@ impl Child {
         if let Some(Request::Load { path, smooth }) = self.presets.take_request() {
             live.engine.load(&path, smooth);
         }
-        let frames = self.ring.since(&mut self.cursor, LAG);
+        let frames = self.ring.since(&mut self.cursor, LAG + self.ring.lead());
         live.engine.feed_frames(&frames);
         let size = live.window.inner_size();
         live.engine.render(
@@ -1002,7 +1002,7 @@ mod tests {
     /// A child with no window, for the parts that need none.
     fn headless_child() -> Child {
         let dir = std::env::temp_dir().join(format!(
-            "fastpotify-milkdrop-child-{}-{}",
+            "fastsonic-milkdrop-child-{}-{}",
             std::process::id(),
             NEXT_RING.fetch_add(1, Ordering::Relaxed)
         ));

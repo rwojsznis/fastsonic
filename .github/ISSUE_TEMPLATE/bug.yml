@@ -5,18 +5,18 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please include the log from Fastpotify's last run:
+        Please include the log from Fastsonic's last run:
 
-        - Linux: `~/.local/state/fastpotify/fastpotify.log`
-        - macOS: `~/Library/Application Support/me.paolino.fastpotify/fastpotify.log`
-        - Windows: `%LOCALAPPDATA%\paolino\fastpotify\data\fastpotify.log`
+        - Linux: `~/.local/state/fastsonic/fastsonic.log`
+        - macOS: `~/Library/Application Support/io.github.rwojsznis.fastsonic/fastsonic.log`
+        - Windows: `%LOCALAPPDATA%\github.rwojsznis\fastsonic\data\fastsonic.log`
 
         If the app crashed or vanished, include `panic.log` from the same folder.
   - type: input
     id: version
     attributes:
-      label: Fastpotify version and how you installed it
-      placeholder: "0.5.0-rc1 from the AUR / the DMG / the Windows installer / Homebrew / the Flatpak bundle"
+      label: Fastsonic version and how you installed it
+      placeholder: "0.5.0-rc1 from the DMG / the Windows installer / the Flatpak bundle / cargo install"
     validations:
       required: true
   - type: dropdown
@@ -56,7 +56,7 @@ body:
   - type: textarea
     id: log
     attributes:
-      label: fastpotify.log
+      label: fastsonic.log
       description: Reproduce the problem, quit the app, then paste the whole file here (and panic.log, if there is one). Paths are above.
       render: text
     validations:

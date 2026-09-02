@@ -2,18 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Fastpotify</string>
-    <key>CFBundleDisplayName</key><string>Fastpotify</string>
-    <key>CFBundleIdentifier</key><string>me.paolino.fastpotify</string>
-    <key>CFBundleExecutable</key><string>fastpotify</string>
-    <key>CFBundleIconFile</key><string>fastpotify</string>
+    <key>CFBundleName</key><string>Fastsonic</string>
+    <key>CFBundleDisplayName</key><string>Fastsonic</string>
+    <key>CFBundleIdentifier</key><string>io.github.rwojsznis.fastsonic</string>
+    <key>CFBundleExecutable</key><string>fastsonic</string>
+    <key>CFBundleIconFile</key><string>fastsonic</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>__VERSION__</string>
     <key>CFBundleVersion</key><string>__BUILD__</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSLocalNetworkUsageDescription</key><string>Fastpotify looks for Spotify Connect speakers on your local network.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Fastsonic looks for Spotify Connect speakers on your local network.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_spotify-connect._tcp</string>

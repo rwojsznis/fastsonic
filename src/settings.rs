@@ -154,7 +154,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            device_name: "Fastpotify".to_string(),
+            device_name: "Fastsonic".to_string(),
             bitrate: 320,
             normalisation: false,
             autoplay: true,
@@ -373,6 +373,11 @@ pub struct SessionState {
     /// What was playing when the app closed, to resume from a cold start.
     pub last_context: Option<String>,
     pub last_track: Option<String>,
+    /// The context row `last_track` was playing over, when it was a song
+    /// queued by hand: the place the album keeps under it (rule 3), so a
+    /// resumed session puts the album back where it was rather than at the
+    /// queued song's place in it.
+    pub last_context_track: Option<String>,
     pub last_position_ms: u32,
     /// Manually queued songs to restore with the remembered track.
     ///

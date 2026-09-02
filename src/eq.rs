@@ -4,12 +4,26 @@
 //! from -12 to +12 dB. The UI writes settings behind a mutex; the player reads
 //! them once per packet and rebuilds filters only after changes.
 //!
-//! This stage does not clip boosted samples. `vis::Tapped` limits the signal
-//! later, after accounting for output volume.
+//! This stage does not clip boosted samples. The limiter after it does,
+//! once the output volume is known — `engine::chain` on the new engine,
+//! `vis::Tapped` on the old one.
+//!
+//! The filters are built for one sample rate and the rate is not a
+//! constant any more: Spotify sent 44.1 kHz and nothing else, while a music
+//! library is played out of whatever device the machine has, which on macOS
+//! is usually 48 kHz. So every filter carries the rate it was designed at,
+//! and the player rebuilds them when the device's rate changes.
 
 use std::sync::{Arc, Mutex};
 
-use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
+/// The chain is stereo, from the decoder to the device.
+const CHANNELS: usize = 2;
+
+/// The rate the drawn curve is worked out at, and the one the old engine
+/// runs at. A band's shape moves a little with the rate — the bilinear
+/// transform bends the top of the range — so the curve in the window is
+/// the response at this rate rather than at the device's.
+pub const NOMINAL_RATE: u32 = 44_100;
 
 /// The centre frequencies, Winamp's, in hertz.
 pub const BANDS: [f32; 10] = [
@@ -66,11 +80,16 @@ impl EqSettings {
         [(1.0 - balance).min(1.0), (1.0 + balance).min(1.0)]
     }
 
-    /// Filter response used for playback and the curve display.
+    /// Filter response used for the curve display, at [`NOMINAL_RATE`].
     pub fn curve(&self) -> Curve {
+        self.curve_at(NOMINAL_RATE)
+    }
+
+    /// The same, at the rate the audio is actually being played at.
+    pub fn curve_at(&self, rate: u32) -> Curve {
         Curve {
             preamp_db: self.preamp_db,
-            filters: chain(&self.bands_db),
+            filters: chain(&self.bands_db, rate),
         }
     }
 
@@ -119,7 +138,7 @@ fn band_widths() -> [f64; 10] {
 
 /// Builds filters whose combined response matches each slider at its centre.
 /// Adjacent filters overlap, so their individual gains are solved together.
-fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
+fn chain(bands_db: &[f32; 10], rate: u32) -> Vec<Biquad> {
     let widths = band_widths();
     let target: [f64; 10] = bands_db.map(f64::from);
     if target.iter().all(|gain| gain.abs() <= f64::from(FLAT)) {
@@ -128,14 +147,14 @@ fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
     // How much each band moves every centre, per decibel it is given.
     let mut unit = [[0.0; 10]; 10];
     for (j, (hz, width)) in BANDS.iter().zip(widths).enumerate() {
-        let filter = Biquad::peaking(f64::from(*hz), width, 1.0);
+        let filter = Biquad::peaking(f64::from(*hz), width, 1.0, rate);
         for (i, centre) in BANDS.iter().enumerate() {
             unit[i][j] = filter.gain_db_at(f64::from(*centre));
         }
     }
     let mut gains = target;
     for _ in 0..6 {
-        let filters: Vec<(usize, Biquad)> = filters_for(&gains, &widths);
+        let filters: Vec<(usize, Biquad)> = filters_for(&gains, &widths, rate);
         let mut residual = [0.0; 10];
         for (i, centre) in BANDS.iter().enumerate() {
             let played: f64 = filters
@@ -152,21 +171,23 @@ fn chain(bands_db: &[f32; 10]) -> Vec<Biquad> {
             *gain = (*gain - step).clamp(-SOLVED_LIMIT, SOLVED_LIMIT);
         }
     }
-    filters_for(&gains, &widths)
+    filters_for(&gains, &widths, rate)
         .into_iter()
         .map(|(_, filter)| filter)
         .collect()
 }
 
 /// The bands worth running, with the filter for each.
-fn filters_for(gains: &[f64; 10], widths: &[f64; 10]) -> Vec<(usize, Biquad)> {
+fn filters_for(gains: &[f64; 10], widths: &[f64; 10], rate: u32) -> Vec<(usize, Biquad)> {
     BANDS
         .iter()
         .zip(widths)
         .zip(gains)
         .enumerate()
         .filter(|(_, (_, gain))| gain.abs() > f64::from(FLAT))
-        .map(|(index, ((hz, width), gain))| (index, Biquad::peaking(f64::from(*hz), *width, *gain)))
+        .map(|(index, ((hz, width), gain))| {
+            (index, Biquad::peaking(f64::from(*hz), *width, *gain, rate))
+        })
         .collect()
 }
 
@@ -342,6 +363,8 @@ pub fn shared() -> SharedEq {
 /// A second-order section in direct form I, one per band and channel.
 #[derive(Clone, Copy, Debug, Default)]
 struct Biquad {
+    /// The rate the coefficients were worked out for.
+    rate: f64,
     b0: f64,
     b1: f64,
     b2: f64,
@@ -359,13 +382,14 @@ impl Biquad {
     /// taken the cookbook's digital way, with its `w0 / sin(w0)` term: near
     /// the top of the band the plain analog Q would have come out three
     /// times too narrow, which is what rippled the treble.
-    fn peaking(hz: f64, width: f64, gain_db: f64) -> Self {
+    fn peaking(hz: f64, width: f64, gain_db: f64, rate: u32) -> Self {
         let a = 10f64.powf(gain_db / 40.0);
-        let w0 = std::f64::consts::TAU * hz / f64::from(SAMPLE_RATE);
+        let w0 = std::f64::consts::TAU * hz / f64::from(rate);
         let (sin, cos) = w0.sin_cos();
         let alpha = sin * ((std::f64::consts::LN_2 / 2.0) * width * w0 / sin).sinh();
         let a0 = 1.0 + alpha / a;
         Self {
+            rate: f64::from(rate),
             b0: (1.0 + alpha * a) / a0,
             b1: (-2.0 * cos) / a0,
             b2: (1.0 - alpha * a) / a0,
@@ -379,7 +403,7 @@ impl Biquad {
     /// function on the unit circle: what is played, including the bend
     /// the bilinear transform puts near the top of the band.
     fn gain_db_at(&self, hz: f64) -> f64 {
-        let w = std::f64::consts::TAU * hz / f64::from(SAMPLE_RATE);
+        let w = std::f64::consts::TAU * hz / self.rate;
         let (sin1, cos1) = w.sin_cos();
         let (sin2, cos2) = (2.0 * w).sin_cos();
         let numerator = (self.b0 + self.b1 * cos1 + self.b2 * cos2).powi(2)
@@ -406,27 +430,39 @@ impl Biquad {
 pub struct Processor {
     shared: SharedEq,
     applied: EqSettings,
+    /// The rate the filters are designed for, which is the device's.
+    rate: u32,
     /// One chain per channel; a band at flat is left out of the chain.
     chains: Vec<Vec<Biquad>>,
     gain: f64,
 }
 
 impl Processor {
-    pub fn new(shared: SharedEq) -> Self {
+    pub fn new(shared: SharedEq, rate: u32) -> Self {
         let mut processor = Self {
             shared,
             applied: EqSettings::default(),
-            chains: vec![Vec::new(); NUM_CHANNELS as usize],
+            rate,
+            chains: vec![Vec::new(); CHANNELS],
             gain: 1.0,
         };
         processor.rebuild();
         processor
     }
 
+    /// Rebuilds the filters for a new output rate, which is what following
+    /// the system's default device to a 48 kHz one does.
+    pub fn set_rate(&mut self, rate: u32) {
+        if rate != self.rate {
+            self.rate = rate;
+            self.rebuild();
+        }
+    }
+
     fn rebuild(&mut self) {
         let settings = self.applied;
         self.gain = 10f64.powf(f64::from(settings.preamp_db) / 20.0);
-        self.chains = vec![chain(&settings.bands_db); NUM_CHANNELS as usize];
+        self.chains = vec![chain(&settings.bands_db, self.rate); CHANNELS];
     }
 
     /// Runs interleaved stereo samples through the equalizer, in place.
@@ -479,9 +515,13 @@ mod tests {
     use super::*;
 
     fn tone(hz: f32, frames: usize) -> Vec<f64> {
+        tone_at(hz, frames, NOMINAL_RATE)
+    }
+
+    fn tone_at(hz: f32, frames: usize, rate: u32) -> Vec<f64> {
         (0..frames)
             .flat_map(|i| {
-                let t = i as f64 / f64::from(SAMPLE_RATE);
+                let t = i as f64 / f64::from(rate);
                 let sample = 0.25 * (std::f64::consts::TAU * f64::from(hz) * t).sin();
                 [sample, sample]
             })
@@ -497,7 +537,7 @@ mod tests {
         let shared = shared();
         shared.lock().unwrap().on = true;
         shared.lock().unwrap().bands_db[4] = 12.0; // 1 kHz
-        let mut processor = Processor::new(shared);
+        let mut processor = Processor::new(shared, NOMINAL_RATE);
         let mut at_band = tone(1000.0, 8192);
         let before = rms(&at_band[4096..]);
         processor.process(&mut at_band);
@@ -513,10 +553,60 @@ mod tests {
         assert!(gain_db.abs() < 1.0, "60 Hz moved {gain_db:.1} dB");
     }
 
+    /// A band is a frequency, not a fraction of the sample rate. The
+    /// filters are built for the rate the device runs at, so 1 kHz is
+    /// still 1 kHz on the 48 kHz output a Mac usually has — and 60 Hz is
+    /// still left alone. Before the rate was carried around, everything a
+    /// 48 kHz device played came out through filters designed for 44.1,
+    /// which moves every band up by 8.8%.
+    #[test]
+    fn the_bands_stay_where_they_are_at_another_rate() {
+        let shared = shared();
+        shared.lock().unwrap().on = true;
+        shared.lock().unwrap().bands_db[4] = 12.0; // 1 kHz
+        let mut processor = Processor::new(shared, 48_000);
+        for (hz, wanted) in [(1000.0, 12.0), (60.0, 0.0)] {
+            let mut samples = tone_at(hz, 8192, 48_000);
+            let before = rms(&samples[4096..]);
+            processor.process(&mut samples);
+            let gain_db = 20.0 * (rms(&samples[4096..]) / before).log10();
+            assert!(
+                (gain_db - wanted).abs() < 1.0,
+                "{hz} Hz at 48 kHz moved {gain_db:.1} dB, not {wanted:.1}"
+            );
+        }
+    }
+
+    /// The same settings at another rate are different coefficients, and
+    /// the switch happens without the settings being touched.
+    #[test]
+    fn a_new_output_rate_rebuilds_the_filters() {
+        let shared = shared();
+        shared.lock().unwrap().on = true;
+        shared.lock().unwrap().bands_db[9] = 12.0; // 16 kHz, where the
+        // bilinear bend is largest and the rate shows most.
+        let mut processor = Processor::new(shared, NOMINAL_RATE);
+        let mut at_44 = tone(16_000.0, 8192);
+        let before = rms(&at_44[4096..]);
+        processor.process(&mut at_44);
+        let designed = 20.0 * (rms(&at_44[4096..]) / before).log10();
+
+        processor.set_rate(48_000);
+        let mut wrong_rate = tone(16_000.0, 8192);
+        let before = rms(&wrong_rate[4096..]);
+        processor.process(&mut wrong_rate);
+        let mistuned = 20.0 * (rms(&wrong_rate[4096..]) / before).log10();
+        assert!(
+            (designed - mistuned).abs() > 0.5,
+            "the same 16 kHz tone gained {designed:.1} dB and {mistuned:.1} dB: \
+             the filters did not follow the rate"
+        );
+    }
+
     #[test]
     fn off_or_flat_changes_nothing_and_the_preamp_scales() {
         let shared = shared();
-        let mut processor = Processor::new(shared.clone());
+        let mut processor = Processor::new(shared.clone(), NOMINAL_RATE);
         let original = tone(440.0, 1024);
         let mut samples = original.clone();
         processor.process(&mut samples);
@@ -560,7 +650,7 @@ mod tests {
     #[test]
     fn balance_turns_one_side_down_and_mono_makes_the_sides_the_same() {
         let shared = shared();
-        let mut processor = Processor::new(shared.clone());
+        let mut processor = Processor::new(shared.clone(), NOMINAL_RATE);
         let mut samples = vec![0.5, -0.25, 0.5, -0.25];
         shared.lock().unwrap().balance = 0.5;
         processor.process(&mut samples);

@@ -46,6 +46,19 @@ impl<T> Page<T> {
         let consumed = self.limit.max(self.items.len() as u32);
         (self.next.is_some() && consumed > 0).then_some(self.offset + consumed)
     }
+
+    /// The same page holding something else. The server answers in songs
+    /// and albums where the interface reads saved songs and saved albums,
+    /// and only the items differ.
+    pub fn map<U>(self, transform: impl FnMut(T) -> U) -> Page<U> {
+        Page {
+            items: self.items.into_iter().map(transform).collect(),
+            total: self.total,
+            limit: self.limit,
+            offset: self.offset,
+            next: self.next,
+        }
+    }
 }
 
 /// A cursor-paginated collection (followed artists, recently played).
@@ -150,6 +163,11 @@ pub struct Artist {
     pub popularity: Option<u8>,
     #[serde(default)]
     pub external_urls: ExternalUrls,
+    /// Whether the server says this is starred. `None` means it did not
+    /// say — an object carried inside another one, or one from an endpoint
+    /// that omits the flag — so a page must not read it as "not starred".
+    #[serde(default)]
+    pub starred: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -187,6 +205,9 @@ pub struct Album {
     pub external_urls: ExternalUrls,
     #[serde(default, deserialize_with = "null_default")]
     pub copyrights: Vec<Copyright>,
+    /// See [`Artist::starred`].
+    #[serde(default)]
+    pub starred: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -251,6 +272,9 @@ pub struct Track {
     pub popularity: Option<u8>,
     #[serde(default)]
     pub external_urls: ExternalUrls,
+    /// See [`Artist::starred`].
+    #[serde(default)]
+    pub starred: Option<bool>,
 }
 
 impl Track {
@@ -402,6 +426,69 @@ impl Playlist {
 
     pub fn owned_by(&self, user_id: &str) -> bool {
         self.owner.id.as_deref() == Some(user_id)
+    }
+}
+
+/// Something the server may state a starred flag on.
+///
+/// The flag rides on the object rather than being asked for separately:
+/// Subsonic puts `starred` on every song, album and artist it returns, so a
+/// page that has loaded its contents already knows which hearts are filled
+/// (`migration/01-api-mapping.md`, `Contains`). `None` means the answer
+/// this object came in did not carry the flag, which is not the same as
+/// "not starred" and must never be drawn as one.
+pub trait Starred {
+    fn starred_flag(&self) -> Option<(&str, bool)>;
+}
+
+impl Starred for Track {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        self.starred.map(|flag| (self.uri.as_str(), flag))
+    }
+}
+
+impl Starred for Album {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        self.starred.map(|flag| (self.uri.as_str(), flag))
+    }
+}
+
+impl Starred for Artist {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        self.starred.map(|flag| (self.uri.as_str(), flag))
+    }
+}
+
+impl Starred for PlayableItem {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        match self {
+            Self::Track(track) => track.starred_flag(),
+            Self::Episode(_) => None,
+        }
+    }
+}
+
+impl Starred for PlaylistItem {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        self.playable()?.starred_flag()
+    }
+}
+
+impl Starred for SavedTrack {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        self.track.starred_flag()
+    }
+}
+
+impl Starred for SavedAlbum {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        self.album.starred_flag()
+    }
+}
+
+impl Starred for PlayHistory {
+    fn starred_flag(&self) -> Option<(&str, bool)> {
+        self.track.starred_flag()
     }
 }
 
@@ -711,6 +798,57 @@ pub struct ApiErrorDetail {
     pub message: String,
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+/// What to start playing, as the interface expresses it: a context to play
+/// in order, or a list of songs to play as it stands, with an optional row
+/// to start at. `src/app.rs` turns one of these into the engine's
+/// [`LoadSpec`](crate::engine::LoadSpec).
+///
+/// This was a Spotify request body once. It survives the migration as a
+/// vocabulary rather than a payload — the interface has many ways of saying
+/// "play this", and the engine has one way of being told.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlayRequest {
+    pub context_uri: Option<String>,
+    pub uris: Vec<String>,
+    pub offset_uri: Option<String>,
+    pub offset_position: Option<u32>,
+    pub position_ms: u32,
+    /// Songs owed to "Playing next", oldest first: rule 9 of
+    /// `docs/_reference/queue.md`. Only the resume of a closed session
+    /// carries them, and they travel with the play so that the queue is
+    /// whole in the engine's first answer rather than a moment later.
+    pub restore_queued: Vec<String>,
+    /// The remembered song, when it was one of the queued ones rather than
+    /// the context's row. `offset_uri` is then where the album was.
+    pub restore_current: Option<String>,
+}
+
+impl PlayRequest {
+    pub fn context(uri: impl Into<String>) -> Self {
+        Self {
+            context_uri: Some(uri.into()),
+            ..Self::default()
+        }
+    }
+
+    pub fn tracks(uris: Vec<String>) -> Self {
+        Self {
+            uris,
+            ..Self::default()
+        }
+    }
+
+    pub fn starting_at_uri(mut self, uri: impl Into<String>) -> Self {
+        self.offset_uri = Some(uri.into());
+        self
+    }
+
+    pub fn starting_at_index(mut self, index: u32) -> Self {
+        self.offset_position = Some(index);
+        self
+    }
 }
 
 #[cfg(test)]

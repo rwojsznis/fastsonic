@@ -453,9 +453,9 @@ main{{max-width:28rem;padding:2.5rem;border-radius:1.25rem;background:#181b20;bo
 
 fn success_page() -> String {
     page(
-        "Signed in to Fastpotify",
+        "Signed in to Fastsonic",
         "You're signed in",
-        "You can close this tab and go back to Fastpotify.",
+        "You can close this tab and go back to Fastsonic.",
         "#1ed760",
     )
 }
@@ -464,7 +464,7 @@ fn failure_page(reason: &str) -> String {
     page(
         "Sign-in failed",
         "Sign-in didn't complete",
-        &format!("{reason}. Return to Fastpotify and try again."),
+        &format!("{reason}. Return to Fastsonic and try again."),
         "#f5717f",
     )
 }
@@ -528,7 +528,7 @@ mod tests {
             ..token.clone()
         };
         assert!(expired.needs_refresh());
-        let dir = std::env::temp_dir().join(format!("fastpotify-token-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fastsonic-token-{}", std::process::id()));
         let path = dir.join("token.json");
         token.save(&path).unwrap();
         assert_eq!(StoredToken::load(&path), Some(token));
@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn legacy_tokens_move_to_the_matching_session() {
         let dir = std::env::temp_dir().join(format!(
-            "fastpotify-token-migration-{}-{}",
+            "fastsonic-token-migration-{}-{}",
             std::process::id(),
             now_secs()
         ));

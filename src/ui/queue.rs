@@ -4,7 +4,7 @@ use egui::{Align, Frame, Layout, Margin};
 
 use crate::api::models::PlayableItem;
 use crate::app::App;
-use crate::model::{Action, Loadable, QueueTab, RowContext};
+use crate::model::{Action, QueueTab, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
@@ -12,7 +12,9 @@ use super::widgets::{self, TrackRow};
 pub fn page(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
-    // The queue refreshes on track changes, additions, and while visible.
+    // Nothing is refreshed here: the engine publishes the queue when it
+    // changes and the frame that draws this one is the frame its answer
+    // woke.
     let offer_save = !app.queue_playlist_uris().is_empty();
     ui.horizontal(|ui| {
         theme::text(ui, "Queue", theme::bold(28.0), palette.text);
@@ -134,21 +136,14 @@ fn clear_button(app: &mut App, ui: &mut egui::Ui) {
 
 fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     let palette = app.palette;
-    let queue = match &app.queue {
-        Loadable::Loaded(queue) => queue.clone(),
-        Loadable::Loading | Loadable::NotLoaded => {
-            widgets::loading_row(ui, &palette);
-            return;
-        }
-        Loadable::Failed(error) => {
-            let error = error.clone();
-            widgets::error_row(ui, app, &error, Some(crate::model::Page::Queue));
-            return;
-        }
-    };
+    // The queue is never loading and never fails: it is whatever the
+    // engine last said it was, and before anything plays it is empty or
+    // the remembered one.
+    let queue = app.queue.clone();
     let now = app.now_playing();
-    // Prefer the player's current track because the Web API can lag after a
-    // skip.
+    // The engine publishes the queue and the state together, so these
+    // agree; the fallback is for the remembered queue, which has rows but
+    // no playing song of its own.
     let current: Option<PlayableItem> = match &now {
         Some(now) => queue
             .currently_playing

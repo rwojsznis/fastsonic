@@ -2,7 +2,7 @@
 //!
 //! A `.wsz` file contains bitmap sprite sheets and two small text files. This
 //! module decodes them to RGBA textures. [`sprites`] defines source coordinates;
-//! [`layout`] defines window positions. Missing files fall back to Fastpotify's
+//! [`layout`] defines window positions. Missing files fall back to Fastsonic's
 //! built-in classic skin. Modern `.wal` skins are unsupported.
 
 pub mod config;
@@ -28,7 +28,7 @@ pub enum SkinError {
     NotAnArchive,
     #[error("{0}")]
     Archive(zip::ZipError),
-    #[error("this is a modern Winamp skin, which Fastpotify cannot draw; it needs a classic one")]
+    #[error("this is a modern Winamp skin, which Fastsonic cannot draw; it needs a classic one")]
     ModernSkin,
     #[error("no skin bitmaps were found inside")]
     Empty,
@@ -193,7 +193,7 @@ impl Skin {
         })
     }
 
-    /// The skin Fastpotify ships, drawn for it and packed as a `.wsz` like
+    /// The skin Fastsonic ships, drawn for it and packed as a `.wsz` like
     /// any other, so it goes through the same reader. It has every sheet,
     /// so any other skin's gaps can be filled from it.
     pub fn builtin() -> Arc<Skin> {
@@ -258,10 +258,10 @@ fn wanted(file_name: &str) -> bool {
 }
 
 /// The built-in skin, drawn by `examples/default_skin.rs`.
-const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/fastpotify.wsz");
+const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/fastsonic.wsz");
 
 static BUILTIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
-    Arc::new(Skin::from_archive("Fastpotify", BUILTIN_ARCHIVE).expect("the built-in skin reads"))
+    Arc::new(Skin::from_archive("Fastsonic", BUILTIN_ARCHIVE).expect("the built-in skin reads"))
 });
 
 #[cfg(test)]
@@ -308,7 +308,7 @@ mod tests {
             );
         }
         assert!(skin.has_extended_digits());
-        assert_eq!(skin.name, "Fastpotify");
+        assert_eq!(skin.name, "Fastsonic");
     }
 
     #[test]
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn a_folder_of_bitmaps_is_a_skin_too() {
-        let dir = std::env::temp_dir().join(format!("fastpotify-skin-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fastsonic-skin-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("MAIN.BMP"), png(275, 116, [7, 7, 7])).unwrap();
         std::fs::write(dir.join("readme.txt"), b"a folder skin").unwrap();
@@ -441,11 +441,11 @@ mod tests {
         assert!(matches!(Skin::load(missing), Err(SkinError::Io(_))));
     }
 
-    /// Loads every skin in `$FASTPOTIFY_SKIN_SAMPLES`, when set, to check
+    /// Loads every skin in `$FASTSONIC_SKIN_SAMPLES`, when set, to check
     /// the reader against real files without shipping any.
     #[test]
     fn sample_skins_load() {
-        let Ok(dir) = std::env::var("FASTPOTIFY_SKIN_SAMPLES") else {
+        let Ok(dir) = std::env::var("FASTSONIC_SKIN_SAMPLES") else {
             return;
         };
         let mut seen = 0;

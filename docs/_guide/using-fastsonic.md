@@ -14,7 +14,7 @@ restore the default order.
 ## Recent
 
 The queue panel's second tab combines Spotify's history with tracks played
-through Fastpotify, which Spotify does not record.
+through Fastsonic, which Spotify does not record.
 
 A song is added after about 30 seconds, or halfway through a shorter song.
 Paused time and seeking do not count.

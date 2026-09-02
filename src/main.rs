@@ -2,13 +2,13 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use fastpotify::{app, backend, paths, settings, single_instance, util};
+use fastsonic::{app, backend, paths, settings, single_instance, util};
 
 use clap::Parser;
 
 /// A fast, native Spotify client.
 #[derive(Debug, Parser)]
-#[command(name = "fastpotify", version, about)]
+#[command(name = "fastsonic", version, about)]
 struct Cli {
     /// A command for the running instance; without one, the app starts.
     #[command(subcommand)]
@@ -198,7 +198,7 @@ fn run_control(control: Control) -> i32 {
             0
         }
         Err(error) => {
-            eprintln!("Fastpotify is not running or does not support remote control: {error}");
+            eprintln!("Fastsonic is not running or does not support remote control: {error}");
             1
         }
     }
@@ -208,7 +208,7 @@ fn run_control(control: Control) -> i32 {
 fn run_control(_control: Control) -> i32 {
     eprintln!(
         "On Linux the running instance speaks MPRIS instead; use e.g. \
-         `playerctl --player=fastpotify play-pause`."
+         `playerctl --player=fastsonic play-pause`."
     );
     2
 }
@@ -238,7 +238,7 @@ fn format_now_playing(snapshot: &str) -> String {
 }
 
 /// The `devices` snapshot as one line per device, the active one marked.
-/// The id comes first because `fastpotify transfer` is what it is for.
+/// The id comes first because `fastsonic transfer` is what it is for.
 #[cfg(not(target_os = "linux"))]
 fn format_devices(snapshot: &str) -> String {
     let Ok(devices) = serde_json::from_str::<Vec<serde_json::Value>>(snapshot) else {
@@ -270,8 +270,8 @@ fn main() -> eframe::Result<()> {
     // buffer, and never touches the app's state. Handle it before anything
     // else, including the argument parser, which does not know its flags.
     #[cfg(feature = "milkdrop")]
-    if let Some(args) = fastpotify::milkdrop::child::Args::parse() {
-        std::process::exit(fastpotify::milkdrop::child::run(args));
+    if let Some(args) = fastsonic::milkdrop::child::Args::parse() {
+        std::process::exit(fastsonic::milkdrop::child::run(args));
     }
 
     let cli = Cli::parse();
@@ -281,9 +281,9 @@ fn main() -> eframe::Result<()> {
         std::process::exit(run_control(control));
     }
     let default_filter = if cli.verbose {
-        "info,librespot=info,fastpotify=debug"
+        "info,librespot=info,fastsonic=debug"
     } else {
-        "warn,fastpotify=info"
+        "warn,fastsonic=info"
     };
     let dirs = paths::AppDirs::discover();
     let dirs_ready = dirs.ensure();
@@ -325,7 +325,7 @@ fn main() -> eframe::Result<()> {
         match single_instance::acquire(&waker) {
             single_instance::Outcome::Only(guard) => Some(guard),
             single_instance::Outcome::Surfaced => {
-                log::info!("Fastpotify is already running; asked it to show its window");
+                log::info!("Fastsonic is already running; asked it to show its window");
                 return Ok(());
             }
         }
@@ -351,8 +351,8 @@ fn main() -> eframe::Result<()> {
     }
     #[cfg(feature = "demo")]
     if demo {
-        fastpotify::demo::populate(&mut app);
-        fastpotify::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
+        fastsonic::demo::populate(&mut app);
+        fastsonic::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
     }
     #[cfg(feature = "demo")]
     let shot = cli.demo_shot.clone().map(|path| Shot {
@@ -376,7 +376,7 @@ fn main() -> eframe::Result<()> {
         #[cfg(not(feature = "demo"))]
         let options = native_options(false, mini);
         eframe::run_native(
-            "Fastpotify",
+            "Fastsonic",
             options,
             Box::new(move |cc| {
                 creator_waker.attach(&cc.egui_ctx);
@@ -390,9 +390,9 @@ fn main() -> eframe::Result<()> {
                 // repaint.
                 #[cfg(target_os = "macos")]
                 {
-                    fastpotify::mac_menu::init();
+                    fastsonic::mac_menu::init();
                     let ctx = cc.egui_ctx.clone();
-                    fastpotify::mac_menu::set_waker(move || ctx.request_repaint());
+                    fastsonic::mac_menu::set_waker(move || ctx.request_repaint());
                 }
                 app.attach(&cc.egui_ctx);
                 Ok(Box::new(Shell {
@@ -438,7 +438,7 @@ fn main() -> eframe::Result<()> {
                     break;
                 }
             }
-            fastpotify::tray::idle(std::time::Duration::from_millis(150));
+            fastsonic::tray::idle(std::time::Duration::from_millis(150));
         }
         let quit = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
@@ -484,7 +484,7 @@ fn log_panics(path: std::path::PathBuf) {
         previous(info);
         let thread = std::thread::current();
         let entry = format!(
-            "{} fastpotify {} on thread {:?}: {info}\n",
+            "{} fastsonic {} on thread {:?}: {info}\n",
             jiff::Timestamp::now(),
             env!("CARGO_PKG_VERSION"),
             thread.name().unwrap_or("unnamed"),
@@ -511,7 +511,7 @@ struct MiniWindow {
 impl MiniWindow {
     fn wanted(app: &app::App) -> Option<Self> {
         app.settings.winamp_window.then(|| Self {
-            size: fastpotify::ui::winamp::initial_size(&app.settings),
+            size: fastsonic::ui::winamp::initial_size(&app.settings),
             position: app.winamp.restore_pos,
             on_top: app.settings.winamp_on_top,
         })
@@ -528,8 +528,8 @@ fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeO
         app_icon()
     };
     let viewport = egui::ViewportBuilder::default()
-        .with_title("Fastpotify")
-        .with_app_id("fastpotify")
+        .with_title("Fastsonic")
+        .with_app_id("fastsonic")
         .with_icon(icon);
     let viewport = match mini {
         Some(mini) => {
@@ -651,9 +651,9 @@ impl eframe::App for Shell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(app) = self.app.as_mut() {
             #[cfg(target_os = "macos")]
-            for command in fastpotify::mac_menu::drain_commands() {
-                use fastpotify::mac_menu::MenuCommand;
-                use fastpotify::model::{Action, Dialog, Page};
+            for command in fastsonic::mac_menu::drain_commands() {
+                use fastsonic::mac_menu::MenuCommand;
+                use fastsonic::model::{Action, Dialog, Page};
                 let action = match command {
                     MenuCommand::PlayPause => Action::TogglePlay,
                     MenuCommand::Next => Action::Next,
@@ -676,7 +676,7 @@ impl eframe::App for Shell {
                     MenuCommand::Forward => Action::Forward,
                     MenuCommand::OpenRepo => {
                         ctx.open_url(egui::OpenUrl::new_tab(
-                            "https://github.com/crmne/fastpotify",
+                            "https://github.com/rwojsznis/fastsonic",
                         ));
                         continue;
                     }

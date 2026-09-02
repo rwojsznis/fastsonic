@@ -1,11 +1,13 @@
 //! Shared-memory audio ring for the MilkDrop child process.
 //!
-//! The player writes half a second of stereo audio to a memory-mapped file;
-//! the child reads it with the same lag as the analyser. It has one producer
-//! and one consumer. A torn frame is acceptable for visualization.
+//! The player writes the last second and a half of stereo audio to a
+//! memory-mapped file; the child reads it with the same lag as the
+//! analyser. It has one producer and one consumer. A torn frame is
+//! acceptable for visualization.
 //!
-//! The layout is an atomic `u64` total-frame count followed by plain stereo
-//! frames.
+//! The layout is an atomic `u64` total-frame count, an atomic `u64` of how
+//! many frames at the end of it are still waiting at the device rather than
+//! heard, and then plain stereo frames.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -14,10 +16,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use memmap2::MmapMut;
 
-/// Stereo frames kept: half a second at 44.1 kHz, the same as the tap.
-pub const FRAMES: usize = 22_050;
-/// The count sits in the first eight bytes; the ring starts after a whole
-/// sixteen, so the frames stay aligned.
+/// Stereo frames kept: a second and a half at 48 kHz, the same as the tap.
+pub const FRAMES: usize = 72_000;
+/// The count sits in the first eight bytes and the lead in the next eight;
+/// the ring starts after a whole sixteen, so the frames stay aligned.
 const HEADER: usize = 16;
 const FRAME_BYTES: usize = 8; // [f32; 2]
 /// The whole mapping's size.
@@ -45,6 +47,7 @@ impl Ring {
         let map = unsafe { MmapMut::map_mut(&file)? };
         let ring = Self { map, _file: file };
         ring.count().store(0, Ordering::Release);
+        ring.set_lead(0);
         Ok(ring)
     }
 
@@ -67,6 +70,24 @@ impl Ring {
         // SAFETY: the mapping is at least `HEADER` bytes and the base is page
         // aligned, so the first eight bytes are an aligned `AtomicU64`.
         unsafe { &*(self.map.as_ptr() as *const AtomicU64) }
+    }
+
+    /// The lead, beside the counter: frames written but not yet heard.
+    fn lead_cell(&self) -> &AtomicU64 {
+        // SAFETY: the mapping is at least `HEADER` bytes and the base is
+        // page aligned, so bytes 8..16 are an aligned `AtomicU64`.
+        unsafe { &*(self.map.as_ptr().add(8) as *const AtomicU64) }
+    }
+
+    /// How many of the frames written are still waiting at the device. The
+    /// reader adds it to its own lag, so what it draws is what is coming
+    /// out of the speaker. Mirrors `AudioTap::set_lead`.
+    pub fn set_lead(&self, frames: usize) {
+        self.lead_cell().store(frames as u64, Ordering::Relaxed);
+    }
+
+    pub fn lead(&self) -> usize {
+        self.lead_cell().load(Ordering::Relaxed) as usize
     }
 
     /// The ring of frames, as a flat float slice (LRLR...).
@@ -129,7 +150,7 @@ mod tests {
 
     #[test]
     fn frames_written_are_read_back_once_and_behind_the_lag() {
-        let path = std::env::temp_dir().join(format!("fastpotify-shm-test-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("fastsonic-shm-test-{}", std::process::id()));
         let writer = Ring::create(&path).unwrap();
         let reader = Ring::open(&path).unwrap();
         writer.push(&[0.5, -0.5, 1.0, 0.0, 0.2, 0.2, 0.3, 0.3]);
@@ -150,6 +171,30 @@ mod tests {
         writer.push(&extra);
         let mut stale = 0;
         assert_eq!(reader.since(&mut stale, 0).len(), FRAMES);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// The lead crosses the mapping beside the frames, because the writer
+    /// is the only side that knows how much of what it has written is still
+    /// waiting at the device. The child adds it to its own lag, so MilkDrop
+    /// moves with the speaker rather than with the decoder.
+    #[test]
+    fn the_lead_is_shared_and_holds_the_reader_back() {
+        let path = std::env::temp_dir().join(format!("fastsonic-shm-lead-{}", std::process::id()));
+        let writer = Ring::create(&path).unwrap();
+        let reader = Ring::open(&path).unwrap();
+        assert_eq!(reader.lead(), 0);
+        writer.push(&[0.1, 0.1, 0.2, 0.2, 0.3, 0.3, 0.4, 0.4]);
+        writer.set_lead(3);
+        assert_eq!(reader.lead(), 3);
+        // Three of the four frames have not been heard yet.
+        let mut cursor = 0;
+        assert_eq!(reader.since(&mut cursor, reader.lead()), [[0.1, 0.1]]);
+        writer.set_lead(0);
+        assert_eq!(
+            reader.since(&mut cursor, reader.lead()),
+            [[0.2, 0.2], [0.3, 0.3], [0.4, 0.4]]
+        );
         std::fs::remove_file(&path).unwrap();
     }
 }

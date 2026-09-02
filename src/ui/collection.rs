@@ -780,7 +780,6 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 },
             );
             let owned = playlist.owned_by(&user_id);
-            let saved = app.is_saved(&playlist.uri).unwrap_or(false);
             let needle = page.filter.trim().to_lowercase();
             let sort = app
                 .table_sorts
@@ -803,7 +802,9 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 Actions {
                     play_uri: Some(playlist.uri.clone()),
                     view: view_play,
-                    saved: (!owned).then(|| (playlist.uri.clone(), saved)),
+                    // A playlist is yours or it is public; there is no
+                    // following it and nothing to star (`01-api-mapping.md`).
+                    saved: None,
                     saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
                     saved_tooltips: ("Add to Your Library", "Remove from Your Library"),
                     owned_playlist: owned.then_some(playlist_clone),
@@ -1058,10 +1059,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             round: false,
         },
     );
-    let collection_uri = app
-        .user
-        .as_ref()
-        .map(|user| format!("spotify:user:{}:collection", user.id));
+    let collection_uri = Some(crate::api::subsonic::convert::COLLECTION_URI.to_string());
     let filter_id = egui::Id::new("liked-filter");
     let mut filter = ui
         .data(|data| data.get_temp::<String>(filter_id))
@@ -1177,7 +1175,7 @@ mod tests {
                 let track = Track {
                     id: Some(format!("t_{i}")),
                     name: titles[i].to_string(),
-                    uri: format!("spotify:track:t_{i}"),
+                    uri: format!("sonic:track:t_{i}"),
                     duration_ms: (i as u32 + 1) * 60_000,
                     track_number: Some(i as u32 + 1),
                     disc_number: Some(1),
@@ -1188,18 +1186,18 @@ mod tests {
                         ArtistRef {
                             id: Some(format!("a_{i}")),
                             name: artists[i].to_string(),
-                            uri: Some(format!("spotify:artist:a_{i}")),
+                            uri: Some(format!("sonic:artist:a_{i}")),
                         },
                         ArtistRef {
                             id: Some(format!("feat_{i}")),
                             name: format!("Feat Artist {i}"),
-                            uri: Some(format!("spotify:artist:feat_{i}")),
+                            uri: Some(format!("sonic:artist:feat_{i}")),
                         },
                     ],
                     album: Some(Album {
                         id: format!("alb_{i}"),
                         name: albums[i].to_string(),
-                        uri: format!("spotify:album:alb_{i}"),
+                        uri: format!("sonic:album:alb_{i}"),
                         images: vec![],
                         release_date: Some("2020-01-01".to_string()),
                         album_type: Some("album".to_string()),
@@ -1212,9 +1210,11 @@ mod tests {
                         tracks: None,
                         copyrights: vec![],
                         external_urls: Default::default(),
+                        starred: None,
                     }),
                     popularity: None,
                     external_urls: Default::default(),
+                    starred: None,
                 };
                 (
                     PlayableItem::Track(track),
@@ -1266,7 +1266,7 @@ mod tests {
             items_revision: 5,
             user_names_revision: 2,
             visible: Arc::new([2]),
-            view_uris: Some(Arc::new(["spotify:track:t_2".to_string()])),
+            view_uris: Some(Arc::new(["sonic:track:t_2".to_string()])),
         };
 
         // Cache hit

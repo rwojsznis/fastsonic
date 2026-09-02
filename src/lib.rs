@@ -1,4 +1,4 @@
-//! Fastpotify's internals, exposed so diagnostics and tests can reach them.
+//! Fastsonic's internals, exposed so diagnostics and tests can reach them.
 
 pub mod api;
 pub mod app;
@@ -7,6 +7,7 @@ pub mod backend;
 pub mod bidi;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
+pub mod engine;
 pub mod eq;
 pub mod history;
 pub mod images;
@@ -24,6 +25,7 @@ pub mod media_controls;
 pub mod milkdrop;
 pub mod model;
 pub mod opener;
+pub mod opus;
 pub mod paths;
 pub mod player;
 pub mod resample;
@@ -44,3 +46,29 @@ pub mod util;
 pub mod vis;
 pub mod winamp;
 pub mod zeroconf;
+
+/// The builder every asynchronous HTTP client in the app starts from.
+///
+/// reqwest is built with `rustls-no-provider` (see `Cargo.toml`), and it
+/// *panics* when a client is built before a crypto provider is installed.
+/// Going through here rather than `reqwest::Client::builder` makes that
+/// impossible to forget.
+pub fn http_client_builder() -> reqwest::ClientBuilder {
+    install_tls_provider();
+    reqwest::Client::builder()
+}
+
+/// The same, for the blocking clients: the Spotify Connect handover in
+/// `backend.rs` and the MilkDrop preset download.
+pub fn blocking_http_client_builder() -> reqwest::blocking::ClientBuilder {
+    install_tls_provider();
+    reqwest::blocking::Client::builder()
+}
+
+/// Install ring as the process's rustls crypto provider. Idempotent.
+fn install_tls_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}

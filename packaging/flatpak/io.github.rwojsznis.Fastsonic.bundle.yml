@@ -1,0 +1,31 @@
+# The release workflow's Flatpak: the binary the Linux job built, packaged
+# into the same sandbox as io.github.rwojsznis.Fastsonic.yml describes. The
+# job unpacks the release tarball into built/ beside this file first.
+id: io.github.rwojsznis.Fastsonic
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: fastsonic
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --socket=pulseaudio
+  - --share=network
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.mpris.MediaPlayer2.fastsonic
+  - --own-name=io.github.rwojsznis.Fastsonic.Instance
+modules:
+  - name: fastsonic
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 fastsonic /app/bin/fastsonic
+      - install -Dm644 packaging/applications/fastsonic.desktop /app/share/applications/io.github.rwojsznis.Fastsonic.desktop
+      - sed -i 's/^Icon=fastsonic$/Icon=io.github.rwojsznis.Fastsonic/' /app/share/applications/io.github.rwojsznis.Fastsonic.desktop
+      - install -Dm644 packaging/icons/fastsonic.svg /app/share/icons/hicolor/scalable/apps/io.github.rwojsznis.Fastsonic.svg
+      - install -Dm644 packaging/flatpak/io.github.rwojsznis.Fastsonic.metainfo.xml /app/share/metainfo/io.github.rwojsznis.Fastsonic.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/fastsonic/LICENSE
+    sources:
+      - type: dir
+        path: built

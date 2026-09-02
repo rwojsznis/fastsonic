@@ -1,12 +1,12 @@
 ---
 title: How It Connects
-description: Fastpotify's independent Spotify grants, what is stored, and how API traffic is routed.
+description: Fastsonic's independent Spotify grants, what is stored, and how API traffic is routed.
 nav_order: 1
 ---
 
 ## Independent grants, once each
 
-Fastpotify uses separate credentials for Web API access, a personal app, and
+Fastsonic uses separate credentials for Web API access, a personal app, and
 local playback:
 
 1. **The shared Web API app** keeps full catalogue and playlist coverage.
@@ -23,7 +23,7 @@ local playback:
 
 Local playback authorization stays separate from both Web API grants.
 
-By default, Fastpotify uses the public app shared with spotify-player, ncspot,
+By default, Fastsonic uses the public app shared with spotify-player, ncspot,
 and Omarchy Spotify. Spotify divides its quota among all users. A personal app
 adds a separate Development Mode quota. See
 [Use a Personal Spotify App](/make-it-even-faster/).
@@ -36,7 +36,7 @@ adds a separate Development Mode quota. See
 - Downloaded audio and artwork, in the cache directory, within the budget
   you set.
 - Lyrics, in the cache directory, for a month.
-- Fastpotify has no telemetry, analytics, or hosted service. When the lyrics
+- Fastsonic has no telemetry, analytics, or hosted service. When the lyrics
   panel is open and Spotify has no lyrics, it sends the track's artist, title,
   album, and length to [lrclib.net](https://lrclib.net). It also checks
   api.github.com once a day for updates. You can turn off update checks in
@@ -45,7 +45,7 @@ adds a separate Development Mode quota. See
 ## When Spotify pushes back
 
 Each Web API session has separate concurrency and rate limits. A `Retry-After`
-response pauses only that session. Fastpotify routes each request once and
+response pauses only that session. Fastsonic routes each request once and
 does not retry it through the other app.
 
 ## Receivers on the local network
@@ -54,12 +54,12 @@ Spotify's device list only shows signed-in receivers. A new librespot or
 spotifyd receiver is therefore invisible to the Web API.
 
 Receivers announce themselves over mDNS as `_spotify-connect._tcp` and answer
-a small HTTP interface. Fastpotify encrypts the stored librespot credential
+a small HTTP interface. Fastsonic encrypts the stored librespot credential
 with a receiver-specific key and a key from a Diffie-Hellman exchange. The
-encrypted value only works for that receiver and exchange. Fastpotify does not
+encrypted value only works for that receiver and exchange. Fastsonic does not
 save another copy of the credential.
 
-The receiver then signs in and appears in Spotify's device list. Fastpotify
+The receiver then signs in and appears in Spotify's device list. Fastsonic
 uses the Web API for subsequent control requests.
 
 ## The engine

@@ -2,7 +2,7 @@
 //!
 //! librespot's rodio sink panics if no output device is available. Release
 //! builds abort on that panic. This sink opens the device when playback starts
-//! and reports failures through the UI. Fastpotify can then remain available
+//! and reports failures through the UI. Fastsonic can then remain available
 //! as a Connect remote until an output appears.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -49,7 +49,7 @@ pub const BUFFER_MS_RANGE: std::ops::RangeInclusive<u32> = 20..=500;
 /// Clamp to the reported range because CoreAudio rejects unsupported sizes.
 /// If a device reports no range, request the configured size; `open_stream`
 /// can retry without a fixed size.
-fn engine_buffer(
+pub(crate) fn engine_buffer(
     sample_rate: u32,
     ms: u32,
     supported: cpal::SupportedBufferSize,
@@ -250,16 +250,22 @@ impl Sink for RodioSink {
     }
 }
 
-/// Opens the stream at Spotify's stereo 44.1 kHz, so nothing is converted,
-/// else at the device's own rate, which Windows insists on for a shared
-/// device, else at whatever rodio can find.
+/// Opens the stream at the rate the chain would rather run at, so nothing
+/// is converted, else at the device's own rate, which Windows insists on
+/// for a shared device, else at whatever rodio can find.
 ///
 /// The first two attempts request the configured buffer. The fallback lets
 /// the driver choose its buffer size.
-fn open_stream(
+///
+/// `preferred_rate` is Spotify's 44.1 kHz for the librespot sink above, and
+/// the same 44.1 kHz for the engine in `src/engine/`, where it is the rate
+/// most of a music library is in rather than the only one there is.
+pub(crate) fn open_stream(
     device: &cpal::Device,
     on_error: impl FnMut(cpal::StreamError) + Send + Clone + 'static,
     buffer_ms: u32,
+    channels: u16,
+    preferred_rate: u32,
 ) -> Result<rodio::OutputStream, rodio::StreamError> {
     let supported = device
         .default_output_config()
@@ -267,7 +273,7 @@ fn open_stream(
         .unwrap_or(cpal::SupportedBufferSize::Unknown);
     let builder = |sample_rate: u32, buffer: bool| -> Result<_, rodio::StreamError> {
         let builder = rodio::OutputStreamBuilder::from_device(device.clone())?
-            .with_channels(NUM_CHANNELS as rodio::ChannelCount)
+            .with_channels(channels as rodio::ChannelCount)
             .with_sample_rate(sample_rate as rodio::SampleRate)
             .with_error_callback(on_error.clone());
         Ok(if buffer {
@@ -280,7 +286,7 @@ fn open_stream(
     // CoreAudio, ALSA, PulseAudio, and PipeWire keep their proven
     // driver-selected callback periods.
     let fixed_buffer = cfg!(windows);
-    if let Ok(stream) = builder(SAMPLE_RATE, fixed_buffer)?.open_stream() {
+    if let Ok(stream) = builder(preferred_rate, fixed_buffer)?.open_stream() {
         return Ok(stream);
     }
     if let Ok(config) = device.default_output_config()
@@ -288,7 +294,7 @@ fn open_stream(
     {
         return Ok(stream);
     }
-    builder(SAMPLE_RATE, false)?.open_stream_or_fallback()
+    builder(preferred_rate, false)?.open_stream_or_fallback()
 }
 
 /// Raises the Windows decoder thread one step above normal to prevent queued
@@ -312,10 +318,10 @@ fn take_precedence() {}
 
 /// Last default-output name, polled on a worker thread because Windows device
 /// enumeration can block. The thread ends when the sink is dropped.
-struct DefaultWatch(Arc<Mutex<Option<String>>>);
+pub(crate) struct DefaultWatch(Arc<Mutex<Option<String>>>);
 
 impl DefaultWatch {
-    fn start() -> Self {
+    pub(crate) fn start() -> Self {
         let shared = Arc::new(Mutex::new(None));
         let weak = Arc::downgrade(&shared);
         let watching = thread::Builder::new()
@@ -335,7 +341,7 @@ impl DefaultWatch {
     }
 
     /// Last polled name, or `None` before the first poll.
-    fn name(&self) -> Option<String> {
+    pub(crate) fn name(&self) -> Option<String> {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -343,21 +349,21 @@ impl DefaultWatch {
     }
 
     /// Asks right now, on this thread.
-    fn ask(&self) -> Option<String> {
+    pub(crate) fn ask(&self) -> Option<String> {
         let name = default_output_name();
         *self.0.lock().unwrap_or_else(PoisonError::into_inner) = name.clone();
         name
     }
 }
 
-fn default_output_name() -> Option<String> {
+pub(crate) fn default_output_name() -> Option<String> {
     cpal::default_host()
         .default_output_device()
         .and_then(|device| device.name().ok())
 }
 
 #[derive(Debug, thiserror::Error)]
-enum OpenError {
+pub(crate) enum OpenError {
     #[error("No audio output device was found. Connect or enable one, then press play again.")]
     NoDevice,
     #[error("Cannot list the audio devices: {0}")]
@@ -366,23 +372,29 @@ enum OpenError {
     Stream(#[from] rodio::StreamError),
 }
 
-fn open_output(preferred: Option<&str>, buffer_ms: u32) -> Result<Output, OpenError> {
+/// The output device Settings asked for, or the system default when it
+/// named none — or when the one it named is not plugged in today.
+pub(crate) fn pick_device(preferred: Option<&str>) -> Result<cpal::Device, OpenError> {
     let host = cpal::default_host();
-    let device = match preferred.map(str::trim).filter(|name| !name.is_empty()) {
+    match preferred.map(str::trim).filter(|name| !name.is_empty()) {
         Some(name) => {
             let chosen = host
                 .output_devices()?
                 .find(|device| device.name().is_ok_and(|found| found == name));
             match chosen {
-                Some(device) => device,
+                Some(device) => Ok(device),
                 None => {
                     log::warn!("audio device {name:?} is not available; using the default");
-                    host.default_output_device().ok_or(OpenError::NoDevice)?
+                    host.default_output_device().ok_or(OpenError::NoDevice)
                 }
             }
         }
-        None => host.default_output_device().ok_or(OpenError::NoDevice)?,
-    };
+        None => host.default_output_device().ok_or(OpenError::NoDevice),
+    }
+}
+
+fn open_output(preferred: Option<&str>, buffer_ms: u32) -> Result<Output, OpenError> {
+    let device = pick_device(preferred)?;
     let device_name = device.name().ok();
     log::info!(
         "audio output: {}",
@@ -395,7 +407,13 @@ fn open_output(preferred: Option<&str>, buffer_ms: u32) -> Result<Output, OpenEr
         log::error!("audio stream error: {error}");
         flag.store(true, Ordering::Relaxed);
     };
-    let mut stream = open_stream(&device, on_error, buffer_ms)?;
+    let mut stream = open_stream(
+        &device,
+        on_error,
+        buffer_ms,
+        NUM_CHANNELS as u16,
+        SAMPLE_RATE,
+    )?;
     stream.log_on_drop(false);
     let sample_rate = stream.config().sample_rate();
     let resampler = Resampler::new(SAMPLE_RATE, sample_rate, NUM_CHANNELS as usize);

@@ -887,13 +887,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         }
                         if play_response.is_some_and(|play| play.clicked()) {
                             let uri = if entry.liked {
-                                app.user
-                                    .as_ref()
-                                    .map(|user| format!("spotify:user:{}:collection", user.id))
+                                crate::api::subsonic::convert::COLLECTION_URI.to_string()
                             } else {
-                                Some(entry.uri.clone())
+                                entry.uri.clone()
                             };
-                            if let Some(uri) = uri {
+                            {
                                 app.actions.push(Action::PlayContext {
                                     uri,
                                     offset_uri: None,
@@ -1014,11 +1012,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     egui::Popup::context_menu(&response)
                         .frame(super::widgets::menu_frame(&palette))
                         .show(|ui| {
-                            if super::widgets::menu_item(ui, &palette, Some(Icon::Play), "Play")
-                                && let Some(user) = &app.user
-                            {
+                            if super::widgets::menu_item(ui, &palette, Some(Icon::Play), "Play") {
                                 app.actions.push(Action::PlayContext {
-                                    uri: format!("spotify:user:{}:collection", user.id),
+                                    uri: crate::api::subsonic::convert::COLLECTION_URI.to_string(),
                                     offset_uri: None,
                                     offset_index: None,
                                 });

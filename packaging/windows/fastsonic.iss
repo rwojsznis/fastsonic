@@ -1,8 +1,8 @@
 ; The Windows installer, built with Inno Setup 6.3 or later from a release
 ; binary (the release workflow does this on every tag):
 ;
-;   iscc /DVersion=0.1.4 /DArch=x86_64 /DBinary=...\fastpotify.exe ^
-;        /DOutputDir=dist packaging\windows\fastpotify.iss
+;   iscc /DVersion=0.1.4 /DArch=x86_64 /DBinary=...\fastsonic.exe ^
+;        /DOutputDir=dist packaging\windows\fastsonic.iss
 ;
 ; Arch is x86_64 or aarch64, as in the Rust target triple, so the installer
 ; is named like the zip next to it. It needs no administrator rights: the
@@ -27,8 +27,8 @@
   #define InnoArch "x64compatible"
 #endif
 
-#define AppName "Fastpotify"
-#define AppExeName "fastpotify.exe"
+#define AppName "Fastsonic"
+#define AppExeName "fastsonic.exe"
 
 [Setup]
 ; Never change: this is how Windows tells an update from a new program.
@@ -36,10 +36,10 @@ AppId={{FCED1EA0-EBF5-4C32-BA3B-A3AD724BACC3}
 AppName={#AppName}
 AppVersion={#Version}
 AppVerName={#AppName} {#Version}
-AppPublisher=Carmine Paolino
-AppPublisherURL=https://fastpotify.rocks
-AppSupportURL=https://github.com/crmne/fastpotify/issues
-AppUpdatesURL=https://fastpotify.rocks/download/
+AppPublisher=Rafal Wojsznis
+AppPublisherURL=https://rwojsznis.github.io/fastsonic
+AppSupportURL=https://github.com/rwojsznis/fastsonic/issues
+AppUpdatesURL=https://rwojsznis.github.io/fastsonic/download/
 DefaultDirName={localappdata}\Programs\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -49,8 +49,8 @@ ArchitecturesInstallIn64BitMode={#InnoArch}
 MinVersion=10.0
 LicenseFile=..\..\LICENSE
 OutputDir={#OutputDir}
-OutputBaseFilename=fastpotify-v{#Version}-{#Arch}-pc-windows-msvc-setup
-SetupIconFile=fastpotify.ico
+OutputBaseFilename=fastsonic-v{#Version}-{#Arch}-pc-windows-msvc-setup
+SetupIconFile=fastsonic.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

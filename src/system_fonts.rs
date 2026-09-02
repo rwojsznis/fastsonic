@@ -1,7 +1,7 @@
 //! System fallback fonts for scripts not covered by the interface font.
 //!
 //! Inter covers Latin, Greek, and Cyrillic. Bundling fonts for every other
-//! script would greatly increase the binary size, so Fastpotify scans installed
+//! script would greatly increase the binary size, so Fastsonic scans installed
 //! fonts and registers one suitable fallback per script.
 
 use std::collections::BTreeMap;

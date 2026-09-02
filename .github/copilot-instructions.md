@@ -1,4 +1,4 @@
-# Copilot instructions for Fastpotify
+# Copilot instructions for Fastsonic
 
 Use `AGENTS.md` and `CONTRIBUTING.md` as the source of truth for every change
 and review.
@@ -8,7 +8,7 @@ fit, cross-platform behaviour, UI-thread blocking, credential exposure, and
 unnecessary dependencies. Treat violations of the documented product
 boundaries as blockers. In particular, flag alternate sources for Spotify
 audio, DRM circumvention, embedded browser engines, telemetry, and hosted
-Fastpotify services.
+Fastsonic services.
 
 Check that behavioural changes have focused tests and that user-visible
 settings, files, and network access are documented. For UI changes, ask for

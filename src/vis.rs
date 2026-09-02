@@ -1,12 +1,23 @@
 //! Audio tap and Winamp-style spectrum and oscilloscope data.
 //!
-//! The tap wraps the active sink and stores half a second of post-EQ,
-//! pre-volume audio. The analyser uses Winamp's constants and behavior from
-//! `classic_vis.cpp`, with FFT details cross-checked against Webamp's
-//! `VisPainter.ts` and `FFTNullsoft.ts`. MilkDrop receives stereo samples;
-//! the spectrum and scope use mono samples.
+//! The tap stores the last second and a half of post-EQ, pre-volume audio,
+//! written by whichever engine is playing. The analyser uses Winamp's
+//! constants and behavior from `classic_vis.cpp`, with FFT details
+//! cross-checked against Webamp's `VisPainter.ts` and `FFTNullsoft.ts`.
+//! MilkDrop receives stereo samples; the spectrum and scope use mono
+//! samples.
+//!
+//! **The tap is written ahead of the music.** Audio is tapped where it is
+//! decoded, and the device is holding up to half a second of it that has
+//! not been heard yet, so drawing the newest samples would show the bars
+//! moving before the speaker moves. [`LAG`] covers the device's own buffer,
+//! which does not change; the sound waiting in the sink does change, so the
+//! engine reports it as it goes ([`AudioTap::set_lead`]) and every read
+//! looks that much further back. Under librespot the lead stays zero and
+//! `LAG` alone is the whole of it, as it always was.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,8 +27,10 @@ use librespot_playback::decoder::AudioPacket;
 use librespot_playback::mixer::VolumeGetter;
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 
-/// Half a second of audio.
-const KEPT: usize = SAMPLE_RATE as usize / 2;
+/// How much audio is kept: a second and a half at 48 kHz, which is the
+/// half second the engine keeps in front of the device, plus [`LAG`], plus
+/// room for the longest window anything asks for.
+const KEPT: usize = 72_000;
 /// How far behind the newest sample the visualiser looks, so that it shows
 /// what the speaker is playing rather than what the sink has queued.
 pub const LAG: usize = SAMPLE_RATE as usize * 3 / 20;
@@ -52,6 +65,10 @@ const SPEC_SCALE: f32 = 0.5;
 /// child process, when one is running.
 pub struct AudioTap {
     samples: Mutex<VecDeque<f32>>,
+    /// How many frames of what has been pushed are still waiting in the
+    /// sink, so that a reader can look at what is being *heard*. See the
+    /// note at the top of this module.
+    lead: AtomicUsize,
     /// The ring the MilkDrop child reads, attached while its window is open.
     #[cfg(feature = "milkdrop")]
     shm: Mutex<Option<std::sync::Arc<crate::milkdrop::shm::Ring>>>,
@@ -67,6 +84,7 @@ impl Default for AudioTap {
     fn default() -> Self {
         Self {
             samples: Mutex::new(VecDeque::with_capacity(KEPT)),
+            lead: AtomicUsize::new(0),
             #[cfg(feature = "milkdrop")]
             shm: Mutex::new(None),
         }
@@ -81,7 +99,29 @@ impl AudioTap {
     /// Connects the tap to MilkDrop's shared-memory ring. `None` detaches it.
     #[cfg(feature = "milkdrop")]
     pub fn set_shm(&self, ring: Option<std::sync::Arc<crate::milkdrop::shm::Ring>>) {
+        if let Some(ring) = &ring {
+            ring.set_lead(self.lead.load(Ordering::Relaxed));
+        }
         *self.shm.lock().unwrap_or_else(|p| p.into_inner()) = ring;
+    }
+
+    /// How many frames of the audio already pushed are still queued at the
+    /// device rather than heard. The engine keeps this up to date while it
+    /// plays; everything reading the tap looks that far back, so the bars
+    /// move with the music instead of ahead of it.
+    pub fn lead(&self) -> usize {
+        self.lead.load(Ordering::Relaxed)
+    }
+
+    /// See [`AudioTap::lead`].
+    pub fn set_lead(&self, frames: usize) {
+        if self.lead.swap(frames, Ordering::Relaxed) == frames {
+            return;
+        }
+        #[cfg(feature = "milkdrop")]
+        if let Some(ring) = self.shm.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+            ring.set_lead(frames);
+        }
     }
 
     /// Adds scaled stereo samples to the mono analyser buffer and, when
@@ -115,11 +155,15 @@ impl AudioTap {
         }
     }
 
-    /// The `count` samples ending `lag` samples before the newest, with
-    /// silence where there is less than that.
+    /// The `count` samples ending `lag` samples before the newest of the
+    /// samples that have been *heard*, with silence where there is less
+    /// than that. The engine's [`AudioTap::set_lead`] is what makes the
+    /// difference between heard and pushed.
     pub fn window(&self, count: usize, lag: usize) -> Vec<f32> {
         let samples = self.samples.lock().unwrap_or_else(|p| p.into_inner());
-        let end = samples.len().saturating_sub(lag);
+        let end = samples
+            .len()
+            .saturating_sub(lag + self.lead.load(Ordering::Relaxed));
         let start = end.saturating_sub(count);
         let mut out = vec![0.0; count];
         let taken = end - start;
@@ -132,11 +176,14 @@ impl AudioTap {
         out
     }
 
+    /// Throws away what has not been heard yet, which is what a seek or a
+    /// new track does to the sink.
     pub fn clear(&self) {
         self.samples
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clear();
+        self.set_lead(0);
     }
 }
 
@@ -169,7 +216,7 @@ impl Tapped {
         Self {
             inner,
             tap,
-            eq: crate::eq::Processor::new(eq),
+            eq: crate::eq::Processor::new(eq, SAMPLE_RATE),
             volume,
             applies_volume,
             limiter: crate::limiter::Limiter::new(f64::from(SAMPLE_RATE)),

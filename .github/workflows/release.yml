@@ -73,12 +73,12 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          name="fastpotify-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          name="fastsonic-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/fastpotify.exe" "dist/$name/"
+            cp "target/${{ matrix.target }}/release/fastsonic.exe" "dist/$name/"
           else
-            cp "target/${{ matrix.target }}/release/fastpotify" "dist/$name/"
+            cp "target/${{ matrix.target }}/release/fastsonic" "dist/$name/"
           fi
           cp README.md LICENSE "dist/$name/"
           if [ "${{ runner.os }}" = "Linux" ]; then
@@ -104,8 +104,8 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           & $iscc "/DVersion=$version" "/DArch=$arch" `
-            "/DBinary=$PWD\target\${{ matrix.target }}\release\fastpotify.exe" `
-            "/DOutputDir=$PWD\dist" packaging\windows\fastpotify.iss
+            "/DBinary=$PWD\target\${{ matrix.target }}\release\fastsonic.exe" `
+            "/DOutputDir=$PWD\dist" packaging\windows\fastsonic.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v7
@@ -149,14 +149,14 @@ jobs:
         run: |
           mkdir -p universal
           lipo -create \
-            target/aarch64-apple-darwin/release/fastpotify \
-            target/x86_64-apple-darwin/release/fastpotify \
-            -output universal/fastpotify
+            target/aarch64-apple-darwin/release/fastsonic \
+            target/x86_64-apple-darwin/release/fastsonic \
+            -output universal/fastsonic
 
       - name: App bundle
         run: |
           version="${GITHUB_REF_NAME#v}"
-          bash packaging/macos/bundle.sh universal/fastpotify Fastpotify.app "$version"
+          bash packaging/macos/bundle.sh universal/fastsonic Fastsonic.app "$version"
 
       - name: Import signing certificate
         if: env.APPLE_CERTIFICATE_P12 != ''
@@ -175,24 +175,24 @@ jobs:
         if: env.APPLE_CERTIFICATE_P12 != ''
         run: |
           codesign --force --deep --options runtime --timestamp \
-            --sign "$APPLE_SIGNING_IDENTITY" Fastpotify.app
+            --sign "$APPLE_SIGNING_IDENTITY" Fastsonic.app
 
       - name: DMG
         run: |
-          name="fastpotify-${GITHUB_REF_NAME}-macos-universal"
+          name="fastsonic-${GITHUB_REF_NAME}-macos-universal"
           stage="$RUNNER_TEMP/dmg"
           mkdir -p "$stage"
-          cp -R Fastpotify.app "$stage/"
+          cp -R Fastsonic.app "$stage/"
           cp README.md LICENSE "$stage/"
           ln -s /Applications "$stage/Applications"
           mkdir -p dist
-          hdiutil create -volname Fastpotify -srcfolder "$stage" -ov \
+          hdiutil create -volname Fastsonic -srcfolder "$stage" -ov \
             -format UDZO "dist/$name.dmg"
 
       - name: Notarize
         if: env.APPLE_CERTIFICATE_P12 != ''
         run: |
-          name="fastpotify-${GITHUB_REF_NAME}-macos-universal"
+          name="fastsonic-${GITHUB_REF_NAME}-macos-universal"
           xcrun notarytool submit "dist/$name.dmg" --wait \
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD"
@@ -222,12 +222,12 @@ jobs:
           path: dist
       - name: Unpack the Linux build
         run: |
-          tar xzf dist/fastpotify-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz -C packaging/flatpak
-          mv packaging/flatpak/fastpotify-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu packaging/flatpak/built
+          tar xzf dist/fastsonic-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz -C packaging/flatpak
+          mv packaging/flatpak/fastsonic-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu packaging/flatpak/built
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          manifest-path: packaging/flatpak/rocks.fastpotify.Fastpotify.bundle.yml
-          bundle: fastpotify-${{ github.ref_name }}-x86_64.flatpak
+          manifest-path: packaging/flatpak/io.github.rwojsznis.Fastsonic.bundle.yml
+          bundle: fastsonic-${{ github.ref_name }}-x86_64.flatpak
           cache: false
           upload-artifact: false
       - uses: actions/upload-artifact@v7

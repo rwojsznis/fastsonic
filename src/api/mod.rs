@@ -1,25 +1,20 @@
-//! Spotify Web API client.
+//! The music server's API, and the vocabulary the rest of the app speaks.
+//!
+//! [`subsonic`] is the client: one transport, one credential, one server.
+//! [`models`] is what it adapts into — `Track`, `Album`, `Playlist`,
+//! `Page<T>` — which is the vocabulary every page of the interface is
+//! written in and which deliberately did not change when the server behind
+//! it did (D5 in `migration/00-decisions.md`).
+//!
+//! There is no gateway and no second identity. Spotify had two application
+//! identities with different quotas and per-playlist write access; a
+//! self-hosted server has one set of credentials and no quota, so D6 dropped
+//! the routing layer entirely.
 
-use std::fmt;
-
-pub mod client;
-pub mod gateway;
+pub mod activity;
 pub mod models;
+pub mod subsonic;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ApiSource {
-    Shared,
-    Personal,
-}
-
-impl fmt::Display for ApiSource {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Shared => formatter.write_str("shared"),
-            Self::Personal => formatter.write_str("personal"),
-        }
-    }
-}
-
-pub use client::{ApiClient, ApiError, NetActivity, PlayRequest, TokenProvider, WebTokens};
-pub use gateway::{AccountId, ApiGateway, Operation, PlaylistAccess, PlaylistId, SessionState};
+pub use activity::NetActivity;
+pub use models::PlayRequest;
+pub use subsonic::{ApiError, Credentials, SubsonicClient};

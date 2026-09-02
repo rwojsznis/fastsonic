@@ -1,4 +1,4 @@
-//! Linux desktop media controls (MPRIS) for Fastpotify.
+//! Linux desktop media controls (MPRIS) for Fastsonic.
 //!
 //! D-Bus runs on its own thread with a local executor and exchanges bounded
 //! messages with the interface, which stays the only owner of playback
@@ -12,11 +12,11 @@ use std::time::{Duration, Instant};
 use mpris_server::{LoopStatus, Metadata, PlaybackStatus, Player, Time, TrackId};
 use tokio::sync::mpsc as tokio_mpsc;
 
+use crate::engine::{Playback, RepeatMode};
 use crate::media::{MediaCommand, MediaState, MediaTrack};
-use crate::player::{Playback, RepeatMode};
 
 const PLAYING_POSITION_INTERVAL: Duration = Duration::from_millis(1000);
-const TRACK_OBJECT_PATH_PREFIX: &str = "/me/paolino/Fastpotify/Track/";
+const TRACK_OBJECT_PATH_PREFIX: &str = "/io/github/rwojsznis/Fastsonic/Track/";
 
 enum Update {
     State(MediaState),
@@ -36,7 +36,7 @@ impl MediaService {
         let (command_tx, commands) = std::sync::mpsc::channel();
         let wake: std::sync::Arc<dyn Fn() + Send + Sync> = std::sync::Arc::new(wake);
         let spawned = thread::Builder::new()
-            .name("fastpotify-mpris".to_string())
+            .name("fastsonic-mpris".to_string())
             .spawn(move || {
                 let runtime = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -110,8 +110,8 @@ async fn run(
     commands: Sender<MediaCommand>,
     wake: std::sync::Arc<dyn Fn() + Send + Sync>,
 ) -> mpris_server::zbus::Result<()> {
-    let player = Player::builder("fastpotify")
-        .identity("Fastpotify")
+    let player = Player::builder("fastsonic")
+        .identity("Fastsonic")
         .desktop_entry(desktop_entry())
         .can_raise(true)
         .can_quit(true)
@@ -121,7 +121,7 @@ async fn run(
         .can_go_next(true)
         .can_go_previous(true)
         .can_seek(true)
-        .supported_uri_schemes(vec!["spotify".to_string()])
+        .supported_uri_schemes(vec![crate::api::subsonic::convert::URI_SCHEME.to_string()])
         .build()
         .await?;
 
@@ -304,16 +304,19 @@ fn object_path_for(uri: &str) -> Option<TrackId> {
 fn uri_from_object_path(path: &str) -> Option<String> {
     let rest = path.strip_prefix(TRACK_OBJECT_PATH_PREFIX)?;
     let (kind, id) = rest.split_once('_')?;
-    Some(format!("spotify:{kind}:{id}"))
+    Some(format!(
+        "{}:{kind}:{id}",
+        crate::api::subsonic::convert::URI_SCHEME
+    ))
 }
 
 /// The desktop entry's name: inside a Flatpak the entry is exported under
 /// the app id, and a desktop looking it up by the plain name finds nothing.
 fn desktop_entry() -> &'static str {
     if std::path::Path::new("/.flatpak-info").exists() {
-        "rocks.fastpotify.Fastpotify"
+        "io.github.rwojsznis.Fastsonic"
     } else {
-        "fastpotify"
+        "fastsonic"
     }
 }
 
@@ -323,10 +326,10 @@ mod tests {
 
     #[test]
     fn object_paths_round_trip() {
-        let path = object_path_for("spotify:track:14XWXWv5FoCbFzLksawpEe").unwrap();
+        let path = object_path_for("sonic:track:14XWXWv5FoCbFzLksawpEe").unwrap();
         assert_eq!(
             uri_from_object_path(path.as_str()).as_deref(),
-            Some("spotify:track:14XWXWv5FoCbFzLksawpEe")
+            Some("sonic:track:14XWXWv5FoCbFzLksawpEe")
         );
     }
 }

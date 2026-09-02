@@ -1,25 +1,25 @@
-//! Draws Fastpotify's built-in Winamp skin: the one the skinned window
+//! Draws Fastsonic's built-in Winamp skin: the one the skinned window
 //! wears until the listener picks another, and the one any skin's missing
 //! pieces are taken from. Winamp's own base skin cannot ship here, so this
 //! is an original drawing in the app's dark palette.
 //!
 //! `cargo run --example default_skin` regenerates
-//! `assets/skins/fastpotify.wsz`, a classic skin in every respect (BMPs in
+//! `assets/skins/fastsonic.wsz`, a classic skin in every respect (BMPs in
 //! a zip) that Winamp itself could wear. Add `--preview <png>` to also
 //! compose the main window at 2x through the same sprite and layout tables
 //! the app uses, as a check that the art lines up.
 
 use std::path::PathBuf;
 
-use fastpotify::skin::layout::{self, Area};
-use fastpotify::skin::sprites::{self, Sheet, Sprite};
-use fastpotify::skin::{Skin, font, zip};
+use fastsonic::skin::layout::{self, Area};
+use fastsonic::skin::sprites::{self, Sheet, Sprite};
+use fastsonic::skin::{Skin, font, zip};
 
 type Rgb = [u8; 3];
 /// A box on a canvas: x, y, width, height.
 type Box = (i64, i64, i64, i64);
 
-// Fastpotify's dark palette (src/theme.rs), so the window matches the app.
+// Fastsonic's dark palette (src/theme.rs), so the window matches the app.
 const WINDOW: Rgb = [0x0f, 0x11, 0x14];
 const PANEL: Rgb = [0x15, 0x18, 0x1c];
 const SURFACE: Rgb = [0x1d, 0x21, 0x27];
@@ -328,7 +328,7 @@ fn title_bar(c: &mut Canvas, x: i64, y: i64, active: bool, shade: bool) {
     c.frame((x, y, 275, 14), OUTLINE);
     let color = if active { TEXT } else { DIM };
     if shade {
-        c.text(x + 20, y + 4, "FASTPOTIFY", color);
+        c.text(x + 20, y + 4, "FASTSONIC", color);
         // Shade mode's tiny transport lives in the bar itself.
         let glyphs: [(i64, i64, &str); 6] = [
             (169, 7, "#..#/#.##/####/#.##/#..#"),
@@ -345,7 +345,7 @@ fn title_bar(c: &mut Canvas, x: i64, y: i64, active: bool, shade: bool) {
         display(c, (x + 124, y + 2, 36, 10));
         display(c, (x + 226, y + 4, 17, 7));
     } else {
-        c.text_centred((x, y + 1, 275, 12), "FASTPOTIFY", color);
+        c.text_centred((x, y + 1, 275, 12), "FASTSONIC", color);
         let width = 5 * 10 - 1;
         let start = x + (275 - width) / 2;
         title_lines(c, x + 18, start - 8, y + 5);
@@ -634,7 +634,7 @@ fn pledit_sheet() -> Canvas {
     // The bottom: both corners, the tile between them, the visualiser's
     // well, and a grip in the corner for resizing.
     c.frame((0, 72, 276, 38), OUTLINE);
-    // The left half's menus, painted and quiet: Fastpotify has no files
+    // The left half's menus, painted and quiet: Fastsonic has no files
     // to add, but a bottom without them looks unfinished.
     for (x, label) in [(14, "ADD"), (43, "REM"), (72, "SEL"), (101, "MISC")] {
         label_button(&mut c, (x, 80, 22, 18), false, false, label);
@@ -861,7 +861,7 @@ fn preview(skin: &Skin) -> image::RgbaImage {
             }
         }
     };
-    text("FASTPOTIFY - A WINAMP SKIN *** ", layout::MARQUEE);
+    text("FASTSONIC - A WINAMP SKIN *** ", layout::MARQUEE);
     text("320", layout::KBPS);
     text("44", layout::KHZ);
     let volume = layout::VOLUME;
@@ -904,7 +904,7 @@ fn preview(skin: &Skin) -> image::RgbaImage {
 }
 
 fn main() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/skins/fastpotify.wsz");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/skins/fastsonic.wsz");
     let sheets: [(Sheet, Canvas); 15] = [
         (Sheet::Main, main_sheet()),
         (Sheet::CButtons, cbuttons_sheet()),
@@ -944,7 +944,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     if args.next().as_deref() == Some("--preview") {
         let path = PathBuf::from(args.next().expect("--preview takes a path"));
-        let skin = Skin::from_archive("Fastpotify", &archive).expect("the skin just written reads");
+        let skin = Skin::from_archive("Fastsonic", &archive).expect("the skin just written reads");
         let window = preview(&skin);
         let scaled = image::imageops::resize(
             &window,

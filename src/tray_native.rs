@@ -66,7 +66,7 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
     let menu = Menu::new();
     let play_pause = MenuItem::with_id(PLAY_PAUSE, play_pause_label(false), true, None);
     menu.append_items(&[
-        &MenuItem::with_id(SHOW, "Show or hide Fastpotify", true, None),
+        &MenuItem::with_id(SHOW, "Show or hide Fastsonic", true, None),
         &PredefinedMenuItem::separator(),
         &play_pause,
         &MenuItem::with_id(NEXT, "Next", true, None),
@@ -76,7 +76,7 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
     ])?;
     let builder = TrayIconBuilder::new()
         .with_icon(icon)
-        .with_tooltip("Fastpotify")
+        .with_tooltip("Fastsonic")
         .with_menu(Box::new(menu));
     // A plain click shows or hides the window on every platform; the menu
     // stays on right click.
@@ -130,7 +130,7 @@ mod host {
     ) -> Result<u32, String> {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let spawned = std::thread::Builder::new()
-            .name("fastpotify-tray".to_owned())
+            .name("fastsonic-tray".to_owned())
             .spawn(move || {
                 let item = match build(sender, wake) {
                     Ok(item) => item,

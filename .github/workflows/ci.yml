@@ -145,4 +145,4 @@ jobs:
         env:
           JEKYLL_ENV: production
         run: |
-          bundle exec jekyll build --destination "$RUNNER_TEMP/fastpotify-site"
+          bundle exec jekyll build --destination "$RUNNER_TEMP/fastsonic-site"

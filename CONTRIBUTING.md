@@ -1,6 +1,6 @@
-# Contributing to Fastpotify
+# Contributing to Fastsonic
 
-Fastpotify is a native Spotify client. Changes should improve the
+Fastsonic is a native Spotify client. Changes should improve the
 desktop app without adding a browser, fallback services, or another backend.
 
 ## Before opening an issue
@@ -16,13 +16,13 @@ project.
 Some boundaries come from Spotify or from upstream libraries:
 
 - Local playback requires Spotify Premium because librespot requires it.
-- Spotify Lossless is not available through librespot. Fastpotify will
+- Spotify Lossless is not available through librespot. Fastsonic will
   reconsider it if librespot gains lawful upstream support; proposals that
   depend on bypassing Spotify's DRM are out of scope.
 - Spotify tracks must come from Spotify. Substituting audio from YouTube,
   Piped, `yt-dlp`, or another catalogue is out of scope.
-- Fastpotify will not embed a browser engine, add telemetry, or introduce a
-  Fastpotify-operated service.
+- Fastsonic will not embed a browser engine, add telemetry, or introduce a
+  Fastsonic-operated service.
 
 Duplicate, out-of-scope, or incomplete issues may be closed with a short
 explanation.
@@ -48,7 +48,7 @@ explanation.
 
 ## Pull requests
 
-Keep each pull request to one change. Explain why it belongs in Fastpotify,
+Keep each pull request to one change. Explain why it belongs in Fastsonic,
 what changed, and how you tested it. Avoid unrelated formatting, refactors,
 generated prose, and large mechanical rewrites.
 

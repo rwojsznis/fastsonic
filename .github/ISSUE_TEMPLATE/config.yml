@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Contribution and project scope
-    url: https://github.com/crmne/fastpotify/blob/main/CONTRIBUTING.md
+    url: https://github.com/rwojsznis/fastsonic/blob/main/CONTRIBUTING.md
     about: Check product boundaries and contribution requirements before opening an issue or pull request.
   - name: Documentation
-    url: https://fastpotify.rocks
-    about: Install steps, settings, and where Fastpotify keeps its files and logs.
+    url: https://rwojsznis.github.io/fastsonic
+    about: Install steps, settings, and where Fastsonic keeps its files and logs.

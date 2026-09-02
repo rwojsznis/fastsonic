@@ -281,7 +281,12 @@ fn top_result(
             )
             .clicked()
             {
-                if uri.starts_with("spotify:track:") {
+                if crate::api::subsonic::convert::id_of(
+                    uri,
+                    crate::api::subsonic::convert::Kind::Track,
+                )
+                .is_some()
+                {
                     app.actions.push(Action::PlayUris {
                         uris: vec![uri.clone()],
                         index: 0,

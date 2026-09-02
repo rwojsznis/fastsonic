@@ -3,8 +3,8 @@
 use egui::{Align, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
 
 use crate::app::{App, NowPlaying};
+use crate::engine::RepeatMode;
 use crate::model::{Action, Page};
-use crate::player::RepeatMode;
 use crate::theme::{self, Icon};
 use crate::util;
 

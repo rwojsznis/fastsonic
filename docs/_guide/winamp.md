@@ -20,7 +20,7 @@ installed skins and can open the skins folder.
 
 The mini player uses whole-number scaling to keep pixels sharp. Right-click
 the title bar, or click **O**, to choose 1x to 4x and set always-on-top. **D**
-toggles double size and **A** toggles always-on-top. Fastpotify remembers the
+toggles double size and **A** toggles always-on-top. Fastsonic remembers the
 window position.
 
 Non-rectangular skins use `region.txt` for transparent areas. Winamp 3 and 5

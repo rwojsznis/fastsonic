@@ -273,7 +273,7 @@ fn rows_visible(height: u32) -> usize {
 /// What is playing, then the queue, numbered the way Winamp numbered a
 /// playlist. The queue's URIs come along for playing from a row.
 fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
-    let queue = app.queue.get();
+    let queue = &app.queue;
     let ids = |item: &PlayableItem| match item {
         PlayableItem::Track(track) => (
             track.album.as_ref().map(|album| album.id.clone()),
@@ -282,11 +282,12 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
         _ => (None, None),
     };
     let mut rows = Vec::new();
-    // The queue arrives over the Web API and lags a double-click by a
-    // round trip; what the player says is on right now wins, and a queued
-    // copy of that song is left out until the fetched queue catches up.
+    // The engine publishes the queue and what is playing together, so the
+    // two agree; a queue whose playing row is not the player's is the
+    // remembered one, which has no playing row at all.
     let current = queue
-        .and_then(|queue| queue.currently_playing.as_ref())
+        .currently_playing
+        .as_ref()
         .filter(|item| now.is_none_or(|now| now.uri == item.uri()));
     if let Some(item) = current {
         let (album_id, artist_id) = ids(item);
@@ -310,14 +311,8 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, Vec<String>) {
             artist_id: now.artists.first().and_then(|artist| artist.id.clone()),
         });
     }
-    let queued: &[PlayableItem] = queue.map(|queue| queue.queue.as_slice()).unwrap_or(&[]);
-    let stale = current.is_none() && queue.is_some();
-    let mut skipped_playing = false;
+    let queued: &[PlayableItem] = queue.queue.as_slice();
     for (index, item) in queued.iter().enumerate() {
-        if stale && !skipped_playing && now.is_some_and(|now| now.uri == item.uri()) {
-            skipped_playing = true;
-            continue;
-        }
         let (album_id, artist_id) = ids(item);
         rows.push(Row {
             uri: item.uri().to_string(),

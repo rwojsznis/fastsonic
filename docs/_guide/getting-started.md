@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Install Fastpotify, sign in through your browser, and enable playback on this computer.
+description: Install Fastsonic, sign in through your browser, and enable playback on this computer.
 nav_order: 2
 ---
 
@@ -12,8 +12,8 @@ Windows, and Linux.
 Or build from source with [Rust](https://rustup.rs) 1.95 or newer:
 
 ```sh
-git clone https://github.com/crmne/fastpotify
-cd fastpotify
+git clone https://github.com/rwojsznis/fastsonic
+cd fastsonic
 cargo install --path .
 ```
 
@@ -29,7 +29,7 @@ On Debian or Ubuntu:
 sudo apt install libasound2-dev libpulse-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
 ```
 
-Fastpotify uses system fonts for scripts that its interface font does not
+Fastsonic uses system fonts for scripts that its interface font does not
 cover, including Chinese, Japanese, Korean, Arabic, Hebrew, Thai, and Indic
 scripts. macOS and Windows include fonts for the common cases. On Linux,
 install `noto-fonts` and `noto-fonts-cjk` (Arch) or `fonts-noto` and
@@ -37,16 +37,16 @@ install `noto-fonts` and `noto-fonts-cjk` (Arch) or `fonts-noto` and
 
 ![Japanese, Chinese, and Korean titles in a playlist](/assets/images/scripts.png)
 
-A desktop entry ships in `packaging/applications/fastpotify.desktop`.
+A desktop entry ships in `packaging/applications/fastsonic.desktop`.
 
 ## Sign in
 
 Start the app and press **Sign in with Spotify**. Your browser opens Spotify's
-consent page, so Fastpotify never sees your password. When the browser returns
+consent page, so Fastsonic never sees your password. When the browser returns
 to the app, your library loads.
 
-Fastpotify stores a refresh token in your platform's state directory
-(`~/.local/state/fastpotify` on Linux). You normally need the browser only
+Fastsonic stores a refresh token in your platform's state directory
+(`~/.local/state/fastsonic` on Linux). You normally need the browser only
 once per machine.
 
 ## Enable playback on this computer
@@ -54,14 +54,14 @@ once per machine.
 Playing music *on this machine* needs a second browser approval because
 Spotify authorizes streaming separately ([why](/how-it-connects/)). Open the
 device menu in the player bar and select **Set up playback here**, or use
-Settings. This needs Spotify Premium. Fastpotify saves the playback credential.
+Settings. This needs Spotify Premium. Fastsonic saves the playback credential.
 
-The computer then appears as a Spotify Connect device named **Fastpotify**.
+The computer then appears as a Spotify Connect device named **Fastsonic**.
 You can rename it in Settings.
 
 ## Basics
 
-- **Closing the window does not stop the music.** Fastpotify keeps playing
+- **Closing the window does not stop the music.** Fastsonic keeps playing
   from the system tray; reopen it from the tray icon and quit from the tray
   menu or Ctrl+Q. On macOS you can also reopen it from the Dock. Settings can
   turn this off.

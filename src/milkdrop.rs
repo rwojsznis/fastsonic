@@ -340,8 +340,8 @@ pub fn is_preset(path: &Path) -> bool {
 /// the packs keep theirs in folders by style and the names do not clash.
 /// Returns how many were written.
 pub fn fetch_pack(pack: &Pack, folder: &Path) -> Result<usize, String> {
-    let http = reqwest::blocking::Client::builder()
-        .user_agent(concat!("fastpotify/", env!("CARGO_PKG_VERSION")))
+    let http = crate::blocking_http_client_builder()
+        .user_agent(concat!("fastsonic/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(300))
         .build()
         .map_err(|error| error.to_string())?;
@@ -379,7 +379,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("fastpotify-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fastsonic-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
