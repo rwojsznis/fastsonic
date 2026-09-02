@@ -649,8 +649,6 @@ pub enum Action {
     },
     DeletePlaylist(String),
     Transfer(String),
-    /// Send the account to a receiver found on the local network.
-    ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
     /// Empty Next up of its queued songs, keeping the context's own.
     ClearQueue,

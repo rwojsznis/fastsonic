@@ -184,11 +184,6 @@ pub struct App {
     /// The saved zoom has been applied to the context once.
     zoom_applied: bool,
     pub devices: Vec<Device>,
-    /// Receivers seen on the local network. Spotify lists a receiver only
-    /// once it has an account, so these are the ones it cannot see yet.
-    pub receivers: Vec<crate::zeroconf::Receiver>,
-    /// The receiver currently being handed the account, by name.
-    pub activating_receiver: Option<String>,
     pub devices_loading: bool,
     devices_fetched_at: Option<Instant>,
     pub selected_device: Option<String>,
@@ -270,8 +265,6 @@ pub struct App {
     /// Last list sent to local playback. Used for autoplay because librespot
     /// cannot continue a list without a context URI.
     local_list: Option<Vec<String>>,
-    /// Activated receiver waiting to appear in Spotify's device list.
-    pending_transfer_to: Option<(String, Instant)>,
     /// When to take a confirming look at remote playback after a command.
     remote_recheck_at: Option<Instant>,
     pub seek_preview: Option<f32>,
@@ -494,8 +487,6 @@ impl App {
             last_session_save: Instant::now(),
             zoom_applied: false,
             devices: Vec::new(),
-            receivers: Vec::new(),
-            activating_receiver: None,
             devices_loading: false,
             devices_fetched_at: None,
             selected_device: None,
@@ -546,7 +537,6 @@ impl App {
             pending_play_at: None,
             queued_play: None,
             local_list: None,
-            pending_transfer_to: None,
             remote_recheck_at: None,
             seek_preview: None,
             volume_preview: None,
@@ -2665,21 +2655,6 @@ impl App {
                     Ok(devices) => {
                         self.devices = devices;
                         self.control_devices_stale = true;
-                        if let Some((name, since)) = self.pending_transfer_to.clone() {
-                            let matching = self
-                                .devices
-                                .iter()
-                                .find(|device| device.name == name)
-                                .and_then(|device| device.id.clone());
-                            if let Some(id) = matching {
-                                self.pending_transfer_to = None;
-                                self.transfer(id);
-                            } else if since.elapsed() > Duration::from_secs(20) {
-                                self.pending_transfer_to = None;
-                            } else {
-                                self.devices_fetched_at = None;
-                            }
-                        }
                         if let Some(selected) = &self.selected_device
                             && !self
                                 .devices
@@ -4402,7 +4377,6 @@ impl App {
                 self.backend.api(ApiRequest::DeletePlaylist { id });
             }
             Action::Transfer(device_id) => self.transfer(device_id),
-            Action::ActivateReceiver(_) => {}
             Action::RefreshDevices => {
                 self.devices_fetched_at = None;
                 self.refresh_devices();

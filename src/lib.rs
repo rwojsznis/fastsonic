@@ -45,7 +45,6 @@ pub mod updates;
 pub mod util;
 pub mod vis;
 pub mod winamp;
-pub mod zeroconf;
 
 /// The builder every asynchronous HTTP client in the app starts from.
 ///

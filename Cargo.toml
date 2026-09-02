@@ -124,12 +124,7 @@ open = "5"
 percent-encoding = "2"
 urlencoding = "2"
 jiff = "0.2"
-mdns-sd = "0.21"
 unicode-bidi = "0.3"
-hmac = "0.12"
-pbkdf2 = "0.12"
-aes = "0.8"
-ctr = "0.9"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # The tray item and the desktop's media controls on Windows and macOS, so
