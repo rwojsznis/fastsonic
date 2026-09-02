@@ -5,7 +5,7 @@
 //! system default when it moves — is `src/sink.rs`'s, shared rather than
 //! copied: that code was tuned per platform (`buffer_ms`, commit `41dee71`)
 //! and there should not be two of it. What is new here is that the rate is
-//! no longer one number for the life of the program. Spotify sent one codec
+//! no longer one number for the life of the program. The old service sent one codec
 //! at 44.1 kHz; a music library has 48 kHz Opus next to 44.1 kHz FLAC, so
 //! the device is opened once and the engine converts each track to its rate
 //! (`src/resample.rs`).

@@ -7,7 +7,7 @@
 //!
 //! Three seams are worth knowing about.
 //!
-//! **Identity.** Spotify handed every object a `spotify:kind:id` URI and the
+//! **Identity.** The old API handed every object a service-specific URI and the
 //! app routes on it. Subsonic hands over a bare id, so the URI is built
 //! here, as `sonic:kind:id`, and parsed back by [`parse_uri`].
 //!
@@ -68,8 +68,8 @@ impl Kind {
     }
 }
 
-/// The starred songs, as something playable. Spotify addressed this list
-/// per account (`spotify:user:<id>:collection`); one server has one starred
+/// The starred songs, as something playable. The old API addressed this list
+/// per account; one server has one starred
 /// list, so this is a constant rather than something built from the user.
 pub const COLLECTION_URI: &str = "sonic:collection:songs";
 
@@ -114,7 +114,7 @@ pub fn id_of(uri: &str, kind: Kind) -> Option<&str> {
 // ---- artwork -------------------------------------------------------------
 
 /// The sizes art is offered in, so `models::pick_image` keeps choosing the
-/// way it did when Spotify offered three.
+/// way it did when the old API offered three.
 pub const ART_SIZES: [u32; 3] = [64, 300, 640];
 
 /// A cover-art request, deferred: `src/images.rs` turns this into a real
@@ -218,7 +218,6 @@ pub fn artist(artist: &ArtistId3) -> Artist {
         genres: Vec::new(),
         followers: None,
         popularity: None,
-        external_urls: Default::default(),
         starred: Some(artist.starred.is_some()),
     }
 }
@@ -232,7 +231,6 @@ pub fn artist_with_albums(artist: &ArtistWithAlbumsId3) -> Artist {
         genres: Vec::new(),
         followers: None,
         popularity: None,
-        external_urls: Default::default(),
         starred: Some(artist.starred.is_some()),
     }
 }
@@ -273,7 +271,6 @@ pub fn album(album: &AlbumId3) -> Album {
         genres: album_genres(album),
         popularity: None,
         tracks: None,
-        external_urls: Default::default(),
         copyrights: Vec::new(),
         starred: Some(album.starred.is_some()),
     }
@@ -342,7 +339,6 @@ pub fn track(song: &Child) -> Track {
         is_local: false,
         is_playable: Some(true),
         popularity: None,
-        external_urls: Default::default(),
         starred: Some(song.starred.is_some()),
     }
 }
@@ -368,7 +364,6 @@ pub fn playlist(playlist: &SubsonicPlaylist) -> Playlist {
             total: playlist.song_count.unwrap_or_default().max(0) as u32,
         }),
         items_count: None,
-        external_urls: Default::default(),
     }
 }
 
@@ -394,8 +389,7 @@ pub fn user(user: &SubsonicUser) -> User {
         display_name: Some(user.username.clone()),
         images: Vec::new(),
         // No plan, no tier: every Subsonic account can stream, which is why
-        // the Premium check disappears rather than being translated.
-        product: None,
+        // the plan check disappears rather than being translated.
         country: None,
         uri: None,
     }
@@ -491,7 +485,7 @@ mod tests {
         assert_eq!(parse_uri("sonic:album:al1"), Some((Kind::Album, "al1")));
         assert_eq!(id_of("sonic:artist:ar1", Kind::Artist), Some("ar1"));
         assert_eq!(id_of("sonic:artist:ar1", Kind::Album), None);
-        assert_eq!(parse_uri("spotify:track:x"), None);
+        assert_eq!(parse_uri("invalid:track:x"), None);
         assert_eq!(parse_uri("sonic:track:"), None);
         assert_eq!(parse_uri("sonic:bogus:x"), None);
         // Ids are opaque: whatever a server puts after the kind is the id.

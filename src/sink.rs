@@ -87,7 +87,7 @@ struct Output {
     /// Set from the audio thread when the stream dies (device unplugged).
     failed: Arc<AtomicBool>,
     /// The rate the stream runs at, and the converter to it when that is
-    /// not Spotify's.
+    /// not the old service's.
     sample_rate: u32,
     resampler: Option<Resampler>,
     /// Whether this track has supplied audio since its last stop.
@@ -257,7 +257,7 @@ impl Sink for RodioSink {
 /// The first two attempts request the configured buffer. The fallback lets
 /// the driver choose its buffer size.
 ///
-/// `preferred_rate` is Spotify's 44.1 kHz for the librespot sink above, and
+/// `preferred_rate` is 44.1 kHz for the librespot sink above, and
 /// the same 44.1 kHz for the engine in `src/engine/`, where it is the rate
 /// most of a music library is in rather than the only one there is.
 pub(crate) fn open_stream(

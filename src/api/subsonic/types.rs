@@ -367,7 +367,7 @@ pub struct Lyrics {
 // ---- session ------------------------------------------------------------
 
 /// `getUser`. There is no plan, tier or product here — every Subsonic user
-/// can stream, which is why the Premium check goes away.
+/// can stream, which is why the old plan check goes away.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct User {

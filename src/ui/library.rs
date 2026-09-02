@@ -12,16 +12,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
     ui.add_space(8.0);
     let (title, empty_title, empty_body) = match page {
         Page::Albums => ("Albums", "No saved albums", "Saved albums appear here."),
-        Page::Artists => (
-            "Artists",
-            "No followed artists",
-            "Followed artists appear here.",
-        ),
-        _ => (
-            "Artists",
-            "No followed artists",
-            "Followed artists appear here.",
-        ),
+        Page::Artists => ("Artists", "No saved artists", "Saved artists appear here."),
+        _ => ("Artists", "No saved artists", "Saved artists appear here."),
     };
     theme::text(ui, title, theme::bold(28.0), palette.text);
     ui.add_space(14.0);

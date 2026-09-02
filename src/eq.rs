@@ -9,8 +9,8 @@
 //! `vis::Tapped` on the old one.
 //!
 //! The filters are built for one sample rate and the rate is not a
-//! constant any more: Spotify sent 44.1 kHz and nothing else, while a music
-//! library is played out of whatever device the machine has, which on macOS
+//! constant any more: a self-hosted music library can contain several sample
+//! rates and is played out of whatever device the machine has, which on macOS
 //! is usually 48 kHz. So every filter carries the rate it was designed at,
 //! and the player rebuilds them when the device's rate changes.
 

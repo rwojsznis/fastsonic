@@ -351,7 +351,6 @@ fn track(song: &Value) -> Track {
         is_local: false,
         is_playable: Some(true),
         popularity: None,
-        external_urls: Default::default(),
         starred: song["starred"].as_bool(),
     }
 }
@@ -372,7 +371,6 @@ fn artist(artist: &Value) -> Artist {
         genres: Vec::new(),
         followers: None,
         popularity: None,
-        external_urls: Default::default(),
         starred: artist["starred"].as_bool(),
         id,
     }

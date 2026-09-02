@@ -499,7 +499,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             && let Some((playlist_id, from)) = track.from.clone()
         {
             let to = slot as u32;
-            // The slot is Spotify's insert_before, exactly what the
+            // The slot is an insert-before position, exactly what the
             // action's handler sends; a row dropped back on its own
             // edges moves nothing.
             if to != from && to != from + 1 {
@@ -713,20 +713,12 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 &app.user_names,
             );
             let count = playlist.track_total().max(items.len() as u32);
-            // Spotify's collaborative flag covers secret collaborations; a
-            // playlist made together today is recognised by who added songs.
             let owner_id = playlist.owner.id.as_deref();
-            // Spotify's own playlists carry adder ids of their machinery;
-            // nothing about them is a collaboration.
-            let editorial = owner_id == Some("spotify");
-            let others = if editorial {
-                0
-            } else {
-                page.contributors
-                    .iter()
-                    .filter(|id| !id.is_empty() && Some(id.as_str()) != owner_id)
-                    .count()
-            };
+            let others = page
+                .contributors
+                .iter()
+                .filter(|id| !id.is_empty() && Some(id.as_str()) != owner_id)
+                .count();
             let made_together = playlist.collaborative || others > 0;
             let mut byline = vec![(playlist.owner_name().to_string(), None)];
             if others > 0 {
@@ -822,7 +814,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     },
                     show_album: true,
                     show_cover: true,
-                    show_added: true,
+                    show_added: false,
                     show_added_by: made_together,
                     page: Page::Playlist(id.to_string()),
                     loading: page.items.loading,
@@ -1111,7 +1103,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             context,
             show_album: true,
             show_cover: true,
-            show_added: true,
+            show_added: false,
             show_added_by: false,
             page: Page::LikedSongs,
             loading,
@@ -1206,11 +1198,9 @@ mod tests {
                         popularity: None,
                         tracks: None,
                         copyrights: vec![],
-                        external_urls: Default::default(),
                         starred: None,
                     }),
                     popularity: None,
-                    external_urls: Default::default(),
                     starred: None,
                 };
                 (

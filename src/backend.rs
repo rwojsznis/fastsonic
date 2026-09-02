@@ -11,7 +11,7 @@
 //! application identity to route between, and no remote device to poll.
 //! Signing in is a form, the credential is one salted-token pair (D10), and
 //! playback state comes from [`crate::engine`] rather than from a request —
-//! so the requests that were about Spotify Connect answer nothing at all.
+//! so requests from the retired remote-playback path answer nothing at all.
 //! `migration/01-api-mapping.md` is the table this file implements.
 
 use std::sync::{Arc, Mutex};
@@ -111,7 +111,7 @@ pub enum ApiRequest {
         who: RecentsFor,
         generation: u64,
         /// The offset to read from, as a number in a string: the native API
-        /// pages by offset where Spotify paged by timestamp, and the
+        /// pages by offset where the old service paged by timestamp, and the
         /// interface's cursor plumbing is unchanged.
         before: Option<String>,
         limit: u32,

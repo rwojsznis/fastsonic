@@ -82,9 +82,6 @@ pub struct Settings {
     pub tracklist_compact: bool,
     pub search_history: Vec<String>,
     pub show_shortcut_hints: bool,
-    /// An optional personal Spotify Web API application id. The shared
-    /// application remains active for coverage when this is present.
-    pub web_client_id: Option<String>,
     /// Local playback has been authorized at least once on this machine, so
     /// the app can resume it silently instead of prompting.
     pub playback_authorized: bool,
@@ -173,7 +170,6 @@ impl Default for Settings {
             tracklist_compact: false,
             search_history: Vec::new(),
             show_shortcut_hints: true,
-            web_client_id: None,
             playback_authorized: false,
             keep_playing_in_background: true,
             check_for_updates: true,
@@ -270,6 +266,13 @@ mod tests {
     fn older_settings_keep_the_sidebar_visible() {
         let settings: Settings = serde_json::from_str("{}").unwrap();
         assert!(settings.sidebar_visible);
+    }
+
+    #[test]
+    fn retired_personal_app_setting_is_ignored() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"web_client_id":"retired-client"}"#).unwrap();
+        assert_eq!(settings, Settings::default());
     }
 
     #[test]

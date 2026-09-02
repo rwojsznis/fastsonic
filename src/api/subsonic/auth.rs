@@ -7,7 +7,7 @@
 //! The plaintext is never written to disk (D10 in `migration/00-decisions.md`).
 //!
 //! The pair is still a password-equivalent credential for one server: anyone
-//! holding it can act as the user. It gets the same care the Spotify tokens
+//! holding it can act as the user. It gets the same care the old tokens
 //! got, and one thing more, because with token auth the credential rides in
 //! every URL's query string — so nothing here may be logged without going
 //! through [`redacted`].

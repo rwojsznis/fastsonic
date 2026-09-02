@@ -206,7 +206,7 @@ pub fn carry_over(state: &LocalState, queue: &QueueSnapshot) -> Option<LoadSpec>
 /// What to play, and where to start.
 ///
 /// `context_uri` is an album or a playlist to play in order; `uris` is a
-/// list of tracks to play as it stands. Spotify's `autoplay` — the station
+/// list of tracks to play as it stands. The old service's `autoplay` — the station
 /// it invented once a context ran out — has no equivalent and is gone.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LoadSpec {
@@ -241,14 +241,14 @@ pub enum PlayerCommand {
     /// Play the row at this position in the queue, counting the rows as
     /// `QueueSnapshot` draws them: "Playing next" first, then "Next up".
     /// The rows above it are skipped, which is rule 5 of
-    /// `docs/_reference/queue.md`. Spotify answered this with a series of
+    /// `docs/_reference/queue.md`. The old remote path answered this with a series of
     /// Next commands over Connect; the engine does it in one step.
     PlayQueued(usize),
     Seek(u32),
     /// The volume to keep.
     Volume(u16),
     /// The slider mid-drag. Connect made this cheaper than `Volume`, which
-    /// cost a round trip to Spotify for every value dragged through. Local
+    /// cost a round trip for every value dragged through. Local
     /// playback makes them the same thing; the variant stays because the
     /// Winamp slider and the mixer window both send it.
     VolumePreview(u16),

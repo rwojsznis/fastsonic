@@ -4,9 +4,9 @@ version = "0.5.0-rc2"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
-description = "A native Spotify client"
+description = "A native client for self-hosted music servers"
 repository = "https://github.com/rwojsznis/fastsonic"
-keywords = ["spotify", "music", "egui", "librespot", "player"]
+keywords = ["subsonic", "music", "egui", "self-hosted", "player"]
 categories = ["multimedia::audio"]
 
 [lib]
@@ -59,7 +59,7 @@ winit = { version = "0.30", optional = true }
 glutin = { version = "0.32", optional = true }
 glutin-winit = { version = "0.5", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
-# Spotify playback and Connect. rustls everywhere so the client links one TLS
+# The legacy playback adapter still used by the sink. Rustls everywhere keeps one TLS
 # stack and builds without OpenSSL on every platform.
 #
 # librespot-core depends on hyper-proxy2 for HTTP proxy support, whose only
@@ -74,8 +74,8 @@ raw-window-handle = { version = "0.6", optional = true }
 librespot-playback = { version = "0.8", default-features = false, features = ["rodio-backend", "rustls-tls-native-roots"] }
 # Decoding what the music server streams. D12 asks for the file as it is on
 # disk, so the library's formats are this client's to decode: FLAC beside
-# 320k MP3 beside AAC in MP4. librespot brings symphonia 0.5 along for
-# Spotify's one codec; this is 0.6 named directly, and the old copy leaves
+# 320k MP3 beside AAC in MP4. librespot brings symphonia 0.5 along for its
+# one codec; this is 0.6 named directly, and the old copy leaves
 # with librespot (P3.9).
 symphonia = { version = "0.6", default-features = false, features = ["flac", "mp3", "vorbis", "ogg", "isomp4", "aac", "alac", "wav", "aiff", "pcm", "adpcm", "all-meta", "opt-simd"] }
 # The one codec symphonia does not carry, in any version, and an ordinary

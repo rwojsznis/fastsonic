@@ -604,7 +604,7 @@ fn times(app: &App, view: &mut View, now: Option<&NowPlaying>, rows: &[Row], hei
     }
 }
 
-/// Bottom menus adapted to supported Spotify actions.
+/// Bottom menus adapted to supported library actions.
 fn menus(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], height: u32) {
     let bottom = height - layout::PLAYLIST_BOTTOM_HEIGHT;
     let unit = view.unit;
@@ -630,7 +630,7 @@ fn menus(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], he
 
 /// Where a song comes from here: the big window's search or Liked Songs.
 fn add_menu(app: &mut App, ui: &mut egui::Ui) {
-    if ui.button("Search Spotify").clicked() {
+    if ui.button("Search library").clicked() {
         app.actions.push(Action::FocusSearch);
         app.actions.push(Action::ToggleWinampWindow);
     }
@@ -642,7 +642,7 @@ fn add_menu(app: &mut App, ui: &mut egui::Ui) {
 
 fn rem_menu(app: &mut App, ui: &mut egui::Ui) {
     ui.add_enabled(false, egui::Button::new("Remove selected"))
-        .on_disabled_hover_text("Spotify does not let apps remove one queued song.");
+        .on_disabled_hover_text("Removing one queued song is not supported.");
     if ui
         .add_enabled(app.can_clear_queue(), egui::Button::new("Remove all"))
         .on_disabled_hover_text("You can only clear this computer's queue.")

@@ -47,7 +47,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     );
                     ui.add_space(8.0);
                     let body = if owned {
-                        format!("Delete “{name}”? You can recover it from Spotify for 90 days.")
+                        format!("Delete “{name}”? This cannot be undone.")
                     } else {
                         format!("“{name}” will no longer appear in Your Library.")
                     };
@@ -117,32 +117,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.add_space(16.0);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if theme::pill_button(ui, &palette, "Done", true).clicked() {
-                            app.actions.push(Action::CloseDialog);
-                        }
-                    });
-                }
-                Dialog::PremiumNeeded => {
-                    theme::text(
-                        ui,
-                        "This account cannot play music here",
-                        theme::bold(20.0),
-                        palette.text,
-                    );
-                    ui.add_space(8.0);
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(
-                                "Playback needs Spotify Premium. Free accounts can browse \
-                                 and search, but cannot play music through Fastsonic.",
-                            )
-                            .font(theme::regular(14.0))
-                            .color(palette.secondary),
-                        )
-                        .wrap(),
-                    );
-                    ui.add_space(20.0);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if theme::pill_button(ui, &palette, "OK", true).clicked() {
                             app.actions.push(Action::CloseDialog);
                         }
                     });

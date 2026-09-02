@@ -110,7 +110,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     // Hovering the cover offers to dock the art large at the sidebar's
-    // bottom, the way Spotify expands it. (#92)
+    // bottom, the way the original interface expands it. (#92)
     let art_available = now.art_url.is_some() || now.art_small.is_some();
     let expand_rect = Rect::from_center_size(
         pos2(cover_rect.right() - 10.0, cover_rect.top() + 10.0),

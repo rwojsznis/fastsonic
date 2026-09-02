@@ -84,7 +84,7 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     {
         app.actions.push(Action::ToggleEq);
     }
-    // Winamp's AUTO loaded a preset per song, which Spotify has no
+    // Winamp's AUTO loaded a preset per song, which this client has no
     // equivalent for; here the button lays the bands flat.
     let auto = view.button(
         layout::EQ_AUTO,

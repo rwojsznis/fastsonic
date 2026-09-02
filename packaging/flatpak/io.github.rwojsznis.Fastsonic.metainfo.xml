@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>io.github.rwojsznis.Fastsonic</id>
   <name>Fastsonic</name>
-  <summary>A native Spotify client</summary>
+  <summary>A native client for self-hosted music servers</summary>
   <developer id="io.github.rwojsznis">
     <name>Rafal Wojsznis</name>
   </developer>
@@ -10,15 +10,15 @@
   <project_license>MIT</project_license>
   <description>
     <p>
-      A Spotify client written in Rust with no browser engine. It starts
-      in well under a second, plays music on this computer, and controls other
-      Spotify Connect devices.
+      A Subsonic client written in Rust with no browser engine. It starts
+      in well under a second and streams music from your own server for
+      playback on this computer.
     </p>
     <p>
-      Browse your library, search Spotify, edit playlists, manage the queue,
+      Browse and search your library, edit playlists, manage the queue,
       and view lyrics. It also has keyboard shortcuts, media-key support,
       background playback, and a mini player for classic Winamp skins.
-      Playback needs Spotify Premium.
+      It connects directly to the music server you configure.
     </p>
   </description>
   <launchable type="desktop-id">io.github.rwojsznis.Fastsonic.desktop</launchable>
@@ -28,7 +28,7 @@
   <url type="vcs-browser">https://github.com/rwojsznis/fastsonic</url>
   <screenshots>
     <screenshot type="default">
-      <caption>A playlist, with the queue open and a track playing on a remote speaker</caption>
+      <caption>A playlist, with the queue open and a track playing</caption>
       <image>https://raw.githubusercontent.com/rwojsznis/fastsonic/main/docs/screenshot.png</image>
     </screenshot>
     <screenshot>

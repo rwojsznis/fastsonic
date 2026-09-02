@@ -5,7 +5,7 @@
 //! `docs/_reference/queue.md` is what it has to do — nine rules, written
 //! for the person using the app. Rules 1 to 7 are held up by the tests in
 //! this file; 8 and 9 are the app's, in `src/app.rs`. (There was a tenth,
-//! about ignoring stale answers from Spotify, and P4.3 retired it: there
+//! about ignoring stale remote answers, and P4.3 retired it: there
 //! is no second copy of the queue to be stale.) The numbered comments
 //! through this file point back at those rules.
 //!

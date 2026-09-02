@@ -1,6 +1,6 @@
 //! Local play history.
 //!
-//! Spotify does not record playback from librespot clients. Fastsonic stores
+//! The music server only knows about playback after scrobbling. Fastsonic stores
 //! local plays and merges them with `/me/player/recently-played`, which covers
 //! other devices. A track counts only after enough listening time, so skips do
 //! not fill the history.
@@ -127,7 +127,7 @@ pub fn played_track(now: &crate::app::NowPlaying) -> Track {
     }
 }
 
-/// Merges local and Spotify history, newest first.
+/// Merges local and server history, newest first.
 ///
 /// Matching plays within the duplicate window are deduplicated. Entries
 /// without a timestamp sort to the end.

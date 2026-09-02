@@ -635,7 +635,7 @@ pub fn circle_button(
 }
 
 /// A disc the size of a [`circle_button`] whose icon is replaced by a
-/// spinner: the pressed play button itself shows that Spotify is reacting.
+/// spinner: the pressed play button itself shows that the backend is reacting.
 pub fn circle_spinner(
     ui: &mut egui::Ui,
     diameter: f32,

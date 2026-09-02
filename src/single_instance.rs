@@ -492,7 +492,7 @@ mod tests {
         // #given / #when / #then
         assert!(command("fastsonic:play-uri http://example.com/pwn").is_none());
         assert!(command("fastsonic:play-uri sonic:track:a b").is_none());
-        assert!(command("fastsonic:play-uri spotify:track:a").is_none());
+        assert!(command("fastsonic:play-uri invalid:track:a").is_none());
         assert!(command("fastsonic:play-uri ../../etc/passwd").is_none());
         assert!(command("fastsonic:play-uri").is_none());
         assert!(

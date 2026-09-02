@@ -990,7 +990,7 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
 }
 
 /// Whether the player is stopped, as Winamp meant it: something loaded and
-/// paused at the very start. Spotify has no stop, so this is what Stop
+/// paused at the very start. The engine has no separate stop, so this is what Stop
 /// leaves behind, and what the display treats as stopped.
 fn stopped(now: Option<&NowPlaying>) -> bool {
     now.is_some_and(|now| !now.playing && !now.loading && now.position_ms == 0)

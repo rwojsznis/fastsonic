@@ -312,7 +312,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             }
             match &app.library.playlists {
                 Loadable::Loaded(playlists) => {
-                    // Recently played first, the way Spotify orders its own
+                    // Recently played first, matching the server's order
                     // sidebar; the rest keep the library's order.
                     let rank = |uri: &str| {
                         app.recent_contexts

@@ -1,6 +1,6 @@
-//! Spotify Web API response shapes.
+//! Application-facing music library shapes.
 //!
-//! Every field that Spotify may omit, null, or rename is optional or
+//! Every field that a server may omit, null, or rename is optional or
 //! defaulted, so a response that changed shape degrades to a blank field
 //! instead of a failed page. The 2026 endpoint changes (`/playlists/{id}/items`
 //! returning `item` instead of `track`, `items.total` beside `tracks.total`)
@@ -120,12 +120,6 @@ pub fn pick_image(images: &[Image], target: u32) -> Option<&str> {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-pub struct ExternalUrls {
-    #[serde(default)]
-    pub spotify: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Followers {
     #[serde(default)]
     pub total: u64,
@@ -161,8 +155,6 @@ pub struct Artist {
     pub followers: Option<Followers>,
     #[serde(default)]
     pub popularity: Option<u8>,
-    #[serde(default)]
-    pub external_urls: ExternalUrls,
     /// Whether the server says this is starred. `None` means it did not
     /// say — an object carried inside another one, or one from an endpoint
     /// that omits the flag — so a page must not read it as "not starred".
@@ -201,8 +193,6 @@ pub struct Album {
     pub popularity: Option<u8>,
     #[serde(default)]
     pub tracks: Option<Page<Track>>,
-    #[serde(default)]
-    pub external_urls: ExternalUrls,
     #[serde(default, deserialize_with = "null_default")]
     pub copyrights: Vec<Copyright>,
     /// See [`Artist::starred`].
@@ -270,8 +260,6 @@ pub struct Track {
     pub is_playable: Option<bool>,
     #[serde(default)]
     pub popularity: Option<u8>,
-    #[serde(default)]
-    pub external_urls: ExternalUrls,
     /// See [`Artist::starred`].
     #[serde(default)]
     pub starred: Option<bool>,
@@ -343,8 +331,6 @@ pub struct Playlist {
     pub tracks: Option<TrackCount>,
     #[serde(default, rename = "items")]
     pub items_count: Option<TrackCount>,
-    #[serde(default)]
-    pub external_urls: ExternalUrls,
 }
 
 impl Playlist {
@@ -356,7 +342,7 @@ impl Playlist {
     }
 
     pub fn owner_name(&self) -> &str {
-        self.owner.display_name.as_deref().unwrap_or("Spotify")
+        self.owner.display_name.as_deref().unwrap_or("Unknown")
     }
 
     pub fn owned_by(&self, user_id: &str) -> bool {
@@ -588,8 +574,6 @@ pub struct User {
     #[serde(default, deserialize_with = "null_default")]
     pub images: Vec<Image>,
     #[serde(default)]
-    pub product: Option<String>,
-    #[serde(default)]
     pub country: Option<String>,
     #[serde(default)]
     pub uri: Option<String>,
@@ -647,7 +631,7 @@ pub struct ApiErrorDetail {
 /// to start at. `src/app.rs` turns one of these into the engine's
 /// [`LoadSpec`](crate::engine::LoadSpec).
 ///
-/// This was a Spotify request body once. It survives the migration as a
+/// This was a remote request body once. It survives the migration as a
 /// vocabulary rather than a payload — the interface has many ways of saying
 /// "play this", and the engine has one way of being told.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -699,8 +683,8 @@ mod tests {
 
     #[test]
     fn playlist_items_accept_both_item_and_track_keys() {
-        let classic = r#"{"items":[{"added_at":"2024-01-01T00:00:00Z","track":{"type":"track","id":"a","name":"One","uri":"spotify:track:a","duration_ms":1000,"artists":[{"name":"Artist"}]}}],"total":1}"#;
-        let modern = r#"{"items":[{"added_at":"2024-01-01T00:00:00Z","item":{"type":"track","id":"b","name":"Two","uri":"spotify:track:b","duration_ms":2000}}, null],"total":2}"#;
+        let classic = r#"{"items":[{"added_at":"2024-01-01T00:00:00Z","track":{"type":"track","id":"a","name":"One","uri":"sonic:track:a","duration_ms":1000,"artists":[{"name":"Artist"}]}}],"total":1}"#;
+        let modern = r#"{"items":[{"added_at":"2024-01-01T00:00:00Z","item":{"type":"track","id":"b","name":"Two","uri":"sonic:track:b","duration_ms":2000}}, null],"total":2}"#;
         let classic: Page<PlaylistItem> = serde_json::from_str(classic).unwrap();
         let modern: Page<PlaylistItem> = serde_json::from_str(modern).unwrap();
         assert_eq!(classic.items[0].playable().unwrap().name(), "One");
@@ -710,7 +694,7 @@ mod tests {
 
     #[test]
     fn playlist_total_prefers_items_count() {
-        let json = r#"{"id":"p","name":"P","uri":"spotify:playlist:p","items":{"total":12},"tracks":{"total":3},"owner":{"id":"me","display_name":"Me"}}"#;
+        let json = r#"{"id":"p","name":"P","uri":"sonic:playlist:p","items":{"total":12},"tracks":{"total":3},"owner":{"id":"me","display_name":"Me"}}"#;
         let playlist: Playlist = serde_json::from_str(json).unwrap();
         assert_eq!(playlist.track_total(), 12);
         assert!(playlist.owned_by("me"));
@@ -744,7 +728,7 @@ mod tests {
 
     #[test]
     fn null_fields_fall_back_to_defaults() {
-        let json = r#"{"id":"x","name":"X","uri":"spotify:artist:x","images":null,"genres":null,"followers":null}"#;
+        let json = r#"{"id":"x","name":"X","uri":"sonic:artist:x","images":null,"genres":null,"followers":null}"#;
         let artist: Artist = serde_json::from_str(json).unwrap();
         assert!(artist.images.is_empty());
         assert!(artist.genres.is_empty());
@@ -762,7 +746,7 @@ mod tests {
 
     #[test]
     fn search_playlists_skip_null_entries() {
-        let json = r#"{"playlists":{"items":[null,{"id":"p","name":"P","uri":"spotify:playlist:p"}],"total":2,"limit":2,"offset":0,"next":"next page"}}"#;
+        let json = r#"{"playlists":{"items":[null,{"id":"p","name":"P","uri":"sonic:playlist:p"}],"total":2,"limit":2,"offset":0,"next":"next page"}}"#;
         let results: SearchResults = serde_json::from_str(json).unwrap();
         let playlists = results.playlists.unwrap();
         assert_eq!(playlists.items.len(), 1);

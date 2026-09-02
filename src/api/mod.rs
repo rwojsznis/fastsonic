@@ -6,7 +6,7 @@
 //! written in and which deliberately did not change when the server behind
 //! it did (D5 in `migration/00-decisions.md`).
 //!
-//! There is no gateway and no second identity. Spotify had two application
+//! There is no gateway and no second identity. The old service had two application
 //! identities with different quotas and per-playlist write access; a
 //! self-hosted server has one set of credentials and no quota, so D6 dropped
 //! the routing layer entirely.

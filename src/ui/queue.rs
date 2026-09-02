@@ -225,8 +225,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
 fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     // Snapshot to avoid borrow issues while drawing. The rows are both
-    // histories as one: what was played here, which Spotify is never told
-    // about, and what Spotify knows of every other device.
+    // histories as one: what was played here and what the server reports.
     let items = app.recents_view.clone();
     let loading = app.recents.loading;
     let error = app.recents.error.clone();

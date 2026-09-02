@@ -24,7 +24,7 @@ finish-args:
   - --device=dri
   # Sound: PulseAudio, which PipeWire also answers.
   - --socket=pulseaudio
-  # Spotify's API, the streaming session, the sign-in's local redirect, and
+  # The server API, audio streams, artwork, lyrics, and update checks all
   # mDNS for receivers on the network.
   - --share=network
   # The tray item, media keys and Now Playing over MPRIS, and the name the

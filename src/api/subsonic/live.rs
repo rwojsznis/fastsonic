@@ -48,8 +48,6 @@ async fn a_derived_credential_authenticates() {
     client.ping().await.unwrap();
     let me = client.me().await.unwrap();
     assert!(!me.id.is_empty());
-    // There is no plan to check. That is the whole point.
-    assert!(me.product.is_none());
 }
 
 #[tokio::test]

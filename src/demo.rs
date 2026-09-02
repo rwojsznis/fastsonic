@@ -322,7 +322,6 @@ fn artist(index: usize) -> Artist {
         genres: Vec::new(),
         followers: None,
         popularity: None,
-        external_urls: Default::default(),
         starred: Some(starred_artist(index)),
         id,
     }
@@ -347,7 +346,6 @@ fn album(index: usize) -> Album {
         // Subsonic server knows about.
         popularity: None,
         tracks: None,
-        external_urls: Default::default(),
         copyrights: Vec::new(),
         starred: Some(starred_album(index)),
         id,
@@ -403,7 +401,6 @@ fn songs() -> (Vec<Track>, Vec<usize>) {
                 is_local: false,
                 is_playable: Some(true),
                 popularity: None,
-                external_urls: Default::default(),
                 starred: Some(starred_song(index)),
                 id: Some(id),
             });
@@ -442,7 +439,6 @@ fn playlist(index: usize, songs: &[Track]) -> Playlist {
             total: playlist_songs(index, songs).len() as u32,
         }),
         items_count: None,
-        external_urls: Default::default(),
         id,
     }
 }
@@ -562,7 +558,6 @@ pub fn populate(app: &mut App) {
         // No avatar, no plan, no country: `getUser` carries none of them,
         // and every account on a server you own can stream.
         images: Vec::new(),
-        product: None,
         country: None,
         uri: None,
     });
@@ -1633,7 +1628,7 @@ mod tests {
 
     /// Dragging a row within an owned playlist's table moves it through
     /// the same MoveInPlaylist action the menu's move items use: the slot
-    /// is Spotify's insert-before, which the handler mirrors locally
+    /// is an insert-before position, which the handler mirrors locally
     /// before asking the server.
     #[test]
     fn dragging_a_row_within_a_playlist_reorders_it() {

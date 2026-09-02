@@ -445,7 +445,7 @@ impl SubsonicClient {
         Ok(convert::playlist(&created.playlist))
     }
 
-    /// `ApiRequest::UpdatePlaylist`. Subsonic has a comment where Spotify
+    /// `ApiRequest::UpdatePlaylist`. Subsonic has a comment where the old API
     /// had a description, and no image of its own.
     pub async fn update_playlist(
         &self,

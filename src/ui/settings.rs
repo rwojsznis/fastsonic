@@ -63,17 +63,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .map(|user| user.name().to_string())
                     .unwrap_or_default();
                 theme::text(ui, name, theme::semibold(16.0), palette.text);
-                let product = app
-                    .user
-                    .as_ref()
-                    .and_then(|user| user.product.clone())
-                    .map(|product| match product.as_str() {
-                        "premium" => "Spotify Premium".to_string(),
-                        "free" | "open" => "Spotify Free, local playback needs Premium".to_string(),
-                        other => other.to_string(),
-                    })
-                    .unwrap_or_default();
-                theme::text(ui, product, theme::regular(13.0), palette.secondary);
                 if let Some(username) = app.local.connected.then(|| app.local.username.clone())
                     && !username.is_empty()
                 {
@@ -91,96 +80,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
         });
-        ui.add_space(10.0);
-        let mut client_id = app.settings.web_client_id.clone().unwrap_or_default();
-        widgets::setting_row(
-            ui,
-            &palette,
-            "Personal Spotify app",
-            "Use a personal Development Mode app for a separate API quota. The shared app stays active.",
-            |ui| {
-                let response = Frame::new()
-                    .fill(palette.surface)
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::symmetric(10, 6))
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut client_id)
-                                .hint_text(egui::RichText::new("Client ID").color(palette.dim))
-                                .font(theme::regular(13.0))
-                                .frame(egui::Frame::NONE)
-                                .desired_width(200.0),
-                        )
-                    })
-                    .inner;
-                if response.changed() {
-                    let trimmed = client_id.trim().to_string();
-                    app.settings.web_client_id = (!trimmed.is_empty()).then_some(trimmed);
-                    changed = true;
-                }
-            },
-        );
-        widgets::setting_row(
-            ui,
-            &palette,
-            "Create an app",
-            "Create one for free in Spotify's developer dashboard.",
-            |ui| {
-                if theme::pill_button(ui, &palette, "Setup guide", false).clicked() {
-                    app.actions.push(Action::OpenUrl(
-                        "https://rwojsznis.github.io/fastsonic/make-it-even-faster/".into(),
-                    ));
-                }
-            },
-        );
-        let wanted = app
-            .settings
-            .web_client_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|id| !id.is_empty())
-            .map(str::to_string);
-        let in_use = wanted
-            .as_deref()
-            .is_some_and(|wanted| app.web_app.as_deref() == Some(wanted));
-        if in_use {
-            widgets::setting_row(
-                ui,
-                &palette,
-                "Personal app ready",
-                "Supported requests use your app. Other requests use the shared app.",
-                |ui| {
-                    if theme::pill_button(ui, &palette, "Remove", false).clicked() {
-                        app.settings.web_client_id = None;
-                        app.actions.push(Action::ConfigurePersonalWebApp);
-                    }
-                },
-            );
-        } else if wanted.is_some() {
-            widgets::setting_row(
-                ui,
-                &palette,
-                "Authorize your personal app",
-                "Spotify opens in your browser to verify the account.",
-                |ui| {
-                    if theme::pill_button(ui, &palette, "Authorize", true).clicked() {
-                        app.actions.push(Action::ConfigurePersonalWebApp);
-                    }
-                },
-            );
-        } else if app.web_app.is_some() {
-            widgets::setting_row(
-                ui,
-                &palette,
-                "Remove personal app",
-                "Shared access remains signed in.",
-                |ui| {
-                    if theme::pill_button(ui, &palette, "Remove", false).clicked() {
-                        app.actions.push(Action::ConfigurePersonalWebApp);
-                    }
-                },
-            );
-        }
     });
 
     section(ui, &palette, "Playback on this computer", |ui| {
@@ -872,7 +771,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 );
                 theme::text(
                     ui,
-                    "Built with Rust, egui, and librespot. Not affiliated with Spotify.",
+                    "Built with Rust and egui for self-hosted music servers.",
                     theme::regular(13.0),
                     palette.secondary,
                 );

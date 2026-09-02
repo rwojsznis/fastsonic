@@ -437,9 +437,6 @@ pub fn item_menu(
     if menu_item(ui, &palette, Some(Icon::Copy), "Copy link") {
         app.actions.push(Action::CopyLink(uri.clone()));
     }
-    if menu_item(ui, &palette, Some(Icon::ExternalLink), "Open in Spotify") {
-        app.actions.push(Action::OpenInSpotify(uri));
-    }
 }
 
 /// Menu for a context (playlist, album, artist, show).
@@ -472,8 +469,8 @@ pub fn context_menu_items(
     }
     let saved = app.is_saved(uri).unwrap_or(false);
     let (icon, text) = match (kind, saved) {
-        ("artist", true) => (Icon::CircleX, "Unfollow"),
-        ("artist", false) => (Icon::CirclePlus, "Follow"),
+        ("artist", true) => (Icon::CircleX, "Remove from Your Library"),
+        ("artist", false) => (Icon::CirclePlus, "Add to Your Library"),
         (_, true) => (Icon::CircleX, "Remove from Your Library"),
         (_, false) => (Icon::CirclePlus, "Add to Your Library"),
     };
@@ -506,9 +503,6 @@ pub fn context_menu_items(
     if menu_item(ui, &palette, Some(Icon::Copy), "Copy link") {
         app.actions.push(Action::CopyLink(uri.to_string()));
     }
-    if menu_item(ui, &palette, Some(Icon::ExternalLink), "Open in Spotify") {
-        app.actions.push(Action::OpenInSpotify(uri.to_string()));
-    }
 }
 
 /// Describes one row of a track table.
@@ -534,12 +528,12 @@ pub struct TrackRow<'a> {
     pub picked: bool,
     /// Every picked-out song in this table, as uri and name, in the order
     /// they sit in it, so the menu on a picked row can act on all of them
-    /// and the queue can show their names before Spotify answers. Empty
+    /// and the queue can show their names before the backend answers. Empty
     /// where a list does not offer picking.
     pub picked_songs: &'a [(String, String)],
 }
 
-/// Draw each credited artist separately so its Spotify id remains clickable.
+/// Draw each credited artist separately so its id remains clickable.
 pub(crate) fn artist_links(
     ui: &mut Ui,
     app: &mut App,
@@ -936,7 +930,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     }
     // Date added.
     if cols.added > 0.0 {
-        // Spotify stamps the epoch on dates it never recorded; an empty
+        // Some servers stamp the epoch on dates they never recorded; an empty
         // cell is truer than January 1970.
         if let Some(added) = row
             .added_at

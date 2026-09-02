@@ -15,7 +15,7 @@
 //!    without passing through [`auth::redacted`].
 //!
 //! There is no rate limiting and no `Retry-After` handling: those existed to
-//! survive Spotify and are dead against your own server (D8). The
+//! survive the old service and are dead against your own server (D8). The
 //! concurrency cap stays — a Raspberry Pi serving FLAC will thank you.
 
 use std::sync::{Arc, Mutex};

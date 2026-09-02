@@ -2,7 +2,6 @@
 
 pub mod api;
 pub mod app;
-pub mod auth;
 pub mod backend;
 pub mod bidi;
 #[cfg(any(test, feature = "demo"))]

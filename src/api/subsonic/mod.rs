@@ -13,7 +13,7 @@
 //! | `native` | the few Navidrome calls Subsonic cannot answer (D7) |
 //! | `live` | tests that need `migration/devserver` |
 //!
-//! While the migration is in flight this lives beside the Spotify client it
+//! While the migration is in flight this lives beside the old client it
 //! replaces; `migration/PROGRESS.md` says which phase that is.
 
 pub mod auth;

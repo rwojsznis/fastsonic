@@ -74,7 +74,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 if theme::pill_button(
                     ui,
                     &palette,
-                    if following { "Following" } else { "Follow" },
+                    if following {
+                        "In your library"
+                    } else {
+                        "Add to library"
+                    },
                     false,
                 )
                 .clicked()
@@ -97,67 +101,69 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             });
             ui.add_space(20.0);
 
-            // Popular.
-            theme::section_title(ui, &palette, "Popular");
-            ui.add_space(4.0);
-            match &page.top_tracks {
-                Loadable::Loaded(tracks) if !tracks.is_empty() => {
-                    let uris: Vec<String> = tracks.iter().map(|track| track.uri.clone()).collect();
-                    let context = RowContext::Uris(uris);
-                    let items: Vec<PlayableItem> =
-                        tracks.iter().cloned().map(PlayableItem::Track).collect();
-                    let limit = if page.show_all_top { items.len() } else { 5 };
-                    for (index, item) in items.iter().take(limit).enumerate() {
-                        widgets::track_row(
-                            ui,
-                            app,
-                            TrackRow {
-                                index,
-                                number: Some(index + 1),
-                                item,
-                                context: &context,
-                                show_cover: !app.settings.tracklist_compact,
-                                show_album: false,
-                                added_at: None,
-                                added_by: None,
-                                show_added_by: false,
-                                compact: false,
-                                thin: app.settings.tracklist_compact,
-                                shift: 0.0,
-                                picked: false,
-                                picked_songs: &[],
-                            },
-                        );
-                    }
-                    if items.len() > 5 {
-                        ui.add_space(6.0);
-                        if theme::soft_button(
-                            ui,
-                            &palette,
-                            None,
-                            if page.show_all_top {
-                                "Show less"
-                            } else {
-                                "See more"
-                            },
-                            false,
-                        )
-                        .clicked()
-                        {
-                            app.actions.push(Action::ToggleShowAllTop(id.to_string()));
+            // Last.fm-backed on Navidrome, so a server without it configured
+            // gets no empty section pretending something failed.
+            if !matches!(&page.top_tracks, Loadable::Loaded(tracks) if tracks.is_empty()) {
+                theme::section_title(ui, &palette, "Popular");
+                ui.add_space(4.0);
+                match &page.top_tracks {
+                    Loadable::Loaded(tracks) if !tracks.is_empty() => {
+                        let uris: Vec<String> =
+                            tracks.iter().map(|track| track.uri.clone()).collect();
+                        let context = RowContext::Uris(uris);
+                        let items: Vec<PlayableItem> =
+                            tracks.iter().cloned().map(PlayableItem::Track).collect();
+                        let limit = if page.show_all_top { items.len() } else { 5 };
+                        for (index, item) in items.iter().take(limit).enumerate() {
+                            widgets::track_row(
+                                ui,
+                                app,
+                                TrackRow {
+                                    index,
+                                    number: Some(index + 1),
+                                    item,
+                                    context: &context,
+                                    show_cover: !app.settings.tracklist_compact,
+                                    show_album: false,
+                                    added_at: None,
+                                    added_by: None,
+                                    show_added_by: false,
+                                    compact: false,
+                                    thin: app.settings.tracklist_compact,
+                                    shift: 0.0,
+                                    picked: false,
+                                    picked_songs: &[],
+                                },
+                            );
+                        }
+                        if items.len() > 5 {
+                            ui.add_space(6.0);
+                            if theme::soft_button(
+                                ui,
+                                &palette,
+                                None,
+                                if page.show_all_top {
+                                    "Show less"
+                                } else {
+                                    "See more"
+                                },
+                                false,
+                            )
+                            .clicked()
+                            {
+                                app.actions.push(Action::ToggleShowAllTop(id.to_string()));
+                            }
                         }
                     }
+                    Loadable::Loaded(_) => {}
+                    Loadable::Loading | Loadable::NotLoaded => widgets::loading_row(ui, &palette),
+                    Loadable::Failed(error) => {
+                        let error = error.clone();
+                        widgets::error_row(ui, app, &error, None);
+                    }
                 }
-                Loadable::Loaded(_) => {
-                    theme::subtle(ui, &palette, "No popular songs to show.");
-                }
-                Loadable::Loading | Loadable::NotLoaded => widgets::loading_row(ui, &palette),
-                Loadable::Failed(error) => {
-                    let error = error.clone();
-                    widgets::error_row(ui, app, &error, None);
-                }
+                ui.add_space(20.0);
             }
-            ui.add_space(20.0);
 
             // Discography.
             theme::section_title(ui, &palette, "Discography");

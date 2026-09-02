@@ -34,12 +34,12 @@ const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
 const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
 
-/// How long a newly started context remains visible while Spotify catches up.
-/// During local takeover, Spotify may briefly alternate between old and new
+/// How long a newly started context remains visible while the backend catches up.
+/// During local takeover, the backend may briefly alternate between old and new
 /// context state.
 const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(8);
 /// How long the interface trusts its own play/pause over a polled state that
-/// has not caught up yet. Spotify can take a moment to report a command it
+/// has not caught up yet. A backend can take a moment to report a command it
 /// has already carried out.
 const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// Delay before checking playback again after a command.
@@ -48,7 +48,7 @@ const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// two rows, but one double-click is one ask.
 const QUEUE_ADD_DEBOUNCE: Duration = Duration::from_millis(1500);
 
-/// A context shown as playing before Spotify confirms it.
+/// A context shown as playing before the backend confirms it.
 struct AssumedContext {
     uri: String,
     /// Shuffle state included in the play request, if any.
@@ -132,7 +132,7 @@ pub struct App {
     control_commands: Option<std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>>,
     /// Now-playing snapshot for the control channel.
     control_now_playing: Option<std::sync::Arc<std::sync::Mutex<String>>>,
-    /// Sample data is loaded; Spotify requests are disabled.
+    /// Sample data is loaded; server requests are disabled.
     pub offline: bool,
     pub palette: Palette,
     applied_dark: Option<bool>,
@@ -178,7 +178,7 @@ pub struct App {
     listening: Option<Listening>,
     pub recents: crate::model::CursorList<crate::api::models::PlayHistory>,
     /// The Recent tab's rows: what was played here and what
-    /// Spotify knows of the other devices, as one list. Rebuilt when
+    /// The server's recent plays and local history, as one list. Rebuilt when
     /// either side changes rather than every frame.
     pub recents_view: Vec<crate::api::models::PlayHistory>,
     pub recents_generation: u64,
@@ -245,8 +245,6 @@ pub struct App {
     milkdrop_host: Option<crate::milkdrop::host::Host>,
     last_eviction: Instant,
     pub sign_in_url: Option<String>,
-    /// The verified personal Web API application, when acceleration is ready.
-    pub web_app: Option<String>,
     /// The sign-in form: the server's address, the account on it, and the
     /// password on its way to being exchanged for the pair that is stored.
     /// The first two come back from the backend so a failed start returns to
@@ -273,9 +271,7 @@ pub struct App {
     shuffle_wanted: bool,
     /// Last local shuffle change, used to ignore its echo from the engine.
     shuffle_set_at: Option<Instant>,
-    /// The Premium notice has been shown for this sign-in.
-    premium_notice_shown: bool,
-    /// Context shown immediately after play, until Spotify confirms it.
+    /// Context shown immediately after play, until the engine confirms it.
     assumed_context: Option<AssumedContext>,
     last_now_playing_uri: Option<String>,
     pub playlist_busy: bool,
@@ -354,7 +350,7 @@ const TRACKPAD_SCALE: f32 = 1.8;
 /// second.
 /// How many plays the Home shelf asks for: it shows sixteen cards.
 const HOME_RECENTS: u32 = 50;
-/// How many plays the Recents tab asks for at a time. Spotify's own
+/// How many plays the Recents tab asks for at a time. The server's
 /// endpoint limit is fifty. A shorter page marks the end.
 const RECENTS_PAGE: u32 = 50;
 
@@ -488,7 +484,6 @@ impl App {
             milkdrop_host: None,
             last_eviction: Instant::now(),
             sign_in_url: None,
-            web_app: None,
             server: String::new(),
             server_user: String::new(),
             server_password: String::new(),
@@ -499,7 +494,6 @@ impl App {
             intent_track: None,
             shuffle_wanted: session.shuffle_on,
             shuffle_set_at: None,
-            premium_notice_shown: false,
             assumed_context: None,
             last_now_playing_uri: None,
             playlist_busy: false,
@@ -805,7 +799,7 @@ impl App {
     }
 
     /// The play request for `key` (a context or track URI) is still waiting
-    /// for Spotify to react.
+    /// for the backend to react.
     pub fn play_pending(&self, key: &str) -> bool {
         self.pending_fresh() && self.pending_play_keys.iter().any(|k| k == key)
     }
@@ -934,9 +928,7 @@ impl App {
             }
             AuthStatus::SignedOut => {
                 self.sign_in_url = None;
-                self.web_app = None;
                 self.user = None;
-                self.premium_notice_shown = false;
                 self.local = LocalState::default();
                 self.local_ready = false;
                 self.local_playback = LocalPlayback::Unavailable;
@@ -1871,7 +1863,7 @@ impl App {
                         generation,
                     });
                     // The disk may hold the whole list already; it is
-                    // adopted only if Spotify's snapshot still matches.
+                    // adopted only if the backend snapshot still matches.
                     self.backend
                         .send(Command::LoadPlaylistCache { id: id.clone() });
                 }
@@ -2114,7 +2106,7 @@ impl App {
     /// it go with it, as if Next had been pressed down to it. The rows
     /// below stay and the context carries on underneath them.
     ///
-    /// One command does it. Spotify needed a skip per row over Connect;
+    /// One command does it. The old remote path needed a skip per row;
     /// the engine counts the rows the way the panel draws them, so the
     /// index is all it needs — and it publishes the new queue before it
     /// opens the track, which is where the panel's immediacy comes from.
@@ -2285,17 +2277,6 @@ impl App {
         match response {
             ApiResponse::Me(result) => match result {
                 Ok(user) => {
-                    // Spotify only takes playback commands from Premium
-                    // accounts, here or on any device, so a Free account
-                    // is told once rather than left pressing play.
-                    let free = user
-                        .product
-                        .as_deref()
-                        .is_some_and(|product| product != "premium");
-                    if free && !self.premium_notice_shown {
-                        self.premium_notice_shown = true;
-                        self.dialog = Some(Dialog::PremiumNeeded);
-                    }
                     self.user = Some(user);
                     let page = self.page().clone();
                     self.ensure_loaded(page);
@@ -2752,8 +2733,8 @@ impl App {
                             match (uris.first().and_then(|uri| util::uri_kind(uri)), saved) {
                                 (Some("track"), true) => "Added to Liked Songs",
                                 (Some("track"), false) => "Removed from Liked Songs",
-                                (Some("artist"), true) => "Following artist",
-                                (Some("artist"), false) => "Unfollowed artist",
+                                (Some("artist"), true) => "Artist added to Your Library",
+                                (Some("artist"), false) => "Artist removed from Your Library",
                                 (_, true) => "Saved to Your Library",
                                 (_, false) => "Removed from Your Library",
                             };
@@ -2940,7 +2921,7 @@ impl App {
         }
     }
 
-    /// Merges local and Spotify history for the Recent tab.
+    /// Merges local and server history for the Recent tab.
     pub(crate) fn rebuild_recents(&mut self) {
         self.recents_view = crate::history::merged(self.plays.plays(), &self.recents.items);
     }
@@ -2950,7 +2931,7 @@ impl App {
     /// Repeated plays remain separate. Only identical track-and-time entries
     /// are deduplicated across page boundaries.
     ///
-    /// Spotify paginates backwards with `before`; a short page ends the list.
+    /// The server paginates backwards; a short page ends the list.
     fn absorb_recents(
         &mut self,
         page: crate::api::models::CursorPage<crate::api::models::PlayHistory>,
@@ -3087,7 +3068,7 @@ impl App {
         self.set_play_pending(keys);
         if let Some(context) = request.context_uri.clone() {
             self.note_recent_context(&context);
-            // Show the context as playing before Spotify confirms it.
+            // Show the context as playing before the engine confirms it.
             self.assumed_context = Some(AssumedContext {
                 uri: context,
                 shuffle: shuffle.then_some(true),
@@ -3110,7 +3091,7 @@ impl App {
     }
 
     /// Adopt a playlist's disk cache once both it and the live playlist
-    /// are here and Spotify's snapshot still matches; a stale cache is
+    /// are here and the backend snapshot still matches; a stale cache is
     /// discarded, never shown.
     fn try_adopt_playlist_cache(&mut self, id: &str) {
         let mut flags = Vec::new();
@@ -3230,7 +3211,7 @@ impl App {
     }
 
     /// `settle` is false while the slider is still moving: the level is heard
-    /// at once, and Spotify is told where it ended up on release.
+    /// at once, and the engine is told where it ended up on release.
     fn set_volume(&mut self, percent: u8, settle: bool) {
         let percent = percent.min(100);
         let volume = percent_to_volume(percent);
@@ -3586,15 +3567,8 @@ impl App {
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::CopyLink(uri) => {
-                if let Some(url) = util::open_spotify_url(&uri) {
-                    ctx.copy_text(url);
-                    self.toast("Link copied");
-                }
-            }
-            Action::OpenInSpotify(uri) => {
-                if let Some(url) = util::open_spotify_url(&uri) {
-                    ctx.open_url(egui::OpenUrl::new_tab(url));
-                }
+                ctx.copy_text(uri);
+                self.toast("Link copied");
             }
             Action::Search(query) => {
                 self.search.query = query.clone();
@@ -3651,7 +3625,6 @@ impl App {
                 self.backend.send(Command::CancelSignIn);
                 self.auth = AuthStatus::SignedOut;
             }
-            Action::ConfigurePersonalWebApp => self.save_settings(),
             Action::SignOut => {
                 self.backend.send(Command::SignOut);
                 self.history = vec![Page::Home];
@@ -4431,9 +4404,9 @@ fn queue_row_item(row: &crate::engine::QueueRow) -> PlayableItem {
 }
 
 /// What the engine is told to play. A single song goes as a context of
-/// its own rather than a list of one: Spotify resolves a track's URI as a
+/// its own rather than a list of one: the engine resolves a track URI as a
 /// context, and a context with a URI is what librespot's autoplay carries
-/// on from when it ends, the way one song from a search does in Spotify.
+/// on from when it ends, the way one song from a search does here.
 /// The starred flags an answer stated, ready for [`App::note_saved`].
 ///
 /// Objects that did not carry the flag are skipped rather than counted as
@@ -4468,7 +4441,7 @@ fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
     // librespot shuffles the list first and then cannot find the chosen
     // row in it, falls back to nowhere, and replays what was on. The list
     // loads straight and shuffle is switched on right after the load,
-    // which also matches Spotify: the chosen song plays, the rest shuffle.
+    // The chosen song plays first, then the rest shuffle.
     let chosen = request.offset_uri.is_some() || request.offset_position.is_some();
     let list = request.context_uri.is_none();
     LoadSpec {
@@ -5248,7 +5221,7 @@ mod tests {
         assert!(app.manual_queue.is_empty());
     }
 
-    /// Rule 8 with no Spotify in it, and rule 10 retired: the engine's word
+    /// Rule 8 with no remote service in it, and rule 10 retired: the engine's word
     /// is the queue, even where it differs from what was just asked for.
     /// There is no second copy to keep, and nothing stale to ignore.
     #[test]
@@ -5930,29 +5903,6 @@ mod tests {
         );
     }
 
-    /// A Free account is told once per sign-in that nothing will play;
-    /// a Premium one is not bothered.
-    #[test]
-    fn a_free_account_is_told_once_that_it_cannot_play() {
-        let me = |product: &str| {
-            ApiResponse::Me(Ok(crate::api::models::User {
-                id: "someone".into(),
-                product: Some(product.into()),
-                ..Default::default()
-            }))
-        };
-        let mut app = headless_app();
-        app.handle_api(me("free"));
-        assert!(matches!(app.dialog, Some(Dialog::PremiumNeeded)));
-        app.dialog = None;
-        app.handle_api(me("free"));
-        assert!(app.dialog.is_none(), "the notice is shown once");
-
-        let mut app = headless_app();
-        app.handle_api(me("premium"));
-        assert!(app.dialog.is_none());
-    }
-
     /// One song plays as a context of its own; a list stays a list.
     #[test]
     fn one_song_is_loaded_as_a_context() {
@@ -5970,6 +5920,20 @@ mod tests {
         // A chosen row keeps the list load straight; shuffle follows as a
         // command (see a_chosen_row_in_a_list_never_loads_shuffled).
         assert_eq!(two.shuffle, None);
+    }
+
+    #[test]
+    fn copy_link_copies_the_server_independent_uri() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        ctx.begin_pass(Default::default());
+        app.apply(Action::CopyLink("sonic:track:track-1".into()), &ctx);
+        let mut output = ctx.end_pass();
+
+        assert!(output.platform_output.commands.iter().any(|command| {
+            matches!(command, egui::OutputCommand::CopyText(text) if text == "sonic:track:track-1")
+        }));
+        output.textures_delta.clear();
     }
 
     fn snapshot_at(percent: u8) -> LocalState {

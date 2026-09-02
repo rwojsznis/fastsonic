@@ -61,7 +61,7 @@ impl Page {
         })
     }
 
-    /// Opens whatever a Spotify URI points at.
+    /// Opens whatever a library URI points at.
     pub fn from_uri(uri: &str) -> Option<Self> {
         let mut parts = uri.split(':');
         let _ = parts.next()?;
@@ -489,7 +489,7 @@ pub enum SortColumn {
 /// Playback and action context for a track row.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RowContext {
-    /// A Spotify context (playlist, album) that can be played from an offset.
+    /// A context (playlist, album) that can be played from an offset.
     Context {
         uri: String,
         /// The playlist id when the user owns it, enabling removal.
@@ -544,8 +544,6 @@ pub enum Dialog {
         owned: bool,
     },
     Shortcuts,
-    /// The signed-in account is not Premium, so nothing will play.
-    PremiumNeeded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -582,7 +580,7 @@ pub enum Action {
         uri: String,
         index: u32,
     },
-    /// Spotify's station seeded by this song.
+    /// A station seeded by this song.
     ShufflePlay(String),
     TogglePlay,
     Next,
@@ -590,7 +588,7 @@ pub enum Action {
     Seek(u32),
     SeekBy(i64),
     SetVolume(u8),
-    /// Preview volume locally during a drag; send it to Spotify on release.
+    /// Preview volume locally during a drag; send it to the engine on release.
     PreviewVolume(u8),
     VolumeBy(i8),
     ToggleMute,
@@ -647,7 +645,6 @@ pub enum Action {
     CopyLink(String),
     /// Open a web page in the browser.
     OpenUrl(String),
-    OpenInSpotify(String),
     Search(String),
     SetSearchFilter(SearchFilter),
     FocusSearch,
@@ -665,8 +662,6 @@ pub enum Action {
     SignIn,
     CancelSignIn,
     SignOut,
-    /// Add, replace, or remove the optional personal Web API app.
-    ConfigurePersonalWebApp,
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,

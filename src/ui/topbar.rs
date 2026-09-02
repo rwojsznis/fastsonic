@@ -194,19 +194,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             ui.add_space(10.0);
                             theme::text(ui, &name, theme::semibold(14.0), palette.text);
                         });
-                        if let Some(product) =
-                            app.user.as_ref().and_then(|user| user.product.clone())
-                        {
-                            ui.horizontal(|ui| {
-                                ui.add_space(10.0);
-                                theme::text(
-                                    ui,
-                                    capitalize(&product),
-                                    theme::regular(12.0),
-                                    palette.secondary,
-                                );
-                            });
-                        }
                         super::widgets::menu_separator(ui, &palette);
                         if super::widgets::menu_item(ui, &palette, Some(Icon::Settings), "Settings")
                         {
@@ -273,7 +260,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::ToggleWinampWindow);
                 }
-                // A quiet spinner once the app has been talking to Spotify for a
+                // A quiet spinner once the app has been talking to the server for a
                 // while, long enough that fast requests never flash it.
                 if app
                     .backend
@@ -281,7 +268,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .busy(std::time::Duration::from_millis(1000))
                 {
                     theme::spinner(ui, 15.0, palette.secondary)
-                        .on_hover_text("Waiting for Spotify…");
+                        .on_hover_text("Waiting for the server…");
                 }
                 // A newer release. Most people never visit a releases page,
                 // so the app says so, quietly, until they do.
@@ -323,12 +310,4 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
         },
     );
-}
-
-fn capitalize(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
-    }
 }

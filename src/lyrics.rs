@@ -1,7 +1,7 @@
-//! Lyrics for the playing track, from Spotify or LRCLIB.
+//! Lyrics for the playing track, from the music server or LRCLIB.
 //!
 //! [LRCLIB](https://lrclib.net) provides plain and LRC-synced lyrics without an
-//! account or key. Fastsonic tries Spotify's transcription first when the
+//! account or key. Fastsonic tries the server's lyrics first when the
 //! playback session is signed in, then LRCLIB.
 //!
 //! Matching starts with an exact lookup, then ranks search results. Track
@@ -64,7 +64,7 @@ impl Lyrics {
 
 /// The server's own words, from `getLyricsBySongId`.
 ///
-/// This replaces Spotify's transcription and is better than what it
+/// This replaces the former transcription source and is better than what it
 /// replaces: `start` is already in milliseconds, per line, and the server
 /// says outright whether the set is synced. `offset` shifts every line, the
 /// way an `.lrc` file's `[offset:]` tag does.

@@ -98,7 +98,7 @@ pub fn format_relative_date(iso: &str, now: jiff::Timestamp) -> String {
     format!("{count} {unit}{plural} ago")
 }
 
-/// Tears the id out of `spotify:track:abc` and friends.
+/// Tears the id out of `sonic:track:abc` and friends.
 pub fn uri_id(uri: &str) -> Option<&str> {
     uri.rsplit(':').next().filter(|id| !id.is_empty())
 }
@@ -107,12 +107,6 @@ pub fn uri_kind(uri: &str) -> Option<&str> {
     let mut parts = uri.split(':');
     parts.next()?;
     parts.next()
-}
-
-pub fn open_spotify_url(uri: &str) -> Option<String> {
-    let kind = uri_kind(uri)?;
-    let id = uri_id(uri)?;
-    Some(format!("https://open.spotify.com/{kind}/{id}"))
 }
 
 /// The application icon, drawn at runtime: a green disc with a play mark.
@@ -188,7 +182,7 @@ fn local_hour() -> u8 {
     jiff::Zoned::now().hour() as u8
 }
 
-/// Strips the HTML Spotify embeds in playlist descriptions.
+/// Strips HTML embedded in playlist descriptions.
 pub fn strip_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut in_tag = false;
@@ -271,12 +265,8 @@ mod tests {
 
     #[test]
     fn uris() {
-        assert_eq!(uri_id("spotify:track:abc"), Some("abc"));
-        assert_eq!(uri_kind("spotify:playlist:x"), Some("playlist"));
-        assert_eq!(
-            open_spotify_url("spotify:album:z").as_deref(),
-            Some("https://open.spotify.com/album/z")
-        );
+        assert_eq!(uri_id("sonic:track:abc"), Some("abc"));
+        assert_eq!(uri_kind("sonic:playlist:x"), Some("playlist"));
     }
 
     #[test]

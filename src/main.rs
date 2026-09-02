@@ -6,7 +6,7 @@ use fastsonic::{app, backend, paths, settings, single_instance, util};
 
 use clap::Parser;
 
-/// A fast, native Spotify client.
+/// A fast, native client for self-hosted music servers.
 #[derive(Debug, Parser)]
 #[command(name = "fastsonic", version, about)]
 struct Cli {
@@ -14,11 +14,11 @@ struct Cli {
     #[command(subcommand)]
     control: Option<Control>,
 
-    /// Log more from librespot and the Web API client.
+    /// Log more from the audio engine and server API client.
     #[arg(short, long)]
     verbose: bool,
 
-    /// Start with sample data and no Spotify connection (for screenshots).
+    /// Start with sample data and no server connection (for screenshots).
     #[cfg(feature = "demo")]
     #[arg(long)]
     demo: bool,
@@ -93,7 +93,7 @@ enum Control {
     Repeat { mode: Option<Repeat> },
     /// Save the playing track to your library, or take it back out
     Like,
-    /// Play a Spotify URI: a track, album, playlist, artist, or show
+    /// Play a sonic URI: a track, album, playlist, or artist
     PlayUri { uri: String },
     /// Print the playing track
     NowPlaying {
