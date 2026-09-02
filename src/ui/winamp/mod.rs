@@ -939,7 +939,7 @@ fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool 
             view.fill(area.x + x, area.y + y, 1, 1, color(1));
         }
     }
-    let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
+    let sounding = now.is_some_and(|now| now.playing || now.loading);
     match mode {
         VisMode::Bars => {
             let samples = if sounding {
@@ -1267,16 +1267,12 @@ fn marquee_pixels(app: &mut App, view: &mut View, text: &str, offset: usize) {
     }
 }
 
-/// The bitrate and sample rate, as far as they are known: the bitrate is
-/// the one chosen for this computer, so a device across the room shows
-/// none.
+/// The configured bitrate and sample rate.
 fn rates(app: &App, view: &mut View, now: Option<&NowPlaying>) {
-    let Some(now) = now.filter(|now| !stopped(Some(now))) else {
+    if now.is_none_or(|now| stopped(Some(now))) {
         return;
-    };
-    if now.local {
-        view.text(&format!("{:>3}", app.settings.bitrate), layout::KBPS);
     }
+    view.text(&format!("{:>3}", app.settings.bitrate), layout::KBPS);
     view.text("44", layout::KHZ);
 }
 
@@ -1294,10 +1290,8 @@ fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     match event {
         SliderEvent::Dragging(value) => {
             app.volume_preview = Some(value);
-            if now.is_none_or(|now| now.local) {
-                app.actions
-                    .push(Action::PreviewVolume((value * 100.0).round() as u8));
-            }
+            app.actions
+                .push(Action::PreviewVolume((value * 100.0).round() as u8));
         }
         SliderEvent::Committed(value) => {
             app.volume_preview = None;
@@ -1524,8 +1518,6 @@ mod tests {
 
     fn now(title: &str, subtitle: &str, duration_ms: u32) -> NowPlaying {
         NowPlaying {
-            local: true,
-            device_name: None,
             uri: "sonic:track:x".into(),
             id: None,
             title: title.into(),

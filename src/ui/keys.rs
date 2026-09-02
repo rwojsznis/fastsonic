@@ -148,12 +148,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     if forward {
         app.actions.push(Action::Forward);
     }
-    if ctx.input(|input| input.key_pressed(Key::Escape)) {
-        if app.dialog.is_some() {
-            app.actions.push(Action::CloseDialog);
-        } else if app.show_devices {
-            app.show_devices = false;
-        }
+    if ctx.input(|input| input.key_pressed(Key::Escape)) && app.dialog.is_some() {
+        app.actions.push(Action::CloseDialog);
     }
 }
 

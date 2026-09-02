@@ -19,12 +19,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 
+use crate::api::NetActivity;
 use crate::api::models::*;
 use crate::api::subsonic::{
     ApiError, Credentials, NativeClient, NativeError, NativeSession, Report, Scrobbler,
     SubsonicClient, convert,
 };
-use crate::api::{NetActivity, PlayRequest};
 use crate::engine::{Engine, EngineConfig, EngineEvent, LocalState, PlayerCommand, QueueSnapshot};
 use crate::images::{ArtLoader, accent_color};
 use crate::paths::AppDirs;
@@ -47,11 +47,6 @@ const HOME_SHELF: u32 = 20;
 /// server pages artists, albums and songs separately.
 const SEARCH_LIMIT: u32 = 50;
 
-/// The device id local playback reports. There is one player and it is this
-/// process; the id exists because the interface still speaks in devices
-/// until the Connect paths come out (Phase 5).
-const LOCAL_DEVICE_ID: &str = "local";
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum AuthStatus {
     Starting,
@@ -59,18 +54,6 @@ pub enum AuthStatus {
     Connecting,
     Connected { username: String },
     Failed(String),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RemoteAction {
-    Play,
-    Pause,
-    Next,
-    Previous,
-    Seek,
-    Volume,
-    Shuffle,
-    Repeat,
 }
 
 /// One of Home's album shelves. All three are `getAlbumList2` with a
@@ -122,10 +105,6 @@ impl std::fmt::Debug for SignInRequest {
 #[derive(Clone, Debug)]
 pub enum ApiRequest {
     Me,
-    Devices,
-    PlaybackState {
-        seq: u64,
-    },
     RecentlyPlayed {
         /// Request owner. Home and Recents use separate generation counters,
         /// so generation alone cannot route the response.
@@ -252,24 +231,6 @@ pub enum ApiRequest {
     Track {
         id: String,
     },
-    Remote {
-        action: RemoteAction,
-        device_id: Option<String>,
-        play: Option<PlayRequest>,
-        position_ms: u32,
-        percent: u8,
-        flag: bool,
-        repeat: String,
-    },
-    Transfer {
-        device_id: String,
-        play: bool,
-    },
-    /// Shuffle on, then start the context, one after the other.
-    ShufflePlay {
-        device_id: Option<String>,
-        play: PlayRequest,
-    },
 }
 
 impl ApiRequest {
@@ -289,11 +250,6 @@ impl ApiRequest {
 #[derive(Debug)]
 pub enum ApiResponse {
     Me(ApiResult<User>),
-    Devices(ApiResult<Vec<Device>>),
-    PlaybackState {
-        seq: u64,
-        result: ApiResult<Option<PlaybackState>>,
-    },
     RecentlyPlayed {
         who: RecentsFor,
         generation: u64,
@@ -419,14 +375,6 @@ pub enum ApiResponse {
         id: String,
         result: ApiResult<Track>,
     },
-    Remote {
-        action: RemoteAction,
-        result: ApiResult<()>,
-    },
-    Transferred {
-        device_id: String,
-        result: ApiResult<()>,
-    },
 }
 
 pub enum Command {
@@ -530,7 +478,7 @@ pub enum Event {
 pub enum LocalPlayback {
     Unavailable,
     Connecting,
-    Ready { device_id: String },
+    Ready,
     Failed(String),
 }
 
@@ -1023,9 +971,7 @@ impl Worker {
         ) {
             Ok(engine) => {
                 self.engine = Some(Arc::new(engine));
-                self.emit(Event::Playback(LocalPlayback::Ready {
-                    device_id: LOCAL_DEVICE_ID.to_string(),
-                }));
+                self.emit(Event::Playback(LocalPlayback::Ready));
             }
             Err(error) => {
                 log::error!("unable to start local playback: {error:#}");
@@ -1258,7 +1204,7 @@ fn observe(scrobbler: &Mutex<Scrobbler>, state: &LocalState) -> Vec<Report> {
 
 /// One request, one answer — or none at all.
 ///
-/// `None` is what the cut requests get: Connect, devices, podcasts and
+/// `None` is what the cut requests get: podcasts and
 /// recommendations have no call to make and no honest answer to give, so
 /// they leave the interface holding what it already had rather than being
 /// told an empty list is the truth. `migration/03-removals.md` is where
@@ -1500,12 +1446,7 @@ async fn handle(
         },
 
         // Cut, and answered by saying nothing.
-        ApiRequest::Devices
-        | ApiRequest::PlaybackState { .. }
-        | ApiRequest::Remote { .. }
-        | ApiRequest::Transfer { .. }
-        | ApiRequest::ShufflePlay { .. }
-        | ApiRequest::SavedShows { .. }
+        ApiRequest::SavedShows { .. }
         | ApiRequest::SavedEpisodes { .. }
         | ApiRequest::Show { .. }
         | ApiRequest::ShowEpisodes { .. } => return None,

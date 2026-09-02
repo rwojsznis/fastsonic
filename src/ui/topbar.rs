@@ -283,43 +283,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     theme::spinner(ui, 15.0, palette.secondary)
                         .on_hover_text("Waiting for Spotify…");
                 }
-                // Where playback is.
-                if let Some(now) = app.now_playing()
-                    && !now.local
-                {
-                    let label = format!(
-                        "Playing on {}",
-                        now.device_name.unwrap_or_else(|| "another device".into())
-                    );
-                    let galley =
-                        ui.painter()
-                            .layout_no_wrap(label, theme::medium(12.5), palette.accent);
-                    let size = galley.size() + vec2(28.0, 12.0);
-                    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-                    ui.painter().rect_filled(
-                        rect,
-                        CornerRadius::same(14),
-                        palette.accent.gamma_multiply(0.16),
-                    );
-                    let icon_rect = egui::Rect::from_center_size(
-                        pos2(rect.left() + 14.0, rect.center().y),
-                        Vec2::splat(13.0),
-                    );
-                    Icon::Speaker
-                        .image(palette.accent, 13.0)
-                        .paint_at(ui, icon_rect);
-                    ui.painter().galley(
-                        pos2(rect.left() + 24.0, rect.center().y - galley.size().y / 2.0),
-                        galley,
-                        palette.accent,
-                    );
-                    if response
-                        .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .clicked()
-                    {
-                        app.actions.push(Action::ToggleDevicesPopup);
-                    }
-                }
                 // A newer release. Most people never visit a releases page,
                 // so the app says so, quietly, until they do.
                 if let Some(update) = app.update.clone() {

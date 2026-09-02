@@ -71,11 +71,7 @@ raw-window-handle = { version = "0.6", optional = true }
 # librespot's own sessions) goes through rustls 0.23 with a patched
 # rustls-webpki. Removing the old copy needs a release of hyper-proxy2, or a
 # librespot that stops depending on it.
-librespot-core = { version = "0.8", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-playback = { version = "0.8", default-features = false, features = ["rodio-backend", "rustls-tls-native-roots"] }
-librespot-connect = { version = "0.8", default-features = false }
-librespot-metadata = { version = "0.8", default-features = false }
-librespot-protocol = { version = "0.8", default-features = false }
 # Decoding what the music server streams. D12 asks for the file as it is on
 # disk, so the library's formats are this client's to decode: FLAC beside
 # 320k MP3 beside AAC in MP4. librespot brings symphonia 0.5 along for
@@ -90,8 +86,6 @@ symphonia = { version = "0.6", default-features = false, features = ["flac", "mp
 # as a symphonia decoder, and is the only file that knows which
 # implementation this is.
 opus-pure = "0.2"
-# Parses the rootlist's playlist4 protobuf, the same crate librespot generates with.
-protobuf = "3"
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
 # rodio backend unwraps the device open on the player thread, and a release
 # build aborts on panic. Same rodio and cpal versions librespot-playback uses,
@@ -191,7 +185,6 @@ projectm-sys = { git = "https://github.com/crmne/projectm-rs", branch = "respect
 # Winamp's analyser did. Every librespot crate comes from the fork so one
 # copy exists. Drop when upstream takes the change.
 librespot-audio = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
-librespot-connect = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
 librespot-core = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
 librespot-metadata = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }
 librespot-oauth = { git = "https://github.com/crmne/librespot", branch = "fastpotify-0.8" }

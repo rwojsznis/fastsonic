@@ -7,13 +7,12 @@ use egui::Color32;
 
 use crate::api::PlayRequest;
 use crate::api::models::{
-    Album, ArtistRef, Device, Image, PlayableItem, PlaybackState, Queue, Starred, Track, User,
-    pick_image,
+    Album, ArtistRef, Image, PlayableItem, Queue, Starred, Track, User, pick_image,
 };
 use crate::api::subsonic::convert::{self, COLLECTION_URI, Kind};
 use crate::backend::{
     ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
-    PLAYLIST_PAGE_SIZE, RecentsFor, RemoteAction, Waker,
+    PLAYLIST_PAGE_SIZE, RecentsFor, Waker,
 };
 use crate::engine::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode};
 use crate::media::{MediaCommand, MediaState, MediaTrack};
@@ -27,10 +26,6 @@ use crate::theme::{self, Palette};
 use crate::tray::{TrayCommand, TrayService};
 use crate::util;
 
-const REMOTE_POLL_ACTIVE: Duration = Duration::from_secs(4);
-const REMOTE_POLL_IDLE: Duration = Duration::from_secs(20);
-const REMOTE_FRESH: Duration = Duration::from_secs(45);
-const DEVICES_FRESH: Duration = Duration::from_secs(12);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
@@ -48,16 +43,10 @@ const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(8);
 /// has already carried out.
 const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// Delay before checking playback again after a command.
-const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
 /// Duplicate Play next events within this window count as one click, which
 /// is the second half of rule 2 in `docs/_reference/queue.md`: two asks are
 /// two rows, but one double-click is one ask.
 const QUEUE_ADD_DEBOUNCE: Duration = Duration::from_millis(1500);
-
-pub struct RemoteSnapshot {
-    pub state: PlaybackState,
-    pub received_at: Instant,
-}
 
 /// A context shown as playing before Spotify confirms it.
 struct AssumedContext {
@@ -70,8 +59,6 @@ struct AssumedContext {
 /// The playing item as the interface sees it, whichever device plays it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NowPlaying {
-    pub local: bool,
-    pub device_name: Option<String>,
     pub uri: String,
     pub id: Option<String>,
     pub title: String,
@@ -94,12 +81,6 @@ pub struct NowPlaying {
     /// The remembered song from the last session, shown paused before a
     /// first press. Nothing is playing yet.
     pub resuming: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Target {
-    Local,
-    Remote(Option<String>),
 }
 
 /// How the application is being started.
@@ -153,13 +134,6 @@ pub struct App {
     control_commands: Option<std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>>,
     /// Now-playing snapshot for the control channel.
     control_now_playing: Option<std::sync::Arc<std::sync::Mutex<String>>>,
-    /// The same, for its `devices` verb.
-    control_devices: Option<std::sync::Arc<std::sync::Mutex<String>>>,
-    /// Whether that device slot still matches [`Self::devices`]. The
-    /// now-playing snapshot is rebuilt every frame because its position
-    /// moves every frame; a device list changes when Spotify answers, which
-    /// is seconds apart, so it is written when it changes instead.
-    control_devices_stale: bool,
     /// Sample data is loaded; Spotify requests are disabled.
     pub offline: bool,
     pub palette: Palette,
@@ -167,26 +141,16 @@ pub struct App {
 
     pub auth: AuthStatus,
     pub user: Option<User>,
-    pub local_device_id: Option<String>,
     /// Local playback is authorized and the engine is connected.
     pub local_ready: bool,
     pub local_playback: LocalPlayback,
     pub local: LocalState,
-    pub remote: Option<RemoteSnapshot>,
-    remote_polled_at: Instant,
-    remote_poll_pending: bool,
-    /// Serial of the newest playback poll sent; older answers are stale.
-    remote_poll_seq: u64,
     /// The restorable session (sorts, recents, resume point) changed and
     /// should be written shortly, not only at exit.
     pub session_dirty: bool,
     last_session_save: Instant,
     /// The saved zoom has been applied to the context once.
     zoom_applied: bool,
-    pub devices: Vec<Device>,
-    pub devices_loading: bool,
-    devices_fetched_at: Option<Instant>,
-    pub selected_device: Option<String>,
     /// The queue as the engine last published it, in the vocabulary the
     /// panel draws: what is playing, then every row below it in play order
     /// (rule 1 of `docs/_reference/queue.md`). It is never fetched and
@@ -252,7 +216,6 @@ pub struct App {
     /// the first line), so it moves once per change; `None` until it has
     /// positioned itself at all for this track.
     pub lyrics_line_shown: Option<Option<usize>>,
-    pub show_devices: bool,
     pub toasts: Vec<Toast>,
     pub actions: Vec<Action>,
     volume_before_mute: Option<u8>,
@@ -266,7 +229,6 @@ pub struct App {
     /// cannot continue a list without a context URI.
     local_list: Option<Vec<String>>,
     /// When to take a confirming look at remote playback after a command.
-    remote_recheck_at: Option<Instant>,
     pub seek_preview: Option<f32>,
     pub volume_preview: Option<f32>,
     /// Window geometry to restore on next attach, from the session file.
@@ -303,8 +265,6 @@ pub struct App {
     /// The bytes of streams kept on disk, shared with the engine and held
     /// here so that replacing the engine does not rescan them (P3.6).
     pub audio_cache: Option<std::sync::Arc<crate::engine::Cache>>,
-    pending_remote_position: Option<(u32, Instant)>,
-    pending_remote_volume: Option<(u8, Instant)>,
     /// A local volume set here that the engine has not echoed back yet. It
     /// reports `VolumeChanged` asynchronously while position snapshots land
     /// every second, so a snapshot must not undo the change on its way past.
@@ -372,11 +332,6 @@ pub struct App {
     /// Play next clicks in the last moment, to tell a double-click from two
     /// asks (rule 2). The engine has already been told about all of them.
     queue_add_clicks: Vec<(String, Instant)>,
-    /// The account's playlist tree from Spotify, folders and all; empty
-    /// until the session answers.
-    pub rootlist: Vec<crate::player::RootlistEntry>,
-    /// Sidebar folders rolled up, by their rootlist ids.
-    pub collapsed_folders: Vec<String>,
     /// A newer release than this build, once GitHub has said so.
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
@@ -468,28 +423,17 @@ impl App {
             switch_intent: false,
             control_commands: None,
             control_now_playing: None,
-            control_devices: None,
-            control_devices_stale: true,
             offline: false,
             palette: Palette::dark(),
             applied_dark: None,
             auth: AuthStatus::Starting,
             user: None,
-            local_device_id: None,
             local_ready: false,
             local_playback: LocalPlayback::Unavailable,
             local: LocalState::default(),
-            remote: None,
-            remote_polled_at: Instant::now() - REMOTE_POLL_IDLE,
-            remote_poll_pending: false,
-            remote_poll_seq: 0,
             session_dirty: false,
             last_session_save: Instant::now(),
             zoom_applied: false,
-            devices: Vec::new(),
-            devices_loading: false,
-            devices_fetched_at: None,
-            selected_device: None,
             // Filled in below, from what the last session left (rule 9).
             queue: Queue::default(),
             queued_len: 0,
@@ -529,7 +473,6 @@ impl App {
             lyrics: Loadable::NotLoaded,
             lyrics_following: true,
             lyrics_line_shown: None,
-            show_devices: false,
             toasts: Vec::new(),
             actions: Vec::new(),
             volume_before_mute: None,
@@ -537,7 +480,6 @@ impl App {
             pending_play_at: None,
             queued_play: None,
             local_list: None,
-            remote_recheck_at: None,
             seek_preview: None,
             volume_preview: None,
             session_window_size: session.window_size,
@@ -556,8 +498,6 @@ impl App {
             server_password: String::new(),
             account_id: None,
             audio_cache,
-            pending_remote_position: None,
-            pending_remote_volume: None,
             pending_local_volume: None,
             optimistic_playing: None,
             intent_track: None,
@@ -592,8 +532,6 @@ impl App {
             local_context_at: None,
             manual_queue: Vec::new(),
             queue_add_clicks: Vec::new(),
-            rootlist: Vec::new(),
-            collapsed_folders: session.collapsed_folders.clone(),
             update: None,
             last_update_check: None,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
@@ -610,12 +548,11 @@ impl App {
         app
     }
 
-    /// Watches the queue control clients fill and keeps the snapshots they
-    /// read -- now playing, and the device list -- fresh.
+    /// Watches the queue control clients fill and keeps the now-playing
+    /// snapshot they read fresh.
     pub fn set_remote_control(&mut self, guard: &crate::single_instance::Guard) {
         self.control_commands = Some(guard.commands());
         self.control_now_playing = Some(guard.now_playing_slot());
-        self.control_devices = Some(guard.devices_slot());
     }
 
     /// Per-window setup: fonts, icons, loaders, theme. Called every time a
@@ -705,46 +642,9 @@ impl App {
         self.saved.get(uri).copied()
     }
 
-    fn remote_fresh(&self) -> Option<&RemoteSnapshot> {
-        self.remote
-            .as_ref()
-            .filter(|remote| remote.received_at.elapsed() < REMOTE_FRESH)
-    }
-
-    /// Where playback commands go: this computer's player or a remote device.
-    pub fn target(&self) -> Target {
-        if self.local_ready && self.local.is_active() {
-            return Target::Local;
-        }
-        if let Some(selected) = &self.selected_device
-            && Some(selected.as_str()) != self.local_device_id.as_deref()
-        {
-            return Target::Remote(Some(selected.clone()));
-        }
-        if let Some(remote) = self.remote_fresh() {
-            let device = remote.state.device.as_ref();
-            let is_local = device
-                .and_then(|device| device.id.as_deref())
-                .is_some_and(|id| Some(id) == self.local_device_id.as_deref());
-            if !is_local && (remote.state.is_playing || remote.state.item.is_some()) {
-                return Target::Remote(device.and_then(|device| device.id.clone()));
-            }
-        }
-        if self.local_ready {
-            Target::Local
-        } else {
-            Target::Remote(None)
-        }
-    }
-
     /// Context shown as playing, including pending local play requests.
     pub fn playing_context_uri(&self) -> Option<String> {
-        let live = self
-            .remote
-            .as_ref()
-            .and_then(|remote| remote.state.context.as_ref())
-            .map(|context| context.uri.clone())
-            .or_else(|| self.local_context.clone());
+        let live = self.local_context.clone();
         if let Some(assumed) = &self.assumed_context {
             let held = assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD;
             // A filtered or sorted context plays as plain tracks and will not
@@ -853,8 +753,6 @@ impl App {
                 _ => self.local.playback == Playback::Playing,
             };
             return Some(NowPlaying {
-                local: true,
-                device_name: None,
                 uri: track.uri.clone(),
                 id: util::uri_id(&track.uri).map(str::to_string),
                 title: track.title.clone(),
@@ -882,91 +780,7 @@ impl App {
                 resuming: false,
             });
         }
-        let remote = self.remote_fresh()?;
-        // Ignore a remote snapshot for this device when the local engine has
-        // no track. The snapshot may predate a local stop.
-        if self.local_device_id.is_some()
-            && remote
-                .state
-                .device
-                .as_ref()
-                .and_then(|device| device.id.as_deref())
-                == self.local_device_id.as_deref()
-        {
-            return None;
-        }
-        let item = remote.state.item.as_ref()?;
-        let device = remote.state.device.as_ref();
-        let playing = match self.optimistic_playing {
-            Some((playing, at)) if at.elapsed() < PLAYBACK_HOLD => playing,
-            _ => remote.state.is_playing,
-        };
-        let position = match self.pending_remote_position {
-            Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => position,
-            _ => {
-                let base = remote.state.progress_ms.unwrap_or(0);
-                if remote.state.is_playing {
-                    (base as u64 + remote.received_at.elapsed().as_millis() as u64)
-                        .min(item.duration_ms() as u64) as u32
-                } else {
-                    base
-                }
-            }
-        };
-        let volume = match self.pending_remote_volume {
-            Some((volume, at)) if at.elapsed() < OPTIMISTIC_HOLD => volume,
-            _ => device
-                .and_then(|device| device.volume_percent)
-                .unwrap_or(50),
-        };
-        let (artists, album_name, album_id, show_id, is_episode) = match item {
-            PlayableItem::Track(track) => (
-                track.artists.clone(),
-                track
-                    .album
-                    .as_ref()
-                    .map(|album| album.name.clone())
-                    .unwrap_or_default(),
-                track.album.as_ref().map(|album| album.id.clone()),
-                None,
-                false,
-            ),
-            PlayableItem::Episode(episode) => (
-                Vec::new(),
-                episode
-                    .show
-                    .as_ref()
-                    .map(|show| show.name.clone())
-                    .unwrap_or_default(),
-                None,
-                episode.show.as_ref().map(|show| show.id.clone()),
-                true,
-            ),
-        };
-        Some(NowPlaying {
-            local: false,
-            device_name: device.map(|device| device.name.clone()),
-            uri: item.uri().to_string(),
-            id: item.id().map(str::to_string),
-            title: item.name().to_string(),
-            subtitle: item.subtitle(),
-            artists,
-            album_name,
-            album_id,
-            show_id,
-            art_url: item.image(640).map(str::to_string),
-            art_small: item.image(64).map(str::to_string),
-            duration_ms: item.duration_ms(),
-            position_ms: position,
-            playing,
-            loading: false,
-            shuffle: self.shuffle_wanted,
-            repeat: RepeatMode::from_api(&remote.state.repeat_state),
-            volume_percent: volume,
-            can_control: device.is_none_or(|device| !device.is_restricted),
-            is_episode,
-            resuming: false,
-        })
+        None
     }
 
     /// Last session's track, shown paused when no device is playing.
@@ -974,8 +788,6 @@ impl App {
         let uri = self.resume_track.as_deref()?;
         let track = self.track_cache.get(util::uri_id(uri)?)?;
         Some(NowPlaying {
-            local: true,
-            device_name: None,
             uri: uri.to_string(),
             id: track.id.clone(),
             title: track.name.clone(),
@@ -1130,7 +942,6 @@ impl App {
                 self.reset_data();
                 self.load_playlists();
                 self.ensure_loaded(self.page().clone());
-                self.poll_remote(true);
             }
             AuthStatus::SignedOut => {
                 self.sign_in_url = None;
@@ -1139,9 +950,7 @@ impl App {
                 self.premium_notice_shown = false;
                 self.local = LocalState::default();
                 self.local_ready = false;
-                self.local_device_id = None;
                 self.local_playback = LocalPlayback::Unavailable;
-                self.remote = None;
                 self.reset_data();
             }
             AuthStatus::Failed(message) => {
@@ -1155,8 +964,7 @@ impl App {
 
     fn handle_playback(&mut self, status: LocalPlayback) {
         match &status {
-            LocalPlayback::Ready { device_id } => {
-                self.local_device_id = Some(device_id.clone());
+            LocalPlayback::Ready => {
                 self.local_ready = true;
                 if let Some(request) = self.queued_play.take() {
                     self.play_request(request, false);
@@ -1164,7 +972,6 @@ impl App {
             }
             LocalPlayback::Unavailable => {
                 self.local_ready = false;
-                self.local_device_id = None;
             }
             LocalPlayback::Failed(message) => {
                 self.local_ready = false;
@@ -1194,9 +1001,6 @@ impl App {
         self.manual_queue.clear();
         self.local_context = None;
         self.local_context_at = None;
-        self.devices.clear();
-        self.control_devices_stale = true;
-        self.devices_fetched_at = None;
         self.search.results = Loadable::NotLoaded;
         self.search.committed.clear();
     }
@@ -1518,8 +1322,7 @@ impl App {
         self.resume_track = Some(now.uri.clone());
         self.resume_context_track = self.context_row_under(&now.uri);
         self.resume_position_ms = 0;
-        if now.local
-            && !now.is_episode
+        if !now.is_episode
             && let Some(id) = &now.id
             && !self.track_cache.contains_key(id)
             && self.track_requests.insert(id.clone())
@@ -1600,32 +1403,6 @@ impl App {
         if self.is_connected() && !self.offline {
             self.request_resume_track();
             self.ensure_resume_context_loaded();
-        }
-
-        if self.is_connected() && !self.offline {
-            let interval = match self.target() {
-                Target::Local if self.local.is_active() => REMOTE_POLL_IDLE,
-                _ => REMOTE_POLL_ACTIVE,
-            };
-            if !self.remote_poll_pending && self.remote_polled_at.elapsed() >= interval {
-                self.poll_remote(false);
-            }
-            if let Some(due) = self.remote_recheck_at
-                && Instant::now() >= due
-            {
-                self.remote_recheck_at = None;
-                self.poll_remote(true);
-            }
-            if self.show_devices
-                && !self.devices_loading
-                && self
-                    .devices_fetched_at
-                    .is_none_or(|at| at.elapsed() > DEVICES_FRESH)
-            {
-                self.refresh_devices();
-            }
-            // The queue is not polled: the engine pushes it when it
-            // changes, and nothing else can change it.
         }
 
         if let Some(typed) = self.search.typed_at {
@@ -1905,8 +1682,6 @@ impl App {
                     offset_uri: None,
                     offset_index: None,
                 }),
-                ControlCommand::Transfer(device_id) => Some(Action::Transfer(device_id)),
-                ControlCommand::RefreshDevices => Some(Action::RefreshDevices),
             };
             if let Some(action) = action {
                 self.actions.push(action);
@@ -1998,13 +1773,6 @@ impl App {
             let snapshot = self.control_snapshot();
             *slot.lock().unwrap_or_else(|p| p.into_inner()) = snapshot;
         }
-        if self.control_devices_stale
-            && let Some(slot) = self.control_devices.clone()
-        {
-            let snapshot = self.control_devices_snapshot();
-            *slot.lock().unwrap_or_else(|p| p.into_inner()) = snapshot;
-            self.control_devices_stale = false;
-        }
     }
 
     /// One line for the control channel's `nowplaying` verb: tab-separated
@@ -2029,13 +1797,7 @@ impl App {
             Some(false) => "no",
             None => "unknown",
         };
-        // Local playback is this computer, which Spotify has not named in
-        // the snapshot because it is not a remote device.
-        let device = match (&now.device_name, now.local) {
-            (Some(name), _) => name.as_str(),
-            (None, true) => self.settings.device_name.as_str(),
-            (None, false) => "",
-        };
+        let device = "this computer";
         // Tabs separate the fields, so a tab inside one would shift the rest.
         // This runs every frame, and titles almost never contain one, so the
         // usual answer borrows rather than allocating a copy per field.
@@ -2058,26 +1820,6 @@ impl App {
             clean(now.art_url.as_deref().unwrap_or_default()),
             clean(device),
         )
-    }
-
-    /// Last Spotify Connect device list as one JSON line.
-    ///
-    /// JSON safely carries multiple records and free-text device names.
-    fn control_devices_snapshot(&self) -> String {
-        let devices: Vec<_> = self
-            .devices
-            .iter()
-            .filter_map(|device| {
-                Some(serde_json::json!({
-                    "id": device.id.as_deref()?,
-                    "name": device.name,
-                    "kind": device.kind,
-                    "active": device.is_active,
-                }))
-            })
-            .collect();
-        serde_json::to_string(&devices)
-            .unwrap_or_else(|_| crate::single_instance::NO_DEVICES.to_owned())
     }
 
     // ---- loading ---------------------------------------------------------------
@@ -2427,26 +2169,6 @@ impl App {
         self.ensure_loaded(page);
     }
 
-    fn poll_remote(&mut self, _immediate: bool) {
-        if !self.is_connected() {
-            return;
-        }
-        self.remote_poll_pending = true;
-        self.remote_polled_at = Instant::now();
-        self.remote_poll_seq += 1;
-        self.backend.api(ApiRequest::PlaybackState {
-            seq: self.remote_poll_seq,
-        });
-    }
-
-    fn refresh_devices(&mut self) {
-        if !self.is_connected() || self.devices_loading {
-            return;
-        }
-        self.devices_loading = true;
-        self.backend.api(ApiRequest::Devices);
-    }
-
     /// Rule 5: a chosen row of Next up plays at once, and the rows above
     /// it go with it, as if Next had been pressed down to it. The rows
     /// below stay and the context carries on underneath them.
@@ -2648,107 +2370,6 @@ impl App {
                     }
                 }
             },
-            ApiResponse::Devices(result) => {
-                self.devices_loading = false;
-                self.devices_fetched_at = Some(Instant::now());
-                match result {
-                    Ok(devices) => {
-                        self.devices = devices;
-                        self.control_devices_stale = true;
-                        if let Some(selected) = &self.selected_device
-                            && !self
-                                .devices
-                                .iter()
-                                .any(|device| device.id.as_deref() == Some(selected.as_str()))
-                        {
-                            self.selected_device = None;
-                        }
-                    }
-                    Err(error) => self.toast_error(format!("Couldn't list devices: {error}")),
-                }
-            }
-            ApiResponse::PlaybackState { seq, result } => {
-                if seq != self.remote_poll_seq {
-                    // An older poll finishing late describes the past.
-                    return;
-                }
-                self.remote_poll_pending = false;
-                match result {
-                    Ok(state) => {
-                        let previous_uri = self.remote.as_ref().and_then(|remote| {
-                            remote
-                                .state
-                                .item
-                                .as_ref()
-                                .map(|item| item.uri().to_string())
-                        });
-                        let previous_shuffle = self
-                            .remote
-                            .as_ref()
-                            .map(|remote| remote.state.shuffle_state);
-                        self.remote = state.map(|state| RemoteSnapshot {
-                            state,
-                            received_at: Instant::now(),
-                        });
-                        if let (Some(previous), Some(current)) = (
-                            previous_shuffle,
-                            self.remote
-                                .as_ref()
-                                .map(|remote| remote.state.shuffle_state),
-                        ) && previous != current
-                            && self
-                                .shuffle_set_at
-                                .is_none_or(|at| at.elapsed() > Duration::from_secs(5))
-                        {
-                            // Accept shuffle changes from another device.
-                            self.shuffle_wanted = current;
-                        }
-                        if let Some(context) = self
-                            .remote
-                            .as_ref()
-                            .and_then(|remote| remote.state.context.as_ref())
-                            .map(|context| context.uri.clone())
-                        {
-                            // Ignore the old context while a takeover settles.
-                            let stale = self.assumed_context.as_ref().is_some_and(|assumed| {
-                                assumed.at.elapsed() < ASSUMED_CONTEXT_HOLD
-                                    && assumed.uri != context
-                            });
-                            if !stale {
-                                self.note_recent_context(&context);
-                            }
-                        }
-                        let uri = self.remote.as_ref().and_then(|remote| {
-                            remote
-                                .state
-                                .item
-                                .as_ref()
-                                .map(|item| item.uri().to_string())
-                        });
-                        if let Some(remote) = &self.remote
-                            && let Some(device) = &remote.state.device
-                            && device.id.is_some()
-                            && let Some(known) =
-                                self.devices.iter_mut().find(|known| known.id == device.id)
-                        {
-                            known.is_active = true;
-                            known.volume_percent = device.volume_percent;
-                        }
-                        if let Some((wanted, _)) = self.optimistic_playing
-                            && self
-                                .remote
-                                .as_ref()
-                                .is_some_and(|remote| remote.state.is_playing == wanted)
-                        {
-                            self.optimistic_playing = None;
-                        }
-                        if uri != previous_uri {
-                            self.on_now_playing_changed();
-                        }
-                    }
-                    Err(error) => log::debug!("playback state unavailable: {error}"),
-                }
-            }
             ApiResponse::RecentlyPlayed {
                 who,
                 generation,
@@ -3374,41 +2995,7 @@ impl App {
                     self.track_cache.insert(id, track);
                 }
             }
-            ApiResponse::Remote { action, result } => {
-                if matches!(action, RemoteAction::Play | RemoteAction::Pause) {
-                    self.clear_play_pending();
-                }
-                match result {
-                    Ok(()) => {
-                        self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
-                    }
-                    Err(error) => {
-                        self.optimistic_playing = None;
-                        self.pending_remote_position = None;
-                        self.pending_remote_volume = None;
-                        let hint = "";
-                        self.toast_error(format!(
-                            "{}: {error}.{hint}",
-                            remote_action_label(action)
-                        ));
-                    }
-                }
-                self.poll_remote_soon();
-            }
-            ApiResponse::Transferred { device_id, result } => match result {
-                Ok(()) => {
-                    self.selected_device = Some(device_id);
-                    self.show_devices = false;
-                    self.poll_remote_soon();
-                    self.refresh_devices();
-                }
-                Err(error) => self.toast_error(format!("Couldn't switch device: {error}")),
-            },
         }
-    }
-
-    fn poll_remote_soon(&mut self) {
-        self.remote_polled_at = Instant::now() - REMOTE_POLL_IDLE + Duration::from_millis(700);
     }
 
     // ---- navigation ------------------------------------------------------------
@@ -3424,7 +3011,6 @@ impl App {
             self.history.remove(0);
         }
         self.history_index = self.history.len() - 1;
-        self.show_devices = false;
         self.ensure_loaded(page);
     }
 
@@ -3437,24 +3023,6 @@ impl App {
     }
 
     // ---- playback --------------------------------------------------------------
-
-    fn remote(&mut self, action: RemoteAction, device_id: Option<String>) {
-        if device_id.is_none() && self.remote_fresh().is_none() {
-            // Spotify would only answer "no active device found".
-            self.clear_play_pending();
-            self.toast("Nothing is playing. Pick something first");
-            return;
-        }
-        self.backend.api(ApiRequest::Remote {
-            action,
-            device_id,
-            play: None,
-            position_ms: 0,
-            percent: 0,
-            flag: false,
-            repeat: String::new(),
-        });
-    }
 
     /// Remembers `uri` as the most recently played context, for the
     /// sidebar's order.
@@ -3562,59 +3130,12 @@ impl App {
         Some(uris[rand::random_range(0..uris.len())].clone())
     }
 
-    /// Last known context length from the library.
-    /// Used to choose a random shuffle offset before rows are loaded.
-    fn context_len(&self, context_uri: &str) -> Option<u32> {
-        if context_uri == COLLECTION_URI {
-            return self.library.liked.total;
-        }
-        match util::uri_kind(context_uri)? {
-            "playlist" => self
-                .library
-                .playlists
-                .get()?
-                .iter()
-                .find(|playlist| playlist.uri == context_uri)?
-                .tracks
-                .as_ref()
-                .map(|tracks| tracks.total),
-            "album" => {
-                self.library
-                    .albums
-                    .items
-                    .iter()
-                    .find(|saved| saved.album.uri == context_uri)?
-                    .album
-                    .total_tracks
-            }
-            "show" => {
-                self.library
-                    .shows
-                    .items
-                    .iter()
-                    .find(|saved| saved.show.uri == context_uri)?
-                    .show
-                    .total_episodes
-            }
-            _ => None,
-        }
-    }
-
     /// Where a shuffled play of `context_uri` begins, as an offset by
-    /// track URI or by position: a random one of the rows the app holds,
-    /// or, when it holds none, a random position within the length the
-    /// library knows. Neither, and the play carries no offset at all:
-    /// librespot then picks its own random track, and only the Web API,
-    /// which would start at track one, needs telling where to go.
+    /// track URI: a random one of the rows the app holds. When it holds none,
+    /// the engine receives no offset and chooses from the context itself.
     fn shuffle_start(&self, context_uri: &str) -> (Option<String>, Option<u32>) {
         if let Some(uri) = self.random_track_in(context_uri) {
             return (Some(uri), None);
-        }
-        if matches!(self.target(), Target::Remote(Some(_)))
-            && let Some(len) = self.context_len(context_uri)
-            && len > 0
-        {
-            return (None, Some(rand::random_range(0..len)));
         }
         (None, None)
     }
@@ -3682,59 +3203,19 @@ impl App {
                 at: Instant::now(),
             });
         }
-        match self.target() {
-            Target::Local if !self.local.connected => {
-                // Hold the request while the local engine reconnects.
-                self.queued_play = Some(request);
-            }
-            Target::Local => {
-                self.queued_play = None;
-                let load = local_load(&request, shuffle);
-                self.local_list = load.context_uri.is_none().then(|| load.uris.clone());
-                let shuffle_after = shuffle && load.shuffle.is_none() && !load.uris.is_empty();
-                self.backend.player(PlayerCommand::Load(load));
-                if shuffle_after {
-                    self.backend.player(PlayerCommand::Shuffle(true));
-                }
-                self.optimistic_playing = Some((true, Instant::now()));
-            }
-            Target::Remote(Some(device_id)) => {
-                self.queued_play = None;
-                if shuffle {
-                    self.backend.api(ApiRequest::ShufflePlay {
-                        device_id: Some(device_id),
-                        play: request,
-                    });
-                } else {
-                    self.backend.api(ApiRequest::Remote {
-                        action: RemoteAction::Play,
-                        device_id: Some(device_id),
-                        play: Some(request),
-                        position_ms: 0,
-                        percent: 0,
-                        flag: false,
-                        repeat: String::new(),
-                    });
-                }
-                self.optimistic_playing = Some((true, Instant::now()));
-            }
-            Target::Remote(None) => {
-                // No remote device is active, and this computer's player is
-                // not ready. Never ask Spotify to play "nowhere": either
-                // wait for the connecting engine or ask for a device.
-                if matches!(self.local_playback, LocalPlayback::Connecting)
-                    || matches!(self.auth, AuthStatus::Starting | AuthStatus::Connecting)
-                {
-                    self.queued_play = Some(request);
-                } else {
-                    self.clear_play_pending();
-                    self.queued_play = None;
-                    self.toast("Choose a device, or enable playback on this computer");
-                    self.show_devices = true;
-                    self.refresh_devices();
-                }
-            }
+        if !self.local.connected {
+            self.queued_play = Some(request);
+            return;
         }
+        self.queued_play = None;
+        let load = local_load(&request, shuffle);
+        self.local_list = load.context_uri.is_none().then(|| load.uris.clone());
+        let shuffle_after = shuffle && load.shuffle.is_none() && !load.uris.is_empty();
+        self.backend.player(PlayerCommand::Load(load));
+        if shuffle_after {
+            self.backend.player(PlayerCommand::Shuffle(true));
+        }
+        self.optimistic_playing = Some((true, Instant::now()));
     }
 
     /// Adopt a playlist's disk cache once both it and the live playlist
@@ -3819,58 +3300,13 @@ impl App {
 
     fn toggle_play(&mut self) {
         let playing = self.now_playing().map(|now| now.playing);
-        match self.target() {
-            Target::Local => {
-                if self.local.is_active() {
-                    self.backend.player(PlayerCommand::Toggle);
-                } else if let Some(remote) = self.remote_fresh() {
-                    // Nothing is playing locally: resume on this computer.
-                    let uri = remote
-                        .state
-                        .item
-                        .as_ref()
-                        .map(|item| item.uri().to_string());
-                    let position = remote.state.progress_ms.unwrap_or(0);
-                    if let Some(uri) = uri {
-                        let mut request = match &remote.state.context {
-                            Some(context) if !context.uri.is_empty() => {
-                                PlayRequest::context(context.uri.clone()).starting_at_uri(uri)
-                            }
-                            _ => PlayRequest::tracks(vec![uri]),
-                        };
-                        request.position_ms = position;
-                        self.play_request(request, false);
-                        return;
-                    }
-                    if !self.resume_last() {
-                        self.toast("Pick something to play");
-                    }
-                    return;
-                } else {
-                    if !self.resume_last() {
-                        self.toast("Pick something to play");
-                    }
-                    return;
-                }
+        if self.local.is_active() {
+            self.backend.player(PlayerCommand::Toggle);
+        } else {
+            if !self.resume_last() {
+                self.toast("Pick something to play");
             }
-            Target::Remote(device_id) => {
-                if device_id.is_none() && self.remote_fresh().is_none() {
-                    // Nothing is known to be playing anywhere, which is how
-                    // a fresh start looks before the local engine is ready:
-                    // pick up where the last run left off, the way the
-                    // local branch does. The engine plays it once it is up.
-                    if !self.resume_last() {
-                        self.toast("Pick a song, album, or playlist");
-                    }
-                    return;
-                }
-                self.set_play_pending(vec!["::toggle".into()]);
-                if playing == Some(true) {
-                    self.remote(RemoteAction::Pause, device_id);
-                } else {
-                    self.remote(RemoteAction::Play, device_id);
-                }
-            }
+            return;
         }
         if let Some(playing) = playing {
             self.optimistic_playing = Some((!playing, Instant::now()));
@@ -3885,21 +3321,7 @@ impl App {
             self.session_dirty = true;
             return;
         }
-        match self.target() {
-            Target::Local => self.backend.player(PlayerCommand::Seek(position_ms)),
-            Target::Remote(device_id) => {
-                self.pending_remote_position = Some((position_ms, Instant::now()));
-                self.backend.api(ApiRequest::Remote {
-                    action: RemoteAction::Seek,
-                    device_id,
-                    play: None,
-                    position_ms,
-                    percent: 0,
-                    flag: false,
-                    repeat: String::new(),
-                });
-            }
-        }
+        self.backend.player(PlayerCommand::Seek(position_ms));
     }
 
     /// The volume this side set that the engine has yet to confirm, if the
@@ -3920,38 +3342,18 @@ impl App {
     /// at once, and Spotify is told where it ended up on release.
     fn set_volume(&mut self, percent: u8, settle: bool) {
         let percent = percent.min(100);
-        match self.target() {
-            Target::Local => {
-                let volume = percent_to_volume(percent);
-                self.local.volume = volume;
-                self.pending_local_volume = Some((volume, Instant::now()));
-                // The engine echoes `VolumeChanged` only while this device
-                // holds the Connect session, so the snapshot that would
-                // otherwise persist this may never arrive.
-                if self.settings.volume != volume {
-                    self.settings.volume = volume;
-                    self.settings_dirty = true;
-                }
-                self.backend.player(if settle {
-                    PlayerCommand::Volume(volume)
-                } else {
-                    PlayerCommand::VolumePreview(volume)
-                });
-            }
-            Target::Remote(_) if !settle => {}
-            Target::Remote(device_id) => {
-                self.pending_remote_volume = Some((percent, Instant::now()));
-                self.backend.api(ApiRequest::Remote {
-                    action: RemoteAction::Volume,
-                    device_id,
-                    play: None,
-                    position_ms: 0,
-                    percent,
-                    flag: false,
-                    repeat: String::new(),
-                });
-            }
+        let volume = percent_to_volume(percent);
+        self.local.volume = volume;
+        self.pending_local_volume = Some((volume, Instant::now()));
+        if self.settings.volume != volume {
+            self.settings.volume = volume;
+            self.settings_dirty = true;
         }
+        self.backend.player(if settle {
+            PlayerCommand::Volume(volume)
+        } else {
+            PlayerCommand::VolumePreview(volume)
+        });
     }
 
     fn set_shuffle(&mut self, shuffle: bool) {
@@ -3961,93 +3363,13 @@ impl App {
         if let Some(assumed) = &mut self.assumed_context {
             assumed.shuffle = Some(shuffle);
         }
-        match self.target() {
-            Target::Local => {
-                self.local.shuffle = shuffle;
-                self.backend.player(PlayerCommand::Shuffle(shuffle));
-            }
-            Target::Remote(device_id) => {
-                if let Some(remote) = self.remote.as_mut() {
-                    remote.state.shuffle_state = shuffle;
-                }
-                self.backend.api(ApiRequest::Remote {
-                    action: RemoteAction::Shuffle,
-                    device_id,
-                    play: None,
-                    position_ms: 0,
-                    percent: 0,
-                    flag: shuffle,
-                    repeat: String::new(),
-                });
-            }
-        }
+        self.local.shuffle = shuffle;
+        self.backend.player(PlayerCommand::Shuffle(shuffle));
     }
 
     fn set_repeat(&mut self, mode: RepeatMode) {
-        match self.target() {
-            Target::Local => {
-                self.local.repeat = mode;
-                self.backend.player(PlayerCommand::Repeat(mode));
-            }
-            Target::Remote(device_id) => {
-                if let Some(remote) = self.remote.as_mut() {
-                    remote.state.repeat_state = mode.api_name().to_string();
-                }
-                self.backend.api(ApiRequest::Remote {
-                    action: RemoteAction::Repeat,
-                    device_id,
-                    play: None,
-                    position_ms: 0,
-                    percent: 0,
-                    flag: false,
-                    repeat: mode.api_name().to_string(),
-                });
-            }
-        }
-    }
-
-    fn transfer(&mut self, device_id: String) {
-        if Some(device_id.as_str()) == self.local_device_id.as_deref() {
-            self.selected_device = None;
-            self.show_devices = false;
-            let was_playing = self.now_playing().is_some_and(|now| now.playing);
-            self.backend.player(PlayerCommand::Activate);
-            if let Some(remote) = self.remote_fresh()
-                && let Some(item) = &remote.state.item
-            {
-                let uri = item.uri().to_string();
-                let position = {
-                    let base = remote.state.progress_ms.unwrap_or(0);
-                    if remote.state.is_playing {
-                        base + remote.received_at.elapsed().as_millis() as u32
-                    } else {
-                        base
-                    }
-                };
-                let mut request = match &remote.state.context {
-                    Some(context) if !context.uri.is_empty() => {
-                        PlayRequest::context(context.uri.clone()).starting_at_uri(uri)
-                    }
-                    _ => PlayRequest::tracks(vec![uri]),
-                };
-                request.position_ms = position;
-                self.backend.player(PlayerCommand::Load(LoadSpec {
-                    context_uri: request.context_uri,
-                    uris: request.uris,
-                    offset_uri: request.offset_uri,
-                    offset_index: None,
-                    position_ms: request.position_ms,
-                    play: was_playing,
-                    shuffle: None,
-                    ..LoadSpec::default()
-                }));
-            }
-            self.poll_remote_soon();
-            return;
-        }
-        let play = self.now_playing().is_some_and(|now| now.playing);
-        self.selected_device = Some(device_id.clone());
-        self.backend.api(ApiRequest::Transfer { device_id, play });
+        self.local.repeat = mode;
+        self.backend.player(PlayerCommand::Repeat(mode));
     }
 
     /// Adds a row to Next up immediately, before the context's upcoming rows.
@@ -4191,10 +3513,7 @@ impl App {
             // Rule 4: the top row is gone the moment Next is pressed. The
             // engine takes it off the queue and publishes before it opens
             // the track, so nothing here has to guess at it.
-            Action::Next => match self.target() {
-                Target::Local => self.backend.player(PlayerCommand::Next),
-                Target::Remote(device_id) => self.remote(RemoteAction::Next, device_id),
-            },
+            Action::Next => self.backend.player(PlayerCommand::Next),
             // Previous restarts after three seconds and otherwise steps back,
             // matching librespot.
             Action::Previous if self.resume_only() => {
@@ -4205,10 +3524,7 @@ impl App {
                     self.step_resume(false);
                 }
             }
-            Action::Previous => match self.target() {
-                Target::Local => self.backend.player(PlayerCommand::Previous),
-                Target::Remote(device_id) => self.remote(RemoteAction::Previous, device_id),
-            },
+            Action::Previous => self.backend.player(PlayerCommand::Previous),
             Action::Seek(position_ms) => self.seek(position_ms),
             Action::SeekBy(offset) => {
                 if let Some(now) = self.now_playing() {
@@ -4376,11 +3692,6 @@ impl App {
                 }
                 self.backend.api(ApiRequest::DeletePlaylist { id });
             }
-            Action::Transfer(device_id) => self.transfer(device_id),
-            Action::RefreshDevices => {
-                self.devices_fetched_at = None;
-                self.refresh_devices();
-            }
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::CopyLink(uri) => {
@@ -4473,12 +3784,6 @@ impl App {
                     self.request_lyrics();
                 }
             }
-            Action::ToggleDevicesPopup => {
-                self.show_devices = !self.show_devices;
-                if self.show_devices {
-                    self.refresh_devices();
-                }
-            }
             Action::SettingsChanged => {
                 self.settings_dirty = true;
                 ctx.set_theme(match self.settings.theme {
@@ -4517,14 +3822,6 @@ impl App {
                 if self.tray.is_some() {
                     self.hide_intent = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            }
-            Action::EnablePlayback => {
-                // Playback is not a separate grant any more: the engine
-                // streams from the server the app is signed in to, so
-                // "enable" means "sign in".
-                if !self.local_ready && !matches!(self.local_playback, LocalPlayback::Connecting) {
-                    self.toast_error("Sign in to your music server to play anything here");
                 }
             }
             Action::OpenUrl(url) => {
@@ -4958,9 +4255,6 @@ impl App {
         if self.any_play_pending() {
             ctx.request_repaint_after(Duration::from_millis(120));
         }
-        if self.is_connected() {
-            ctx.request_repaint_after(REMOTE_POLL_ACTIVE);
-        }
         if ctx.input(|input| input.viewport().close_requested())
             && !self.quit_requested
             && !self.switch_intent
@@ -5094,7 +4388,6 @@ impl App {
                 last_track: self.resume_track.clone(),
                 last_context_track: self.resume_context_track.clone(),
                 last_position_ms: self.resume_position_ms,
-                collapsed_folders: self.collapsed_folders.clone(),
                 last_added_queue: if self.resume_queue.is_empty() {
                     self.manual_queue.clone()
                 } else {
@@ -5192,19 +4485,6 @@ pub fn percent_to_volume(percent: u8) -> u16 {
 
 fn page_related_needs_load(pages: &HashMap<String, ArtistPage>, id: &str) -> bool {
     pages.get(id).is_some_and(|page| page.related.needs_load())
-}
-
-fn remote_action_label(action: RemoteAction) -> &'static str {
-    match action {
-        RemoteAction::Play => "Couldn't start playback",
-        RemoteAction::Pause => "Couldn't pause",
-        RemoteAction::Next => "Couldn't skip",
-        RemoteAction::Previous => "Couldn't go back",
-        RemoteAction::Seek => "Couldn't seek",
-        RemoteAction::Volume => "Couldn't change the volume",
-        RemoteAction::Shuffle => "Couldn't change shuffle",
-        RemoteAction::Repeat => "Couldn't change repeat",
-    }
 }
 
 fn friendly_page_error(error: &crate::api::ApiError) -> String {
@@ -5457,7 +4737,6 @@ mod tests {
         app.toggle_play();
 
         assert!(app.queued_play.is_some());
-        assert!(!app.show_devices, "startup is not a missing-device error");
     }
 
     /// Previous and Next move a restored track without starting playback.
@@ -6741,10 +6020,6 @@ mod tests {
                 ..Default::default()
             },
         );
-        // Playing on a phone: the Web API needs the offset.
-        app.selected_device = Some("phone".into());
-        assert!(matches!(app.target(), Target::Remote(Some(_))));
-
         // The playlist on screen: the start is one of its own rows.
         let (uri, position) = app.shuffle_start("sonic:playlist:open");
         assert!(
@@ -6753,40 +6028,14 @@ mod tests {
         );
         assert_eq!(position, None);
 
-        // Begun from the sidebar or a menu, with no rows loaded: a
-        // position inside the length the library reported.
-        for (context, len) in [
-            ("sonic:playlist:unopened", 57),
-            ("sonic:album:saved", 12),
-            ("sonic:collection:songs", 9),
-        ] {
-            for _ in 0..50 {
-                let (uri, position) = app.shuffle_start(context);
-                assert_eq!(uri, None, "{context} has no rows to name");
-                let position = position.unwrap_or_else(|| panic!("{context} got no offset"));
-                assert!(
-                    position < len,
-                    "{context} offset {position} is outside {len}"
-                );
-            }
-        }
-        // Over 50 draws a 57-song playlist should not have sat still on
-        // one song, let alone on the first.
-        let drawn: std::collections::HashSet<Option<u32>> = (0..50)
-            .map(|_| app.shuffle_start("sonic:playlist:unopened").1)
-            .collect();
-        assert!(drawn.len() > 1, "the starting position never moved");
-
         // Nothing saved, nothing loaded: no offset to give.
         assert_eq!(app.shuffle_start("sonic:playlist:unknown"), (None, None));
 
-        // Local playback: librespot picks the starting track itself.
-        app.selected_device = None;
-        assert!(matches!(app.target(), Target::Local));
+        // The local engine owns shuffling when no rows are loaded.
         assert_eq!(
             app.shuffle_start("sonic:playlist:unopened"),
             (None, None),
-            "librespot is left to draw its own"
+            "the engine is left to draw its own"
         );
     }
 
@@ -6916,7 +6165,7 @@ mod tests {
         assert!(queue.lock().expect("the queue").is_empty());
     }
 
-    /// Control clients can set state, seek, play a URI, and transfer playback.
+    /// Control clients can set state, seek, and play a URI.
     #[test]
     fn a_key_can_ask_for_a_state_rather_than_a_toggle() {
         // #given
@@ -6930,8 +6179,6 @@ mod tests {
             ControlCommand::SetRepeat(RepeatMode::Track),
             ControlCommand::SeekTo(90_000),
             ControlCommand::PlayUri("sonic:playlist:pl1".to_owned()),
-            ControlCommand::Transfer("abc123".to_owned()),
-            ControlCommand::RefreshDevices,
             // Nothing is playing in a headless app, so there is no track to
             // save and this one falls away rather than erroring.
             ControlCommand::ToggleSaved,
@@ -6951,8 +6198,6 @@ mod tests {
                         offset_index: None,
                         ..
                     },
-                    Action::Transfer(_),
-                    Action::RefreshDevices,
                 ]
             ),
             "{:?}",
@@ -7006,50 +6251,9 @@ mod tests {
                 "https://i.scdn.co/image/abc",
                 // Saved state is unknown before sign-in.
                 "unknown",
-                // Local playback is this computer, which Spotify has not
-                // named because it is not a remote device.
-                "Fastsonic",
+                "this computer",
             ]
         );
-        // No devices seen yet is an empty array, not an empty string, so a
-        // client never special-cases the answer.
-        assert_eq!(
-            app.control_devices_snapshot(),
-            crate::single_instance::NO_DEVICES
-        );
-    }
-
-    /// Spotify device responses update the control snapshot.
-    #[test]
-    fn a_device_list_reaches_the_slot_when_spotify_answers() {
-        // #given
-        let mut app = headless_app();
-        let slot = std::sync::Arc::new(std::sync::Mutex::new(
-            crate::single_instance::NO_DEVICES.to_owned(),
-        ));
-        app.control_devices = Some(std::sync::Arc::clone(&slot));
-        app.control_devices_stale = false;
-
-        // #when
-        app.handle_api(ApiResponse::Devices(Ok(vec![Device {
-            id: Some("abc123".to_owned()),
-            name: "Kitchen\tspeaker".to_owned(),
-            kind: "Speaker".to_owned(),
-            is_active: true,
-            ..Device::default()
-        }])));
-        app.sync_media_controls();
-
-        // #then
-        let written = slot.lock().expect("the slot").clone();
-        assert_eq!(
-            written,
-            r#"[{"active":true,"id":"abc123","kind":"Speaker","name":"Kitchen\tspeaker"}]"#,
-            "a name is carried whole, tab and all, because JSON escapes it \
-             where the tab-separated snapshot could not"
-        );
-        // Written once and not again until the next answer.
-        assert!(!app.control_devices_stale);
     }
 
     /// `play` and `pause` say what state to end in, so the one that would

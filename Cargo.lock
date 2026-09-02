@@ -1600,11 +1600,7 @@ dependencies = [
  "image",
  "jiff",
  "ksni",
- "librespot-connect",
- "librespot-core",
- "librespot-metadata",
  "librespot-playback",
- "librespot-protocol",
  "log",
  "md-5",
  "memmap2",
@@ -1616,7 +1612,6 @@ dependencies = [
  "opus-pure",
  "percent-encoding",
  "projectm-sys",
- "protobuf",
  "rand 0.9.5",
  "raw-window-handle",
  "reqwest 0.13.4",
@@ -2844,25 +2839,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
-]
-
-[[package]]
-name = "librespot-connect"
-version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?branch=fastpotify-0.8#784036dc8a49aafd46f107caed43e2d2b9d0bf78"
-dependencies = [
- "futures-util",
- "librespot-core",
- "librespot-playback",
- "librespot-protocol",
- "log",
- "protobuf",
- "rand 0.9.5",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tokio-stream",
- "uuid",
 ]
 
 [[package]]

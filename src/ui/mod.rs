@@ -2,7 +2,6 @@
 
 pub mod artist;
 pub mod collection;
-mod devices;
 mod dialogs;
 pub mod home;
 mod keys;
@@ -53,7 +52,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         lyrics::side_panel(app, ui);
     }
     central(app, ui);
-    devices::popup(app, ctx);
     dialogs::show(app, ctx);
     widgets::drag_ghost(ctx, &app.palette);
     toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);

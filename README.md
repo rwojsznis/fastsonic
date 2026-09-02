@@ -19,23 +19,16 @@ browser engine.
 **Playback needs Spotify Premium.** Free accounts can browse and search, but
 cannot play music through Fastsonic on this computer or another device.
 
-![Fastsonic showing a playlist, with the queue open and a track playing on a remote speaker](docs/screenshot.png)
+![Fastsonic showing a playlist with the queue open](docs/screenshot.png)
 
 See [rwojsznis.github.io/fastsonic](https://rwojsznis.github.io/fastsonic/) for installation, setup,
 everyday use, and connection details.
 
 ## What it does
 
-- **Plays music on this computer.** Fastsonic appears as a Spotify Connect
-  device. Select it from your phone or play music in the app. Playback is
-  gapless and supports up to 320 kbps, with
+- **Plays music on this computer.** Playback is gapless and supports the
+  formats in your server library, with
   optional volume normalisation and an on-disk audio cache.
-- **Controls other devices.** Move playback to a speaker, a phone, or
-  another computer from the device picker, and keep controlling it: play,
-  pause, skip, seek, shuffle, repeat, volume.
-- **Finds speakers on your network.** Fastsonic finds librespot, spotifyd,
-  and supported hardware receivers over mDNS. Once connected, they appear as
-  Spotify Connect devices.
 - **Library.** Browse playlists, Liked Songs, saved albums, followed artists,
   podcasts, and saved episodes. Filter, pin, and reorder sidebar items.
 - **Search** across songs, artists, albums, playlists, podcasts, and episodes,
@@ -189,9 +182,8 @@ fastsonic next                fastsonic mute
 fastsonic previous            fastsonic shuffle [on|off]
 fastsonic seek 15             fastsonic repeat [off|context|track]
 fastsonic seek -- -15         fastsonic like
-fastsonic seek-to 90          fastsonic play-uri spotify:playlist:37i9…
-fastsonic show                fastsonic transfer <device-id>
-fastsonic now-playing [--raw] fastsonic devices [--raw]
+fastsonic seek-to 90          fastsonic play-uri sonic:playlist:37i9…
+fastsonic show                fastsonic now-playing [--raw]
 ```
 
 `shuffle` and `repeat` toggle when used without an argument. Pass a state to
@@ -202,10 +194,6 @@ state, title, artists, album, position_ms, duration_ms, volume, shuffle,
 repeat, art_url, saved, and device. `saved` is `yes`, `no`, or `unknown` while
 loading. New fields are appended to keep older scripts working.
 
-`devices` lists Spotify Connect devices with the ID first and the active one
-marked with `*`. `--raw` prints JSON. The command refreshes the device list,
-so the first call after startup may be empty. Run it again if needed.
-
 A verb exits non-zero when Fastsonic is not running.
 
 Launchers such as Raycast or Alfred can use these commands. The Stream Deck
@@ -214,7 +202,7 @@ plugin uses the same interface.
 ## Settings
 
 Settings live in one readable JSON file (`~/.config/fastsonic/settings.json`
-on Linux). They include the Connect device name, bitrate, normalisation,
+on Linux). They include audio quality, normalisation,
 autoplay, gapless playback, the audio backend (PulseAudio/PipeWire or ALSA on
 Linux), audio cache size, theme, sidebar state, whether pages take colour
 from artwork, and the mini player's skin and size.
@@ -225,7 +213,7 @@ any time without signing you out.
 
 ## How it is built
 
-- `src/player.rs`: librespot playback, mixing, and Spotify Connect state.
+- `src/engine/`: HTTP streaming, decoding, queue state, and local playback.
 - `src/api/`: shared and personal Web API sessions, routing, concurrency, and
   rate limits.
 - `src/backend.rs`: the tokio runtime and channels used by the interface.

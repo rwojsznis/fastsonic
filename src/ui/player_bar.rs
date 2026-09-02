@@ -453,11 +453,8 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     ) {
         SliderEvent::Dragging(value) => {
             app.volume_preview = Some(value);
-            // Local volume is cheap to apply continuously; remote goes on release.
-            if now.is_none_or(|now| now.local) {
-                app.actions
-                    .push(Action::PreviewVolume((value * 100.0).round() as u8));
-            }
+            app.actions
+                .push(Action::PreviewVolume((value * 100.0).round() as u8));
         }
         SliderEvent::Committed(value) => {
             app.volume_preview = None;
@@ -485,25 +482,6 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         app.actions.push(Action::ToggleMute);
     }
     ui.add_space(4.0);
-    let remote = now.is_some_and(|now| !now.local);
-    let devices = theme::icon_button(
-        ui,
-        Icon::Speaker,
-        18.0,
-        if remote {
-            palette.accent
-        } else {
-            palette.secondary
-        },
-        palette.text,
-        "Connect to a device",
-    );
-    ui.ctx().data_mut(|data| {
-        data.insert_temp(egui::Id::new(super::devices::BUTTON_RECT_ID), devices.rect)
-    });
-    if devices.clicked() {
-        app.actions.push(Action::ToggleDevicesPopup);
-    }
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
     if theme::icon_button(
         ui,

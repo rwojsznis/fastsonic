@@ -49,8 +49,6 @@ impl ThemeChoice {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// The Spotify Connect name other devices see.
-    pub device_name: String,
     /// 96, 160, or 320 kbps.
     pub bitrate: u16,
     pub normalisation: bool,
@@ -154,7 +152,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            device_name: "Fastsonic".to_string(),
             bitrate: 320,
             normalisation: false,
             autoplay: true,
@@ -387,8 +384,6 @@ pub struct SessionState {
     /// Queue rows displayed on the next start. Playback restores manual rows
     /// from `last_added_queue`; it does not enqueue this list.
     pub last_queue_rows: Vec<crate::api::models::PlayableItem>,
-    /// Sidebar folders rolled up, by their rootlist ids.
-    pub collapsed_folders: Vec<String>,
     /// Shuffle mode saved across contexts and restarts.
     pub shuffle_on: bool,
     /// Each table's chosen sort, by encoded page, restored at start.

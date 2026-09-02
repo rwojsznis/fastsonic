@@ -648,8 +648,6 @@ pub enum Action {
         public: bool,
     },
     DeletePlaylist(String),
-    Transfer(String),
-    RefreshDevices,
     /// Empty Next up of its queued songs, keeping the context's own.
     ClearQueue,
     /// Save the current and upcoming queue as a playlist.
@@ -680,10 +678,8 @@ pub enum Action {
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
-    ToggleDevicesPopup,
     SettingsChanged,
     RestartEngine,
-    EnablePlayback,
     ShowWindow,
     HideWindow,
     ClearArtCache,

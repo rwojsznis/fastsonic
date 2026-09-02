@@ -27,7 +27,6 @@ pub mod model;
 pub mod opener;
 pub mod opus;
 pub mod paths;
-pub mod player;
 pub mod resample;
 pub mod settings;
 pub mod single_instance;
@@ -57,8 +56,7 @@ pub fn http_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
 }
 
-/// The same, for the blocking clients: the Spotify Connect handover in
-/// `backend.rs` and the MilkDrop preset download.
+/// The same, for blocking clients such as the MilkDrop preset download.
 pub fn blocking_http_client_builder() -> reqwest::blocking::ClientBuilder {
     install_tls_provider();
     reqwest::blocking::Client::builder()

@@ -637,56 +637,6 @@ pub struct Context {
     pub kind: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-pub struct Device {
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub name: String,
-    #[serde(default)]
-    pub is_active: bool,
-    #[serde(default)]
-    pub is_restricted: bool,
-    #[serde(default)]
-    pub volume_percent: Option<u8>,
-    #[serde(default)]
-    pub supports_volume: Option<bool>,
-    #[serde(default, rename = "type")]
-    #[serde(deserialize_with = "null_default")]
-    pub kind: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-pub struct DeviceList {
-    #[serde(default)]
-    #[serde(deserialize_with = "skip_nulls")]
-    pub devices: Vec<Device>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-pub struct PlaybackState {
-    #[serde(default)]
-    pub device: Option<Device>,
-    #[serde(default)]
-    #[serde(deserialize_with = "null_default")]
-    pub repeat_state: String,
-    #[serde(default)]
-    pub shuffle_state: bool,
-    #[serde(default)]
-    pub context: Option<Context>,
-    #[serde(default)]
-    pub timestamp: u64,
-    #[serde(default)]
-    pub progress_ms: Option<u32>,
-    #[serde(default)]
-    pub is_playing: bool,
-    #[serde(default)]
-    pub item: Option<PlayableItem>,
-    #[serde(default)]
-    pub currently_playing_type: Option<String>,
-}
-
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct Queue {
     #[serde(default)]

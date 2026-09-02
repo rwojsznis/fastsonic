@@ -14,10 +14,6 @@ struct Cli {
     #[command(subcommand)]
     control: Option<Control>,
 
-    /// Spotify Connect device name for this session.
-    #[arg(long)]
-    device_name: Option<String>,
-
     /// Log more from librespot and the Web API client.
     #[arg(short, long)]
     verbose: bool,
@@ -32,7 +28,7 @@ struct Cli {
     #[arg(long)]
     demo_page: Option<String>,
 
-    /// Extra demo surfaces: a comma-separated list of `queue`, `devices`,
+    /// Extra demo surfaces: a comma-separated list of `queue`,
     /// `shortcuts`, `create`, `light`, `focus`.
     #[cfg(feature = "demo")]
     #[arg(long)]
@@ -99,14 +95,6 @@ enum Control {
     Like,
     /// Play a Spotify URI: a track, album, playlist, artist, or show
     PlayUri { uri: String },
-    /// List the Spotify Connect devices
-    Devices {
-        /// Print the JSON the running instance sent instead.
-        #[arg(long)]
-        raw: bool,
-    },
-    /// Move playback to a device, by the id `devices` prints
-    Transfer { device_id: String },
     /// Print the playing track
     NowPlaying {
         /// Print the fields tab-separated instead: state, title, artists,
@@ -139,10 +127,7 @@ enum Repeat {
 /// single-instance loopback socket, which Linux does not have.
 #[cfg(not(target_os = "linux"))]
 fn run_control(control: Control) -> i32 {
-    let raw = matches!(
-        control,
-        Control::NowPlaying { raw: true } | Control::Devices { raw: true }
-    );
+    let raw = matches!(control, Control::NowPlaying { raw: true });
     let verb = match control {
         Control::PlayPause => "playpause".to_owned(),
         Control::Play => "play".to_owned(),
@@ -174,8 +159,6 @@ fn run_control(control: Control) -> i32 {
         }
         Control::Like => "save-toggle".to_owned(),
         Control::PlayUri { uri } => format!("play-uri {uri}"),
-        Control::Devices { .. } => "devices".to_owned(),
-        Control::Transfer { device_id } => format!("transfer {device_id}"),
         Control::NowPlaying { .. } => "nowplaying".to_owned(),
         Control::Show => "show".to_owned(),
     };
@@ -186,14 +169,6 @@ fn run_control(control: Control) -> i32 {
                 println!("{snapshot}");
             } else {
                 println!("{}", format_now_playing(&snapshot));
-            }
-            0
-        }
-        Ok(single_instance::Reply::Devices(snapshot)) => {
-            if raw {
-                println!("{snapshot}");
-            } else {
-                print!("{}", format_devices(&snapshot));
             }
             0
         }
@@ -237,33 +212,6 @@ fn format_now_playing(snapshot: &str) -> String {
     }
 }
 
-/// The `devices` snapshot as one line per device, the active one marked.
-/// The id comes first because `fastsonic transfer` is what it is for.
-#[cfg(not(target_os = "linux"))]
-fn format_devices(snapshot: &str) -> String {
-    let Ok(devices) = serde_json::from_str::<Vec<serde_json::Value>>(snapshot) else {
-        return String::new();
-    };
-    let field =
-        |device: &serde_json::Value, key: &str| device[key].as_str().unwrap_or_default().to_owned();
-    devices
-        .iter()
-        .map(|device| {
-            format!(
-                "{}{}\t{}\t{}\n",
-                if device["active"].as_bool().unwrap_or(false) {
-                    "* "
-                } else {
-                    "  "
-                },
-                field(device, "id"),
-                field(device, "name"),
-                field(device, "kind"),
-            )
-        })
-        .collect()
-}
-
 fn main() -> eframe::Result<()> {
     // A MilkDrop child launch is a bare visualiser window, not the app: it has
     // its own event loop and OpenGL context, reads the sound from a shared
@@ -302,11 +250,7 @@ fn main() -> eframe::Result<()> {
         log::warn!("unable to create the application directories: {error}");
     }
     log_panics(dirs.panic_log());
-    let mut settings = settings::Settings::load(&dirs.settings_file());
-    if let Some(name) = cli.device_name {
-        settings.device_name = name;
-    }
-
+    let settings = settings::Settings::load(&dirs.settings_file());
     // The application (audio engine, Web API, MPRIS, tray) outlives any
     // window. Closing to the tray destroys the window and this loop creates
     // a new one when the tray or MPRIS asks for it. Plain window lifecycle,

@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
     };
     probe.check(
         "local playback came up with the sign-in",
-        matches!(playback, LocalPlayback::Ready { .. }),
+        matches!(playback, LocalPlayback::Ready),
     );
     let me = probe.next_api(|response| match response {
         ApiResponse::Me(result) => Some(result),
@@ -231,22 +231,6 @@ fn main() -> anyhow::Result<()> {
         _ => None,
     })?;
     probe.check("top songs answer", top.is_ok());
-
-    println!("\n-- the cut requests answer nothing at all");
-    probe.backend.api(ApiRequest::Devices);
-    probe.backend.api(ApiRequest::PlaybackState { seq: 1 });
-    probe.backend.api(ApiRequest::Transfer {
-        device_id: "anything".into(),
-        play: true,
-    });
-    // Something that does answer, sent last: if a cut request had produced
-    // one, it would arrive before this.
-    probe.backend.api(ApiRequest::Me);
-    let after = probe.next_api(Some)?;
-    probe.check(
-        "devices, a playback poll and a transfer are all silent",
-        matches!(after, ApiResponse::Me(_)),
-    );
 
     println!("\n-- play an album through the bridge");
     probe.backend.player(PlayerCommand::Load(LoadSpec {

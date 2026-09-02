@@ -1,7 +1,7 @@
 //! Single-instance guard and remote-control channel.
 //!
-//! A second instance would duplicate the Spotify Connect device, MPRIS player,
-//! and tray icon. A second launch raises the running instance and exits.
+//! A second instance would duplicate the audio player, MPRIS player, and tray
+//! icon. A second launch raises the running instance and exits.
 //!
 //! Linux uses a non-queued D-Bus well-known name as the guard and MPRIS
 //! `Raise` to show the running instance. D-Bus releases the name when the
@@ -21,11 +21,11 @@
 //! app state. Linux uses MPRIS for these controls.
 //!
 //! The Stream Deck plugin uses the same channel. It can set shuffle and repeat,
-//! save the current track, play a URI, list devices, and transfer playback.
+//! save the current track, and play a URI.
 //! Clients poll the current snapshot; the app does not push updates.
 //!
-//! Any local process can reach the port, so `play-uri` and `transfer` validate
-//! their free-text arguments here.
+//! Any local process can reach the port, so `play-uri` validates its free-text
+//! argument here.
 
 /// The name held for the lifetime of the running instance.
 #[cfg(target_os = "linux")]
@@ -71,11 +71,6 @@ pub enum ControlCommand {
     ToggleSaved,
     /// Play a `sonic:` URI: a song, album, playlist, or artist.
     PlayUri(String),
-    /// Move playback to a Spotify Connect device, by id.
-    Transfer(String),
-    /// Refresh the device list. Sent by the `devices` read, which answers
-    /// from a snapshot that is only as fresh as the app's last look.
-    RefreshDevices,
 }
 
 /// Marks this process as the running instance until dropped.
@@ -87,8 +82,6 @@ pub struct Guard {
     commands: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>,
     /// Current-track snapshot for `nowplaying` requests.
     now_playing: std::sync::Arc<std::sync::Mutex<String>>,
-    /// Last Spotify Connect device snapshot, as one line of JSON.
-    devices: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
 impl Guard {
@@ -101,18 +94,10 @@ impl Guard {
     pub fn now_playing_slot(&self) -> std::sync::Arc<std::sync::Mutex<String>> {
         std::sync::Arc::clone(&self.now_playing)
     }
-
-    /// The slot the app writes the device list into.
-    pub fn devices_slot(&self) -> std::sync::Arc<std::sync::Mutex<String>> {
-        std::sync::Arc::clone(&self.devices)
-    }
 }
 
 /// Snapshot value reported when nothing is playing.
 pub const NOTHING_PLAYING: &str = "stopped";
-
-/// Device snapshot used before loading and when Spotify reports no devices.
-pub const NO_DEVICES: &str = "[]";
 
 /// Loopback port that marks a running instance on platforms without a bus.
 /// Registered to nothing; chosen high and out of the ephemeral range. One
@@ -130,8 +115,6 @@ const OK_REPLY: &str = "fastsonic:ok";
 #[cfg(not(target_os = "linux"))]
 const NOW_REPLY: &str = "fastsonic:now ";
 #[cfg(not(target_os = "linux"))]
-const DEVICES_REPLY: &str = "fastsonic:devices ";
-
 /// What the running instance said back.
 #[cfg(not(target_os = "linux"))]
 pub enum Reply {
@@ -141,10 +124,6 @@ pub enum Reply {
     /// `state, title, artists, album, position_ms, duration_ms, volume,
     /// shuffle, repeat, art_url, saved, device`.
     NowPlaying(String),
-    /// The `devices` snapshot: a JSON array of objects with `id`, `name`,
-    /// `kind`, and `active`, or [`NO_DEVICES`]. JSON safely carries free-text
-    /// device names.
-    Devices(String),
 }
 
 /// Sends one verb to the running instance and reads its reply.
@@ -171,8 +150,6 @@ fn send_to(port: u16, verb: &str) -> std::io::Result<Reply> {
         Ok(Reply::Ok)
     } else if let Some(snapshot) = line.strip_prefix(NOW_REPLY) {
         Ok(Reply::NowPlaying(snapshot.to_owned()))
-    } else if let Some(snapshot) = line.strip_prefix(DEVICES_REPLY) {
-        Ok(Reply::Devices(snapshot.to_owned()))
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -189,7 +166,6 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
     let unguarded = || Guard {
         commands: Default::default(),
         now_playing: Arc::new(Mutex::new(NOTHING_PLAYING.to_owned())),
-        devices: Arc::new(Mutex::new(NO_DEVICES.to_owned())),
     };
 
     let listener = match TcpListener::bind((Ipv4Addr::LOCALHOST, INSTANCE_PORT)) {
@@ -208,11 +184,10 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
     let guard = unguarded();
     let commands = Arc::clone(&guard.commands);
     let now_playing = Arc::clone(&guard.now_playing);
-    let devices = Arc::clone(&guard.devices);
     let waker = waker.clone();
     let spawned = std::thread::Builder::new()
         .name("fastsonic-instance".to_owned())
-        .spawn(move || serve(listener, &commands, &now_playing, &devices, &waker));
+        .spawn(move || serve(listener, &commands, &now_playing, &waker));
     if let Err(error) = spawned {
         log::warn!("cannot listen for other launches: {error}");
     }
@@ -226,7 +201,6 @@ fn serve(
     listener: std::net::TcpListener,
     commands: &std::sync::Mutex<Vec<ControlCommand>>,
     now_playing: &std::sync::Mutex<String>,
-    devices: &std::sync::Mutex<String>,
     waker: &crate::backend::Waker,
 ) {
     use std::io::Write;
@@ -257,14 +231,6 @@ fn serve(
                     .clone();
                 let _ = stream.write_all(format!("{NOW_REPLY}{snapshot}\n").as_bytes());
             }
-            Some(Request::Devices) => {
-                let snapshot = devices.lock().unwrap_or_else(|p| p.into_inner()).clone();
-                let _ = stream.write_all(format!("{DEVICES_REPLY}{snapshot}\n").as_bytes());
-                // Return the current snapshot, then request a refresh for the
-                // next read. The app otherwise refreshes only while its picker
-                // is open.
-                queue(ControlCommand::RefreshDevices);
-            }
             // Not our client; say nothing and hang up.
             None => {}
         }
@@ -277,7 +243,6 @@ fn serve(
 enum Request {
     Command(ControlCommand),
     NowPlaying,
-    Devices,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -314,9 +279,7 @@ fn parse(line: &str) -> Option<Request> {
         }
         ("save-toggle", None) => ControlCommand::ToggleSaved,
         ("play-uri", Some(uri)) => ControlCommand::PlayUri(object_uri(uri)?),
-        ("transfer", Some(id)) => ControlCommand::Transfer(device_id(id)?),
         ("nowplaying", None) => return Some(Request::NowPlaying),
-        ("devices", None) => return Some(Request::Devices),
         _ => return None,
     };
     Some(Request::Command(command))
@@ -331,17 +294,6 @@ fn object_uri(text: &str) -> Option<String> {
         && text
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_' | '.' | '%' | '+'));
-    shaped.then(|| text.to_owned())
-}
-
-/// A playback device id. Checked for the same reason as [`object_uri`].
-#[cfg(not(target_os = "linux"))]
-fn device_id(text: &str) -> Option<String> {
-    let shaped = !text.is_empty()
-        && text.len() <= 64
-        && text
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
     shaped.then(|| text.to_owned())
 }
 
@@ -380,7 +332,6 @@ pub fn acquire(_waker: &crate::backend::Waker) -> Outcome {
         _connection: connection,
         commands: Default::default(),
         now_playing: std::sync::Arc::new(std::sync::Mutex::new(NOTHING_PLAYING.to_owned())),
-        devices: std::sync::Arc::new(std::sync::Mutex::new(NO_DEVICES.to_owned())),
     };
 
     let connection = match Connection::session() {
@@ -517,15 +468,12 @@ mod tests {
                 "sonic:playlist:37i9dQZF1DXcBWIGoYBM5M".to_owned()
             ))
         );
-        assert_eq!(
-            command("fastsonic:transfer a1b2c3d4e5"),
-            Some(ControlCommand::Transfer("a1b2c3d4e5".to_owned()))
-        );
         assert!(matches!(
             parse("fastsonic:nowplaying"),
             Some(Request::NowPlaying)
         ));
-        assert!(matches!(parse("fastsonic:devices"), Some(Request::Devices)));
+        assert!(parse("fastsonic:devices").is_none());
+        assert!(parse("fastsonic:transfer a1b2c3d4e5").is_none());
     }
 
     #[test]
@@ -554,8 +502,6 @@ mod tests {
             ))
             .is_none()
         );
-        assert!(command("fastsonic:transfer ../secrets").is_none());
-        assert!(command("fastsonic:transfer").is_none());
         // A word that is not one of the three is refused rather than read
         // as `off`, which is what `RepeatMode::from_api` would have done.
         assert!(command("fastsonic:repeat-set sometimes").is_none());
@@ -574,15 +520,11 @@ mod tests {
         let port = listener.local_addr().expect("a bound address").port();
         let commands: Arc<Mutex<Vec<ControlCommand>>> = Default::default();
         let now_playing = Arc::new(Mutex::new("playing\tGo\tThe Band".to_owned()));
-        let devices = Arc::new(Mutex::new(
-            r#"[{"id":"abc","name":"Kitchen","kind":"Speaker","active":true}]"#.to_owned(),
-        ));
         let served = {
             let commands = Arc::clone(&commands);
             let now_playing = Arc::clone(&now_playing);
-            let devices = Arc::clone(&devices);
             let waker = crate::backend::Waker::default();
-            std::thread::spawn(move || serve(listener, &commands, &now_playing, &devices, &waker))
+            std::thread::spawn(move || serve(listener, &commands, &now_playing, &waker))
         };
 
         // #when
@@ -590,7 +532,7 @@ mod tests {
         let volume = send_to(port, "volume-by -5").expect("a reply");
         let liked = send_to(port, "save-toggle").expect("a reply");
         let snapshot = send_to(port, "nowplaying").expect("a reply");
-        let listed = send_to(port, "devices").expect("a reply");
+        let listed = send_to(port, "devices");
         let refused = send_to(port, "frobnicate");
 
         // #then
@@ -601,22 +543,16 @@ mod tests {
             Reply::NowPlaying(line) => assert_eq!(line, "playing\tGo\tThe Band"),
             _ => panic!("nowplaying answered with something else"),
         }
-        match listed {
-            Reply::Devices(json) => assert!(json.contains("Kitchen")),
-            _ => panic!("devices answered with something else"),
-        }
+        assert!(listed.is_err());
         // An unknown verb gets no reply at all, so the client sees a closed
         // connection rather than a command it never sent being obeyed.
         assert!(refused.is_err());
-        // Reading the devices also asks the app to look again, so the next
-        // read is fresh.
         assert_eq!(
             *commands.lock().expect("the queue"),
             vec![
                 ControlCommand::Next,
                 ControlCommand::VolumeBy(-5),
                 ControlCommand::ToggleSaved,
-                ControlCommand::RefreshDevices,
             ]
         );
 

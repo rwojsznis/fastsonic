@@ -44,7 +44,6 @@ main fields are:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `device_name` | `Fastsonic` | Name on Spotify Connect |
 | `bitrate` | `320` | 96, 160, or 320 kbps |
 | `normalisation` | `false` | Volume normalisation |
 | `autoplay` | `true` | Keep playing similar music at the end |
@@ -85,7 +84,6 @@ main fields are:
 ```
 fastsonic [OPTIONS]
 
-  --device-name <NAME>  Spotify Connect name for this session
   -v, --verbose         More logs from librespot and the API client
 ```
 
@@ -101,7 +99,7 @@ settings.
 
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, `album:alb0`, or
 `artist:art0`, and `--demo-show` adds surfaces on top of it: a comma
-separated list of `queue`, `recents`, `lyrics`, `devices`, `shortcuts`,
+separated list of `queue`, `recents`, `lyrics`, `shortcuts`,
 `create`, `light`, `focus`, `resume`, `winamp`, `playlist`, `eq`, `eq-shade`,
 and `compact`.
 

@@ -49,10 +49,6 @@ const USER: &str = "demo";
 /// can read it and cannot edit it.
 const OTHER_USER: &str = "kasia";
 
-/// The device id local playback reports (`backend::LOCAL_DEVICE_ID`). There
-/// is one player and it is this process.
-const DEVICE: &str = "local";
-
 /// Cover art, in the three sizes `convert::art_images` offers. A real one
 /// is a `sonic:art:` request; see the note at the top of the module.
 fn cover(seed: u32) -> Vec<Image> {
@@ -558,11 +554,8 @@ pub fn populate(app: &mut App) {
     app.auth = AuthStatus::Connected {
         username: USER.into(),
     };
-    app.local_device_id = Some(DEVICE.into());
     app.local_ready = true;
-    app.local_playback = LocalPlayback::Ready {
-        device_id: DEVICE.into(),
-    };
+    app.local_playback = LocalPlayback::Ready;
     app.user = Some(User {
         id: USER.into(),
         display_name: Some(USER.into()),
@@ -838,7 +831,6 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.show_queue_panel = true;
                 app.queue_tab = QueueTab::Recents;
             }
-            "devices" => app.show_devices = true,
             "shortcuts" => app.dialog = Some(Dialog::Shortcuts),
             "create" => {
                 app.dialog = Some(Dialog::CreatePlaylist {
@@ -1381,7 +1373,6 @@ mod tests {
         frame(&ctx, &mut app);
         app.settings.sidebar_visible = true;
         app.show_queue_panel = true;
-        app.show_devices = true;
         frame(&ctx, &mut app);
         // The panel's other shape. `populate` leaves a hand-queued row on
         // top of the album; this is the album on its own, so there is no

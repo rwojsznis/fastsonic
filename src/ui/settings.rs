@@ -184,61 +184,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     });
 
     section(ui, &palette, "Playback on this computer", |ui| {
-        let (status, detail, action) = match &app.local_playback {
-            crate::backend::LocalPlayback::Ready { .. } => (
+        let (status, detail) = match &app.local_playback {
+            crate::backend::LocalPlayback::Ready => (
                 "Ready",
                 "Music is streamed from your server and decoded here.".to_string(),
-                None,
             ),
             crate::backend::LocalPlayback::Connecting => {
-                ("Starting", "Opening the audio device…".to_string(), None)
+                ("Starting", "Opening the audio device…".to_string())
             }
-            crate::backend::LocalPlayback::Failed(message) => {
-                ("Unavailable", message.clone(), Some("Try again"))
-            }
+            crate::backend::LocalPlayback::Failed(message) => ("Unavailable", message.clone()),
             crate::backend::LocalPlayback::Unavailable => (
                 "Not set up",
                 "Sign in to your music server first.".to_string(),
-                Some("Enable playback here"),
             ),
         };
         widgets::setting_row(ui, &palette, &format!("Status: {status}"), &detail, |ui| {
-            if let Some(label) = action {
-                if theme::pill_button(ui, &palette, label, true).clicked() {
-                    app.actions.push(Action::EnablePlayback);
-                }
-            } else if app.local_ready
+            if app.local_ready
                 && theme::soft_button(ui, &palette, Some(Icon::Refresh), "Reconnect", false)
                     .clicked()
             {
                 app.actions.push(Action::RestartEngine);
             }
         });
-        widgets::setting_row(
-            ui,
-            &palette,
-            "Device name",
-            "How this computer appears in Spotify Connect.",
-            |ui| {
-                let response = Frame::new()
-                    .fill(palette.surface)
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::symmetric(10, 6))
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut app.settings.device_name)
-                                .font(theme::regular(14.0))
-                                .frame(egui::Frame::NONE)
-                                .desired_width(200.0),
-                        )
-                    })
-                    .inner;
-                if response.changed() {
-                    changed = true;
-                    playback_dirty = true;
-                }
-            },
-        );
         widgets::setting_row(
             ui,
             &palette,

@@ -130,131 +130,6 @@ fn art_panel(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
-/// Playlist rows in account order, including collapsible folders (#95).
-fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
-    use crate::player::RootlistEntry;
-    let Some(playlists) = app.library.playlists.get() else {
-        return;
-    };
-    let by_uri: std::collections::HashMap<&str, (usize, &crate::api::models::Playlist)> = playlists
-        .iter()
-        .enumerate()
-        .map(|(index, playlist)| (playlist.uri.as_str(), (index, playlist)))
-        .collect();
-    let mut depth = 0u8;
-    // Rows inside a rolled-up folder stay off the list; the stack knows
-    // how deep the rolled-up one sits.
-    let mut hidden_from: Option<u8> = None;
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for row in &app.rootlist {
-        match row {
-            RootlistEntry::FolderStart { id, name } => {
-                let collapsed = app.collapsed_folders.contains(id);
-                if hidden_from.is_none() {
-                    let count = folder_playlists(&app.rootlist, id);
-                    entries.push(Entry {
-                        image: None,
-                        name: if name.is_empty() {
-                            "Folder".to_string()
-                        } else {
-                            name.clone()
-                        },
-                        subtitle: match count {
-                            1 => "Folder • 1 playlist".to_string(),
-                            n => format!("Folder • {n} playlists"),
-                        },
-                        page: Page::Home,
-                        uri: String::new(),
-                        round: false,
-                        liked: false,
-                        owned: false,
-                        playlist_index: None,
-                        folder: Some((id.clone(), collapsed, count)),
-                        depth,
-                    });
-                    if collapsed {
-                        hidden_from = Some(depth);
-                    }
-                }
-                depth += 1;
-            }
-            RootlistEntry::FolderEnd => {
-                depth = depth.saturating_sub(1);
-                if hidden_from == Some(depth) {
-                    hidden_from = None;
-                }
-            }
-            RootlistEntry::Playlist(uri) => {
-                let Some((index, playlist)) = by_uri.get(uri.as_str()) else {
-                    continue;
-                };
-                seen.insert(uri.as_str());
-                if hidden_from.is_some() {
-                    continue;
-                }
-                entries.push(playlist_entry(playlist, *index, user_id, depth));
-            }
-        }
-    }
-    // Playlists the rootlist has not met yet, the newly followed, wait at
-    // the end rather than vanish.
-    for (index, playlist) in playlists.iter().enumerate() {
-        if !seen.contains(playlist.uri.as_str()) {
-            entries.push(playlist_entry(playlist, index, user_id, 0));
-        }
-    }
-}
-
-/// How many playlists a folder holds, nested ones included.
-fn folder_playlists(rootlist: &[crate::player::RootlistEntry], id: &str) -> usize {
-    use crate::player::RootlistEntry;
-    let mut counting = false;
-    let mut depth = 0usize;
-    let mut count = 0;
-    for row in rootlist {
-        match row {
-            RootlistEntry::FolderStart { id: this, .. } => {
-                if counting {
-                    depth += 1;
-                } else if this == id {
-                    counting = true;
-                    depth = 1;
-                }
-            }
-            RootlistEntry::FolderEnd if counting => {
-                depth -= 1;
-                if depth == 0 {
-                    return count;
-                }
-            }
-            RootlistEntry::Playlist(_) if counting => count += 1,
-            _ => {}
-        }
-    }
-    count
-}
-
-fn playlist_entry(
-    playlist: &crate::api::models::Playlist,
-    index: usize,
-    user_id: &str,
-    depth: u8,
-) -> Entry {
-    Entry {
-        image: pick_image(&playlist.images, 64).map(str::to_string),
-        name: playlist.name.clone(),
-        subtitle: format!("Playlist • {}", playlist.owner_name()),
-        page: Page::Playlist(playlist.id.clone()),
-        uri: playlist.uri.clone(),
-        round: false,
-        liked: false,
-        owned: playlist.owned_by(user_id),
-        playlist_index: Some(index),
-        folder: None,
-        depth,
-    }
-}
-
 fn nav_row(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -443,16 +318,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     depth: 0,
                 });
             }
-            let has_folders = app
-                .rootlist
-                .iter()
-                .any(|row| matches!(row, crate::player::RootlistEntry::FolderStart { .. }));
-            let custom_order = !app.settings.sidebar_order.is_empty();
-            if has_folders && needle.is_empty() && !custom_order {
-                folder_rows(app, &user_id, &mut entries);
-            }
             match &app.library.playlists {
-                Loadable::Loaded(_) if has_folders && needle.is_empty() && !custom_order => {}
                 Loadable::Loaded(playlists) => {
                     // Recently played first, the way Spotify orders its own
                     // sidebar; the rest keep the library's order.
@@ -945,16 +811,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     }
                 }
                 if response.clicked() {
-                    if let Some((folder_id, collapsed, _)) = &entry.folder {
-                        if *collapsed {
-                            app.collapsed_folders.retain(|held| held != folder_id);
-                        } else {
-                            app.collapsed_folders.push(folder_id.clone());
-                        }
-                        app.session_dirty = true;
-                    } else {
-                        app.actions.push(Action::Open(entry.page.clone()));
-                    }
+                    app.actions.push(Action::Open(entry.page.clone()));
                 }
                 if !entry.uri.is_empty() {
                     let owned_playlist = entry
