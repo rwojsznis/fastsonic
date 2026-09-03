@@ -518,6 +518,19 @@ fn queue_row(track: &Track) -> QueueRow {
 
 /// How long ago the *n*th row of Recents was played. The first rows cover
 /// each relative-date unit; the rest are days.
+/// How long ago the nth liked song was starred. Spread across the labels
+/// `util::format_relative_date` can produce, so a screenshot of the Date
+/// Added column shows the range rather than five copies of one word.
+fn starred_ago(index: usize) -> SignedDuration {
+    match index {
+        0 => SignedDuration::from_mins(20),
+        1 => SignedDuration::from_hours(6),
+        2 => SignedDuration::from_hours(3 * 24),
+        3 => SignedDuration::from_hours(3 * 7 * 24),
+        _ => SignedDuration::from_hours((40 + index as i64 * 9) * 24),
+    }
+}
+
 fn played_ago(index: usize) -> SignedDuration {
     match index {
         0 => SignedDuration::from_secs(30),
@@ -653,16 +666,19 @@ pub fn populate(app: &mut App) {
         app.artist_pages.insert(format!("art{index}"), artist_page);
     }
 
-    // Library. Starred songs, albums and artists, with no date against
-    // them: `getStarred2` says what is starred, not when it was.
+    // Library. Starred songs carry the date they were starred, as
+    // `getStarred2` reports it, newest first; starred albums and artists
+    // do not, because those pages are drawn from calls that omit it.
+    let starred_at = Timestamp::now();
     app.library.liked.absorb(
         0,
         page(
             songs
                 .iter()
                 .filter(|track| track.starred.unwrap_or_default())
-                .map(|track| SavedTrack {
-                    added_at: None,
+                .enumerate()
+                .map(|(index, track)| SavedTrack {
+                    added_at: Some((starred_at - starred_ago(index)).to_string()),
                     track: track.clone(),
                 })
                 .collect(),

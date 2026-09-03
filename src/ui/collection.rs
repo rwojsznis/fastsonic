@@ -1103,7 +1103,9 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             context,
             show_album: true,
             show_cover: true,
-            show_added: false,
+            // Unlike a playlist entry, a starred song knows when it was
+            // starred, so this column has something in it.
+            show_added: true,
             show_added_by: false,
             page: Page::LikedSongs,
             loading,

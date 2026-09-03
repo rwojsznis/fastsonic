@@ -27,6 +27,7 @@ use thiserror::Error;
 use tokio::sync::Semaphore;
 
 use super::auth::{self, Credentials};
+use super::calls::StarredCache;
 use crate::api::activity::{ActivityGuard, NetActivity};
 
 /// The protocol version this client claims. 1.16.1 is the last Subsonic
@@ -148,6 +149,9 @@ pub struct SubsonicClient {
     activity: Arc<NetActivity>,
     /// How many of each kind `search3` asks for.
     search_limit: u32,
+    /// What the last `getStarred2` said. The transport only holds it; see
+    /// [`StarredCache`] for why it is worth holding.
+    pub(super) starred: StarredCache,
 }
 
 impl SubsonicClient {
@@ -158,11 +162,14 @@ impl SubsonicClient {
             limiter: Semaphore::new(MAX_IN_FLIGHT),
             activity,
             search_limit,
+            starred: StarredCache::default(),
         }
     }
 
     pub fn set_credentials(&self, credentials: Option<Credentials>) {
         *self.credentials.lock().unwrap_or_else(|p| p.into_inner()) = credentials;
+        // Another account has starred other things.
+        self.starred.forget();
     }
 
     pub fn credentials(&self) -> Option<Credentials> {

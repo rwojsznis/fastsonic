@@ -189,14 +189,14 @@ async fn starring_a_song_puts_it_in_saved_tracks_and_unstarring_takes_it_out() {
         .await
         .unwrap();
     let saved = client.saved_tracks(0, 50).await.unwrap();
-    assert!(saved.items.iter().any(|track| track.uri == uri));
+    assert!(saved.items.iter().any(|saved| saved.track.uri == uri));
 
     client
         .set_saved(std::slice::from_ref(&uri), false)
         .await
         .unwrap();
     let saved = client.saved_tracks(0, 50).await.unwrap();
-    assert!(!saved.items.iter().any(|track| track.uri == uri));
+    assert!(!saved.items.iter().any(|saved| saved.track.uri == uri));
 }
 
 /// The hearts on a page: the starred flag rides on the object, so a page
@@ -484,6 +484,95 @@ async fn starred_ignores_paging_so_the_client_does_it() {
     assert_eq!(page.items.len(), 2, "the page is cut here, not there");
     assert_eq!(page.total as usize, raw.song.len());
     assert_eq!(page.next_offset(), Some(2));
+
+    // The date the Liked Songs table sorts by. `getStarred2` is the only
+    // call that reports it, and the migration notes had it recorded as
+    // absent until it was looked for.
+    assert!(
+        page.items.iter().all(|saved| saved.added_at.is_some()),
+        "a starred song knows when it was starred"
+    );
+    let dates: Vec<&str> = page
+        .items
+        .iter()
+        .filter_map(|saved| saved.added_at.as_deref())
+        .collect();
+    assert!(dates.windows(2).all(|pair| pair[0] >= pair[1]), "{dates:?}");
+    // The three just starred are the three most recent, so they are the
+    // front of the list rather than somewhere in it.
+    let front: Vec<String> = client
+        .saved_tracks(0, 3)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .map(|saved| saved.track.uri.clone())
+        .collect();
+    for song in &songs {
+        assert!(front.contains(&song.uri), "{front:?}");
+    }
+
+    for song in &songs {
+        client
+            .set_saved(std::slice::from_ref(&song.uri), false)
+            .await
+            .unwrap();
+    }
+}
+
+/// What this whole arrangement exists for. `getStarred2` is the entire
+/// starred library every time it is asked, so a page of Liked Songs that
+/// asked for it was downloading the library to show fifty rows of it — and
+/// sorting the table, which loads every page first, did that once per page.
+#[tokio::test]
+#[ignore = "needs migration/devserver"]
+async fn paging_liked_songs_asks_the_server_once() {
+    let client = client();
+    let songs = client.random_tracks(3).await.unwrap();
+    for song in &songs {
+        client
+            .set_saved(std::slice::from_ref(&song.uri), true)
+            .await
+            .unwrap();
+    }
+    let activity = client.activity();
+
+    // The first page of a listing is the one that asks.
+    let before = activity.made();
+    let first = client.saved_tracks(0, 1).await.unwrap();
+    assert_eq!(activity.made() - before, 1);
+    assert_eq!(first.items.len(), 1);
+
+    // The rest of it is cut from that same answer.
+    let after_first = activity.made();
+    for offset in 1..4 {
+        client.saved_tracks(offset, 1).await.unwrap();
+    }
+    assert_eq!(
+        activity.made() - after_first,
+        0,
+        "a later page must not re-download the starred library"
+    );
+
+    // Starting the listing over does ask again: that is what a reload and
+    // what re-opening the page both do.
+    let after_pages = activity.made();
+    client.saved_tracks(0, 1).await.unwrap();
+    assert_eq!(activity.made() - after_pages, 1);
+
+    // And starring something makes the remembered answer wrong, so the
+    // next page of any listing goes back to the server.
+    client
+        .set_saved(std::slice::from_ref(&songs[0].uri), false)
+        .await
+        .unwrap();
+    let after_unstar = activity.made();
+    client.saved_tracks(1, 1).await.unwrap();
+    assert_eq!(
+        activity.made() - after_unstar,
+        1,
+        "what is starred changed, so the list is asked for again"
+    );
 
     for song in &songs {
         client

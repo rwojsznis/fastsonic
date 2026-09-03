@@ -1326,15 +1326,7 @@ async fn handle(
 
         ApiRequest::SavedTracks { offset } => ApiResponse::SavedTracks {
             offset,
-            result: client
-                .saved_tracks(offset, PLAYLIST_PAGE_SIZE)
-                .await
-                .map(|page| {
-                    page.map(|track| SavedTrack {
-                        added_at: None,
-                        track,
-                    })
-                }),
+            result: client.saved_tracks(offset, PLAYLIST_PAGE_SIZE).await,
         },
         ApiRequest::SavedAlbums { offset } => ApiResponse::SavedAlbums {
             offset,

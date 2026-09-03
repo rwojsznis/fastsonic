@@ -10,6 +10,9 @@ pub struct NetActivity {
     in_flight: AtomicUsize,
     /// Milliseconds since `started_at` when the oldest current burst began.
     busy_since_ms: AtomicU64,
+    /// Every request since the app started, so that a test can say what a
+    /// page of a list cost rather than only that it arrived.
+    made: AtomicU64,
 }
 
 impl Default for NetActivity {
@@ -18,6 +21,7 @@ impl Default for NetActivity {
             started_at: Instant::now(),
             in_flight: AtomicUsize::new(0),
             busy_since_ms: AtomicU64::new(0),
+            made: AtomicU64::new(0),
         }
     }
 }
@@ -28,6 +32,7 @@ impl NetActivity {
     }
 
     pub(crate) fn begin(&self) {
+        self.made.fetch_add(1, Ordering::SeqCst);
         if self.in_flight.fetch_add(1, Ordering::SeqCst) == 0 {
             self.busy_since_ms.store(self.now_ms(), Ordering::SeqCst);
         }
@@ -35,6 +40,11 @@ impl NetActivity {
 
     pub(crate) fn end(&self) {
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// How many requests have been sent through this client.
+    pub fn made(&self) -> u64 {
+        self.made.load(Ordering::SeqCst)
     }
 
     /// Requests have been in flight continuously for at least `for_at_least`.

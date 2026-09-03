@@ -10,6 +10,9 @@
 //! - **Most list endpoints do not page.** `getStarred2`, `getPlaylist` and
 //!   `getArtist` return everything they have, so the `Page<T>` the interface
 //!   asks for is cut locally. `getAlbumList2` and `search3` really do page.
+//!   Cutting a page locally means paying for the whole list to draw fifty
+//!   rows of it, so the starred library — the one every liked list is a
+//!   slice of — is held between pages by `SubsonicClient::starred_all`.
 //! - **A playlist entry is removed by index, not by id**, so a removal
 //!   re-reads the playlist first. Removing while working from a stale view
 //!   deletes the wrong row — with two songs of the same name in a playlist,
@@ -18,7 +21,12 @@
 //!   `createPlaylist` with the existing `playlistId` and the full ordered
 //!   list of song ids, which keeps the id and the name.
 
-use crate::api::models::{Album, Artist, Page, Playlist, PlaylistItem, SearchResults, Track, User};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use crate::api::models::{
+    Album, Artist, Page, Playlist, PlaylistItem, SavedTrack, SearchResults, Track, User,
+};
 
 use super::client::{ApiError, Result, SubsonicClient};
 use super::convert;
@@ -80,6 +88,60 @@ fn param(name: &'static str, value: impl ToString) -> (&'static str, String) {
     (name, value.to_string())
 }
 
+/// How long a `getStarred2` answer is reused for. Starring anything through
+/// this client drops it at once, so this bounds only how stale *another*
+/// client's starring can leave a list that is already open.
+const STARRED_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// What the last `getStarred2` said, and the liked songs derived from it.
+///
+/// Both halves are kept because both are work proportional to the whole
+/// library: the call returns every starred song, album and artist in one
+/// body, and turning its songs into ordered rows walks all of them. A page
+/// is fifty rows, so doing either per page is the same mistake twice.
+pub(super) struct Starred {
+    /// Everything the server said, for the lists that read it directly.
+    all: Starred2,
+    /// The liked songs, converted and ordered once.
+    songs: Vec<SavedTrack>,
+}
+
+/// The client's memory of [`Starred`], and the lock that keeps two callers
+/// from fetching it at the same moment.
+#[derive(Default)]
+pub(super) struct StarredCache {
+    remembered: Mutex<Option<(Instant, Arc<Starred>)>>,
+    fetching: tokio::sync::Mutex<()>,
+}
+
+impl StarredCache {
+    /// What was last seen, while it is recent enough to answer with.
+    fn get(&self) -> Option<Arc<Starred>> {
+        self.remembered
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .filter(|(fetched, _)| fetched.elapsed() < STARRED_TTL)
+            .map(|(_, starred)| Arc::clone(starred))
+    }
+
+    fn put(&self, starred: Arc<Starred>) {
+        *self
+            .remembered
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), starred));
+    }
+
+    /// Forgets it, so the next reader asks the server. Starring anything,
+    /// or signing in as somebody else, makes it wrong.
+    pub(super) fn forget(&self) {
+        *self
+            .remembered
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+}
+
 // ---- one method per endpoint --------------------------------------------
 
 impl SubsonicClient {
@@ -105,6 +167,38 @@ impl SubsonicClient {
     /// and ignored, which was measured, not assumed.
     pub async fn starred(&self) -> Result<Starred2> {
         self.get("getStarred2", "starred2", &[]).await
+    }
+
+    /// The same answer, kept between pages.
+    ///
+    /// Liked songs and starred artists are both slices of one `getStarred2`,
+    /// and `getStarred2` is the entire starred library each time it is
+    /// asked. Without this, a two-thousand-song Liked Songs downloaded that
+    /// library forty times to page through it, one page at a time, and
+    /// sorting the table — which loads every page before it can sort —
+    /// did the whole forty in a row while the user watched.
+    ///
+    /// `fresh` says the caller is starting a listing over rather than
+    /// continuing one, so it wants the server's current answer; the pages
+    /// after it read what that call left behind. A listing therefore costs
+    /// one request however long it is.
+    async fn starred_all(&self, fresh: bool) -> Result<Arc<Starred>> {
+        if !fresh && let Some(remembered) = self.starred.get() {
+            return Ok(remembered);
+        }
+        // One request between however many callers arrive at once: the rest
+        // wait here and then find the first one's answer.
+        let _fetching = self.starred.fetching.lock().await;
+        if !fresh && let Some(remembered) = self.starred.get() {
+            return Ok(remembered);
+        }
+        let all = self.starred().await?;
+        let starred = Arc::new(Starred {
+            songs: newest_first(&all.song),
+            all,
+        });
+        self.starred.put(Arc::clone(&starred));
+        Ok(starred)
     }
 
     pub async fn album_list(
@@ -330,11 +424,12 @@ impl SubsonicClient {
     }
 
     /// `ApiRequest::SavedTracks`. `getStarred2` returns every starred song
-    /// at once, so the page is cut here and the total is exact.
-    pub async fn saved_tracks(&self, offset: u32, limit: u32) -> Result<Page<Track>> {
-        let starred = self.starred().await?;
-        let tracks: Vec<Track> = starred.song.iter().map(convert::track).collect();
-        Ok(convert::slice(&tracks, offset, limit))
+    /// at once, so the page is cut here and the total is exact. The star
+    /// date rides on the song, so the page carries it and the Date Added
+    /// column has something true to show.
+    pub async fn saved_tracks(&self, offset: u32, limit: u32) -> Result<Page<SavedTrack>> {
+        let starred = self.starred_all(offset == 0).await?;
+        Ok(convert::slice(&starred.songs, offset, limit))
     }
 
     /// `ApiRequest::SavedAlbums`. `getAlbumList2 type=starred` pages
@@ -353,8 +448,8 @@ impl SubsonicClient {
     /// `ApiRequest::FollowedArtists`. There is nothing to follow on a server
     /// you own, so this is the starred artists.
     pub async fn saved_artists(&self, offset: u32, limit: u32) -> Result<Page<Artist>> {
-        let starred = self.starred().await?;
-        let artists: Vec<Artist> = starred.artist.iter().map(convert::artist).collect();
+        let starred = self.starred_all(offset == 0).await?;
+        let artists: Vec<Artist> = starred.all.artist.iter().map(convert::artist).collect();
         Ok(convert::slice(&artists, offset, limit))
     }
 
@@ -387,6 +482,9 @@ impl SubsonicClient {
                 convert::Kind::Playlist | convert::Kind::Collection => continue,
             };
             self.star(kind, id, saved).await?;
+            // Done one at a time, so that a call that fails half way
+            // through has still forgotten what it managed to change.
+            self.starred.forget();
         }
         Ok(())
     }
@@ -651,6 +749,35 @@ fn reorder(ids: &mut Vec<String>, from: usize, insert_before: usize) -> bool {
     true
 }
 
+/// The starred songs as the Liked Songs page wants them: newest star
+/// first, each carrying the date it was starred.
+///
+/// Navidrome answers in this order already, so on the server this app is
+/// written against the sort is a no-op that documents the intent. It earns
+/// its place on servers that answer in some other order, and it is stable,
+/// so one that records no star dates at all keeps whatever order it chose.
+fn newest_first(songs: &[Child]) -> Vec<SavedTrack> {
+    let mut tracks: Vec<SavedTrack> = songs
+        .iter()
+        .map(|song| SavedTrack {
+            added_at: song.starred.clone(),
+            track: convert::track(song),
+        })
+        .collect();
+    // Parsed rather than compared as text: the dates are only guaranteed to
+    // be ISO 8601, not to share a format. `Reverse` puts the newest first
+    // and the undated — `None`, the least of them — last.
+    tracks.sort_by_cached_key(|saved| {
+        std::cmp::Reverse(
+            saved
+                .added_at
+                .as_deref()
+                .and_then(|starred| starred.parse::<jiff::Timestamp>().ok()),
+        )
+    });
+    tracks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -695,5 +822,77 @@ mod tests {
         let mut list = ids(&["a", "b", "c"]);
         assert!(reorder(&mut list, 0, 3));
         assert_eq!(list, ids(&["b", "c", "a"]));
+    }
+
+    fn song(id: &str, starred: Option<&str>) -> Child {
+        Child {
+            id: id.to_string(),
+            title: id.to_string(),
+            starred: starred.map(str::to_string),
+            ..Child::default()
+        }
+    }
+
+    #[test]
+    fn a_liked_song_carries_the_date_it_was_starred() {
+        // Navidrome stamps it to the nanosecond; the column reads it as a
+        // date, so it has to arrive intact rather than as a bare flag.
+        let tracks = newest_first(&[song("a", Some("2026-09-02T16:22:48.153620511Z"))]);
+        assert_eq!(
+            tracks[0].added_at.as_deref(),
+            Some("2026-09-02T16:22:48.153620511Z")
+        );
+    }
+
+    #[test]
+    fn liked_songs_come_back_newest_first() {
+        let tracks = newest_first(&[
+            song("older", Some("2026-09-01T10:00:00Z")),
+            song("newest", Some("2026-09-03T10:00:00Z")),
+            song("middle", Some("2026-09-02T10:00:00Z")),
+        ]);
+        let order: Vec<&str> = tracks
+            .iter()
+            .map(|saved| saved.track.name.as_str())
+            .collect();
+        assert_eq!(order, ["newest", "middle", "older"]);
+    }
+
+    #[test]
+    fn the_dates_are_compared_as_moments_rather_than_as_text() {
+        // Same instant, two spellings. Sorted as text the offset one wins,
+        // and a server that answers in local time gets a scrambled page.
+        let tracks = newest_first(&[
+            song("earlier", Some("2026-09-03T09:00:00+02:00")),
+            song("later", Some("2026-09-03T08:00:00Z")),
+        ]);
+        let order: Vec<&str> = tracks
+            .iter()
+            .map(|saved| saved.track.name.as_str())
+            .collect();
+        assert_eq!(order, ["later", "earlier"]);
+    }
+
+    #[test]
+    fn a_server_that_records_no_star_dates_keeps_its_own_order() {
+        let tracks = newest_first(&[song("first", None), song("second", None)]);
+        let order: Vec<&str> = tracks
+            .iter()
+            .map(|saved| saved.track.name.as_str())
+            .collect();
+        assert_eq!(order, ["first", "second"]);
+    }
+
+    #[test]
+    fn an_undated_song_sorts_last_rather_than_first() {
+        let tracks = newest_first(&[
+            song("undated", None),
+            song("dated", Some("2026-09-01T10:00:00Z")),
+        ]);
+        let order: Vec<&str> = tracks
+            .iter()
+            .map(|saved| saved.track.name.as_str())
+            .collect();
+        assert_eq!(order, ["dated", "undated"]);
     }
 }
