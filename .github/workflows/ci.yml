@@ -73,10 +73,10 @@ jobs:
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
       # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
-      # against vcpkg's, and the binary links the same copy.
+      # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
       - name: GLEW for libprojectM
         if: runner.os == 'Windows'
-        run: vcpkg install glew:x64-windows-static-md
+        run: vcpkg install glew:x64-windows-static
       # projectm-sys asks CMake for the Visual Studio generator, which the
       # runner image no longer satisfies; Ninja inside the MSVC environment
       # builds the same thing without caring which Visual Studio is on. The
@@ -96,33 +96,13 @@ jobs:
         run: cargo test --locked --all-targets --all-features
       - name: Documentation tests
         run: cargo test --locked --all-features --doc
-      # libprojectM has never linked on a Windows runner, and the linker
-      # only ever names the library it wanted, never the ones that are
-      # there. List both folders it draws from, pass or fail, so the next
-      # attempt starts from the layout instead of a guess. Delete once
-      # Windows is green.
-      - name: Where the Windows libraries landed
-        if: always() && runner.os == 'Windows'
+      # A build can pass while importing Microsoft's C++ runtime, then fail on
+      # a clean user's machine. Inspect the executable CI actually produced.
+      - name: Standalone Windows runtime
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed\x64-windows-static-md\lib'
-          "VCPKG_INSTALLATION_ROOT = $env:VCPKG_INSTALLATION_ROOT"
-          "--- $vcpkg ---"
-          if (Test-Path $vcpkg) { Get-ChildItem $vcpkg -Filter *.lib | Select-Object -ExpandProperty Name }
-          else { "missing" }
-          "--- any projectM library built ---"
-          Get-ChildItem target -Recurse -Filter 'projectM-4*.*' -ErrorAction SilentlyContinue |
-            Select-Object -ExpandProperty FullName
-          # Cargo keeps what a build script printed, so its reasoning is
-          # readable even when it succeeded and said nothing.
-          foreach ($out in Get-ChildItem target -Recurse -Filter 'output' -ErrorAction SilentlyContinue |
-                     Where-Object { $_.DirectoryName -match 'projectm-sys' }) {
-            "--- $($out.FullName) ---"
-            Get-Content $out.FullName
-          }
-          "--- what CMake installed ---"
-          foreach ($dir in Get-ChildItem target -Recurse -Directory -Filter 'out' -ErrorAction SilentlyContinue |
-                     Where-Object { $_.FullName -match 'projectm-sys' }) {
-            Get-ChildItem $dir.FullName -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-              Select-Object -ExpandProperty FullName
-          }
+          cargo build --locked
+          $imports = & dumpbin /dependents target\debug\fastsonic.exe | Out-String
+          $runtime = $imports | Select-String -Pattern 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll'
+          if ($runtime) { throw "Fastsonic imports an MSVC runtime:`n$runtime" }
