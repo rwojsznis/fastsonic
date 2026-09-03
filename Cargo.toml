@@ -144,11 +144,17 @@ codegen-units = 1
 strip = true
 panic = "abort"
 
+# macOS's default `unpacked` leaves a .o per codegen unit that Cargo never deletes; `debug = 2` if a debugger needs more than line numbers.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
 # Audio decoding and immediate-mode layout are too slow at opt-level 0 to
 # audition the app in development. Keep every dependency optimized while the
 # application crate itself stays incremental.
 [profile.dev.package."*"]
 opt-level = 2
+debug = false
 
 # projectm-sys names the library it links after Rust's profile (a `d` suffix
 # for dev) but CMake names what it builds after the optimisation level, so an
