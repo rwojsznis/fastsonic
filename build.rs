@@ -5,6 +5,22 @@
 #[cfg(windows)]
 const GLEW_NAMES: &[&str] = &["glew32s", "libglew32", "glew32"];
 
+/// Returns the vcpkg triplet matching the target architecture and CRT mode.
+#[cfg(windows)]
+fn vcpkg_triplet() -> Option<String> {
+    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("x86_64") => "x64",
+        Ok("aarch64") => "arm64",
+        _ => return None,
+    };
+    let static_crt = std::env::var("CARGO_CFG_TARGET_FEATURE")
+        .unwrap_or_default()
+        .split(',')
+        .any(|feature| feature == "crt-static");
+    let suffix = if static_crt { "static" } else { "static-md" };
+    Some(format!("{arch}-windows-{suffix}"))
+}
+
 /// Returns the known GLEW library installed in `lib`.
 #[cfg(windows)]
 fn glew_library(lib: &std::path::Path) -> Option<&'static str> {
@@ -41,10 +57,12 @@ fn main() {
         // Static libprojectM requires the GLEW library installed by vcpkg.
         if std::env::var_os("CARGO_FEATURE_MILKDROP").is_some() {
             println!("cargo:rerun-if-env-changed=VCPKG_INSTALLATION_ROOT");
-            if let Some(root) = std::env::var_os("VCPKG_INSTALLATION_ROOT") {
+            if let (Some(root), Some(triplet)) =
+                (std::env::var_os("VCPKG_INSTALLATION_ROOT"), vcpkg_triplet())
+            {
                 let lib = std::path::Path::new(&root)
                     .join("installed")
-                    .join("x64-windows-static-md")
+                    .join(triplet)
                     .join("lib");
                 println!("cargo:rustc-link-search=native={}", lib.display());
                 match glew_library(&lib) {

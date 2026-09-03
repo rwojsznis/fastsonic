@@ -31,6 +31,13 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 .inner_margin(Margin::symmetric(12, 12)),
         );
     let response = panel.show(ui, |ui| {
+        let window_controls = super::window_controls_reservation(
+            ui.ctx(),
+            app.show_queue_panel,
+            app.show_lyrics_panel,
+            ui.available_width(),
+        );
+        ui.add_space(window_controls.lyrics_top);
         ui.horizontal(|ui| {
             ui.add_space(4.0);
             theme::text(ui, "Lyrics", theme::bold(18.0), palette.text);

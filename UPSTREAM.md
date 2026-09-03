@@ -69,5 +69,21 @@ come back:
 - Anything Spotify-specific: librespot audio keys, Connect devices, Spotify
   deep links, the shared-application quota.
 
+### Declined once, and why
+
+These were looked at properly and turned down. A later sync will not offer
+them again, so wanting one means cherry-picking it deliberately.
+
+- **Optimistic song mutations** (`fa912c6`) and **duplicate-addition
+  confirmation** (`930480d`). Worth having, but written on Spotify concepts:
+  a recording key built from ISRC and `linked_from` for market relinking, and
+  saved-state that branches on a `spotify:playlist:` prefix. Subsonic serves
+  one recording under one id, so porting these is its own piece of work.
+- **Resuming large playlists from cached progress** (`c052fe8`). `getPlaylist`
+  returns every entry in one response; there is no partial fetch to resume.
+- **Playlist folders** (`a3b8878`, `af022c2`) and **invitation edit grants**
+  (`009309b`). Both ride on Spotify's rootlist, which went with `player.rs`.
+- **Spotify links** (`594cc76`). No web address or URL scheme to open.
+
 What is worth taking is the backend-agnostic work: UI fixes, window and
 platform behaviour, caching, fonts, and optimistic-update correctness.

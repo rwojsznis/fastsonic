@@ -793,7 +793,7 @@ pub fn populate(app: &mut App) {
 
 /// Words to go with the sample track, timed so that the one being sung
 /// sits mid-panel at the demo's playback position.
-#[cfg(feature = "demo")]
+#[cfg(any(test, feature = "demo"))]
 fn sample_lyrics() -> crate::lyrics::Lyrics {
     let lines = [
         (40_000, "Streetlights blinking down the river road"),
@@ -1157,6 +1157,85 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Rule: the interface zoom control puts minus on the left and plus
+    /// on the right. The setting row's control is right-to-left, which
+    /// used to reverse the two buttons.
+    #[test]
+    fn interface_zoom_puts_minus_on_the_left() {
+        let root =
+            std::env::temp_dir().join(format!("fastsonic-zoom-order-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+        app.settings.zoom = 1.0;
+        app.open(Page::Settings);
+
+        let mut placed: Vec<(String, f32, f32)> = Vec::new();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 4000.0),
+            )),
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            placed.clear();
+            let mut output = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+            fn walk(shape: &egui::epaint::Shape, placed: &mut Vec<(String, f32, f32)>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => {
+                        placed.push((text.galley.job.text.clone(), text.pos.x, text.pos.y))
+                    }
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| walk(shape, placed))
+                    }
+                    _ => {}
+                }
+            }
+            for clipped in &output.shapes {
+                walk(&clipped.shape, &mut placed);
+            }
+        }
+        let percent = placed
+            .iter()
+            .find(|(text, _, _)| text == "100%")
+            .unwrap_or_else(|| panic!("the zoom percent was never drawn: {placed:?}"));
+        let on_row = |label: &str| -> f32 {
+            placed
+                .iter()
+                .filter(|(text, _, y)| text == label && (y - percent.2).abs() < 8.0)
+                .min_by(|a, b| (a.1 - percent.1).abs().total_cmp(&(b.1 - percent.1).abs()))
+                .unwrap_or_else(|| panic!("{label} was never drawn next to 100%: {placed:?}"))
+                .1
+        };
+        let minus = on_row("-");
+        let plus = on_row("+");
+        assert!(
+            minus < percent.1 && percent.1 < plus,
+            "zoom control should read minus, percent, plus; got - at {minus}, 100% at {}, + at {plus}",
+            percent.1
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// The frame rate is a dial with detents: it stops at the rates
     /// worth having, names the one it is on, and moving it one notch
     /// lands on the next of them rather than somewhere in between.
@@ -1240,13 +1319,9 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// Rule: at its narrowest the queue panel still puts its header on
-    /// one line. The chips used to wrap under the buttons, and then,
-    /// once the buttons were given their room first, onto a second row,
-    /// which is a lot of panel spent on saying what two words already
-    /// said.
+    /// Rule: side-panel headers stay on one line at their narrowest width.
     #[test]
-    fn the_narrowest_panel_keeps_its_header_on_one_row() {
+    fn the_narrowest_panels_keep_their_headers_on_one_row() {
         let root = std::env::temp_dir().join(format!(
             "fastsonic-queue-header-test-{}",
             std::process::id()
@@ -1270,11 +1345,11 @@ mod tests {
         );
         app.attach(&ctx);
         populate(&mut app);
-        app.show_queue_panel = true;
         app.settings.queue_width = crate::theme::SIDE_PANEL_MIN_WIDTH;
+        app.settings.lyrics_width = crate::theme::SIDE_PANEL_MIN_WIDTH;
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+        app.lyrics_following = false;
 
-        // Where each piece of text was actually drawn.
-        let mut placed: Vec<(String, f32)> = Vec::new();
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
@@ -1282,39 +1357,58 @@ mod tests {
             )),
             ..Default::default()
         };
-        // The panel applies its width after the first frame.
-        for _ in 0..2 {
-            placed.clear();
-            let mut output = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
-            output.textures_delta.clear();
-            fn walk(shape: &egui::epaint::Shape, placed: &mut Vec<(String, f32)>) {
-                match shape {
-                    egui::epaint::Shape::Text(text) => {
-                        placed.push((text.galley.job.text.clone(), text.pos.y))
+        let drawn = |app: &mut App| {
+            let mut placed = Vec::new();
+            // A panel applies its requested width after the first frame.
+            for _ in 0..2 {
+                placed.clear();
+                let mut output = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
+                output.textures_delta.clear();
+                fn walk(shape: &egui::epaint::Shape, placed: &mut Vec<(String, egui::Rect)>) {
+                    match shape {
+                        egui::epaint::Shape::Text(text) => {
+                            placed.push((text.galley.job.text.clone(), text.visual_bounding_rect()))
+                        }
+                        egui::epaint::Shape::Vec(shapes) => {
+                            shapes.iter().for_each(|shape| walk(shape, placed))
+                        }
+                        _ => {}
                     }
-                    egui::epaint::Shape::Vec(shapes) => {
-                        shapes.iter().for_each(|shape| walk(shape, placed))
-                    }
-                    _ => {}
+                }
+                for clipped in &output.shapes {
+                    walk(&clipped.shape, &mut placed);
                 }
             }
-            for clipped in &output.shapes {
-                walk(&clipped.shape, &mut placed);
+            placed
+        };
+        let assert_same_row = |placed: &[(String, egui::Rect)], left: &str, right: &str| {
+            let at = |label: &str| {
+                placed
+                    .iter()
+                    .find(|(text, _)| text == label)
+                    .unwrap_or_else(|| panic!("{label} was never drawn: {placed:?}"))
+                    .1
+            };
+            let (left_rect, right_rect) = (at(left), at(right));
+            assert!(
+                (left_rect.center().y - right_rect.center().y).abs() < 10.0
+                    && (left_rect.right() <= right_rect.left()
+                        || right_rect.right() <= left_rect.left()),
+                "{left} and {right} should share a clear row at minimum width: {left_rect:?} vs {right_rect:?}"
+            );
+        };
+
+        for (queue, lyrics) in [(false, false), (true, false), (false, true), (true, true)] {
+            app.show_queue_panel = queue;
+            app.show_lyrics_panel = lyrics;
+            let placed = drawn(&mut app);
+            if queue {
+                assert_same_row(&placed, "Queue", "Recent");
+            }
+            if lyrics {
+                assert_same_row(&placed, "Lyrics", "Follow");
             }
         }
-        let at = |label: &str| -> f32 {
-            placed
-                .iter()
-                .find(|(text, _)| text == label)
-                .unwrap_or_else(|| panic!("{label} was never drawn: {placed:?}"))
-                .1
-        };
-        let (queue, recents) = (at("Queue"), at("Recent"));
-        assert!(
-            (queue - recents).abs() < 1.0,
-            "both chips sit on one line at {} wide: Queue at {queue}, Recent at {recents}",
-            crate::theme::SIDE_PANEL_MIN_WIDTH
-        );
         app.backend.shutdown();
     }
 
@@ -1782,5 +1876,101 @@ mod tests {
         assert_eq!(restored.sidebar_order, settings.sidebar_order);
         let older: Settings = serde_json::from_str("{}").unwrap();
         assert!(older.sidebar_order.is_empty());
+    }
+
+    /// Clicking the search icon in the library header reveals and focuses
+    /// the sidebar search field.
+    #[test]
+    fn clicking_search_in_library_shelf_focuses_search_field() {
+        let root = std::env::temp_dir().join(format!(
+            "fastsonic-sidebar-search-focus-test-{}",
+            std::process::id()
+        ));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+
+        // Find the Y position of the Library header.
+        let mut library_y = None;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+            fn walk(shape: &egui::epaint::Shape, found: &mut Option<f32>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => {
+                        if text.galley.job.text == "Library" {
+                            *found = Some(text.pos.y);
+                        }
+                    }
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| walk(shape, found));
+                    }
+                    _ => {}
+                }
+            }
+            for clipped in &output.shapes {
+                walk(&clipped.shape, &mut library_y);
+            }
+        }
+        let y = library_y.expect("Library label was not found");
+        let search_pos = egui::pos2(168.0, y + 4.0);
+
+        // Click on the search button in the Library shelf header.
+        frame_events(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(search_pos),
+                egui::Event::PointerButton {
+                    pos: search_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: search_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+
+        // Advance one frame so the focused widget processes events.
+        frame(&ctx, &mut app);
+
+        // Verify the search field is shown and has keyboard focus.
+        let search_id = egui::Id::new("sidebar-search");
+        let has_focus = ctx.memory(|m| m.has_focus(search_id));
+        assert!(
+            has_focus,
+            "sidebar-search must have keyboard focus after clicking the search icon"
+        );
+
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
     }
 }

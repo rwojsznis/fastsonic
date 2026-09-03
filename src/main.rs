@@ -462,6 +462,10 @@ impl MiniWindow {
     }
 }
 
+const fn main_window_decorated(on_windows: bool) -> bool {
+    !on_windows
+}
+
 fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeOptions {
     let icon = if cfg!(target_os = "macos") {
         // macOS takes the dock icon from the bundle's .icns, which is the
@@ -477,11 +481,7 @@ fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeO
         .with_icon(icon);
     let viewport = match mini {
         Some(mini) => {
-            let level = if mini.on_top {
-                egui::WindowLevel::AlwaysOnTop
-            } else {
-                egui::WindowLevel::Normal
-            };
+            let level = app::on_top_window_level(mini.on_top);
             // See-through, for skins that are not rectangles; the skin
             // paints every pixel that is the window. MilkDrop runs in its own
             // process, so nothing else shares this window's surface.
@@ -507,6 +507,9 @@ fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeO
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
             .with_title_shown(false)
+            // Windows has no equivalent to macOS's floating traffic lights.
+            // Removing its decorations lets the app surface fill the window.
+            .with_decorations(main_window_decorated(cfg!(windows)))
             .with_inner_size([1240.0, 800.0])
             .with_min_inner_size([760.0, 520.0])
             .with_fullscreen(fullscreen),
@@ -699,5 +702,25 @@ fn app_icon() -> egui::IconData {
         rgba: util::app_icon_rgba(SIZE),
         width: SIZE as u32,
         height: SIZE as u32,
+    }
+}
+
+#[cfg(test)]
+mod native_window_tests {
+    use super::*;
+
+    #[test]
+    fn main_window_uses_the_platform_decoration_policy() {
+        let options = native_options(false, None);
+        assert_eq!(options.viewport.decorations, Some(!cfg!(windows)));
+        assert_eq!(options.viewport.fullsize_content_view, Some(true));
+        assert_eq!(options.viewport.titlebar_shown, Some(false));
+        assert_eq!(options.viewport.title_shown, Some(false));
+    }
+
+    #[test]
+    fn only_windows_removes_the_native_frame() {
+        assert!(!main_window_decorated(true));
+        assert!(main_window_decorated(false));
     }
 }

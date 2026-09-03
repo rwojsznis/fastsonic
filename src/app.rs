@@ -154,6 +154,11 @@ pub struct App {
     last_session_save: Instant,
     /// The saved zoom has been applied to the context once.
     zoom_applied: bool,
+    /// Frames left to re-send the Winamp window's always-on-top level after the
+    /// window opens. X11 window managers drop `_NET_WM_STATE_ABOVE` set before
+    /// the window is mapped, so the creation-time level does not stick; a level
+    /// pushed on the first frames after mapping does.
+    winamp_level_reassert: u8,
     /// The queue as the engine last published it, in the vocabulary the
     /// panel draws: what is playing, then every row below it in play order
     /// (rule 1 of `docs/_reference/queue.md`). It is never fetched and
@@ -434,6 +439,7 @@ impl App {
             session_dirty: false,
             last_session_save: Instant::now(),
             zoom_applied: false,
+            winamp_level_reassert: 0,
             // Filled in below, from what the last session left (rule 9).
             queue: Queue::default(),
             queued_len: 0,
@@ -573,7 +579,12 @@ impl App {
         }
         if self.settings.winamp_window {
             // The mini player sizes itself; the big window's geometry
-            // waits here for its return.
+            // waits here for its return. Re-assert the on-top level over the
+            // first frames, once the window is mapped, because the level set
+            // at creation does not stick on X11.
+            if self.settings.winamp_on_top {
+                self.winamp_level_reassert = 3;
+            }
             return;
         }
         if let Some(size) = self.session_window_size.take() {
@@ -1356,8 +1367,26 @@ impl App {
         })));
     }
 
+    /// Pushes the Winamp window's always-on-top level to the live window.
+    fn push_winamp_level(&self, ctx: &egui::Context) {
+        if let Some(level) =
+            winamp_on_top_level(self.settings.winamp_window, self.settings.winamp_on_top)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+        }
+    }
+
     fn tick(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
+        if self.winamp_level_reassert > 0 {
+            self.winamp_level_reassert -= 1;
+            self.push_winamp_level(ctx);
+            // The window can be idle right after opening, so drive the next
+            // frame to make sure the re-assert actually runs.
+            if self.winamp_level_reassert > 0 {
+                ctx.request_repaint();
+            }
+        }
         if !self.zoom_applied {
             self.zoom_applied = true;
             let zoom = self.settings.zoom.clamp(0.5, 2.5);
@@ -2622,9 +2651,9 @@ impl App {
                         }
                         if let Some(page) = self.playlist_pages.get_mut(&id) {
                             if let Some(playlist) = page.playlist.get_mut()
-                                && snapshot.is_some()
+                                && let Some(snapshot) = &snapshot
                             {
-                                playlist.snapshot_id = snapshot;
+                                playlist.snapshot_id = Some(snapshot.clone());
                             }
                             page.items.reset();
                             page.contributors.clear();
@@ -2637,10 +2666,9 @@ impl App {
                         }
                         if let Some(playlists) = self.library.playlists.get_mut() {
                             for playlist in playlists.iter_mut().filter(|p| p.id == id) {
-                                playlist.snapshot_id = None;
+                                playlist.snapshot_id = snapshot.clone();
                             }
                         }
-                        self.load_playlists();
                     }
                     Err(error) => {
                         self.toast_error(format!("Playlist change failed: {error}"));
@@ -3425,7 +3453,14 @@ impl App {
                     self.step_resume(false);
                 }
             }
-            Action::Previous => self.backend.player(PlayerCommand::Previous),
+            Action::Previous => {
+                // A play request names the song it expects so the row moves
+                // before the engine reports. Previous has no song to name;
+                // discard that expectation, or a play followed straight away
+                // by Previous leaves the marker on the song it asked for.
+                self.intent_track = None;
+                self.backend.player(PlayerCommand::Previous)
+            }
             Action::Seek(position_ms) => self.seek(position_ms),
             Action::SeekBy(offset) => {
                 if let Some(now) = self.now_playing() {
@@ -3768,10 +3803,9 @@ impl App {
                 // `main` opens the other kind where each was last.
                 if self.settings.winamp_window {
                     self.winamp.remember_position();
-                } else {
-                    self.session_window_size = self.last_window_size.or(self.session_window_size);
-                    self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
                 }
+                self.session_window_size = self.last_window_size.or(self.session_window_size);
+                self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
                 self.settings.winamp_window = !self.settings.winamp_window;
                 self.settings_dirty = true;
                 self.switch_intent = true;
@@ -3791,6 +3825,9 @@ impl App {
             Action::ToggleWinampOnTop => {
                 self.settings.winamp_on_top = !self.settings.winamp_on_top;
                 self.settings_dirty = true;
+                // The window level is set at creation, so push the new level to
+                // the live window.
+                self.push_winamp_level(ctx);
             }
             Action::ToggleWinampPlaylist => {
                 self.settings.playlist_open = !self.settings.playlist_open;
@@ -4138,7 +4175,7 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls();
 
-        if !self.settings.winamp_window {
+        if !self.settings.winamp_window && !self.switch_intent {
             if let Some(rect) = ctx.input(|input| input.viewport().inner_rect) {
                 self.last_window_size = Some([rect.width(), rect.height()]);
             }
@@ -4385,6 +4422,24 @@ pub fn percent_to_volume(percent: u8) -> u16 {
     ((u32::from(percent.min(100)) * u32::from(u16::MAX)) / 100) as u16
 }
 
+/// The window level for the Winamp window's always-on-top setting. Shared by
+/// window creation and the live window, so the mapping is owned in one place.
+pub fn on_top_window_level(on_top: bool) -> egui::WindowLevel {
+    if on_top {
+        egui::WindowLevel::AlwaysOnTop
+    } else {
+        egui::WindowLevel::Normal
+    }
+}
+
+/// The window level to push to the live window, or `None` when there is no
+/// Winamp window to change. The big window (where Settings lives) keeps its
+/// normal level, so toggling the setting there only takes effect once the
+/// Winamp window opens.
+fn winamp_on_top_level(winamp_window: bool, on_top: bool) -> Option<egui::WindowLevel> {
+    winamp_window.then_some(on_top_window_level(on_top))
+}
+
 fn page_related_needs_load(pages: &HashMap<String, ArtistPage>, id: &str) -> bool {
     pages.get(id).is_some_and(|page| page.related.needs_load())
 }
@@ -4542,6 +4597,51 @@ mod tests {
         assert_eq!(volume_to_percent(0), 0);
         assert_eq!(volume_to_percent(percent_to_volume(70)), 70);
         assert_eq!(percent_to_volume(200), u16::MAX);
+    }
+
+    /// Toggling always-on-top pushes the matching level to the live Winamp
+    /// window, so the change takes effect without recreating the window.
+    #[test]
+    fn the_winamp_window_follows_the_on_top_toggle_live() {
+        assert_eq!(
+            winamp_on_top_level(true, true),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert_eq!(
+            winamp_on_top_level(true, false),
+            Some(egui::WindowLevel::Normal)
+        );
+    }
+
+    /// The setting lives in the big window's Settings page. Toggling it there
+    /// must never force the big window on top, so no level command is sent.
+    #[test]
+    fn the_big_window_never_follows_the_on_top_toggle() {
+        assert_eq!(winamp_on_top_level(false, true), None);
+        assert_eq!(winamp_on_top_level(false, false), None);
+    }
+
+    /// The level set at window creation does not stick on X11, so opening the
+    /// Winamp window with always-on-top saved must schedule a re-assert.
+    #[test]
+    fn opening_the_winamp_window_on_top_schedules_a_reassert() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.settings.winamp_window = true;
+        app.settings.winamp_on_top = true;
+        app.attach(&ctx);
+        assert_eq!(app.winamp_level_reassert, 3);
+    }
+
+    /// Opening the Winamp window without always-on-top re-asserts nothing.
+    #[test]
+    fn opening_the_winamp_window_without_on_top_schedules_no_reassert() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.settings.winamp_window = true;
+        app.settings.winamp_on_top = false;
+        app.attach(&ctx);
+        assert_eq!(app.winamp_level_reassert, 0);
     }
 
     /// The song the last session ended on is shown, paused, at the position
@@ -4989,6 +5089,35 @@ mod tests {
         );
     }
 
+    /// A play request names the song it expects, so the row moves before the
+    /// engine reports it. Going back has no such song to name: the
+    /// expectation has to go, or the marker stays on the one that was asked
+    /// for. Upstream reached this through Next, which marks its queue head;
+    /// here the queue is the engine's and only a play request marks anything.
+    #[test]
+    fn previous_discards_an_unconfirmed_play_marker() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.intent_track = Some(("sonic:track:b".into(), Instant::now()));
+        assert_eq!(
+            app.current_track_uri().as_deref(),
+            Some("sonic:track:b"),
+            "a play request marks the song it asked for"
+        );
+
+        app.apply(Action::Previous, &ctx);
+
+        assert_eq!(
+            app.current_track_uri().as_deref(),
+            Some("sonic:track:a"),
+            "Previous restores the engine's row instead of holding the marker"
+        );
+    }
     /// The section split is the engine's answer and not a guess made by
     /// matching songs: the same song can be in both halves.
     #[test]
@@ -5958,6 +6087,55 @@ mod tests {
         app
     }
 
+    #[test]
+    fn changing_playlist_items_keeps_the_library_visible() {
+        use crate::api::models::Playlist;
+
+        let mut app = headless_app();
+        app.library.playlists = Loadable::Loaded(vec![
+            Playlist {
+                id: "changed".into(),
+                snapshot_id: Some("old".into()),
+                ..Default::default()
+            },
+            Playlist {
+                id: "untouched".into(),
+                snapshot_id: Some("same".into()),
+                ..Default::default()
+            },
+        ]);
+        app.playlist_pages.insert(
+            "changed".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(Playlist {
+                    id: "changed".into(),
+                    snapshot_id: Some("old".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        app.handle_api(ApiResponse::PlaylistItemsChanged {
+            id: "changed".into(),
+            message: "Added to Playlist".into(),
+            result: Ok(Some("new".into())),
+        });
+
+        let playlists = app
+            .library
+            .playlists
+            .get()
+            .expect("the loaded library stays on screen");
+        assert_eq!(playlists.len(), 2);
+        assert_eq!(playlists[0].snapshot_id.as_deref(), Some("new"));
+        assert_eq!(playlists[1].snapshot_id.as_deref(), Some("same"));
+        let open = app.playlist_pages["changed"]
+            .playlist
+            .get()
+            .expect("the playlist page");
+        assert_eq!(open.snapshot_id.as_deref(), Some("new"));
+    }
     /// Shuffle picks a random loaded track or Web API offset. Local librespot
     /// playback chooses its own starting track.
     #[test]
@@ -6311,6 +6489,82 @@ mod tests {
             app.toasts
                 .iter()
                 .any(|toast| toast.message.starts_with("Gone: "))
+        );
+    }
+
+    /// Switching from Winamp back to the main window preserves the main
+    /// window's size and position across the closing mini-window frame.
+    #[test]
+    fn closing_winamp_frame_does_not_overwrite_main_window_geometry() {
+        let mut app = headless_app();
+        app.last_window_size = Some([1024.0, 768.0]);
+        app.last_window_pos = Some([100.0, 150.0]);
+
+        // Toggle from main window to Winamp window
+        let ctx = egui::Context::default();
+        app.actions.push(Action::ToggleWinampWindow);
+        app.apply_actions(&ctx);
+
+        assert!(app.settings.winamp_window);
+        assert!(app.switch_intent);
+        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
+        assert_eq!(app.session_window_pos, Some([100.0, 150.0]));
+
+        // Attach the Winamp window (clears switch_intent, keeps session geometry)
+        app.attach(&ctx);
+        assert!(!app.switch_intent);
+        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
+
+        // Trigger switch back to the main window
+        app.actions.push(Action::ToggleWinampWindow);
+
+        // Run the closing frame of the mini-window with its tiny viewport geometry
+        let mut raw_input = egui::RawInput::default();
+        let mini_rect = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(275.0, 116.0));
+        let viewport = raw_input
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default();
+        viewport.inner_rect = Some(mini_rect);
+        viewport.outer_rect = Some(mini_rect);
+
+        let mut closing_output = ctx.run_ui(raw_input, |ui| {
+            app.frame_ui(ui);
+        });
+        closing_output.textures_delta.clear();
+
+        // The closing frame switched window mode and armed switch_intent...
+        assert!(!app.settings.winamp_window);
+        assert!(app.switch_intent);
+
+        // ...but switch_intent prevented the closing mini-window rect from
+        // overwriting the saved main window size and position.
+        assert_eq!(app.last_window_size, Some([1024.0, 768.0]));
+        assert_eq!(app.last_window_pos, Some([100.0, 150.0]));
+        assert_eq!(app.session_window_size, Some([1024.0, 768.0]));
+        assert_eq!(app.session_window_pos, Some([100.0, 150.0]));
+
+        // Attaching the new main window restores the saved geometry via viewport commands
+        let main_ctx = egui::Context::default();
+        let mut output = main_ctx.run_ui(Default::default(), |_ui| {
+            app.attach(&main_ctx);
+        });
+        output.textures_delta.clear();
+
+        let commands = &output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .expect("the root viewport")
+            .commands;
+        assert!(
+            commands.contains(&egui::ViewportCommand::InnerSize(egui::vec2(1024.0, 768.0))),
+            "attach restored the main window size: {commands:?}"
+        );
+        assert!(
+            commands.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
+                100.0, 150.0
+            ))),
+            "attach restored the main window position: {commands:?}"
         );
     }
 }
