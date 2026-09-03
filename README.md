@@ -11,7 +11,8 @@ engine, telemetry, hosted backend, or Fastsonic account.
 
 ![Fastsonic showing a playlist with the queue open](docs/screenshot.png)
 
-The [documentation site](https://rwojsznis.github.io/fastsonic/) covers setup,
+The in-repository [guides](docs/_guide/getting-started.md) and
+[reference documentation](docs/_reference/settings-and-files.md) cover setup,
 everyday use, network traffic, settings, and stored files. The migration plan
 and current board are in [`migration/`](migration/README.md).
 
@@ -50,7 +51,7 @@ MilkDrop is enabled by default and builds projectM from source, requiring
 CMake, a C++ compiler, and libclang. Build without it using
 `cargo install --path . --no-default-features`. On Linux, install the ALSA,
 PulseAudio/PipeWire, Wayland, and X11 development packages described in
-[Getting Started](https://rwojsznis.github.io/fastsonic/getting-started/).
+[Getting Started](docs/_guide/getting-started.md).
 `nix develop` provides the complete pinned environment.
 
 There is currently no Flatpak, Homebrew tap, AUR package, installer, or release
@@ -67,7 +68,7 @@ client supplies personalisation that Subsonic cannot; those sections degrade
 to empty on other compatible servers or after its session expires.
 
 The app makes no inbound connection and exposes no receiver. See
-[How It Connects](https://rwojsznis.github.io/fastsonic/how-it-connects/) for
+[How It Connects](docs/_reference/how-it-connects.md) for
 the complete network and privacy behavior.
 
 ## Development

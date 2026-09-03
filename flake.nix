@@ -147,8 +147,8 @@
             '';
 
             meta = {
-              description = "Fast native Spotify client with local playback and Spotify Connect";
-              homepage = "https://rwojsznis.github.io/fastsonic";
+              description = "Fast native client for self-hosted Subsonic music servers";
+              homepage = "https://github.com/rwojsznis/fastsonic";
               license = pkgs.lib.licenses.mit;
               mainProgram = "fastsonic";
             };

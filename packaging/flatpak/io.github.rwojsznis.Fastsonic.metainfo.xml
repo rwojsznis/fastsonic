@@ -22,9 +22,9 @@
     </p>
   </description>
   <launchable type="desktop-id">io.github.rwojsznis.Fastsonic.desktop</launchable>
-  <url type="homepage">https://rwojsznis.github.io/fastsonic/</url>
+  <url type="homepage">https://github.com/rwojsznis/fastsonic</url>
   <url type="bugtracker">https://github.com/rwojsznis/fastsonic/issues</url>
-  <url type="help">https://rwojsznis.github.io/fastsonic/getting-started/</url>
+  <url type="help">https://github.com/rwojsznis/fastsonic/blob/main/docs/_guide/getting-started.md</url>
   <url type="vcs-browser">https://github.com/rwojsznis/fastsonic</url>
   <screenshots>
     <screenshot type="default">

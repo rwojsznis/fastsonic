@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/rwojsznis/fastsonic/blob/main/CONTRIBUTING.md
     about: Check product boundaries and contribution requirements before opening an issue or pull request.
   - name: Documentation
-    url: https://rwojsznis.github.io/fastsonic
-    about: Install steps, settings, and where Fastsonic keeps its files and logs.
+    url: https://github.com/rwojsznis/fastsonic/tree/main/docs
+    about: In-repository guides for setup, settings, files, and logs.

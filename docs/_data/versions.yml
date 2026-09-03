@@ -1,8 +1,0 @@
-current: Development
-items:
-  - id: development
-    title: Development
-    url: /download/
-  - title: Changelog
-    url: https://github.com/rwojsznis/fastsonic/releases
-    external: true

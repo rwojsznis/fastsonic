@@ -122,8 +122,8 @@ jobs:
     runs-on: macos-latest
     env:
       # Signing and notarization run only when the Apple credentials exist as
-      # repository secrets; without them the DMG ships unsigned and the
-      # download page explains the Privacy & Security dance.
+      # repository secrets; without them the DMG ships unsigned and its
+      # GitHub release notes must explain the Privacy & Security dance.
       APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

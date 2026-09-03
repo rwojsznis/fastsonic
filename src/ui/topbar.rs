@@ -299,7 +299,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     if response
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .on_hover_text(format!(
-                            "Version {} is available. Open the download page.",
+                            "Version {} is available. Open its GitHub release.",
                             update.version
                         ))
                         .clicked()

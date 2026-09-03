@@ -1,8 +1,4 @@
----
-title: Getting Started
-description: Build Fastsonic, connect it to your music server, and start local playback.
-nav_order: 2
----
+# Getting Started
 
 ## Install
 
@@ -54,12 +50,12 @@ Start the app and enter:
 Press **Connect**. Fastsonic sends the password once to Navidrome's login
 endpoint and stores the salted Subsonic token returned by the server, not the
 password. A bare host is treated as `http://`; HTTPS certificates must be
-trusted by the operating system. See [How It Connects](/how-it-connects/) for
+trusted by the operating system. See [How It Connects](../_reference/how-it-connects.md) for
 the exact network and credential behavior.
 
-Fastsonic targets Navidrome and the Subsonic/OpenSubsonic protocol. Other
-compatible servers can provide the core library and playback features;
-Navidrome-only personalisation sections may be empty.
+Fastsonic supports Navidrome 0.51.0 and newer. Other compatible
+Subsonic/OpenSubsonic servers can provide the core library and playback
+features; Navidrome-only personalisation sections may be empty.
 
 ## Basics
 

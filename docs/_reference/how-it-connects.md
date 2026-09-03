@@ -1,8 +1,4 @@
----
-title: How It Connects
-description: Fastsonic's server protocols, stored credential, and outbound network traffic.
-nav_order: 1
----
+# How It Connects
 
 Fastsonic has no hosted service or application account. It connects directly
 from this computer to the one music server entered on the sign-in screen.

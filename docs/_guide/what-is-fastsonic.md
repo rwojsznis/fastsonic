@@ -1,8 +1,4 @@
----
-title: What is Fastsonic?
-description: A small native desktop client for your own music server.
-nav_order: 0
----
+# What is Fastsonic?
 
 Fastsonic is a native desktop client for a self-hosted music server. It talks
 Subsonic/OpenSubsonic to Navidrome, Gonic, and compatible servers, and decodes
@@ -10,7 +6,7 @@ the audio stream on this computer. It is written in Rust with
 [egui](https://github.com/emilk/egui), has no browser engine, and runs on
 Linux, macOS, and Windows.
 
-![Fastsonic showing a playlist with the queue open and a track playing](/screenshot.png)
+![Fastsonic showing a playlist with the queue open and a track playing](../screenshot.png)
 
 ## What it does
 
@@ -40,5 +36,5 @@ degrade to empty on another server or after that short-lived session expires;
 the library and player continue to work.
 
 Bug reports should include `fastsonic.log`, `panic.log` after a crash, and
-steps to reproduce the problem. See [Settings & Files](/settings-and-files/)
+steps to reproduce the problem. See [Settings & Files](../_reference/settings-and-files.md)
 for their locations.

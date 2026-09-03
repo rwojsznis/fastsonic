@@ -1,8 +1,4 @@
----
-title: MilkDrop
-description: Run the MilkDrop visualiser, install presets, and use its controls.
-nav_order: 5
----
+# MilkDrop
 
 Open MilkDrop from the top-bar visualiser button, Ctrl+Shift+K, Settings, or
 the mini player's **V** menu. It uses
@@ -10,7 +6,7 @@ the mini player's **V** menu. It uses
 presets in its own window and process.
 
 <video autoplay loop muted playsinline preload="metadata" aria-label="MilkDrop running in Fastsonic" style="width: 100%; height: auto;">
-  <source src="/assets/images/milkdrop.mp4" type="video/mp4">
+  <source src="../assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
 MilkDrop is included in the Linux, macOS, and x86_64 Windows builds. The

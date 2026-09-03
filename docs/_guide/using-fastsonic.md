@@ -1,8 +1,4 @@
----
-title: Everyday Use
-description: Browse your library, manage the queue, and understand play history.
-nav_order: 3
----
+# Everyday Use
 
 ## Library and search
 
@@ -27,7 +23,7 @@ restore the default order.
 Songs added with **Play next** appear before the rest of the current album or
 playlist. Clear removes only those manually queued songs. The player owns the
 queue, so every change is visible on the next frame and needs no server
-round-trip. The complete contract is in [The Queue's Rules](/queue/).
+round-trip. The complete contract is in [The Queue's Rules](../_reference/queue.md).
 
 ## Recent plays
 

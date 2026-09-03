@@ -1,8 +1,4 @@
----
-title: The Queue's Rules
-description: What the queue shows, what Play next does, and what the app promises about both.
-nav_order: 2
----
+# The Queue's Rules
 
 The queue is the list of what plays next. It has two parts. On top,
 under **Playing next**, are the songs you queued yourself. Below them,

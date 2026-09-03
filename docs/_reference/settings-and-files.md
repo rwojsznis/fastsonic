@@ -1,8 +1,4 @@
----
-title: Settings & Files
-description: Where Fastsonic keeps configuration, credentials, history, logs, and caches.
-nav_order: 0
----
+# Settings & Files
 
 ## Where things live
 

@@ -104,17 +104,11 @@ A release is not the tag alone. Do these in order:
 2. Push the `v*` tag, which triggers the release workflow. Wait for every
    required artifact and `checksums.txt`, then replace the generated notes
    with written ones.
-3. A prerelease stops here. Keep the stable version current on the website.
-   The prerelease remains available from GitHub's releases page.
-4. For a stable release, only after the GitHub release exists, update
-   `docs/_config.yml` `fastsonic_version` and
-   `docs/_data/versions.yml`. The new version becomes `current` and points
-   at `/download/`; the previous version keeps a link to its GitHub release.
-   Never make the download page point at files that do not exist yet.
+3. A prerelease stops here. It remains available from GitHub's releases page
+   and must not become the latest stable release.
 
 There is no Homebrew tap and no AUR package. Upstream had both; the fork
 inherits neither until it actually publishes them, and no release step,
-README, or download page may imply otherwise.
+README, or release note may imply otherwise.
 
-Skipping an applicable step ships a release that lies somewhere; the dropdown
-was forgotten once already.
+Skipping an applicable step ships a release that lies somewhere.
