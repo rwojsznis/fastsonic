@@ -18,7 +18,9 @@
 //! queue: what the album has left, Play next, Clear, playing a row,
 //! shuffle, and playing an artist. Then it watches two joins go by (P3.4)
 //! and measures what the silence at one costs, which is the one thing here
-//! that no unit test can answer. Last it reads the visualiser tap while
+//! that no unit test can answer — and then a third and fourth join that
+//! cross codecs, FLAC into MP3 into Opus, the last of them a change of
+//! sample rate as well (P6.6). Last it reads the visualiser tap while
 //! music is playing (P3.8): that there is sound in it, that the analyser
 //! moves, that the equalizer is in front of it and the volume behind it,
 //! and that it is being read where the speaker is rather than half a
@@ -37,8 +39,8 @@ use std::time::{Duration, Instant};
 use fastsonic::api::NetActivity;
 use fastsonic::api::subsonic::{Child, Credentials, SubsonicClient, convert};
 use fastsonic::engine::{
-    Cache, Engine, EngineConfig, EngineEvent, LoadSpec, LocalState, Playback, PlayerCommand,
-    QueueRow, QueueSnapshot, RepeatMode,
+    Cache, Engine, EngineConfig, EngineEvent, LoadSpec, LocalState, LocalTrack, Playback,
+    PlayerCommand, QueueRow, QueueSnapshot, RepeatMode,
 };
 use fastsonic::vis;
 
@@ -398,48 +400,32 @@ fn main() -> anyhow::Result<()> {
         joined.playback == Playback::Playing,
     );
     let across = seen.lock().unwrap_or_else(|p| p.into_inner())[from..].to_vec();
-    let join = across
-        .iter()
-        .position(|(_, state)| state.track.as_ref() != Some(&leaving));
+    let crossing = join(&across, &leaving);
     check(
         "nothing was reported as loading at the join",
-        join.is_some_and(|join| {
-            across[..join]
-                .iter()
-                .all(|(_, state)| state.playback == Playback::Playing)
-        }),
+        crossing
+            .as_ref()
+            .is_some_and(|crossing| crossing.played_throughout),
     );
-    // What the silence at a join measures as, from outside: where the
-    // first track's position had got to, plus the time until the second
-    // track was announced, against how long the first track is.
-    if let Some(join) = join {
-        let (crossed_at, crossed) = across[join].clone();
-        let (last_at, last) = across[..join]
-            .iter()
-            .rev()
-            .find(|(_, state)| state.position_ms > 0)
-            .cloned()
-            .unwrap_or_else(|| across[join].clone());
-        let heard = f64::from(last.position_ms) / 1000.0 + (crossed_at - last_at);
-        let silence = heard - f64::from(leaving.duration_ms) / 1000.0;
+    if let Some(crossing) = crossing {
         println!(
             "    the join measured {:.0} ms of silence",
-            silence * 1000.0
+            crossing.silence * 1000.0
         );
         check(
             "the join is silent for less than a tenth of a second",
-            silence.abs() < 0.1,
+            crossing.silence.abs() < 0.1,
         );
         check(
             "the new track was announced from its own beginning",
-            crossed.position_ms < 400,
+            crossing.crossed.position_ms < 400,
         );
         check(
             "and the queue moved with it",
             engine
                 .queue()
                 .current
-                .is_some_and(|row| Some(row.uri) == crossed.track.map(|track| track.uri)),
+                .is_some_and(|row| Some(row.uri) == crossing.crossed.track.map(|track| track.uri)),
         );
     }
 
@@ -460,6 +446,108 @@ fn main() -> anyhow::Result<()> {
             "still playing, still without loading",
             third.playback == Playback::Playing,
         );
+    }
+
+    // The joins above are inside one album, so both sides of each of them
+    // are the same codec at the same rate — a fixture album is one format
+    // throughout. A queue is not: it crosses codecs, and at Opus it
+    // crosses sample rates as well, which is the case that makes the
+    // decoder rebuild its resampler with the next track already armed.
+    // `migration/06-testing-and-docs.md` had this down as the format
+    // switching Phase 3 never checked.
+    println!("\n-- joins that cross formats");
+    let formats = runtime.block_on(pick_formats(&client, &["flac", "mp3", "opus"]))?;
+    match &formats[..] {
+        [] => println!("    skipped: no two songs in different formats to cross"),
+        songs => {
+            let named = songs
+                .iter()
+                .map(|song| {
+                    format!(
+                        "{} ({} Hz)",
+                        song.suffix.as_deref().unwrap_or("?"),
+                        song.sampling_rate.unwrap_or(0)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            println!("    {named}");
+            engine.command(PlayerCommand::Load(LoadSpec {
+                uris: vec![convert::track_uri(&songs[0].id)],
+                play: true,
+                ..LoadSpec::default()
+            }))?;
+            for song in &songs[1..] {
+                engine.command(PlayerCommand::AddToQueue(convert::track_uri(&song.id)))?;
+            }
+            let mut playing = settle(&engine, Duration::from_millis(900)).track;
+            for song in &songs[1..] {
+                let format = song.suffix.as_deref().unwrap_or("?");
+                let Some(leaving) = playing.clone() else {
+                    check(
+                        &format!("something was playing to cross into {format}"),
+                        false,
+                    );
+                    break;
+                };
+                let from = seen.lock().unwrap_or_else(|p| p.into_inner()).len();
+                engine.command(PlayerCommand::Seek(
+                    leaving.duration_ms.saturating_sub(1_500),
+                ))?;
+                let landed = settle(&engine, Duration::from_millis(4_000));
+                let across = seen.lock().unwrap_or_else(|p| p.into_inner())[from..].to_vec();
+                let expected = convert::track_uri(&song.id);
+                check(
+                    &format!("the queue ran on into the {format}"),
+                    landed
+                        .track
+                        .as_ref()
+                        .is_some_and(|track| track.uri == expected),
+                );
+                check(
+                    &format!("and the {format} is playing rather than loading"),
+                    landed.playback == Playback::Playing,
+                );
+                match join(&across, &leaving) {
+                    Some(crossed) => {
+                        println!(
+                            "    the join into the {format} measured {:.0} ms of silence",
+                            crossed.silence * 1000.0
+                        );
+                        check(
+                            &format!("nothing was reported as loading at the {format} join"),
+                            crossed.played_throughout,
+                        );
+                        check(
+                            &format!(
+                                "the {format} join is silent for less than a tenth of a second"
+                            ),
+                            crossed.silence.abs() < 0.1,
+                        );
+                        check(
+                            &format!("and the {format} was announced from its own beginning"),
+                            crossed.crossed.position_ms < 400,
+                        );
+                    }
+                    None => check(&format!("the join into the {format} was crossed"), false),
+                }
+                playing = landed.track;
+            }
+            // A rate change is the half of this that a same-rate join
+            // cannot show: the sound has to keep coming out at the right
+            // speed after the device's resampler was rebuilt mid-queue.
+            let rates: std::collections::BTreeSet<i32> =
+                songs.iter().filter_map(|song| song.sampling_rate).collect();
+            if rates.len() > 1 {
+                let heard = settle(&engine, Duration::from_millis(700));
+                check(
+                    "and playback survived the sample-rate change",
+                    heard.playback == Playback::Playing && heard.error.is_none(),
+                );
+            } else {
+                println!("    the songs crossed share one sample rate; no rate change to check");
+            }
+        }
     }
 
     // The other half of a join: for the last half second of a track, the
@@ -736,6 +824,43 @@ fn env(name: &str, fallback: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| fallback.to_string())
 }
 
+/// A track change seen from outside, which is all a join is: which
+/// snapshot crossed it, whether the engine claimed to be playing the whole
+/// way there, and what the crossing cost in silence.
+struct Join {
+    /// Where the leaving track's clock had got to, plus the wait until the
+    /// new track was announced, against how long the leaving track was.
+    /// Negative means the new track was announced early rather than late.
+    silence: f64,
+    /// Nothing was reported as loading on the way to the join.
+    played_throughout: bool,
+    /// The first snapshot that named the new track.
+    crossed: LocalState,
+}
+
+/// Reads the join out of the snapshots recorded since `leaving` started
+/// playing. `None` when nothing crossed: the track never ran out.
+fn join(across: &[(f64, LocalState)], leaving: &LocalTrack) -> Option<Join> {
+    let at = across
+        .iter()
+        .position(|(_, state)| state.track.as_ref() != Some(leaving))?;
+    let (crossed_at, crossed) = across[at].clone();
+    let (last_at, last) = across[..at]
+        .iter()
+        .rev()
+        .find(|(_, state)| state.position_ms > 0)
+        .cloned()
+        .unwrap_or_else(|| across[at].clone());
+    let heard = f64::from(last.position_ms) / 1000.0 + (crossed_at - last_at);
+    Some(Join {
+        silence: heard - f64::from(leaving.duration_ms) / 1000.0,
+        played_throughout: across[..at]
+            .iter()
+            .all(|(_, state)| state.playback == Playback::Playing),
+        crossed,
+    })
+}
+
 /// Waits for playback to stop of its own accord — the end of a one-track
 /// queue — or gives up, so that a probe against a library of ten-minute
 /// tracks says what happened rather than hanging.
@@ -861,6 +986,32 @@ async fn pick_short(client: &SubsonicClient) -> anyhow::Result<Child> {
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("the library has no songs in it"))
+}
+
+/// One song per format, in the order asked for, so that a queue can be
+/// built that crosses codecs. A format the library does not hold is left
+/// out, and fewer than two leaves nothing to cross — the caller says so
+/// rather than failing, because a library of one codec is not a fault.
+async fn pick_formats(client: &SubsonicClient, formats: &[&str]) -> anyhow::Result<Vec<Child>> {
+    let songs = client.random_songs(200).await?;
+    let mut picked: Vec<Child> = Vec::new();
+    for format in formats {
+        let mut candidates: Vec<&Child> = songs
+            .iter()
+            .filter(|song| {
+                song.suffix
+                    .as_deref()
+                    .is_some_and(|suffix| suffix.eq_ignore_ascii_case(format))
+            })
+            .collect();
+        // The shortest of them, and the same one on every run: each join is
+        // watched by seeking to the end of the track before it.
+        candidates.sort_by_key(|song| (song.duration.unwrap_or(i64::MAX), song.id.clone()));
+        if let Some(song) = candidates.first() {
+            picked.push((*song).clone());
+        }
+    }
+    Ok(if picked.len() < 2 { Vec::new() } else { picked })
 }
 
 async fn pick_album(client: &SubsonicClient) -> anyhow::Result<String> {

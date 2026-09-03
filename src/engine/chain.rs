@@ -244,6 +244,69 @@ mod tests {
         );
     }
 
+    /// The chain is built for the device's rate, and on macOS that is
+    /// usually 48 kHz rather than the 44.1 the fixtures are cut at. No
+    /// machine in the loop opens a 48 kHz device, so this is the only place
+    /// the whole chain is run at one — the gap
+    /// `migration/06-testing-and-docs.md` left open at P3.8. A band is a
+    /// frequency, so a boosted 1 kHz is still 1 kHz, at its own gain.
+    #[test]
+    fn the_chain_runs_at_the_devices_rate() {
+        let settings = crate::eq::shared();
+        {
+            let mut shared = settings.lock().unwrap();
+            shared.on = true;
+            shared.bands_db[4] = 12.0; // 1 kHz
+        }
+        let tap = AudioTap::new();
+        let mut chain = Chain::new(settings, Arc::clone(&tap), 48_000);
+        let input = tone(1000.0, 8192, 48_000);
+        chain.process(&input, u16::MAX / 2, 1.0);
+        let tapped = tap.window(4096, 0);
+        let gained = 20.0 * (rms(&tapped) / rms(&input[8192..])).log10();
+        assert!(
+            (gained - 12.0).abs() < 1.0,
+            "at 48 kHz the boosted band reached the tap {gained:.1} dB up, not 12"
+        );
+    }
+
+    /// Following the system default onto a device at another rate rebuilds
+    /// the filters and the limiter's timings under a playing track. That
+    /// the filters change is `eq.rs`'s own test; what this holds is that
+    /// the chain hands the new rate to them, so the same band comes out at
+    /// the same gain on either device. Left undone, everything a 48 kHz
+    /// device played would go through filters designed for 44.1, which
+    /// moves every band up by 8.8%.
+    #[test]
+    fn a_new_device_rate_follows_through_the_chain() {
+        let settings = crate::eq::shared();
+        {
+            let mut shared = settings.lock().unwrap();
+            shared.on = true;
+            // 16 kHz, where the bilinear bend is largest and a rate the
+            // filters were not designed for shows most.
+            shared.bands_db[9] = 12.0;
+        }
+        let tap = AudioTap::new();
+        let mut chain = Chain::new(settings, Arc::clone(&tap), 44_100);
+
+        let designed_for = tone(16_000.0, 8192, 44_100);
+        chain.process(&designed_for, u16::MAX / 2, 1.0);
+        let at_44 = 20.0 * (rms(&tap.window(4096, 0)) / rms(&designed_for[8192..])).log10();
+
+        chain.set_rate(48_000);
+        tap.clear();
+        let moved_to = tone(16_000.0, 8192, 48_000);
+        chain.process(&moved_to, u16::MAX / 2, 1.0);
+        let at_48 = 20.0 * (rms(&tap.window(4096, 0)) / rms(&moved_to[8192..])).log10();
+
+        assert!(
+            (at_44 - at_48).abs() < 1.0,
+            "16 kHz gained {at_44:.1} dB at 44.1 kHz and {at_48:.1} dB at 48: \
+             the chain did not pass the device's rate on"
+        );
+    }
+
     /// A boost that would clip is held to the ceiling — and the ceiling is
     /// where the volume puts it, so the same boost passes untouched three
     /// notches down. The equalizer refuses to clamp for exactly this
