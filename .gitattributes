@@ -1,0 +1,25 @@
+# Fork-owned paths: always keep the Fastsonic version when merging upstream.
+#
+# This fork rebranded and rewrote all of the prose, packaging and CI, so an
+# upstream sync has nothing to contribute here and every one of these files
+# would otherwise conflict on every merge.
+#
+# The 'ours' driver is not carried in-tree, so each clone needs it once:
+#
+#     git config merge.ours.driver true
+#
+# Without that config the entries below are inert and you resolve by hand,
+# which is the old behaviour rather than a wrong one.
+
+.gitattributes      merge=ours
+.github/**          merge=ours
+AGENTS.md           merge=ours
+CONTRIBUTING.md     merge=ours
+LICENSE             merge=ours
+README.md           merge=ours
+THIRD-PARTY.md      merge=ours
+docs/**             merge=ours
+flake.lock          merge=ours
+flake.nix           merge=ours
+mise.toml           merge=ours
+packaging/**        merge=ours
