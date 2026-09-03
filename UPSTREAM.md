@@ -18,6 +18,19 @@ back and every sync conflicted with the whole rework. A `-s ours` merge of
 way: **merge sync branches into `main`, never squash or rebase them**, or the
 merge base stops advancing and the next sync re-fights every resolved conflict.
 
+## Reading the log after the graft
+
+Recording `29fe2d0` as an ancestor made upstream's own copies of the replayed
+commits reachable, so a plain `git log` shows everything before 0.5.0-rc2
+twice: once as upstream wrote it, once as this fork rebased it. Nothing is
+duplicated in the tree, only in the graph.
+
+Use `--first-parent` for the fork's own line of development:
+
+```sh
+git log --first-parent --oneline
+```
+
 ## Per-clone setup
 
 ```sh
