@@ -38,11 +38,44 @@ git remote add upstream https://github.com/crmne/fastpotify.git
 git config merge.ours.driver true    # activates .gitattributes 'merge=ours'
 git config rerere.enabled true       # replays resolutions on the next sync
 git config merge.conflictstyle zdiff3
+
+# upstream's tags belong to upstream, and this fork numbers itself in the
+# same `v*` space — so keep them apart:
+git config remote.upstream.tagOpt --no-tags
+git config --add remote.upstream.fetch "+refs/tags/*:refs/tags/upstream/*"
 ```
 
 `merge.ours.driver` cannot live in the tree, so without it the `merge=ours`
 entries in `.gitattributes` are inert and you resolve prose and packaging by
 hand.
+
+## Tags
+
+Upstream's release points arrive as `upstream/v0.6.0`, not `v0.6.0`. Without
+the two tag settings above they land in the bare `v*` space, and because the
+graft made upstream's commits ancestors of `main`, every one of them looks
+like a tag on this fork's own history — `v0.6.0` pointing at "Update the Nix
+vendor hash for 0.6.0", written by upstream's author, in the middle of this
+fork's log. Then the fork cannot tag its own 0.6.0 without deleting
+upstream's, and the next upstream release collides again.
+
+The fork's own releases are the bare `v*` tags, and they are the only tags
+pushed to `origin`. Sync to `upstream/v<version>`:
+
+```sh
+git merge upstream/v0.6.0
+```
+
+A clone that fetched upstream's tags before setting this up has them in the
+bare space, mixed in with the fork's own. Do not sort them by hand — both
+remotes hold the authority, so drop the local copies and fetch them back
+into their two namespaces:
+
+```sh
+git tag -d $(git tag | grep -v '^upstream/')
+git fetch upstream        # upstream's, under upstream/
+git fetch origin --tags   # the fork's own, bare
+```
 
 ## Doing a sync
 
@@ -55,8 +88,8 @@ cargo test
 gh pr create --base main
 ```
 
-Merge to upstream's release points rather than jumping straight to
-`upstream/main`. Upstream sometimes lands a change and then reverts it, and a
+Merge to upstream's release points — `upstream/v<version>` — rather than
+jumping straight to `upstream/main`. Upstream sometimes lands a change and then reverts it, and a
 single jump silently skips both sides of the resolution.
 
 ## What to skip
