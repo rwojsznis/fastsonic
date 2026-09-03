@@ -13,8 +13,7 @@ engine, telemetry, hosted backend, or Fastsonic account.
 
 The in-repository [guides](docs/_guide/getting-started.md) and
 [reference documentation](docs/_reference/settings-and-files.md) cover setup,
-everyday use, network traffic, settings, and stored files. The migration plan
-and current board are in [`migration/`](migration/README.md).
+everyday use, network traffic, settings, and stored files.
 
 ## Features
 
@@ -79,9 +78,11 @@ The repository includes a deterministic demo mode:
 cargo run --features demo -- --demo --demo-page playlist:pl1 --demo-show queue
 ```
 
-The real Navidrome fixture server and its synthetic library live in
-`migration/devserver/`. Read [CONTRIBUTING.md](CONTRIBUTING.md) before making
-changes; it defines the required checks. The architecture is centered on:
+The tests that talk to a real server are `#[ignore]`d and need a Navidrome
+of your own; `FASTSONIC_TEST_SERVER`, `FASTSONIC_TEST_USER` and
+`FASTSONIC_TEST_PASSWORD` point them at it. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before making changes; it defines the
+required checks. The architecture is centered on:
 
 - `src/api/subsonic/` — Subsonic transport, conversion, scrobbling, and the
   isolated Navidrome-native calls.

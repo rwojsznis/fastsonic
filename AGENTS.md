@@ -22,13 +22,10 @@ These instructions add implementation constraints for coding agents.
 - Do not broaden a task into adjacent features or a general refactor. Preserve
   existing user behaviour unless the task explicitly changes it.
 
-**While the migration in `migration/` is in flight**, this repository is
-still largely the Spotify client it was forked from. The boundaries above
-describe what is being built, not what is here today. Read
-`migration/PROGRESS.md` before starting: it says which phase the work is in,
-what is claimed, and what is deliberately parked. Do not delete Spotify code
-ahead of Phase 5 — the order is deliberate, so a working reference survives
-for as long as possible.
+The boundaries above describe what is here, not a plan. The fork's
+migration off Spotify is done: there is no Spotify client, no Connect, no
+device picker, no podcasts and no librespot left to work around. What
+remains of it is the packaging artwork, which is still upstream's.
 
 ## Architecture
 
@@ -43,9 +40,9 @@ for as long as possible.
 - Prefer existing dependencies. Explain any new crate in `Cargo.toml` next to
   the dependency when the reason is not obvious.
 
-Read `migration/04-auth-and-config.md` before changing authentication,
-credential storage, or network behaviour; `docs/_reference/how-it-connects.md`
-still describes the Spotify client and is rewritten at P6.1. Read
+Read `docs/_reference/how-it-connects.md` before changing authentication,
+credential storage, or network behaviour; it describes the sign-in, the two
+credentials and the traffic this client actually has. Read
 `docs/_reference/queue.md` before touching the queue: its rules are the
 contract, and they are enforced by the tests in `src/engine/queue.rs` (what
 plays next) and `src/app.rs` (what the panel draws and what a click asks
