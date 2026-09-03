@@ -49,18 +49,10 @@
     <control>pointing</control>
     <control>keyboard</control>
   </supports>
-  <releases>
-    <release version="0.5.0-rc1" date="2026-09-01" type="development">
-      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.5.0-rc1</url>
-    </release>
-    <release version="0.4.1" date="2026-08-31">
-      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.4.1</url>
-    </release>
-    <release version="0.4.0" date="2026-08-30">
-      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.4.0</url>
-    </release>
-    <release version="0.3.0" date="2026-08-29">
-      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.3.0</url>
-    </release>
-  </releases>
+  <!--
+    No releases yet. These entries were upstream Fastpotify's history and
+    described versions this fork never published, with tag URLs that 404;
+    they are removed rather than rewritten. Add one entry per Fastsonic tag,
+    newest first, in the same change that pushes the tag.
+  -->
 </component>
