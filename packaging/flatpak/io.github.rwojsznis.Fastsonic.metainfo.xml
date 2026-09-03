@@ -50,9 +50,13 @@
     <control>keyboard</control>
   </supports>
   <!--
-    No releases yet. These entries were upstream Fastpotify's history and
-    described versions this fork never published, with tag URLs that 404;
-    they are removed rather than rewritten. Add one entry per Fastsonic tag,
-    newest first, in the same change that pushes the tag.
+    One entry per Fastsonic tag, newest first, added in the same change that
+    pushes the tag. The versions before this were upstream Fastpotify's and
+    were never published by this fork.
   -->
+  <releases>
+    <release version="0.6.0" date="2026-09-03">
+      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.6.0</url>
+    </release>
+  </releases>
 </component>
