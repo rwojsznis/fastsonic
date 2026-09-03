@@ -1,8 +1,10 @@
 # Fastsonic
 
-> Fastsonic is under active migration and has not published its first release.
-> Build from source for development and testing; do not use inherited
-> Fastpotify packages as Fastsonic builds.
+> Fastsonic's first release is
+> [v0.6.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.6.0). Its
+> macOS and Windows builds are unsigned, and it carries upstream Fastpotify's
+> application artwork. Fastpotify's own Homebrew tap and AUR package are not
+> Fastsonic builds and will not update it.
 
 Fastsonic is a small native desktop client for a self-hosted music server. It
 talks Subsonic/OpenSubsonic to Navidrome, Gonic, and compatible servers,
@@ -36,6 +38,20 @@ Fastsonic plays only on this computer. It does not provide Spotify Connect,
 Subsonic jukebox mode, podcasts, offline sync, multiple server profiles, or a
 second source of audio.
 
+## Download
+
+[Release v0.6.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.6.0)
+carries builds for Linux (x86_64, aarch64, and a Flatpak bundle), macOS
+(universal), and Windows (x86_64 and aarch64, each with an installer), with a
+`checksums.txt` covering all of them.
+
+Neither the macOS nor the Windows build is signed. The DMG is not notarized
+either, so Gatekeeper refuses it on first open: right-click the app and
+choose Open, or run
+`xattr -d com.apple.quarantine /Applications/Fastsonic.app`. On Windows,
+SmartScreen calls the installer unrecognized. The Windows aarch64 build has
+no MilkDrop. There is no Homebrew tap and no AUR package.
+
 ## Build
 
 Rust 1.95 or newer is required:
@@ -52,10 +68,6 @@ CMake, a C++ compiler, and libclang. Build without it using
 PulseAudio/PipeWire, Wayland, and X11 development packages described in
 [Getting Started](docs/_guide/getting-started.md).
 `nix develop` provides the complete pinned environment.
-
-There is currently no Flatpak, Homebrew tap, AUR package, installer, or release
-archive. The first release will be linked only after its platform artifacts and
-checksums exist.
 
 ## Connect
 

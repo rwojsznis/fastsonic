@@ -2,8 +2,14 @@
 
 ## Install
 
-There are no release packages yet. Build from source with
-[Rust](https://rustup.rs) 1.95 or newer:
+Release builds for Linux, macOS and Windows are on the
+[releases page](https://github.com/rwojsznis/fastsonic/releases), with a
+`checksums.txt` beside them. Neither the macOS nor the Windows build is
+signed, so Gatekeeper and SmartScreen will both object on first open; the
+release notes say what to do about it. There is no Homebrew tap and no AUR
+package.
+
+To build instead, with [Rust](https://rustup.rs) 1.95 or newer:
 
 ```sh
 git clone https://github.com/rwojsznis/fastsonic
