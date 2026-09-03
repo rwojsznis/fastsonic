@@ -45,9 +45,8 @@ copied preferences file contains no account-specific connection details.
 Audio settings select the output device, Windows buffer size, ReplayGain
 normalisation, and whether the block cache is enabled with a 512 MB, 1 GB, or
 4 GB budget. Fastsonic streams source files as-is and plays supported contexts
-gaplessly. The inherited Audio quality, Autoplay, and Gapless controls are
-still visible in this development build but are not connected to the new
-engine; they will be removed before release.
+gaplessly. There is no audio-quality selector because the source file is not
+transcoded, and there is no autoplay source after a context ends.
 
 Interface settings cover theme, album-art accents, compact rows, shortcut
 hints, sidebar state, zoom, Winamp skin/windows/equalizer, and MilkDrop. Close

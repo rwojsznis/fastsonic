@@ -417,7 +417,6 @@ fn full_window(
     time_display(app, view, now, time);
     let vis_moving = visualiser(app, view, now);
     marquee(app, view, now);
-    rates(app, view, now);
     sliders(app, view, now);
     windows_buttons(app, view);
     transport(app, view, now);
@@ -1263,15 +1262,6 @@ fn marquee_pixels(app: &mut App, view: &mut View, text: &str, offset: usize) {
             break;
         }
     }
-}
-
-/// The configured bitrate and sample rate.
-fn rates(app: &App, view: &mut View, now: Option<&NowPlaying>) {
-    if now.is_none_or(|now| stopped(Some(now))) {
-        return;
-    }
-    view.text(&format!("{:>3}", app.settings.bitrate), layout::KBPS);
-    view.text("44", layout::KHZ);
 }
 
 fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {

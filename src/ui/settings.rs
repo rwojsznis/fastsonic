@@ -108,65 +108,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Audio quality",
-            "Higher bitrates use more data and cache space.",
-            |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    for (kbps, label) in [
-                        (320u16, "Very high · 320 kbps"),
-                        (160, "High · 160 kbps"),
-                        (96, "Normal · 96 kbps"),
-                    ] {
-                        if theme::soft_button(
-                            ui,
-                            &palette,
-                            None,
-                            label,
-                            app.settings.bitrate == kbps,
-                        )
-                        .clicked()
-                            && app.settings.bitrate != kbps
-                        {
-                            app.settings.bitrate = kbps;
-                            changed = true;
-                            playback_dirty = true;
-                        }
-                    }
-                });
-            },
-        );
-        widgets::setting_row(
-            ui,
-            &palette,
             "Normalize volume",
             "Keep loud and quiet tracks at a similar level.",
             |ui| {
                 if widgets::switch(ui, &palette, &mut app.settings.normalisation).changed() {
-                    changed = true;
-                    playback_dirty = true;
-                }
-            },
-        );
-        widgets::setting_row(
-            ui,
-            &palette,
-            "Autoplay",
-            "Keep playing similar songs when your music ends.",
-            |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.autoplay).changed() {
-                    changed = true;
-                    playback_dirty = true;
-                }
-            },
-        );
-        widgets::setting_row(
-            ui,
-            &palette,
-            "Gapless playback",
-            "Play tracks without silence between them.",
-            |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.gapless).changed() {
                     changed = true;
                     playback_dirty = true;
                 }

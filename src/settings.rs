@@ -49,11 +49,7 @@ impl ThemeChoice {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// 96, 160, or 320 kbps.
-    pub bitrate: u16,
     pub normalisation: bool,
-    pub autoplay: bool,
-    pub gapless: bool,
     /// Legacy backend setting retained so existing settings files stay readable.
     pub audio_backend: Option<String>,
     pub audio_device: Option<String>,
@@ -149,10 +145,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            bitrate: 320,
             normalisation: false,
-            autoplay: true,
-            gapless: true,
             audio_backend: None,
             audio_device: None,
             audio_buffer_ms: default_buffer_ms(),
@@ -273,6 +266,18 @@ mod tests {
         let settings: Settings =
             serde_json::from_str(r#"{"web_client_id":"retired-client"}"#).unwrap();
         assert_eq!(settings, Settings::default());
+    }
+
+    #[test]
+    fn retired_playback_settings_are_ignored_and_not_written_again() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"bitrate":96,"autoplay":false,"gapless":false}"#).unwrap();
+        assert_eq!(settings, Settings::default());
+
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(!json.contains("bitrate"));
+        assert!(!json.contains("autoplay"));
+        assert!(!json.contains("gapless"));
     }
 
     #[test]

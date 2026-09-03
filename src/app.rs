@@ -222,8 +222,7 @@ pub struct App {
     /// A play request made while the local engine was still connecting; it
     /// starts the moment the engine reports ready.
     queued_play: Option<PlayRequest>,
-    /// Last list sent to local playback. Used for autoplay because librespot
-    /// cannot continue a list without a context URI.
+    /// Last list sent to local playback, used to restore and replace contexts.
     local_list: Option<Vec<String>>,
     /// When to take a confirming look at remote playback after a command.
     pub seek_preview: Option<f32>,
@@ -4405,8 +4404,7 @@ fn queue_row_item(row: &crate::engine::QueueRow) -> PlayableItem {
 
 /// What the engine is told to play. A single song goes as a context of
 /// its own rather than a list of one: the engine resolves a track URI as a
-/// context, and a context with a URI is what librespot's autoplay carries
-/// on from when it ends, the way one song from a search does here.
+/// context, the way one song from a search does here.
 /// The starred flags an answer stated, ready for [`App::note_saved`].
 ///
 /// Objects that did not carry the flag are skipped rather than counted as
