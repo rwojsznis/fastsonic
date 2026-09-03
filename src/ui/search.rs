@@ -49,7 +49,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         SearchFilter::Songs => songs(app, ui, &results, usize::MAX),
         SearchFilter::Artists => artists_grid(app, ui, &results),
         SearchFilter::Albums => albums_grid(app, ui, &results),
-        SearchFilter::Playlists => playlists_grid(app, ui, &results),
+        SearchFilter::Playlists => {
+            if results
+                .playlists
+                .as_ref()
+                .is_none_or(|page| page.items.is_empty())
+            {
+                widgets::empty_state(
+                    ui,
+                    &palette,
+                    Icon::Search,
+                    &format!("No playlists for “{}”", app.search.committed),
+                    "Check the spelling, or try fewer words.",
+                );
+            } else {
+                playlists_grid(app, ui, &results);
+            }
+        }
     }
 }
 

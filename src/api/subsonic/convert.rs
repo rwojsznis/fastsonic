@@ -395,7 +395,12 @@ pub fn user(user: &SubsonicUser) -> User {
     }
 }
 
-pub fn search_results(results: &SearchResult3, offset: u32, limit: u32) -> SearchResults {
+pub fn search_results(
+    results: &SearchResult3,
+    playlists: Vec<SubsonicPlaylist>,
+    offset: u32,
+    limit: u32,
+) -> SearchResults {
     SearchResults {
         tracks: Some(page(
             results.song.iter().map(track).collect(),
@@ -412,8 +417,11 @@ pub fn search_results(results: &SearchResult3, offset: u32, limit: u32) -> Searc
             offset,
             limit,
         )),
-        // search3 has no playlist bucket.
-        playlists: None,
+        playlists: Some(slice(
+            &playlists.iter().map(playlist).collect::<Vec<_>>(),
+            offset,
+            limit,
+        )),
     }
 }
 
@@ -586,6 +594,23 @@ mod tests {
             converted.snapshot_id.as_deref(),
             Some("2026-09-01T22:02:00Z")
         );
+    }
+
+    #[test]
+    fn search_results_include_locally_matched_playlists() {
+        let results = search_results(
+            &SearchResult3::default(),
+            vec![SubsonicPlaylist {
+                id: "p1".into(),
+                name: "Morning Mix".into(),
+                ..SubsonicPlaylist::default()
+            }],
+            0,
+            10,
+        );
+        let playlists = results.playlists.expect("playlist page");
+        assert_eq!(playlists.items.len(), 1);
+        assert_eq!(playlists.items[0].id, "p1");
     }
 
     #[test]

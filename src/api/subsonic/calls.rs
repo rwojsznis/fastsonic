@@ -631,7 +631,22 @@ impl SubsonicClient {
             return Ok(SearchResults::default());
         }
         let results = self.search3(query, limit, offset).await?;
-        Ok(convert::search_results(&results, offset, limit))
+        // Subsonic's search3 endpoint has no playlist result bucket. Fetch
+        // the complete playlist list and apply the same query locally.
+        let query_lower = query.to_lowercase();
+        let playlists = self
+            .get_playlists()
+            .await?
+            .into_iter()
+            .filter(|playlist| {
+                playlist.name.to_lowercase().contains(&query_lower)
+                    || playlist
+                        .comment
+                        .as_deref()
+                        .is_some_and(|comment| comment.to_lowercase().contains(&query_lower))
+            })
+            .collect();
+        Ok(convert::search_results(&results, playlists, offset, limit))
     }
 
     /// `ApiRequest::Artist`. The artist page wants an image and a biography
