@@ -318,8 +318,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let mut zoom = app.settings.zoom;
-                    if theme::soft_button(ui, &palette, None, "-", false).clicked() {
-                        zoom = (zoom - 0.1).max(0.5);
+                    if theme::soft_button(ui, &palette, None, "+", false).clicked() {
+                        zoom = (zoom + 0.1).min(2.5);
                     }
                     theme::text(
                         ui,
@@ -327,8 +327,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         theme::medium(13.5),
                         palette.text,
                     );
-                    if theme::soft_button(ui, &palette, None, "+", false).clicked() {
-                        zoom = (zoom + 0.1).min(2.5);
+                    if theme::soft_button(ui, &palette, None, "-", false).clicked() {
+                        zoom = (zoom - 0.1).max(0.5);
                     }
                     if (zoom - app.settings.zoom).abs() > 0.001 {
                         app.settings.zoom = zoom;

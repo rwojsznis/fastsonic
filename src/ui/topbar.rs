@@ -50,16 +50,24 @@ fn nav_button(
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let width = ui.available_width();
+    let window_controls = super::window_controls_reservation(
+        ui.ctx(),
+        app.show_queue_panel,
+        app.show_lyrics_panel,
+        width,
+    );
     // Where the titlebar used to be: the bar grows upwards into that space and
     // its empty parts drag the window.
     let inset = theme::titlebar_inset(ui.ctx());
-    let height = theme::TOP_BAR_HEIGHT + inset;
+    let content_height = theme::TOP_BAR_HEIGHT + inset;
+    let height = content_height + window_controls.topbar_top;
     super::titlebar_drag(
         ui,
         egui::Rect::from_min_size(ui.cursor().min, vec2(width, height)),
     );
+    ui.add_space(window_controls.topbar_top);
     ui.allocate_ui_with_layout(
-        vec2(width, height),
+        vec2(width, content_height),
         Layout::left_to_right(Align::Center),
         |ui| {
             ui.add_space(super::widgets::PAGE_PADDING);
@@ -99,7 +107,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             ui.add_space(8.0);
 
-            let search_width = (ui.available_width() * 0.5).clamp(200.0, 440.0);
+            let search_room = (ui.available_width() - window_controls.topbar_width).max(0.0);
+            let search_width = (search_room * 0.5).clamp(200.0, 440.0);
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
             let response = super::widgets::search_field(
@@ -132,6 +141,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(window_controls.topbar_width);
                 ui.add_space(super::widgets::PAGE_PADDING);
                 // Account.
                 let (name, avatar) = app

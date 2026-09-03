@@ -224,7 +224,7 @@ impl Settings {
         };
         let temporary = path.with_extension("json.tmp");
         let written =
-            std::fs::write(&temporary, text).and_then(|()| std::fs::rename(&temporary, path));
+            std::fs::write(&temporary, text).and_then(|()| replace_file(&temporary, path));
         if let Err(error) = written {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
@@ -422,8 +422,75 @@ impl SessionState {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Ok(text) = serde_json::to_string(self) {
-            let _ = std::fs::write(path, text);
+        let text = match serde_json::to_string(self) {
+            Ok(text) => text,
+            Err(error) => {
+                log::warn!("unable to encode session: {error}");
+                return;
+            }
+        };
+        let temporary = path.with_extension("json.tmp");
+        let written =
+            std::fs::write(&temporary, text).and_then(|()| replace_file(&temporary, path));
+        if let Err(error) = written {
+            log::warn!("unable to save session to {}: {error}", path.display());
         }
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file(temporary: &Path, path: &Path) -> std::io::Result<()> {
+    std::fs::rename(temporary, path)
+}
+
+#[cfg(windows)]
+fn replace_file(temporary: &Path, path: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+
+    let temporary: Vec<u16> = temporary.as_os_str().encode_wide().chain(Some(0)).collect();
+    let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let moved = unsafe {
+        MoveFileExW(
+            temporary.as_ptr(),
+            path.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::SessionState;
+
+    #[test]
+    fn a_new_session_atomically_replaces_the_previous_one() {
+        let root = std::env::temp_dir().join(format!(
+            "fastsonic-session-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = root.join("session.json");
+        let state = |page: &str| SessionState {
+            last_page: Some(page.into()),
+            ..SessionState::default()
+        };
+
+        state("home").save(&path);
+        state("liked").save(&path);
+
+        assert_eq!(
+            SessionState::load(&path).last_page.as_deref(),
+            Some("liked")
+        );
+        assert!(!path.with_extension("json.tmp").exists());
+        let _ = std::fs::remove_dir_all(root);
     }
 }
