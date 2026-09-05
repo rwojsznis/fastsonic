@@ -146,10 +146,10 @@ fn field(app: &mut App, ui: &mut egui::Ui, label: &str, which: Field) -> bool {
         let hint = match which {
             Field::Server => "http://navidrome.local:4533",
             Field::Username => "",
-            // A password already exchanged does not have to be typed again:
-            // an empty box retries the stored token, which is what a server
-            // that was merely unreachable needs.
-            Field::Password => "leave empty to reuse the saved sign-in",
+            // An empty box retries the stored token when a saved sign-in is
+            // still present. Signing out removes that token, so the password
+            // must be entered again after signing out.
+            Field::Password => "leave empty to retry the saved sign-in",
         };
         let value = match which {
             Field::Server => &mut app.server,
@@ -158,6 +158,7 @@ fn field(app: &mut App, ui: &mut egui::Ui, label: &str, which: Field) -> bool {
         };
         let edit = egui::TextEdit::singleline(value)
             .desired_width(f32::INFINITY)
+            .margin(Margin::symmetric(10, 8))
             .font(theme::regular(14.0))
             .hint_text(hint)
             .password(which == Field::Password);
