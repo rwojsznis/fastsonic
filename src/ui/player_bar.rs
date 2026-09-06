@@ -67,7 +67,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let cover_rect = Rect::from_min_size(pos2(region.left() + 4.0, cy - 28.0), Vec2::splat(56.0));
 
     let Some(now) = now else {
-        super::widgets::paint_cover(ui, &palette, None, cover_rect, 6.0, Icon::Music);
+        super::widgets::paint_cover(ui, &palette, None, cover_rect, 6.0, Icon::Music, None);
         let text_left = cover_rect.right() + 12.0;
         let text_rect = Rect::from_min_size(
             pos2(text_left, cy - 17.0),
@@ -101,6 +101,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         cover_rect,
         6.0,
         Icon::Music,
+        Some(app.backend.art()),
     );
     let cover_response = ui
         .interact(
@@ -258,7 +259,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
-    if theme::icon_button(
+    let shuffle_button = theme::icon_button(
         &mut cell,
         Icon::Shuffle,
         17.0,
@@ -269,9 +270,16 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
             palette.text
         },
         "Shuffle",
-    )
-    .clicked()
-    {
+    );
+    shuffle_button.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Checkbox,
+            cell.is_enabled(),
+            shuffle,
+            "Shuffle",
+        )
+    });
+    if shuffle_button.clicked() {
         app.actions.push(Action::ToggleShuffle);
     }
 
@@ -399,9 +407,9 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         &mut slider_ui,
         &palette,
         egui::Id::new("seek-slider"),
+        "Playback position (%)",
         fraction,
         slider_width,
-        palette.accent,
         None,
     ) {
         SliderEvent::Dragging(value) => app.seek_preview = Some(value),
@@ -437,9 +445,9 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         ui,
         &palette,
         egui::Id::new("volume-slider"),
+        "Volume (%)",
         shown as f32 / 100.0,
         92.0,
-        palette.accent,
         Some(0.05),
     ) {
         SliderEvent::Dragging(value) => {

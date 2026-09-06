@@ -24,7 +24,7 @@ pub fn cover(
     fallback: Icon,
 ) -> Rect {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-    paint_cover(ui, palette, url, rect, radius, fallback);
+    paint_cover(ui, palette, url, rect, radius, fallback, None);
     rect
 }
 
@@ -35,9 +35,13 @@ pub fn paint_cover(
     rect: Rect,
     radius: f32,
     fallback: Icon,
+    art: Option<&crate::images::ArtLoader>,
 ) {
     if !ui.is_rect_visible(rect) {
         return;
+    }
+    if let (Some(url), Some(art)) = (url, art) {
+        art.touch(url);
     }
     let corner = CornerRadius::same(radius.min(127.0) as u8);
     let painter = ui.painter();
@@ -48,6 +52,14 @@ pub fn paint_cover(
         else {
             return false;
         };
+        if let Some(art) = art {
+            art.release_bytes(url);
+            art.note_decoded(
+                url,
+                texture.size.x.round() as usize,
+                texture.size.y.round() as usize,
+            );
+        }
 
         let image_aspect = texture.size.x / texture.size.y;
         let rect_aspect = rect.width() / rect.height();
@@ -125,7 +137,10 @@ pub fn virtual_rows(
     let clip = ui.clip_rect();
     let start_y = ui.cursor().top();
     let width = ui.available_width();
-    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize).min(count);
+    // Retain a neighbour on either side so Tab can focus it and scroll it in.
+    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize)
+        .min(count)
+        .saturating_sub(1);
     let last = (((clip.bottom() - start_y) / row_height).ceil().max(0.0) as usize + 1).min(count);
     if first > 0 {
         ui.allocate_space(vec2(width, first as f32 * row_height));
@@ -136,6 +151,43 @@ pub fn virtual_rows(
     if last < count {
         ui.allocate_space(vec2(width, (count - last) as f32 * row_height));
     }
+    ui.spacing_mut().item_spacing = previous_spacing;
+}
+
+/// A wrapping grid of cards, laid out row by row so only visible cards are
+/// measured and painted.
+pub fn virtual_wrapped_cards(
+    ui: &mut Ui,
+    count: usize,
+    card_height: f32,
+    mut card: impl FnMut(&mut Ui, usize),
+) {
+    if count == 0 {
+        return;
+    }
+    let spacing = CARD_GAP / 2.0;
+    let row_width = ui.available_width().max(CARD_WIDTH);
+    let cards_per_row = ((row_width + spacing) / (CARD_WIDTH + spacing))
+        .floor()
+        .max(1.0) as usize;
+    let row_count = count.div_ceil(cards_per_row);
+    // CARD_GAP is already in the row height. Do not also inherit item_spacing.y.
+    let previous_spacing = ui.spacing().item_spacing;
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let grid_id = ui.unique_id().with("virtual-card");
+    virtual_rows(ui, row_count, card_height + CARD_GAP, |ui, row| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(spacing, CARD_GAP);
+            let start = row * cards_per_row;
+            let end = (start + cards_per_row).min(count);
+            for index in start..end {
+                ui.scope_builder(UiBuilder::new().id(grid_id.with(index)), |ui| {
+                    card(ui, index);
+                });
+            }
+        });
+        ui.allocate_space(vec2(row_width, CARD_GAP));
+    });
     ui.spacing_mut().item_spacing = previous_spacing;
 }
 
@@ -211,6 +263,10 @@ pub fn menu_item_enabled(
         ui.painter()
             .galley(crate::bidi::galley_pos(text_rect, &galley), galley, color);
     }
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && ui.is_enabled(), label)
+    });
+    theme::focus_ring(ui, &response);
     let clicked = enabled && response.clicked();
     if clicked {
         ui.close();
@@ -607,6 +663,23 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
 /// Returns the selection behavior for a row-body click. The caller supplies
 /// the display index because sorting and filtering change row positions.
 pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPick> {
+    // Virtual lists reuse the visible slots as they scroll. Keep focus and
+    // accessibility actions attached to the song and its occurrence instead.
+    // Now playing and Next up can both contain the same song at index zero.
+    // Their actions have different meanings, so they must not share an ID.
+    let id = ui.unique_id().with((
+        "track-row",
+        std::mem::discriminant(row.context),
+        row.item.uri(),
+        row.index,
+    ));
+    ui.scope_builder(UiBuilder::new().id(id), |ui| {
+        track_row_contents(ui, app, row)
+    })
+    .inner
+}
+
+fn track_row_contents(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPick> {
     let palette = app.palette;
     let row_height = if row.thin {
         theme::THIN_ROW_HEIGHT
@@ -618,7 +691,21 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, row_height), Sense::click_and_drag());
     let rect = rect.translate(vec2(0.0, row.shift));
-    if !ui.is_rect_visible(rect) {
+    let unavailable = match row.item {
+        PlayableItem::Track(track) => track.is_playable == Some(false) || track.is_local,
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            ui.is_enabled() && !unavailable,
+            row.picked,
+            format!("Play {}, {}", row.item.name(), row.item.subtitle()),
+        )
+    });
+    if response.gained_focus() {
+        response.scroll_to_me(None);
+    }
+    if !ui.is_rect_visible(rect) && !response.has_focus() && !response.clicked() {
         return None;
     }
     // Start a sidebar drag only after egui's drag threshold.
@@ -649,11 +736,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
             .current_track_uri()
             .is_some_and(|uri| uri == row.item.uri());
     let playing = is_current && app.believed_playing();
-    let hovered = ui.rect_contains_pointer(rect);
-    let unavailable = match row.item {
-        PlayableItem::Track(track) => track.is_playable == Some(false) || track.is_local,
-    };
-
+    let hovered = ui.rect_contains_pointer(rect) || response.has_focus();
     if row.picked {
         // Picked rows read as a block, so a run of them looks like one
         // thing rather than a stack of hovers. Hovering one still lifts
@@ -674,6 +757,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
                 .gamma_multiply(if palette.dark { 0.7 } else { 1.0 }),
         );
     }
+    theme::focus_ring(ui, &response);
     let cols = columns(width, &row);
     let painter = ui.painter().clone();
     let mut x = rect.left() + 8.0;
@@ -728,6 +812,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
             cover_rect,
             4.0,
             Icon::Music,
+            Some(app.backend.art()),
         );
         // Without a number column the cover carries the play control:
         // hover shows it, a click uses it, and what plays shows there.
@@ -959,26 +1044,30 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     if cols.heart > 0.0 {
         let saved = app.is_saved(row.item.uri());
         let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
-        if hovered || saved == Some(true) {
-            let mut child = ui.new_child(
-                UiBuilder::new()
-                    .max_rect(heart_rect)
-                    .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
-            );
-            let (icon, color) = if saved == Some(true) {
-                (Icon::HeartFilled, palette.accent)
-            } else {
-                (Icon::Heart, palette.secondary)
-            };
-            let tooltip = if saved == Some(true) {
-                "Remove from Liked Songs"
-            } else {
-                "Save to Liked Songs"
-            };
-            if theme::icon_button(&mut child, icon, 16.0, color, palette.text, tooltip).clicked() {
-                app.actions
-                    .push(Action::ToggleSaved(row.item.uri().to_string()));
-            }
+        let mut child = ui.new_child(
+            UiBuilder::new()
+                .max_rect(heart_rect)
+                .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+        );
+        if !hovered
+            && saved != Some(true)
+            && !child.memory(|memory| memory.has_focus(child.next_auto_id()))
+        {
+            child.set_opacity(0.0);
+        }
+        let (icon, color) = if saved == Some(true) {
+            (Icon::HeartFilled, palette.accent)
+        } else {
+            (Icon::Heart, palette.secondary)
+        };
+        let tooltip = if saved == Some(true) {
+            "Remove from Liked Songs"
+        } else {
+            "Save to Liked Songs"
+        };
+        if theme::icon_button(&mut child, icon, 16.0, color, palette.text, tooltip).clicked() {
+            app.actions
+                .push(Action::ToggleSaved(row.item.uri().to_string()));
         }
         x += cols.heart;
     }
@@ -999,13 +1088,19 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     // only on a hovered row, the pointer's trip to the menu could leave
     // the row and close it before anything was clicked.
     let menu_id = ui.id().with(("row-menu", row.index));
-    if cols.more > 0.0 && (hovered || egui::Popup::is_id_open(ui.ctx(), menu_id)) {
+    if cols.more > 0.0 {
         let more_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.more, row_height));
         let mut child = ui.new_child(
             UiBuilder::new()
                 .max_rect(more_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
+        if !hovered
+            && !egui::Popup::is_id_open(ui.ctx(), menu_id)
+            && !child.memory(|memory| memory.has_focus(child.next_auto_id()))
+        {
+            child.set_opacity(0.0);
+        }
         let more = theme::icon_button(
             &mut child,
             Icon::Ellipsis,
@@ -1022,7 +1117,8 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
 
     // Row interactions.
     let mut pick = None;
-    if response.double_clicked() && !unavailable {
+    let accessible_click = response.clicked() && response.interact_pointer_pos().is_none();
+    if (response.double_clicked() || accessible_click) && !unavailable {
         app.actions.push(Action::PlayFromRow {
             context: row.context.clone(),
             uri: row.item.uri().to_string(),
@@ -1179,6 +1275,14 @@ pub fn table_header(
         let head =
             Rect::from_min_size(top_left, size + vec2(arrow_room, 0.0)).expand2(vec2(4.0, 8.0));
         let response = ui.interact(head, ui.id().with(("table-header", text)), Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                format!("Sort by {text}"),
+            )
+        });
+        theme::focus_ring(ui, &response);
         let color = if active.is_some() {
             palette.accent
         } else if response.hovered() {
@@ -1222,6 +1326,14 @@ pub fn table_header(
         let natural = sort.is_none();
         let active = sort.filter(|sort| sort.column == SortColumn::Index);
         let response = ui.interact(number, ui.id().with("table-header-number"), Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                "Sort by playlist order",
+            )
+        });
+        theme::focus_ring(ui, &response);
         let number_color = if natural || active.is_some() {
             palette.accent
         } else if response.hovered() {
@@ -1305,6 +1417,14 @@ pub fn table_header(
         ui.id().with("table-header-duration"),
         Sense::click(),
     );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            "Sort by duration",
+        )
+    });
+    theme::focus_ring(ui, &response);
     let clock_color = if duration_active {
         palette.accent
     } else if response.hovered() {
@@ -1371,6 +1491,24 @@ pub struct CardResponse {
     pub play: bool,
 }
 
+/// Fixed height of a [`card`] row for virtualised grids.
+pub fn card_row_height(ui: &mut Ui) -> f32 {
+    const PAD: f32 = 12.0;
+    const TITLE_GAP: f32 = 10.0;
+    const SUBTITLE_GAP: f32 = 2.0;
+    const BOTTOM_PAD: f32 = 8.0;
+    let image_size = CARD_WIDTH - 2.0 * PAD;
+    let title_font = theme::semibold(14.0);
+    let subtitle_font = theme::regular(12.5);
+    let (title_row, subtitle_row) = ui.fonts_mut(|fonts| {
+        (
+            fonts.row_height(&title_font),
+            fonts.row_height(&subtitle_font),
+        )
+    });
+    PAD + image_size + TITLE_GAP + title_row + SUBTITLE_GAP + 2.0 * subtitle_row + BOTTOM_PAD
+}
+
 /// A cover-and-title card for grids and shelves.
 pub fn card(
     ui: &mut Ui,
@@ -1403,6 +1541,16 @@ pub fn card(
     let height =
         PAD + image_size + TITLE_GAP + title_row + SUBTITLE_GAP + 2.0 * subtitle_row + BOTTOM_PAD;
     let (rect, response) = ui.allocate_exact_size(vec2(CARD_WIDTH, height), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("{title}, {subtitle}"),
+        )
+    });
+    if response.gained_focus() {
+        response.scroll_to_me(None);
+    }
     let mut play = false;
     if ui.is_rect_visible(rect) {
         let hovered = ui.rect_contains_pointer(rect);
@@ -1425,6 +1573,7 @@ pub fn card(
             image_rect,
             radius,
             if round { Icon::User } else { Icon::Music },
+            Some(app.backend.art()),
         );
         let text_left = rect.left() + PAD;
         let title_galley = ellipsized(ui, title, title_font, palette.text, text_width, 1);
@@ -1481,6 +1630,7 @@ pub fn card(
         }
     }
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    theme::focus_ring(ui, &response);
     CardResponse {
         clicked: response.clicked() && !play,
         play,
@@ -1596,12 +1746,13 @@ pub fn thin_slider(
     ui: &mut Ui,
     palette: &Palette,
     id: egui::Id,
+    label: &str,
     value: f32,
     width: f32,
-    accent: Color32,
     wheel_step: Option<f32>,
 ) -> SliderEvent {
-    let (rect, response) = ui.allocate_exact_size(vec2(width, 16.0), Sense::click_and_drag());
+    let (_, rect) = ui.allocate_space(vec2(width, 16.0));
+    let response = ui.interact(rect, id, Sense::click_and_drag());
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     let dragging_value = ui.data(|data| data.get_temp::<f32>(id));
     let pointer_value = response
@@ -1629,13 +1780,66 @@ pub fn thin_slider(
             event = SliderEvent::Committed((value + step * notches as f32).clamp(0.0, 1.0));
         }
     }
+    let step = wheel_step.unwrap_or(0.01);
+    let focused = response.has_focus();
+    if focused {
+        ui.memory_mut(|memory| {
+            memory.set_focus_lock_filter(
+                response.id,
+                egui::EventFilter {
+                    horizontal_arrows: true,
+                    ..Default::default()
+                },
+            )
+        });
+    }
+    if response.enabled() {
+        ui.input(|input| {
+            use egui::accesskit::{Action, ActionData};
+            let mut change = input.num_accesskit_action_requests(response.id, Action::Increment)
+                as i32
+                - input.num_accesskit_action_requests(response.id, Action::Decrement) as i32;
+            if focused {
+                change += input.num_presses(egui::Key::ArrowRight) as i32
+                    - input.num_presses(egui::Key::ArrowLeft) as i32;
+            }
+            if change != 0 {
+                event = SliderEvent::Committed((value + change as f32 * step).clamp(0.0, 1.0));
+            }
+            for request in input.accesskit_action_requests(response.id, Action::SetValue) {
+                if let Some(ActionData::NumericValue(value)) = request.data
+                    && value.is_finite()
+                {
+                    event = SliderEvent::Committed((value / 100.0).clamp(0.0, 1.0) as f32);
+                }
+            }
+        });
+    }
     let shown = match &event {
         SliderEvent::Dragging(v) => *v,
         SliderEvent::Committed(v) => *v,
         SliderEvent::None => dragging_value.unwrap_or(value),
     };
+    response
+        .widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(shown) * 100.0, label));
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        use egui::accesskit::Action;
+        node.set_min_numeric_value(0.0);
+        node.set_max_numeric_value(100.0);
+        node.set_numeric_value_step(f64::from(step) * 100.0);
+        node.add_action(Action::SetValue);
+        if shown > 0.0 {
+            node.add_action(Action::Decrement);
+        }
+        if shown < 1.0 {
+            node.add_action(Action::Increment);
+        }
+    });
     if ui.is_rect_visible(rect) {
-        let active = response.hovered() || response.dragged() || dragging_value.is_some();
+        let active = response.hovered()
+            || response.has_focus()
+            || response.dragged()
+            || dragging_value.is_some();
         let bar = Rect::from_center_size(rect.center(), vec2(rect.width(), 4.0));
         let track_color = if palette.dark {
             Color32::from_white_alpha(50)
@@ -1647,7 +1851,7 @@ pub fn thin_slider(
             bar.min,
             pos2(bar.left() + bar.width() * shown.clamp(0.0, 1.0), bar.max.y),
         );
-        let fill = if active { accent } else { palette.text };
+        let fill = if active { palette.accent } else { palette.text };
         ui.painter().rect_filled(filled, 2.0, fill);
         if active {
             ui.painter()
@@ -1739,6 +1943,8 @@ pub fn search_field(
             .vertical_align(Align::Center)
             .layouter(&mut layouter),
     );
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_label(hint));
     if !text.is_empty() {
         let clear_rect = Rect::from_center_size(
             pos2(rect.right() - 17.0, rect.center().y),
@@ -1767,7 +1973,7 @@ pub fn search_field(
 }
 
 /// A toggle drawn as a switch.
-pub fn switch(ui: &mut Ui, palette: &Palette, on: &mut bool) -> egui::Response {
+pub fn switch(ui: &mut Ui, palette: &Palette, label: &str, on: &mut bool) -> egui::Response {
     let size = vec2(40.0, 22.0);
     let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
     if response.clicked() {
@@ -1786,6 +1992,10 @@ pub fn switch(ui: &mut Ui, palette: &Palette, on: &mut bool) -> egui::Response {
         ui.painter()
             .circle_filled(pos2(knob_x, rect.center().y), 8.0, Color32::WHITE);
     }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label)
+    });
+    theme::focus_ring(ui, &response);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -1817,4 +2027,299 @@ pub fn setting_row(
         ui.with_layout(Layout::right_to_left(Align::Center), control);
     });
     ui.add_space(10.0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{App, AppOptions};
+    use crate::model::{Action, Page};
+    use crate::paths::AppDirs;
+    use crate::settings::Settings;
+
+    fn test_app() -> App {
+        let root = std::env::temp_dir().join(format!(
+            "fastsonic-virtual-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        App::new(
+            &crate::backend::Waker::default(),
+            AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        )
+    }
+
+    fn run_on(
+        ctx: &egui::Context,
+        size: Vec2,
+        clip: Rect,
+        events: Vec<egui::Event>,
+        mut f: impl FnMut(&mut Ui),
+    ) {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), size)),
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            ui.set_clip_rect(clip);
+            f(ui);
+        });
+        output.textures_delta.clear();
+    }
+
+    fn run(size: Vec2, clip: Rect, events: Vec<egui::Event>, f: impl FnMut(&mut Ui)) {
+        run_on(&egui::Context::default(), size, clip, events, f);
+    }
+
+    #[test]
+    fn virtual_rows_only_build_visible_indices() {
+        let mut painted = Vec::new();
+        let size = vec2(400.0, 240.0);
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), size);
+        run(size, clip, Vec::new(), |ui| {
+            virtual_rows(ui, 10_000, 40.0, |_, index| painted.push(index));
+        });
+        assert!(
+            painted.len() < 20,
+            "a long list must not build every row: {} painted",
+            painted.len()
+        );
+        assert!(!painted.is_empty());
+        assert_eq!(painted[0], 0);
+        assert!(
+            painted.windows(2).all(|pair| pair[1] == pair[0] + 1),
+            "visible indices must be consecutive"
+        );
+    }
+
+    #[test]
+    fn virtual_rows_keep_full_height_when_scrolled() {
+        let mut painted = Vec::new();
+        let mut span = 0.0;
+        let size = vec2(400.0, 800.0);
+        let clip = Rect::from_min_max(pos2(0.0, 400.0), pos2(400.0, 600.0));
+        run(size, clip, Vec::new(), |ui| {
+            let start = ui.cursor().top();
+            virtual_rows(ui, 10_000, 40.0, |ui, index| {
+                painted.push(index);
+                ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+            });
+            span = ui.cursor().top() - start;
+        });
+        assert!(
+            (span - 10_000.0 * 40.0).abs() < 1.0,
+            "scroll height must match the full list, got {span}"
+        );
+        assert!(
+            painted.first().copied().unwrap_or(0) >= 8,
+            "rows above the clip must be skipped: {painted:?}"
+        );
+        assert!(
+            painted.last().copied().unwrap_or(0) < 20,
+            "rows below the clip must be skipped: {painted:?}"
+        );
+        assert!(painted.len() < 20);
+    }
+
+    #[test]
+    fn a_click_on_a_visible_virtual_row_still_fires() {
+        let ctx = egui::Context::default();
+        let size = vec2(400.0, 240.0);
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), size);
+        let mut row0 = Rect::NOTHING;
+        run_on(&ctx, size, clip, Vec::new(), |ui| {
+            virtual_rows(ui, 500, 40.0, |ui, index| {
+                let (rect, _) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                if index == 0 {
+                    row0 = rect;
+                }
+            });
+        });
+        let pos = row0.center();
+        let mut clicked = None;
+        let events = vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+        run_on(&ctx, size, clip, events, |ui| {
+            virtual_rows(ui, 500, 40.0, |ui, index| {
+                let (_, response) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                if response.clicked() {
+                    clicked = Some(index);
+                }
+            });
+        });
+        assert_eq!(clicked, Some(0));
+    }
+
+    #[test]
+    fn load_more_asks_when_the_list_end_is_near() {
+        let mut app = test_app();
+        let size = vec2(400.0, 800.0);
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), size);
+        run(size, clip, Vec::new(), |ui| {
+            virtual_rows(ui, 5, 40.0, |ui, _| {
+                ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+            });
+            load_more_when_near_end(ui, &mut app, Page::Albums, true);
+        });
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::LoadMore(Page::Albums))),
+            "a short list must request the next page: {:?}",
+            app.actions
+        );
+    }
+
+    #[test]
+    fn load_more_waits_until_a_long_list_is_near_the_end() {
+        let mut app = test_app();
+        let size = vec2(400.0, 200.0);
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), size);
+        run(size, clip, Vec::new(), |ui| {
+            virtual_rows(ui, 10_000, 40.0, |_, _| {});
+            load_more_when_near_end(ui, &mut app, Page::Albums, true);
+        });
+        assert!(
+            app.actions.is_empty(),
+            "the top of a long list must not page: {:?}",
+            app.actions
+        );
+
+        run(
+            size,
+            Rect::from_min_max(pos2(0.0, 399_200.0), pos2(400.0, 400_000.0)),
+            Vec::new(),
+            |ui| {
+                virtual_rows(ui, 10_000, 40.0, |_, _| {});
+                load_more_when_near_end(ui, &mut app, Page::Albums, true);
+            },
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::LoadMore(Page::Albums))),
+            "scrolling near the end must page: {:?}",
+            app.actions
+        );
+    }
+
+    #[test]
+    fn virtual_rows_keep_the_gap_a_for_loop_would() {
+        let size = vec2(400.0, 800.0);
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), size);
+        let mut loop_span = 0.0;
+        let mut virt_span = 0.0;
+        run(size, clip, Vec::new(), |ui| {
+            let start = ui.cursor().top();
+            for _ in 0..8 {
+                ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+            }
+            loop_span = ui.cursor().top() - start;
+        });
+        run(size, clip, Vec::new(), |ui| {
+            let start = ui.cursor().top();
+            let gap = ui.spacing().item_spacing.y;
+            virtual_rows(ui, 8, 40.0 + gap, |ui, _| {
+                let width = ui.available_width();
+                ui.allocate_exact_size(vec2(width, 40.0), Sense::hover());
+                ui.allocate_space(vec2(width, gap));
+            });
+            virt_span = ui.cursor().top() - start;
+        });
+        assert!(
+            loop_span > 8.0 * 40.0,
+            "a for-loop keeps item spacing: {loop_span}"
+        );
+        assert!(
+            (loop_span - virt_span).abs() < 1.0,
+            "playing-next style virtual rows must keep that spacing: loop={loop_span} virtual={virt_span}"
+        );
+    }
+
+    #[test]
+    fn virtual_wrapped_cards_keep_widget_ids_when_the_first_row_changes() {
+        use std::collections::HashMap;
+        let ctx = egui::Context::default();
+        let size = vec2(400.0, 800.0);
+        let mut top_ids = HashMap::new();
+        run_on(
+            &ctx,
+            size,
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 220.0)),
+            Vec::new(),
+            |ui| {
+                virtual_wrapped_cards(ui, 40, 180.0, |ui, index| {
+                    let response = ui.button(format!("Card {index}"));
+                    top_ids.insert(index, response.id);
+                });
+            },
+        );
+        let mut scrolled_ids = HashMap::new();
+        run_on(
+            &ctx,
+            size,
+            Rect::from_min_max(pos2(0.0, 400.0), pos2(400.0, 620.0)),
+            Vec::new(),
+            |ui| {
+                virtual_wrapped_cards(ui, 40, 180.0, |ui, index| {
+                    let response = ui.button(format!("Card {index}"));
+                    scrolled_ids.insert(index, response.id);
+                });
+            },
+        );
+        let shared = top_ids
+            .keys()
+            .find(|index| scrolled_ids.contains_key(index))
+            .copied()
+            .expect("a card must remain built after the first visible row changes");
+        assert_eq!(
+            top_ids[&shared], scrolled_ids[&shared],
+            "card {shared} must keep its widget id when earlier rows leave the clip"
+        );
+    }
+
+    #[test]
+    fn virtual_wrapped_cards_only_build_visible_rows() {
+        let mut painted = Vec::new();
+        let size = vec2(400.0, 220.0);
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), size);
+        run(size, clip, Vec::new(), |ui| {
+            virtual_wrapped_cards(ui, 200, 180.0, |_, index| painted.push(index));
+        });
+        assert!(
+            painted.len() < 40,
+            "a long grid must not build every card: {} painted",
+            painted.len()
+        );
+        assert!(!painted.is_empty());
+        assert_eq!(painted[0], 0);
+    }
 }

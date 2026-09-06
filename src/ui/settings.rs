@@ -111,7 +111,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Normalize volume",
             "Keep loud and quiet tracks at a similar level.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.normalisation).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Normalize volume",
+                    &mut app.settings.normalisation,
+                )
+                .changed()
+                {
                     changed = true;
                     playback_dirty = true;
                 }
@@ -126,8 +133,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 "Fastsonic hides to the system tray. Quit from the tray menu or with Cmd+Q.",
             ),
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.keep_playing_in_background)
-                    .changed()
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Keep music playing when the window closes",
+                    &mut app.settings.keep_playing_in_background,
+                )
+                .changed()
                 {
                     changed = true;
                 }
@@ -136,10 +148,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Check for updates",
+            "Automatic update checks",
             "Checks GitHub once a day. No personal data is sent.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.check_for_updates).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Automatic update checks",
+                    &mut app.settings.check_for_updates,
+                )
+                .changed()
+                {
                     changed = true;
                 }
             },
@@ -208,7 +227,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 // The control area lays out right-to-left: add the rightmost item first.
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    if widgets::switch(ui, &palette, &mut app.settings.audio_cache).changed() {
+                    if widgets::switch(ui, &palette, "Audio cache", &mut app.settings.audio_cache)
+                        .changed()
+                    {
                         changed = true;
                         playback_dirty = true;
                     }
@@ -279,7 +300,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Colour from album art",
             "Use the current cover's colour on pages and the player bar.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.accent_from_art).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Colour from album art",
+                    &mut app.settings.accent_from_art,
+                )
+                .changed()
+                {
                     changed = true;
                 }
             },
@@ -290,7 +318,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Compact library sidebar",
             "Show names without covers in the sidebar.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.sidebar_compact).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Compact library sidebar",
+                    &mut app.settings.sidebar_compact,
+                )
+                .changed()
+                {
                     changed = true;
                 }
             },
@@ -301,7 +336,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Compact track list",
             "Show each track on one line without a cover.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.tracklist_compact).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Compact track list",
+                    &mut app.settings.tracklist_compact,
+                )
+                .changed()
+                {
                     changed = true;
                 }
             },
@@ -440,7 +482,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Keep the Winamp window above everything else.",
             |ui| {
                 let mut on_top = app.settings.winamp_on_top;
-                if widgets::switch(ui, &palette, &mut on_top).changed() {
+                if widgets::switch(ui, &palette, "Always on top", &mut on_top).changed() {
                     app.actions.push(Action::ToggleWinampOnTop);
                 }
             },
@@ -458,7 +500,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
             |ui| {
                 let mut open = app.settings.milkdrop_open;
-                if widgets::switch(ui, &palette, &mut open).changed() {
+                if widgets::switch(ui, &palette, "MilkDrop window", &mut open).changed() {
                     app.actions.push(Action::ToggleWinampMilkdrop);
                 }
             },
@@ -612,7 +654,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "A ten-band equalizer for playback on this computer. It does not affect other devices.",
             |ui| {
                 let mut on = app.settings.eq_on;
-                if widgets::switch(ui, &palette, &mut on).changed() {
+                if widgets::switch(ui, &palette, "Equalizer", &mut on).changed() {
                     app.actions.push(Action::ToggleEq);
                 }
             },
@@ -725,6 +767,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
+            let check_label = if app.update_checking {
+                "Checking…"
+            } else {
+                "Check for updates"
+            };
+            if theme::soft_button(ui, &palette, Some(Icon::Refresh), check_label, false).clicked()
+                && !app.update_checking
+            {
+                app.actions.push(Action::CheckForUpdates);
+            }
             if theme::soft_button(ui, &palette, Some(Icon::Info), "Keyboard shortcuts", false)
                 .clicked()
             {

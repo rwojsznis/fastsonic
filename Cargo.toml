@@ -117,9 +117,25 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString"] }
 
+# AccessKit connects egui's control names, states, and actions to native
+# screen readers.
+#
+# Not on macOS. `accesskit_macos` puts a view of its own in the window, and
+# tearing that window down mid-session leaves AppKit's Touch Bar observation
+# registered for `nextResponder` against a view that has gone; the next
+# display flush throws NSRangeException and the process aborts. The Winamp
+# switch does exactly that teardown, because it returns from `run_native` and
+# starts a fresh event loop, so Cmd+Shift+M killed the app every time.
+#
+# Upstream 0.7.0 ships the same pair and crashes identically, so this is not
+# a porting mistake to fix here. `accesskit_macos` 0.27 may well fix it, but
+# eframe 0.36 pins the 0.26 line, so this waits on an eframe bump.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "links", "wayland", "x11", "persistence"] }
+
 [target.'cfg(windows)'.dependencies]
 # A hidden window for the media controls to belong to, and message loops.
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", features = ["blocking"] }
