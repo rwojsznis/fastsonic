@@ -1,7 +1,7 @@
 # Fastsonic
 
-> Fastsonic's first release is
-> [v0.6.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.6.0). Its
+> Fastsonic's latest release is
+> [v0.7.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.7.0). Its
 > macOS and Windows builds are unsigned, and it carries upstream Fastpotify's
 > application artwork. Fastpotify's own Homebrew tap and AUR package are not
 > Fastsonic builds and will not update it.
@@ -40,7 +40,7 @@ second source of audio.
 
 ## Download
 
-[Release v0.6.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.6.0)
+[Release v0.7.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.7.0)
 carries builds for Linux (x86_64, aarch64, and a Flatpak bundle), macOS
 (universal), and Windows (x86_64 and aarch64, each with an installer), with a
 `checksums.txt` covering all of them.

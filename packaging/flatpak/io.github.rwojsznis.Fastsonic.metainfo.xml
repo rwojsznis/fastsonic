@@ -55,6 +55,9 @@
     were never published by this fork.
   -->
   <releases>
+    <release version="0.7.0" date="2026-09-06">
+      <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.7.0</url>
+    </release>
     <release version="0.6.0" date="2026-09-03">
       <url>https://github.com/rwojsznis/fastsonic/releases/tag/v0.6.0</url>
     </release>

@@ -49,7 +49,8 @@ owned by this engine and does not exist on the server.
   the track's artist, title, album, and duration to
   [LRCLIB](https://lrclib.net). Lyrics are cached locally for a month.
 - If update checks are enabled, Fastsonic asks GitHub's API once a day whether
-  a newer release exists.
+  a newer release exists. **Check for updates** asks the same question once,
+  whether or not the daily check is on.
 - Settings can download optional MilkDrop preset packs from their documented
   upstream sources.
 
