@@ -1,10 +1,86 @@
 //! UI state, loaded data, and pending actions.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::api::models::*;
 use crate::backend::AlbumShelf;
+
+/// One table row: the playable, when it was added, who added it.
+pub type TableItem = (PlayableItem, Option<String>, Option<String>);
+
+/// Cached track-table rows for one page.
+///
+/// Lives on the app, not in egui temp data, so it dies with page eviction,
+/// sign-out, and `reset_data`. A generation token stops a recreated page
+/// from reusing a stale copy that still has the old revision number.
+pub struct TableRowsCache {
+    pub generation: u64,
+    pub items_revision: u64,
+    pub user_names_revision: u64,
+    pub items: Arc<[TableItem]>,
+}
+
+impl TableRowsCache {
+    /// Retained heap for this cache: nested track metadata, not just
+    /// the top-level URI and title.
+    pub fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self
+                .items
+                .iter()
+                .map(|(item, added, by)| {
+                    playable_retained_bytes(item)
+                        + added.as_ref().map(String::len).unwrap_or(0)
+                        + by.as_ref().map(String::len).unwrap_or(0)
+                })
+                .sum::<usize>()
+    }
+}
+
+fn playable_retained_bytes(item: &PlayableItem) -> usize {
+    match item {
+        PlayableItem::Track(track) => track_retained_bytes(track),
+    }
+}
+
+fn artist_ref_retained_bytes(artist: &ArtistRef) -> usize {
+    artist.name.len()
+        + artist.id.as_ref().map(String::len).unwrap_or(0)
+        + artist.uri.as_ref().map(String::len).unwrap_or(0)
+}
+
+fn image_retained_bytes(images: &[Image]) -> usize {
+    images.iter().map(|image| image.url.len()).sum()
+}
+
+fn album_retained_bytes(album: &Album) -> usize {
+    album.id.len()
+        + album.name.len()
+        + album.uri.len()
+        + album.album_type.as_ref().map(String::len).unwrap_or(0)
+        + album.release_date.as_ref().map(String::len).unwrap_or(0)
+        + image_retained_bytes(&album.images)
+        + album
+            .artists
+            .iter()
+            .map(artist_ref_retained_bytes)
+            .sum::<usize>()
+}
+
+fn track_retained_bytes(track: &Track) -> usize {
+    std::mem::size_of::<Track>()
+        + track.name.len()
+        + track.uri.len()
+        + track.id.as_ref().map(String::len).unwrap_or(0)
+        + track
+            .artists
+            .iter()
+            .map(artist_ref_retained_bytes)
+            .sum::<usize>()
+        + track.album.as_ref().map(album_retained_bytes).unwrap_or(0)
+}
 
 /// Every screen the central panel can show.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -422,6 +498,7 @@ pub struct PlaylistPage {
 
 #[derive(Default)]
 pub struct AlbumPage {
+    pub generation: u64,
     pub album: Loadable<Album>,
     pub tracks: PagedList<Track>,
 }
@@ -496,12 +573,12 @@ pub enum RowContext {
         editable_playlist: Option<(String, Option<String>)>,
     },
     /// A loose list of tracks, played as a queue of URIs.
-    Uris(Vec<String>),
+    Uris(Arc<[String]>),
     /// A Next up row. Playing it consumes that row and all rows before it.
     Queue,
     /// A sorted or filtered context view that plays the displayed rows.
     View {
-        uris: Vec<String>,
+        uris: Arc<[String]>,
         context_uri: String,
     },
 }
@@ -665,6 +742,8 @@ pub enum Action {
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
+    /// Ask GitHub for the latest release and report the result to the user.
+    CheckForUpdates,
     SettingsChanged,
     RestartEngine,
     ShowWindow,

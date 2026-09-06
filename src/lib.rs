@@ -13,6 +13,8 @@ pub mod images;
 pub mod limiter;
 pub mod lyrics;
 #[cfg(target_os = "macos")]
+pub mod mac_fonts;
+#[cfg(target_os = "macos")]
 pub mod mac_menu;
 pub mod media;
 #[cfg(target_os = "linux")]
@@ -43,6 +45,7 @@ pub mod updates;
 pub mod util;
 pub mod vis;
 pub mod winamp;
+pub mod window;
 
 /// The builder every asynchronous HTTP client in the app starts from.
 ///

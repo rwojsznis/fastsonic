@@ -117,6 +117,35 @@ them again, so wanting one means cherry-picking it deliberately.
 - **Playlist folders** (`a3b8878`, `af022c2`) and **invitation edit grants**
   (`009309b`). Both ride on Spotify's rootlist, which went with `player.rs`.
 - **Spotify links** (`594cc76`). No web address or URL scheme to open.
+- **Removing clicks from explicit track changes** (`4c72bf3`). Wanted, and the
+  fade itself is backend-agnostic: `Envelope` and `TransitionSource` are plain
+  rodio. What does not carry over is the half that drives them. `AudioControl`
+  exists because librespot's decoder keeps writing the old track after a skip,
+  so the sink gates writes until the player says the replacement is loaded and
+  reads a reset flag on its next `write`. This fork's engine owns both sides
+  and calls `Output::restart` directly, so the port belongs in
+  `src/engine/output.rs`, inline, and has its own question to answer: whether
+  the worker may block the ~10 ms the fade needs to drain, and what to do when
+  the sink is paused and so never drains at all. Its own piece of work.
+- **Timing out stalled connection setup** (`800db1f`). A deadline on librespot
+  session setup, carried by a patch to the librespot fork.
+- **AccessKit's macOS adapter** (part of the 0.7.0 accessibility work). The
+  accessibility itself is taken in full: `egui` carries the `accesskit` crate
+  unconditionally, so every name, state, action and focus behaviour is here
+  and its tests run. What is off on macOS is the one thing `eframe`'s
+  `accesskit` feature actually adds, `egui-winit/accesskit`, which is the
+  bridge to the platform screen reader. `accesskit_macos` puts a view in the
+  window, and closing that window mid-session leaves AppKit's Touch Bar
+  observation registered against it, so the next display flush aborts. The
+  Winamp switch closes the window and starts a fresh event loop, so
+  Cmd+Shift+M killed the app every time, reproducibly. Upstream 0.7.0 ships
+  the same pair and has the same crash; see the comment in `Cargo.toml`.
+  VoiceOver support here waits on an eframe that accepts `accesskit_macos`
+  0.27.
+- **The idle repaint interval** (part of `2221a30`). Upstream slows repaints to
+  the API poll interval while local playback is idle, chosen through
+  `Target::Local`. There is no remote target here and nothing to poll, so
+  there is no second interval to pick.
 
 What is worth taking is the backend-agnostic work: UI fixes, window and
 platform behaviour, caching, fonts, and optimistic-update correctness.
