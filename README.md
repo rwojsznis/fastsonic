@@ -1,21 +1,13 @@
 # Fastsonic
 
-> Fastsonic's latest release is
-> [v0.7.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.7.0). Its
-> macOS and Windows builds are unsigned, and it carries upstream Fastpotify's
-> application artwork. Fastpotify's own Homebrew tap and AUR package are not
-> Fastsonic builds and will not update it.
-
-Fastsonic is a small native desktop client for a self-hosted music server. It
-talks Subsonic/OpenSubsonic to Navidrome, Gonic, and compatible servers,
-streams the original audio file, and decodes it locally. It has no browser
-engine, telemetry, hosted backend, or Fastsonic account.
+> [!NOTE] 
+> **tl;dr:** fork of [Fastpotify](https://github.com/crmne/fastpotify) modified for self-hosted music servers. Should work with Subsonic/OpenSubsonic to Navidrome, Gonic, and compatible servers.
 
 ![Fastsonic showing a playlist with the queue open](docs/screenshot.png)
 
-The in-repository [guides](docs/_guide/getting-started.md) and
-[reference documentation](docs/_reference/settings-and-files.md) cover setup,
-everyday use, network traffic, settings, and stored files.
+Tested with Navidrome and MacOS. It has no browser engine, telemetry, hosted backend - it's a thin client which streams the original audio file, and decodes it locally.
+
+This fork will backport changes from `fastpotify` repository while removing Spotify-specific functionalities. Grab the newest binary from the [releases section](https://github.com/rwojsznis/fastsonic/releases). MacOS binaries are not signed so you have to explicitly allow application to open via system settings → security section.
 
 ## Features
 
@@ -34,53 +26,9 @@ everyday use, network traffic, settings, and stored files.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
   shortcuts, tray/Dock reopening, and single-instance behavior.
 
-Fastsonic plays only on this computer. It does not provide Spotify Connect,
+Fastsonic plays only on single computer. It does not provide Spotify Connect,
 Subsonic jukebox mode, podcasts, offline sync, multiple server profiles, or a
 second source of audio.
-
-## Download
-
-[Release v0.7.0](https://github.com/rwojsznis/fastsonic/releases/tag/v0.7.0)
-carries builds for Linux (x86_64, aarch64, and a Flatpak bundle), macOS
-(universal), and Windows (x86_64 and aarch64, each with an installer), with a
-`checksums.txt` covering all of them.
-
-Neither the macOS nor the Windows build is signed. The DMG is not notarized
-either, so Gatekeeper refuses it on first open: right-click the app and
-choose Open, or run
-`xattr -d com.apple.quarantine /Applications/Fastsonic.app`. On Windows,
-SmartScreen calls the installer unrecognized. The Windows aarch64 build has
-no MilkDrop. There is no Homebrew tap and no AUR package.
-
-## Build
-
-Rust 1.95 or newer is required:
-
-```sh
-git clone https://github.com/rwojsznis/fastsonic
-cd fastsonic
-cargo install --path .
-```
-
-MilkDrop is enabled by default and builds projectM from source, requiring
-CMake, a C++ compiler, and libclang. Build without it using
-`cargo install --path . --no-default-features`. On Linux, install the ALSA,
-PulseAudio/PipeWire, Wayland, and X11 development packages described in
-[Getting Started](docs/_guide/getting-started.md).
-`nix develop` provides the complete pinned environment.
-
-## Connect
-
-Launch Fastsonic and enter your server URL, username, and password. For
-Navidrome, the password is sent once to `/auth/login`; Fastsonic stores the
-returned salted Subsonic token rather than the password. Core library and
-playback traffic then uses `/rest/*.view`. A small isolated Navidrome API
-client supplies personalisation that Subsonic cannot; those sections degrade
-to empty on other compatible servers or after its session expires.
-
-The app makes no inbound connection and exposes no receiver. See
-[How It Connects](docs/_reference/how-it-connects.md) for
-the complete network and privacy behavior.
 
 ## Development
 
