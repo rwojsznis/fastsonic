@@ -48,7 +48,9 @@ jobs:
           # Chrome is preconfigured on GitHub's x64 runner but is unrelated
           # to the build. Its repository can be mid-sync and make apt reject
           # every package index with a hash mismatch.
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          sudo rm -f \
+            /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
