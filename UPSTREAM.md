@@ -149,3 +149,34 @@ them again, so wanting one means cherry-picking it deliberately.
 
 What is worth taking is the backend-agnostic work: UI fixes, window and
 platform behaviour, caching, fonts, and optimistic-update correctness.
+
+## Sync through upstream 0.7.1
+
+`upstream/v0.7.1` is recorded as the second parent of the Fastsonic sync
+commit, so every original upstream commit remains in this fork's graph.
+
+Taken and adapted to Fastsonic:
+
+- Context menus on Home and Search cards.
+- Shuffle Play keeps a filtered view but lets the engine shuffle an otherwise
+  sorted collection.
+- The queue names and links to the album, playlist, artist, or Liked Songs it
+  is playing from.
+- Flatpak tray registration uses the D-Bus connection's unique name.
+- Play and Pause use a sample-clocked output fade after the visualizer tap.
+- **Add to queue** names the FIFO behavior accurately, and the add-to-playlist
+  submenu filters as the user types.
+
+Already satisfied by Fastsonic's architecture:
+
+- Clearing manual queue rows cannot remove the context's copy: the engine
+  stores those as separate entries and its queue tests enforce the split.
+- Shuffle needs no API recheck or stale-response defense: the engine changes
+  and publishes its own queue before answering the command.
+- Native media controls already receive artwork from Fastsonic's authenticated
+  disk cache.
+
+Declined because the corresponding product was removed: Spotify playback
+authorization, Connect device discovery, credential-protection prose, and the
+Spotify issue-triage and maintainer workflows. Upstream's website, packaging,
+release metadata, and version remain fork-owned as usual.

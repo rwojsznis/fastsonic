@@ -567,7 +567,7 @@ mod tests {
         );
     }
 
-    /// Rule 2: Play next goes after the songs queued earlier and before the
+    /// Rule 2: Add to queue goes after the songs queued earlier and before the
     /// album's, and the same song queued twice plays twice.
     #[test]
     fn play_next_queues_after_the_songs_queued_earlier() {

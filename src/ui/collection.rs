@@ -151,9 +151,12 @@ pub fn actions_row(
             )
             .clicked()
             {
+                let is_filtered = filter.as_ref().is_some_and(|f| !f.trim().is_empty());
                 if now_playing_here {
                     app.actions.push(Action::TogglePlay);
-                } else if let Some(uris) = actions.view.clone() {
+                } else if let Some(uris) = actions.view.clone()
+                    && should_play_view(app.playing_context_shuffle(), is_filtered)
+                {
                     app.actions.push(Action::PlayFromRow {
                         context: RowContext::View {
                             uris: Arc::clone(&uris),
@@ -252,6 +255,13 @@ pub fn actions_row(
         }
     });
     ui.add_space(14.0);
+}
+
+/// A filtered collection has no server-side equivalent, so shuffle must use
+/// its visible rows. A merely sorted collection lets the engine shuffle the
+/// whole context instead of freezing the displayed order into a list.
+fn should_play_view(shuffling: bool, filtered: bool) -> bool {
+    !shuffling || filtered
 }
 
 /// A track table with virtualised rows and paging.
@@ -1252,6 +1262,14 @@ fn palette_of(app: &App) -> Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shuffle_uses_a_filtered_view_but_not_a_merely_sorted_one() {
+        assert!(should_play_view(false, false));
+        assert!(should_play_view(false, true));
+        assert!(!should_play_view(true, false));
+        assert!(should_play_view(true, true));
+    }
     use crate::api::models::{Album, ArtistRef, Image, Track};
     use crate::model::PlaylistPage;
 

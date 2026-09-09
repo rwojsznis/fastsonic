@@ -16,10 +16,11 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use cpal::traits::DeviceTrait;
+use rodio::Source;
 
 use crate::sink::{DefaultWatch, ErrorHook, open_stream, pick_device};
 
@@ -36,6 +37,9 @@ pub(crate) const PREFERRED_RATE: u32 = 44_100;
 /// that a slow read does not empty it, short enough that a pause or a seek
 /// is not heard late.
 pub(crate) const TARGET_QUEUE: Duration = Duration::from_millis(500);
+
+/// How long Play takes to come up, and Pause to go down.
+const TRANSPORT_FADE: Duration = Duration::from_millis(250);
 
 /// Which track a chunk of sound belongs to.
 ///
@@ -66,6 +70,11 @@ struct Stream {
     /// Whether anything has been appended since the last reset.
     fed: bool,
     last_append: Option<Instant>,
+    /// Sample-clocked Play/Pause ramp, after the visualizer tap and before
+    /// output volume.
+    transport: Arc<Envelope>,
+    /// Pause waits for the ramp to reach silence before pausing rodio.
+    pause_pending: bool,
 }
 
 impl Stream {
@@ -83,6 +92,8 @@ pub(crate) struct Output {
     watch: Option<DefaultWatch>,
     /// The interface's volume, 0..=`u16::MAX`.
     volume: u16,
+    /// Desired transport state, including before the device is opened.
+    playing: bool,
 }
 
 impl Output {
@@ -99,6 +110,7 @@ impl Output {
             open: None,
             watch: None,
             volume,
+            playing: false,
         }
     }
 
@@ -126,7 +138,7 @@ impl Output {
         }
         if self.open.is_none() {
             let volume = attenuation(self.volume);
-            match open_device(self.device.as_deref(), self.buffer_ms, volume) {
+            match open_device(self.device.as_deref(), self.buffer_ms, volume, self.playing) {
                 Ok(stream) => self.open = Some(stream),
                 Err(error) => {
                     let message = error.to_string();
@@ -185,11 +197,14 @@ impl Output {
                 .unwrap_or(0);
             log::warn!("audio queue ran dry; the next chunk arrived after {late} ms");
         }
-        stream.sink.append(rodio::buffer::SamplesBuffer::new(
+        let source = rodio::buffer::SamplesBuffer::new(
             CHANNELS as rodio::ChannelCount,
             stream.rate as rodio::SampleRate,
             samples,
-        ));
+        );
+        stream
+            .sink
+            .append(TransitionSource::new(source, Arc::clone(&stream.transport)));
         let dur = Duration::from_secs_f64(frames as f64 / f64::from(stream.rate));
         stream.clock.push(Chunk { dur, token, from });
         stream.fed = true;
@@ -200,7 +215,10 @@ impl Output {
     /// How much sound is waiting to be heard.
     pub(crate) fn queued(&mut self) -> Duration {
         match &mut self.open {
-            Some(stream) => stream.clock.queued(stream.sink.len()),
+            Some(stream) => {
+                settle_pause(stream);
+                stream.clock.queued(stream.sink.len())
+            }
             None => Duration::ZERO,
         }
     }
@@ -211,7 +229,10 @@ impl Output {
     /// through so that they move with the speaker (P3.8).
     pub(crate) fn ahead(&mut self) -> Duration {
         match &mut self.open {
-            Some(stream) => stream.clock.ahead(stream.sink.len(), stream.sink.get_pos()),
+            Some(stream) => {
+                settle_pause(stream);
+                stream.clock.ahead(stream.sink.len(), stream.sink.get_pos())
+            }
             None => Duration::ZERO,
         }
     }
@@ -225,24 +246,43 @@ impl Output {
     /// [`Output::restart`].
     pub(crate) fn heard(&mut self) -> Option<Heard> {
         let stream = self.open.as_mut()?;
+        settle_pause(stream);
         stream.clock.heard(stream.sink.len(), stream.sink.get_pos())
     }
 
     /// Whether everything appended has been played.
     pub(crate) fn drained(&mut self) -> bool {
-        self.open.as_ref().is_none_or(|stream| stream.sink.empty())
+        let Some(stream) = &mut self.open else {
+            return true;
+        };
+        settle_pause(stream);
+        stream.sink.empty()
     }
 
     pub(crate) fn play(&mut self) {
-        if let Some(stream) = &self.open {
+        self.playing = true;
+        if let Some(stream) = &mut self.open {
+            stream.pause_pending = false;
+            stream.transport.fade_in();
             stream.sink.play();
         }
     }
 
     pub(crate) fn pause(&mut self) {
-        if let Some(stream) = &self.open {
-            stream.sink.pause();
+        self.playing = false;
+        if let Some(stream) = &mut self.open {
+            stream.transport.fade_out();
+            stream.pause_pending = true;
+            settle_pause(stream);
         }
+    }
+
+    /// A pending Pause needs short engine ticks until its sample-clocked ramp
+    /// has reached silence; no thread waits for the device.
+    pub(crate) fn transitioning(&self) -> bool {
+        self.open
+            .as_ref()
+            .is_some_and(|stream| stream.pause_pending)
     }
 
     /// Throws away what is queued and starts the clock again, for a seek or
@@ -252,12 +292,17 @@ impl Output {
     /// waits for the queue to empty: nothing on the audio thread may wait on
     /// the device, and a fresh sink on the same stream costs a channel.
     pub(crate) fn restart(&mut self, playing: bool) {
+        self.playing = playing;
         let Some(stream) = &mut self.open else {
             return;
         };
         stream.sink = rodio::Sink::connect_new(stream.stream.mixer());
         stream.sink.set_volume(attenuation(self.volume));
-        if !playing {
+        stream.pause_pending = false;
+        if playing {
+            stream.transport.fade_in();
+        } else {
+            stream.transport.close();
             stream.sink.pause();
         }
         stream.clock.reset();
@@ -272,6 +317,132 @@ impl Output {
         if let Some(stream) = &self.open {
             stream.sink.set_volume(attenuation(volume));
         }
+    }
+}
+
+fn settle_pause(stream: &mut Stream) {
+    if stream.pause_pending && (stream.transport.silent() || stream.sink.empty()) {
+        stream.sink.pause();
+        stream.transport.close();
+        stream.pause_pending = false;
+    }
+}
+
+/// The range a transport level moves over, as a fixed-point fraction of full
+/// gain. It is shared by every rodio chunk so the ramp crosses chunk edges.
+const SCALE: u32 = 1 << 24;
+
+struct Envelope {
+    level: AtomicU32,
+    target: AtomicU32,
+    step: u32,
+}
+
+impl Envelope {
+    fn closed(sample_rate: u32) -> Arc<Self> {
+        Self::at(sample_rate, 0)
+    }
+
+    fn rising(sample_rate: u32) -> Arc<Self> {
+        let envelope = Self::closed(sample_rate);
+        envelope.fade_in();
+        envelope
+    }
+
+    fn at(sample_rate: u32, level: u32) -> Arc<Self> {
+        Arc::new(Self {
+            level: AtomicU32::new(level),
+            target: AtomicU32::new(level),
+            step: SCALE
+                .div_ceil(fade_frames(sample_rate, TRANSPORT_FADE))
+                .max(1),
+        })
+    }
+
+    fn fade_in(&self) {
+        self.target.store(SCALE, Ordering::Relaxed);
+    }
+
+    fn fade_out(&self) {
+        self.target.store(0, Ordering::Relaxed);
+    }
+
+    fn close(&self) {
+        self.target.store(0, Ordering::Relaxed);
+        self.level.store(0, Ordering::Relaxed);
+    }
+
+    fn silent(&self) -> bool {
+        self.level.load(Ordering::Relaxed) == 0
+    }
+
+    fn next_gain(&self) -> f32 {
+        let level = self.level.load(Ordering::Relaxed);
+        let target = self.target.load(Ordering::Relaxed);
+        let next = match level.cmp(&target) {
+            std::cmp::Ordering::Less => level.saturating_add(self.step).min(target),
+            std::cmp::Ordering::Greater => level.saturating_sub(self.step).max(target),
+            std::cmp::Ordering::Equal => level,
+        };
+        self.level.store(next, Ordering::Relaxed);
+        level as f32 / SCALE as f32
+    }
+}
+
+fn fade_frames(sample_rate: u32, length: Duration) -> u32 {
+    (u64::from(sample_rate) * length.as_millis() as u64 / 1_000).max(1) as u32
+}
+
+struct TransitionSource {
+    inner: rodio::buffer::SamplesBuffer,
+    transport: Arc<Envelope>,
+    channel: usize,
+    gain: f32,
+}
+
+impl TransitionSource {
+    fn new(inner: rodio::buffer::SamplesBuffer, transport: Arc<Envelope>) -> Self {
+        Self {
+            inner,
+            transport,
+            channel: 0,
+            gain: 1.0,
+        }
+    }
+}
+
+impl Iterator for TransitionSource {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let sample = self.inner.next()?;
+        if self.channel == 0 {
+            self.gain = self.transport.next_gain();
+        }
+        self.channel = (self.channel + 1) % CHANNELS;
+        Some(sample * self.gain)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl Source for TransitionSource {
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.current_span_len()
+    }
+
+    fn channels(&self) -> rodio::ChannelCount {
+        self.inner.channels()
+    }
+
+    fn sample_rate(&self) -> rodio::SampleRate {
+        self.inner.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
     }
 }
 
@@ -392,6 +563,7 @@ fn open_device(
     preferred: Option<&str>,
     buffer_ms: u32,
     volume: f32,
+    playing: bool,
 ) -> Result<Stream, crate::sink::OpenError> {
     let device = pick_device(preferred)?;
     let device_name = device.name().ok();
@@ -418,6 +590,12 @@ fn open_device(
     log::info!("the audio output runs at {rate} Hz");
     let sink = rodio::Sink::connect_new(stream.mixer());
     sink.set_volume(volume);
+    let transport = if playing {
+        Envelope::rising(rate)
+    } else {
+        sink.pause();
+        Envelope::closed(rate)
+    };
     Ok(Stream {
         sink,
         stream,
@@ -427,6 +605,8 @@ fn open_device(
         clock: QueueClock::default(),
         fed: false,
         last_append: None,
+        transport,
+        pause_pending: false,
     })
 }
 
@@ -560,5 +740,34 @@ mod tests {
             assert!(gain >= last, "the curve dips at step {step}");
             last = gain;
         }
+    }
+
+    #[test]
+    fn play_and_pause_envelopes_cross_the_full_range_on_the_sample_clock() {
+        let frames = fade_frames(PREFERRED_RATE, TRANSPORT_FADE);
+        let rising = Envelope::rising(PREFERRED_RATE);
+        assert_eq!(rising.next_gain(), 0.0);
+        for _ in 1..frames {
+            rising.next_gain();
+        }
+        assert_eq!(rising.level.load(Ordering::Relaxed), SCALE);
+
+        rising.fade_out();
+        for _ in 0..frames {
+            rising.next_gain();
+        }
+        assert!(rising.silent());
+    }
+
+    #[test]
+    fn a_transport_ramp_applies_one_gain_to_both_stereo_channels() {
+        let envelope = Envelope::rising(8);
+        let source = rodio::buffer::SamplesBuffer::new(2, 8, vec![1.0; 8]);
+        let samples: Vec<_> = TransitionSource::new(source, envelope).collect();
+        assert_eq!(samples.len(), 8);
+        for pair in samples.as_chunks::<2>().0 {
+            assert_eq!(pair[0], pair[1]);
+        }
+        assert!(samples[0] < samples[2]);
     }
 }

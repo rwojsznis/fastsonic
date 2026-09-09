@@ -161,6 +161,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
             .or_else(|| app.now_playing_item()),
         None => app.queue.currently_playing.clone(),
     };
+    if let Some(from) = app.playing_from().filter(|_| current.is_some()) {
+        ui.horizontal(|ui| {
+            theme::text(ui, "Playing from", theme::regular(13.0), palette.secondary);
+            if theme::link(ui, from.name, theme::semibold(13.0), palette.text).clicked() {
+                app.actions.push(Action::Open(from.page));
+            }
+        });
+        ui.add_space(10.0);
+    }
     if let Some(current) = current.as_ref() {
         theme::text(ui, "Now playing", theme::semibold(14.0), palette.text);
         ui.add_space(4.0);

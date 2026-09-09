@@ -44,7 +44,7 @@ const ASSUMED_CONTEXT_HOLD: Duration = Duration::from_secs(8);
 /// has already carried out.
 const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// Delay before checking playback again after a command.
-/// Duplicate Play next events within this window count as one click, which
+/// Duplicate Add to queue events within this window count as one click, which
 /// is the second half of rule 2 in `docs/_reference/queue.md`: two asks are
 /// two rows, but one double-click is one ask.
 const QUEUE_ADD_DEBOUNCE: Duration = Duration::from_millis(1500);
@@ -173,7 +173,7 @@ pub struct App {
     /// remembered from the last session. Only the engine's can be acted
     /// on: Clear asks the engine, and it has never heard of the other.
     queue_is_live: bool,
-    /// Names for rows the engine has not described yet, from the Play next
+    /// Names for rows the engine has not described yet, from Add to queue
     /// that queued them. A row is an id until the server answers about it,
     /// and a nameless row is not a queue panel.
     queue_names: HashMap<String, String>,
@@ -337,7 +337,7 @@ pub struct App {
     /// them. This is what the session file keeps; the panel's own split
     /// comes from `queued_len`.
     pub manual_queue: Vec<String>,
-    /// Play next clicks in the last moment, to tell a double-click from two
+    /// Add to queue clicks in the last moment, to tell a double-click from two
     /// asks (rule 2). The engine has already been told about all of them.
     queue_add_clicks: Vec<(String, Instant)>,
     /// A newer release than this build, once GitHub has said so.
@@ -726,6 +726,71 @@ impl App {
 
     pub fn playing_context_shuffle(&self) -> bool {
         self.shuffle_wanted
+    }
+
+    /// Where the playing songs come from, for the queue's header. A context
+    /// whose details have not loaded is still named by kind and can open.
+    pub fn playing_from(&self) -> Option<PlayingFrom> {
+        let context = self.playing_context_uri()?;
+        if context == COLLECTION_URI {
+            return Some(PlayingFrom {
+                name: "Liked Songs".into(),
+                page: Page::LikedSongs,
+            });
+        }
+        let kind = util::uri_kind(&context)?;
+        let id = util::uri_id(&context)?.to_string();
+        let (name, page) = match kind {
+            "playlist" => {
+                let name = self
+                    .library
+                    .playlists
+                    .get()
+                    .and_then(|list| list.iter().find(|playlist| playlist.id == id))
+                    .map(|playlist| playlist.name.clone())
+                    .or_else(|| {
+                        self.playlist_pages
+                            .get(&id)
+                            .and_then(|page| page.playlist.get())
+                            .map(|playlist| playlist.name.clone())
+                    })
+                    .unwrap_or_else(|| "Playlist".into());
+                (name, Page::Playlist(id))
+            }
+            "album" => {
+                let name = self
+                    .album_pages
+                    .get(&id)
+                    .and_then(|page| page.album.get())
+                    .map(|album| album.name.clone())
+                    .or_else(|| {
+                        self.now_playing()
+                            .filter(|now| now.album_id.as_deref() == Some(id.as_str()))
+                            .map(|now| now.album_name)
+                    })
+                    .unwrap_or_else(|| "Album".into());
+                (name, Page::Album(id))
+            }
+            "artist" => {
+                let name = self
+                    .artist_pages
+                    .get(&id)
+                    .and_then(|page| page.artist.get())
+                    .map(|artist| artist.name.clone())
+                    .or_else(|| {
+                        self.now_playing().and_then(|now| {
+                            now.artists
+                                .into_iter()
+                                .find(|artist| artist.id.as_deref() == Some(id.as_str()))
+                                .map(|artist| artist.name)
+                        })
+                    })
+                    .unwrap_or_else(|| "Artist".into());
+                (name, Page::Artist(id))
+            }
+            _ => return None,
+        };
+        Some(PlayingFrom { name, page })
     }
 
     /// Current item for menus, using cached track details when available.
@@ -1152,7 +1217,7 @@ impl App {
 
     /// One queue row as a track. A row the engine has not been able to
     /// describe yet keeps the name the click that queued it knew, or the
-    /// one a page already loaded knows, so that Play next shows a song
+    /// one a page already loaded knows, so that Add to queue shows a song
     /// rather than a blank line for the moment before the server answers.
     fn queue_row(&self, row: &crate::engine::QueueRow) -> PlayableItem {
         if row.track.is_some() {
@@ -3443,7 +3508,7 @@ impl App {
             self.queue_names.insert(uri.clone(), label.clone());
         }
         if announce {
-            self.toast(format!("{label} will play next"));
+            self.toast(format!("{label} added to queue"));
         }
         self.backend.player(PlayerCommand::AddToQueue(uri));
     }
@@ -3630,8 +3695,8 @@ impl App {
                     self.queue_one(uri, label, false);
                 }
                 self.toast(match count {
-                    1 => "1 song will play next".to_string(),
-                    count => format!("{count} songs will play next"),
+                    1 => "1 song added to queue".to_string(),
+                    count => format!("{count} songs added to queue"),
                 });
             }
             Action::SetSavedMany { uris, saved } => {
@@ -5420,7 +5485,7 @@ mod tests {
         assert_eq!(app.queued_rows_len(), 0);
     }
 
-    /// Rule 2: Play next asks the engine to queue the song, and asks it
+    /// Rule 2: Add to queue asks the engine to queue the song, and asks it
     /// once per click. The engine decides where the row goes.
     #[test]
     fn play_next_asks_the_engine_to_queue_the_song() {
@@ -6202,6 +6267,52 @@ mod tests {
     fn a_saved_queue_is_named_after_the_day() {
         let app = headless_app();
         assert!(app.queue_playlist_name().starts_with("Queue "));
+    }
+
+    #[test]
+    fn playing_from_names_the_context_and_its_page() {
+        let mut app = headless_app();
+        assert_eq!(app.playing_from(), None, "no context, no line");
+        let assume = |app: &mut App, uri: &str| {
+            app.assumed_context = Some(AssumedContext {
+                uri: uri.into(),
+                shuffle: None,
+                at: Instant::now(),
+            });
+        };
+
+        app.library.playlists = Loadable::Loaded(vec![crate::api::models::Playlist {
+            id: "pl9".into(),
+            uri: "sonic:playlist:pl9".into(),
+            name: "Long Way Home".into(),
+            ..Default::default()
+        }]);
+        assume(&mut app, "sonic:playlist:pl9");
+        assert_eq!(
+            app.playing_from(),
+            Some(PlayingFrom {
+                name: "Long Way Home".into(),
+                page: Page::Playlist("pl9".into()),
+            })
+        );
+
+        assume(&mut app, "sonic:album:unloaded");
+        assert_eq!(
+            app.playing_from(),
+            Some(PlayingFrom {
+                name: "Album".into(),
+                page: Page::Album("unloaded".into()),
+            })
+        );
+
+        assume(&mut app, COLLECTION_URI);
+        assert_eq!(
+            app.playing_from(),
+            Some(PlayingFrom {
+                name: "Liked Songs".into(),
+                page: Page::LikedSongs,
+            })
+        );
     }
 
     /// MilkDrop playback keys produce the same actions as the main window.

@@ -9,7 +9,7 @@ affecting browsing or playback.
 
 Search covers the songs, albums, artists, and playlists indexed by your
 server. Right-click rows and cards to star music, add songs to a playlist, or
-put a song in the queue.
+put a song in the queue. The playlist submenu filters as you type.
 
 ## Sidebar order
 
@@ -20,10 +20,16 @@ restore the default order.
 
 ## Queue
 
-Songs added with **Play next** appear before the rest of the current album or
-playlist. Clear removes only those manually queued songs. The player owns the
-queue, so every change is visible on the next frame and needs no server
-round-trip. The complete contract is in [The Queue's Rules](../_reference/queue.md).
+Songs added with **Add to queue** appear after songs already queued and before
+the rest of the current album or playlist. The queue names the playing album,
+playlist, artist, or Liked Songs and links back to it. Clear removes only those
+manually queued songs. The player owns the queue, so every change is visible on
+the next frame and needs no server round-trip. The complete contract is in
+[The Queue's Rules](../_reference/queue.md).
+
+Local Play and Pause fade smoothly. The visualizers still follow the
+post-equalizer, pre-volume signal, so transport and volume changes do not move
+the picture.
 
 ## Recent plays
 

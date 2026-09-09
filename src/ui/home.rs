@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::{CornerRadius, Rect, Sense, Vec2, pos2, vec2};
 
-use crate::api::models::{Album, PlayableItem, pick_image};
+use crate::api::models::{Album, PlayableItem, Playlist, pick_image};
 use crate::app::App;
 use crate::model::{Action, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
@@ -111,6 +111,12 @@ fn album_shelf(app: &mut App, ui: &mut egui::Ui, id: &str, title: &str, shelf: S
                 app.actions
                     .push(Action::Open(Page::Album(album.id.clone())));
             }
+            egui::Popup::context_menu(&card.response)
+                .id(ui.make_persistent_id(("home-album-menu", &album.uri)))
+                .frame(widgets::menu_frame(&palette))
+                .show(|ui| {
+                    widgets::context_menu_items(ui, app, &album.uri, &album.name, None);
+                });
         }
     });
 }
@@ -121,6 +127,7 @@ struct Tile {
     page: Page,
     uri: Option<String>,
     liked: bool,
+    owned_playlist: Option<Playlist>,
 }
 
 fn quick_access(app: &mut App, ui: &mut egui::Ui) {
@@ -131,6 +138,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
         page: Page::LikedSongs,
         uri: Some(crate::api::subsonic::convert::COLLECTION_URI.to_string()),
         liked: true,
+        owned_playlist: None,
     }];
     if let Some(playlists) = app.library.playlists.get() {
         for playlist in playlists.iter().take(7) {
@@ -140,6 +148,10 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                 page: Page::Playlist(playlist.id.clone()),
                 uri: Some(playlist.uri.clone()),
                 liked: false,
+                owned_playlist: app
+                    .user_id()
+                    .is_some_and(|id| playlist.owned_by(id))
+                    .then(|| playlist.clone()),
             });
         }
     }
@@ -158,6 +170,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                     page,
                     uri,
                     liked,
+                    owned_playlist,
                 }) = tiles.get(row * columns + column)
                 else {
                     break;
@@ -228,11 +241,23 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         }
                     }
                 }
-                if response
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
+                let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+                if response.clicked() {
                     app.actions.push(Action::Open(page.clone()));
+                }
+                if !liked && let Some(uri) = uri {
+                    egui::Popup::context_menu(&response)
+                        .id(ui.make_persistent_id(("quick-access-menu", uri)))
+                        .frame(widgets::menu_frame(&palette))
+                        .show(|ui| {
+                            widgets::context_menu_items(
+                                ui,
+                                app,
+                                uri,
+                                name,
+                                owned_playlist.as_ref(),
+                            );
+                        });
                 }
             }
         });
@@ -296,6 +321,12 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
                 app.actions
                     .push(Action::Open(Page::Album(album.id.clone())));
             }
+            egui::Popup::context_menu(&card.response)
+                .id(ui.make_persistent_id(("home-recently-played-menu", &track.uri)))
+                .frame(widgets::menu_frame(&palette))
+                .show(|ui| {
+                    widgets::item_menu(ui, app, &PlayableItem::Track(track.clone()), None, None);
+                });
         }
     });
 }
@@ -342,6 +373,12 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
                 app.actions
                     .push(Action::Open(Page::Artist(artist.id.clone())));
             }
+            egui::Popup::context_menu(&card.response)
+                .id(ui.make_persistent_id(("home-top-artists-menu", &artist.uri)))
+                .frame(widgets::menu_frame(&palette))
+                .show(|ui| {
+                    widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None);
+                });
         }
     });
 }

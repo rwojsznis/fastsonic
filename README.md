@@ -16,8 +16,9 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - In-process playback of the formats in your library, including FLAC, MP3,
   AAC/ALAC, Vorbis, Opus, WAV, and AIFF; gapless transitions and byte-range
   seeking.
-- An engine-owned queue, shuffle and repeat, ReplayGain normalisation, a
-  ten-band equalizer, and a bounded on-disk audio cache.
+- An engine-owned queue that links back to its playing context, shuffle and
+  repeat, ReplayGain normalisation, a ten-band equalizer, and a bounded
+  on-disk audio cache.
 - Restores the last track, position, context, and manually queued songs.
 - Light, dark, and system themes with optional album-art colour.
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
@@ -25,6 +26,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - A projectM-powered MilkDrop window with optional preset packs.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
   shortcuts, tray/Dock reopening, and single-instance behavior.
+- Smooth local Play and Pause transitions, plus searchable playlist choices
+  when adding one song or a selection.
 
 Fastsonic plays only on single computer. It does not provide Spotify Connect,
 Subsonic jukebox mode, podcasts, offline sync, multiple server profiles, or a

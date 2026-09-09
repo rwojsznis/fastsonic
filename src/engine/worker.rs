@@ -276,7 +276,7 @@ impl Worker {
             }
             self.prefetch();
             self.describe_one();
-            let wait = if self.state.playback == Playback::Playing {
+            let wait = if self.state.playback == Playback::Playing || self.output.transitioning() {
                 BUSY_TICK
             } else {
                 IDLE_TICK

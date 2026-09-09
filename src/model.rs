@@ -636,6 +636,13 @@ pub struct Toast {
     pub created: Instant,
 }
 
+/// Where the playing songs come from, as the queue's header names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlayingFrom {
+    pub name: String,
+    pub page: Page,
+}
+
 /// Actions emitted while drawing and applied afterward to avoid borrow conflicts.
 #[derive(Clone, Debug)]
 pub enum Action {

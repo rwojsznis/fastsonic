@@ -321,7 +321,7 @@ pub fn picked_menu(ui: &mut Ui, app: &mut App, songs: &[(String, String)]) {
     });
     ui.add_space(4.0);
     menu_separator(ui, &palette);
-    if menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
+    if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
         app.actions.push(Action::QueueMany {
             songs: songs.to_vec(),
         });
@@ -339,34 +339,92 @@ pub fn picked_menu(ui: &mut Ui, app: &mut App, songs: &[(String, String)]) {
             saved: !all_saved,
         });
     }
+    add_to_playlist_menu(ui, app, songs);
+}
+
+fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, songs: &[(String, String)]) {
+    let query_id = ui.make_persistent_id("add-to-playlist-query");
+    let opened = ui.menu_button("Add to playlist", |ui| {
+        let frame = ui.ctx().cumulative_frame_nr();
+        let previous = ui
+            .data(|data| data.get_temp::<(u64, String)>(query_id))
+            .filter(|(last_frame, _)| frame.saturating_sub(*last_frame) <= 1);
+        let fresh = previous.is_none();
+        let mut query = previous.map(|(_, query)| query).unwrap_or_default();
+        let field = playlist_picker(ui, app, songs, &mut query);
+        if fresh {
+            field.request_focus();
+        }
+        ui.data_mut(|data| data.insert_temp(query_id, (frame, query)));
+    });
+    if opened.inner.is_none() {
+        ui.data_mut(|data| data.remove::<(u64, String)>(query_id));
+    }
+}
+
+/// Shared by single-song and selection menus. Filtering is local and keeps
+/// the server's playlist permissions and library order.
+pub(crate) fn playlist_picker(
+    ui: &mut Ui,
+    app: &mut App,
+    songs: &[(String, String)],
+    query: &mut String,
+) -> egui::Response {
+    let palette = app.palette;
+    ui.set_min_width(220.0);
+    ui.set_max_width(300.0);
+    let width = ui.available_width();
+    let field = search_field(
+        ui,
+        &palette,
+        ui.make_persistent_id("playlist-filter"),
+        query,
+        "Filter playlists",
+        width,
+    );
+    ui.add_space(4.0);
+    if menu_item(ui, &palette, Some(Icon::Plus), "New playlist") {
+        app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
+            name: String::new(),
+            public: false,
+            add_uris: songs.iter().map(|(uri, _)| uri.clone()).collect(),
+        }));
+    }
+    menu_separator(ui, &palette);
+    let needle = query.trim().to_lowercase();
     let playlists = app.editable_playlists();
-    ui.menu_button("Add to playlist", |ui| {
-        ui.set_min_width(220.0);
-        ui.set_max_width(300.0);
-        if menu_item(ui, &palette, Some(Icon::Plus), "New playlist") {
-            app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
-                name: String::new(),
-                public: false,
-                add_uris: uris.clone(),
-            }));
-        }
-        if !playlists.is_empty() {
-            menu_separator(ui, &palette);
-        }
-        egui::ScrollArea::vertical()
-            .max_height(320.0)
-            .show(ui, |ui| {
-                for (id, name) in &playlists {
+    let matches: Vec<_> = playlists
+        .iter()
+        .filter(|(_, name)| name.to_lowercase().contains(&needle))
+        .collect();
+    if matches.is_empty() {
+        theme::subtle(
+            ui,
+            &palette,
+            if needle.is_empty() {
+                "No editable playlists"
+            } else {
+                "No matching playlists"
+            },
+        );
+    }
+    egui::ScrollArea::vertical()
+        .id_salt("filtered-playlists")
+        .max_height(320.0)
+        .show(ui, |ui| {
+            for (id, name) in matches {
+                ui.push_id(id, |ui| {
                     if menu_item(ui, &palette, Some(Icon::ListMusic), name) {
                         app.actions.push(Action::AddToPlaylist {
                             playlist_id: id.clone(),
                             playlist_name: name.clone(),
-                            uris: uris.clone(),
+                            uris: songs.iter().map(|(uri, _)| uri.clone()).collect(),
                         });
                     }
-                }
-            });
-    });
+                });
+            }
+        });
+    field
 }
 
 pub fn item_menu(
@@ -381,7 +439,7 @@ pub fn item_menu(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
-    if menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
+    if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
         app.actions.push(Action::AddToQueue {
             uri: uri.clone(),
             label: label.clone(),
@@ -397,34 +455,7 @@ pub fn item_menu(
         if menu_item(ui, &palette, Some(icon), text) {
             app.actions.push(Action::ToggleSaved(uri.clone()));
         }
-        let playlists = app.editable_playlists();
-        ui.menu_button("Add to playlist", |ui| {
-            ui.set_min_width(220.0);
-            ui.set_max_width(300.0);
-            if menu_item(ui, &palette, Some(Icon::Plus), "New playlist") {
-                app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
-                    name: String::new(),
-                    public: false,
-                    add_uris: vec![uri.clone()],
-                }));
-            }
-            if !playlists.is_empty() {
-                menu_separator(ui, &palette);
-            }
-            egui::ScrollArea::vertical()
-                .max_height(320.0)
-                .show(ui, |ui| {
-                    for (id, name) in &playlists {
-                        if menu_item(ui, &palette, Some(Icon::ListMusic), name) {
-                            app.actions.push(Action::AddToPlaylist {
-                                playlist_id: id.clone(),
-                                playlist_name: name.clone(),
-                                uris: vec![uri.clone()],
-                            });
-                        }
-                    }
-                });
-        });
+        add_to_playlist_menu(ui, app, &[(uri.clone(), label)]);
     }
     if let Some(RowContext::Context {
         editable_playlist: Some((playlist_id, _)),
@@ -517,7 +548,7 @@ pub fn context_menu_items(
     if kind != "artist" && menu_item(ui, &palette, Some(Icon::Shuffle), "Shuffle play") {
         app.actions.push(Action::ShufflePlay(uri.to_string()));
     }
-    if kind == "album" && menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
+    if kind == "album" && menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
         app.actions.push(Action::AddToQueue {
             uri: uri.to_string(),
             label: name.to_string(),
@@ -1487,6 +1518,9 @@ pub fn ellipsized(
 }
 
 pub struct CardResponse {
+    /// Give attached menus an item-based ID: hovering a Play button can shift
+    /// later cards' automatic response IDs.
+    pub response: egui::Response,
     pub clicked: bool,
     pub play: bool,
 }
@@ -1633,6 +1667,7 @@ pub fn card(
     theme::focus_ring(ui, &response);
     CardResponse {
         clicked: response.clicked() && !play,
+        response,
         play,
     }
 }

@@ -123,7 +123,12 @@ impl TrayService {
             wake: Arc::new(wake),
             playing: false,
         };
-        match tray.spawn() {
+        // Flatpak allows talking to the watcher, but not owning ksni's
+        // generated StatusNotifierItem name. Register the unique connection
+        // name instead, as ksni requires for sandboxed applications.
+        let flatpak = std::path::Path::new("/.flatpak-info").exists()
+            || std::env::var_os("FLATPAK_ID").is_some();
+        match tray.disable_dbus_name(flatpak).spawn() {
             Ok(handle) => Some(Self {
                 handle,
                 commands,

@@ -5,6 +5,9 @@ under **Playing next**, are the songs you queued yourself. Below them,
 under **Next up**, are the songs that come next in whatever playlist or
 album is playing. Your songs always play first.
 
+Above the playing song, the queue names the album, playlist, artist, or
+Liked Songs it came from. Select that name to open its page.
+
 These are the rules the app follows. The queue lives in the player, so
 every one of them is about this computer: there is no other device with a
 queue of its own to disagree with. The tests in `src/engine/queue.rs` hold
@@ -14,7 +17,7 @@ the panel draws and what a click asks for.
 1. **The list shows the play order.** The top row plays next, followed by the
    rows below it.
 
-2. **Play next adds a song to your part of the queue.** It goes after
+2. **Add to queue adds a song to your part of the queue.** It goes after
    the songs you queued earlier and before the playlist's songs. Queue
    the same song twice and it plays twice. A double-click only counts
    once.

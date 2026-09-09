@@ -1324,7 +1324,7 @@ mod tests {
         assert!(
             tree.nodes
                 .iter()
-                .any(|(_, node)| node.label() == Some("Play next")),
+                .any(|(_, node)| node.label() == Some("Add to queue")),
             "the keyboard opens the song menu"
         );
         app.backend.shutdown();
@@ -1551,6 +1551,266 @@ mod tests {
         frame_events(ctx, app, Vec::new());
     }
 
+    fn view_frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+        view: fn(&mut App, &mut egui::Ui),
+    ) -> Vec<(String, egui::Rect)> {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 2200.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| view(app, ui),
+        );
+        output.textures_delta.clear();
+        fn walk(shape: &egui::epaint::Shape, text: &mut Vec<(String, egui::Rect)>) {
+            match shape {
+                egui::epaint::Shape::Text(shape) => text.push((
+                    shape.galley.job.text.clone(),
+                    shape.galley.rect.translate(shape.pos.to_vec2()),
+                )),
+                egui::epaint::Shape::Vec(shapes) => {
+                    shapes.iter().for_each(|shape| walk(shape, text));
+                }
+                _ => {}
+            }
+        }
+        let mut text = Vec::new();
+        for shape in &output.shapes {
+            walk(&shape.shape, &mut text);
+        }
+        text
+    }
+
+    fn pointer_click(pos: egui::Pos2, button: egui::PointerButton) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos,
+                button,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    }
+
+    #[test]
+    fn search_top_results_open_their_item_menus() {
+        for (kind, results, title) in [
+            {
+                let item = songs().0[0].clone();
+                (
+                    "track",
+                    SearchResults {
+                        tracks: Some(page(vec![item.clone()])),
+                        ..Default::default()
+                    },
+                    item.name,
+                )
+            },
+            {
+                let item = artist(0);
+                (
+                    "artist",
+                    SearchResults {
+                        artists: Some(page(vec![item.clone()])),
+                        ..Default::default()
+                    },
+                    item.name,
+                )
+            },
+            {
+                let item = album(0);
+                (
+                    "album",
+                    SearchResults {
+                        albums: Some(page(vec![item.clone()])),
+                        ..Default::default()
+                    },
+                    item.name,
+                )
+            },
+            {
+                let all_songs = songs().0;
+                let item = playlist(0, &all_songs);
+                (
+                    "playlist",
+                    SearchResults {
+                        playlists: Some(page(vec![item.clone()])),
+                        ..Default::default()
+                    },
+                    item.name,
+                )
+            },
+        ] {
+            let (ctx, mut app) = accessible_app(&format!("top-result-{kind}"));
+            app.search.results = Loadable::Loaded(results);
+            view_frame(&ctx, &mut app, vec![], crate::ui::search::show);
+            let text = view_frame(&ctx, &mut app, vec![], crate::ui::search::show);
+            let pos = text
+                .iter()
+                .find(|(text, _)| text == &title)
+                .expect("top result title")
+                .1
+                .center();
+            app.actions.clear();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(pos, egui::PointerButton::Secondary),
+                crate::ui::search::show,
+            );
+            let text = view_frame(&ctx, &mut app, vec![], crate::ui::search::show);
+            assert!(
+                app.actions.is_empty(),
+                "right-clicking {kind} must not play"
+            );
+            assert!(
+                text.iter().any(|(text, _)| text == "Copy link"),
+                "{kind} menu did not open"
+            );
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
+    fn home_cards_open_item_menus() {
+        let (ctx, mut app) = accessible_app("home-card-menu");
+        let title = songs().0[1].name.clone();
+        view_frame(&ctx, &mut app, vec![], crate::ui::home::show);
+        let text = view_frame(&ctx, &mut app, vec![], crate::ui::home::show);
+        let below = text
+            .iter()
+            .find(|(text, _)| text == "Recently played")
+            .expect("recent section")
+            .1
+            .bottom();
+        let pos = text
+            .iter()
+            .find(|(text, rect)| text == &title && rect.top() >= below)
+            .expect("recent card")
+            .1
+            .center();
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(pos, egui::PointerButton::Secondary),
+            crate::ui::home::show,
+        );
+        let text = view_frame(&ctx, &mut app, vec![], crate::ui::home::show);
+        assert!(app.actions.is_empty(), "right-clicking must not play");
+        assert!(text.iter().any(|(text, _)| text == "Add to queue"));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn playlist_filter_preserves_edit_permissions_and_keyboard_selection() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("playlist-filter");
+        let owner = app.user_id().expect("demo user").to_string();
+        let make = |id: &str, name: &str, owned: bool, collaborative| Playlist {
+            id: id.into(),
+            uri: format!("sonic:playlist:{id}"),
+            name: name.into(),
+            owner: Owner {
+                id: Some(if owned {
+                    owner.clone()
+                } else {
+                    "another-user".into()
+                }),
+                ..Default::default()
+            },
+            collaborative,
+            ..Default::default()
+        };
+        app.library.playlists = Loadable::Loaded(vec![
+            make("readonly", "Night locked", false, false),
+            make("owned", "Night drive", true, false),
+            make("shared", "Night together", false, true),
+            make("day", "Daylight", true, false),
+        ]);
+        let selected = vec![(track_uri("trk0"), "First song".into())];
+        let mut query = String::new();
+        let draw = |app: &mut App, query: &mut String, focus: bool, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let field = crate::ui::widgets::playlist_picker(ui, app, &selected, query);
+                    if focus {
+                        field.request_focus();
+                    }
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        draw(&mut app, &mut query, true, vec![]);
+        let output = draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![egui::Event::Text("  NiGhT  ".into())],
+        );
+        assert_eq!(query, "  NiGhT  ");
+        let tree = output.platform_output.accesskit_update.unwrap();
+        for name in ["Night locked", "Daylight"] {
+            assert!(
+                !tree
+                    .nodes
+                    .iter()
+                    .any(|(_, node)| node.label() == Some(name)),
+                "{name} must not be offered"
+            );
+        }
+        let owned = accessible_node(&tree, "Night drive", Role::Button);
+        accessible_node(&tree, "Night together", Role::Button);
+        let mut reached = false;
+        for _ in 0..6 {
+            let output = draw(
+                &mut app,
+                &mut query,
+                false,
+                vec![keyboard(egui::Key::Tab, egui::Modifiers::NONE)],
+            );
+            if output.platform_output.accesskit_update.unwrap().focus == owned {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "Tab must reach the filtered playlist");
+        app.actions.clear();
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![keyboard(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+        assert!(
+            matches!(app.actions.as_slice(), [Action::AddToPlaylist { playlist_id, uris, .. }] if playlist_id == "owned" && uris == &[track_uri("trk0")])
+        );
+        app.backend.shutdown();
+    }
+
     fn frame_events(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -1604,7 +1864,7 @@ mod tests {
             frame(&ctx, &mut app);
         }
         app.toasts.clear();
-        app.toast("Wish You Were Here will play next");
+        app.toast("Wish You Were Here added to queue");
         // Two frames: an area sizes itself on its first one.
         let mut first = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
         first.textures_delta.clear();
