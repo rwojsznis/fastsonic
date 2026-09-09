@@ -29,6 +29,12 @@ jobs:
           components: rustfmt, clippy
       - name: GUI build dependencies
         run: |
+          # Chrome is preconfigured on GitHub's x64 runner but is unrelated
+          # to the build. Ignore either apt source format so a repository
+          # mid-sync cannot break Fastsonic's dependency installation.
+          sudo rm -f \
+            /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
@@ -69,6 +75,9 @@ jobs:
       - name: GUI build dependencies
         if: runner.os == 'Linux'
         run: |
+          sudo rm -f \
+            /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev
