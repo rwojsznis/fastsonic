@@ -768,27 +768,11 @@ fn track_row_contents(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<R
             .is_some_and(|uri| uri == row.item.uri());
     let playing = is_current && app.believed_playing();
     let hovered = ui.rect_contains_pointer(rect) || response.has_focus();
-    if row.picked {
-        // Picked rows read as a block, so a run of them looks like one
-        // thing rather than a stack of hovers. Hovering one still lifts
-        // it, so the pointer is never lost inside the block.
-        ui.painter().rect_filled(
-            rect,
-            CornerRadius::same(6),
-            palette
-                .accent
-                .gamma_multiply(if hovered { 0.30 } else { 0.20 }),
-        );
-    } else if hovered {
-        ui.painter().rect_filled(
-            rect,
-            CornerRadius::same(6),
-            palette
-                .surface_hover
-                .gamma_multiply(if palette.dark { 0.7 } else { 1.0 }),
-        );
+    if let Some(fill) = track_row_fill(&palette, row.picked, hovered) {
+        ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
     }
-    theme::focus_ring(ui, &response);
+    // The row highlight also shows keyboard focus. Do not add an outline
+    // when a mouse click gives the row focus for arrow-key navigation.
     let cols = columns(width, &row);
     let painter = ui.painter().clone();
     let mut x = rect.left() + 8.0;
@@ -1206,6 +1190,25 @@ fn track_row_contents(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<R
             }
         });
     pick
+}
+
+fn track_row_fill(palette: &Palette, picked: bool, hovered: bool) -> Option<Color32> {
+    if picked {
+        // Selection is neutral: the accent remains reserved for the playing song.
+        Some(
+            palette
+                .secondary
+                .gamma_multiply(if hovered { 0.30 } else { 0.20 }),
+        )
+    } else if hovered {
+        Some(
+            palette
+                .surface_hover
+                .gamma_multiply(if palette.dark { 0.7 } else { 1.0 }),
+        )
+    } else {
+        None
+    }
 }
 
 /// The chip that rides the pointer while a song is being dragged.
@@ -2356,5 +2359,29 @@ mod tests {
         );
         assert!(!painted.is_empty());
         assert_eq!(painted[0], 0);
+    }
+
+    #[test]
+    fn selected_track_rows_use_a_neutral_fill_without_changing_hover_behavior() {
+        for mut palette in [Palette::dark(), Palette::light()] {
+            palette.accent = Color32::from_rgb(255, 0, 90);
+            assert_eq!(
+                track_row_fill(&palette, true, false),
+                Some(palette.secondary.gamma_multiply(0.20))
+            );
+            assert_eq!(
+                track_row_fill(&palette, true, true),
+                Some(palette.secondary.gamma_multiply(0.30))
+            );
+            assert_eq!(track_row_fill(&palette, false, false), None);
+            assert_eq!(
+                track_row_fill(&palette, false, true),
+                Some(
+                    palette
+                        .surface_hover
+                        .gamma_multiply(if palette.dark { 0.7 } else { 1.0 })
+                )
+            );
+        }
     }
 }
