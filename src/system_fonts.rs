@@ -55,6 +55,7 @@ pub(crate) const FALLBACK_SCRIPTS: &[(&str, char, &str)] = &[
     ("georgian", '\u{10d0}', "georgian"),
     ("ethiopic", '\u{1200}', "ethiopic"),
     ("cherokee", '\u{13a0}', "cherokee"),
+    ("yi", '\u{a248}', "yi"),
     ("symbols", '\u{2605}', "symbol"),
 ];
 
@@ -594,6 +595,32 @@ mod tests {
 #[cfg(all(test, not(target_os = "macos")))]
 mod ranking_tests {
     use super::*;
+
+    #[test]
+    fn selects_a_font_that_draws_a_yi_artist_name() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yi/YiTest.ttf");
+        let mut candidates = BTreeMap::new();
+        probe_file(&path, "sc", &mut candidates);
+        let selected = candidates
+            .values()
+            .next()
+            .expect("the installed Yi font must be selected as a fallback");
+        let bytes = std::fs::read(&selected.path).unwrap();
+        let font = skrifa::FontRef::from_index(&bytes, selected.index).unwrap();
+        for character in "ꉈꀧ꒒꒒ꁄꍈꍈꀧ꒦ꉈ ꉣꅔꎡꅔꁕꁄ"
+            .chars()
+            .filter(|c| !c.is_whitespace())
+        {
+            let glyph = font
+                .charmap()
+                .map(character)
+                .expect("artist glyph is mapped");
+            assert!(
+                font.outline_glyphs().get(glyph).is_some(),
+                "{character} has an outline"
+            );
+        }
+    }
 
     #[test]
     fn locales_choose_a_pan_cjk_cut() {
