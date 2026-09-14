@@ -43,16 +43,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     player_bar::show(app, ui);
-    if app.settings.sidebar_visible {
-        sidebar::show(app, ui);
+    if app.lyrics_fullscreen.is_some() {
+        lyrics::fullscreen(app, ui);
+    } else {
+        if app.settings.sidebar_visible {
+            sidebar::show(app, ui);
+        }
+        if app.show_queue_panel {
+            queue::side_panel(app, ui);
+        }
+        if app.show_lyrics_panel {
+            lyrics::side_panel(app, ui);
+        }
+        central(app, ui);
     }
-    if app.show_queue_panel {
-        queue::side_panel(app, ui);
-    }
-    if app.show_lyrics_panel {
-        lyrics::side_panel(app, ui);
-    }
-    central(app, ui);
     dialogs::show(app, ctx);
     widgets::drag_ghost(ctx, &app.palette);
     toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);

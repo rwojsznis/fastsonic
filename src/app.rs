@@ -214,6 +214,12 @@ pub struct App {
     pub dialog: Option<Dialog>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
+    pub lyrics_fullscreen: Option<bool>,
+    pub lyrics_fullscreen_seen: bool,
+    lyrics_fullscreen_restoring: Option<bool>,
+    lyrics_restore_maximized: bool,
+    pub lyrics_reduce_motion: bool,
+    pub lyrics_backdrop: crate::images::LyricsBackdrop,
     /// The track the lyrics below are for.
     pub lyrics_uri: Option<String>,
     /// `Loaded(None)` when no lyrics are available.
@@ -480,6 +486,12 @@ impl App {
             dialog: None,
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
+            lyrics_fullscreen: None,
+            lyrics_fullscreen_seen: false,
+            lyrics_fullscreen_restoring: None,
+            lyrics_restore_maximized: false,
+            lyrics_reduce_motion: false,
+            lyrics_backdrop: Default::default(),
             lyrics_uri: None,
             lyrics: Loadable::NotLoaded,
             lyrics_following: true,
@@ -3537,7 +3549,33 @@ impl App {
         }
     }
 
+    fn leave_lyrics_fullscreen(&mut self, ctx: &egui::Context) {
+        if let Some(was_fullscreen) = self.lyrics_fullscreen.take() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(was_fullscreen));
+            if self.lyrics_restore_maximized {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            }
+            self.lyrics_fullscreen_restoring = Some(was_fullscreen);
+            self.lyrics_fullscreen_seen = false;
+            self.lyrics_line_shown = None;
+        }
+    }
+
     fn apply(&mut self, action: Action, ctx: &egui::Context) {
+        if matches!(
+            &action,
+            Action::Open(_)
+                | Action::OpenUri(_)
+                | Action::OpenUrl(_)
+                | Action::FocusSearch
+                | Action::Back
+                | Action::Forward
+                | Action::SignOut
+                | Action::ToggleWinampWindow
+                | Action::ToggleQueuePanel
+        ) {
+            self.leave_lyrics_fullscreen(ctx);
+        }
         match action {
             Action::Open(page) => self.open(page),
             Action::OpenUri(uri) => {
@@ -3887,6 +3925,7 @@ impl App {
                 }
             }
             Action::ToggleLyricsPanel => {
+                self.leave_lyrics_fullscreen(ctx);
                 self.show_lyrics_panel = !self.show_lyrics_panel;
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
@@ -3894,6 +3933,43 @@ impl App {
                     self.request_lyrics();
                 }
             }
+            Action::SetLyricsFullscreen(fullscreen) => {
+                if fullscreen && self.lyrics_fullscreen.is_none() {
+                    self.lyrics_fullscreen =
+                        Some(self.lyrics_fullscreen_restoring.take().unwrap_or_else(|| {
+                            ctx.input(|input| input.viewport().fullscreen.unwrap_or(false))
+                        }));
+                    #[cfg(windows)]
+                    {
+                        self.lyrics_restore_maximized |= self.lyrics_fullscreen == Some(false)
+                            && ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+                        if self.lyrics_restore_maximized {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+                        }
+                    }
+                    self.lyrics_fullscreen_seen = false;
+                    self.show_lyrics_panel = true;
+                    self.show_queue_panel = false;
+                    self.lyrics_following = true;
+                    self.lyrics_line_shown = None;
+                    self.request_lyrics();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                } else if !fullscreen {
+                    self.leave_lyrics_fullscreen(ctx);
+                }
+            }
+            Action::LyricsLineShown(line) => {
+                if self.lyrics_fullscreen.is_some() {
+                    self.lyrics_line_shown = Some(line);
+                }
+            }
+            Action::FollowLyrics => {
+                self.lyrics_following = true;
+                self.lyrics_line_shown = None;
+            }
+            Action::PauseLyricsFollow => self.lyrics_following = false,
+            Action::RetryLyrics => self.request_lyrics(),
+            Action::ToggleLyricsMotion => self.lyrics_reduce_motion = !self.lyrics_reduce_motion,
             Action::CheckForUpdates => self.check_for_updates(true),
             Action::SettingsChanged => {
                 self.settings_dirty = true;
@@ -4353,6 +4429,21 @@ impl App {
         self.refresh_frame_now();
         self.apply_theme(ctx);
         self.lock_scroll_axis(ctx);
+        if self.lyrics_fullscreen_restoring.is_some()
+            && self.lyrics_fullscreen_restoring == ctx.input(|input| input.viewport().fullscreen)
+            && (!self.lyrics_restore_maximized
+                || ctx.input(|input| input.viewport().maximized == Some(true)))
+        {
+            self.lyrics_fullscreen_restoring = None;
+            self.lyrics_restore_maximized = false;
+        }
+        if self.lyrics_fullscreen.is_some() {
+            if ctx.input(|input| input.viewport().fullscreen.unwrap_or(false)) {
+                self.lyrics_fullscreen_seen = true;
+            } else if self.lyrics_fullscreen_seen {
+                self.leave_lyrics_fullscreen(ctx);
+            }
+        }
         // Switch to the main window when sign-in is required.
         let needs_sign_in = !(self.is_connected() && self.user.is_some())
             && !matches!(self.auth, AuthStatus::Connecting | AuthStatus::Starting)
@@ -4369,7 +4460,11 @@ impl App {
         self.refresh_frame_now();
         self.sync_media_controls();
 
-        if !self.settings.winamp_window && !self.switch_intent {
+        if !self.settings.winamp_window
+            && !self.switch_intent
+            && self.lyrics_fullscreen.is_none()
+            && self.lyrics_fullscreen_restoring.is_none()
+        {
             if let Some(rect) = ctx.input(|input| input.viewport().inner_rect) {
                 self.last_window_size = Some([rect.width(), rect.height()]);
             }
@@ -6462,6 +6557,57 @@ mod tests {
         assert_eq!(app.media_art, None, "a path into a deleted cache");
 
         let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn lyrics_fullscreen_restores_the_previous_window_mode() {
+        for was_fullscreen in [false, true] {
+            let mut app = headless_app();
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .fullscreen = Some(was_fullscreen);
+            let mut output = ctx.run_ui(input, |ui| {
+                app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
+                assert!(app.show_lyrics_panel);
+                assert_eq!(app.lyrics_fullscreen, Some(was_fullscreen));
+                app.apply(Action::SetLyricsFullscreen(false), ui.ctx());
+                assert_eq!(app.lyrics_fullscreen, None);
+            });
+            output.textures_delta.clear();
+            let commands: Vec<_> = output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    egui::ViewportCommand::Fullscreen(value) => Some(*value),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(commands, vec![true, was_fullscreen]);
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
+    fn closing_lyrics_leaves_fullscreen() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert!(!app.show_lyrics_panel);
+        assert_eq!(app.lyrics_fullscreen, None);
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::Fullscreen(false))
+        );
+        app.backend.shutdown();
     }
 
     fn headless_app() -> App {

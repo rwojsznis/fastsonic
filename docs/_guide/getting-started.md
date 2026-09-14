@@ -72,3 +72,11 @@ features; Navidrome-only personalisation sections may be empty.
   Ctrl+/ shows every shortcut. On macOS, Cmd replaces Ctrl.
 - Right-click a song, playlist, album, or artist for actions such as Play
   next, star, add to playlist, and copy link.
+
+## Lyrics
+
+Choose the microphone button in the player bar, or press **L**, to open lyrics.
+Synced lyrics follow the playing line automatically. Scroll to pause following,
+choose **Follow** to resume it, or choose a line to seek there. The expand
+button opens the full-screen view; press **Esc** or choose the shrink button to
+return to the previous window mode.

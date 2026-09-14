@@ -912,11 +912,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     },
                 );
             }
-            "lyrics" => {
+            "lyrics" | "lyrics-fullscreen" => {
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
                 app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
                 app.lyrics_following = true;
                 app.show_lyrics_panel = true;
+                if surface == "lyrics-fullscreen" {
+                    app.actions.push(Action::SetLyricsFullscreen(true));
+                }
             }
             // Titles in scripts the interface font does not cover.
             "scripts" => {

@@ -165,8 +165,12 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     if forward {
         app.actions.push(Action::Forward);
     }
-    if ctx.input(|input| input.key_pressed(Key::Escape)) && app.dialog.is_some() {
-        app.actions.push(Action::CloseDialog);
+    if ctx.input(|input| input.key_pressed(Key::Escape)) {
+        if app.dialog.is_some() {
+            app.actions.push(Action::CloseDialog);
+        } else if app.lyrics_fullscreen.is_some() {
+            app.actions.push(Action::SetLyricsFullscreen(false));
+        }
     }
 }
 
@@ -187,6 +191,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("R", "Cycle repeat"),
     ("Q", "Show the queue"),
     ("L", "Show the lyrics"),
+    ("Esc", "Lyrics: leave full screen"),
     (platform_shortcut("Ctrl+F  or  /", "Cmd+F  or  /"), "Search"),
     (SIDEBAR_SHORTCUT, "Show or hide the sidebar"),
     ("Alt+←  /  Alt+→", "Back or forward"),
