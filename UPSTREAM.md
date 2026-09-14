@@ -180,3 +180,23 @@ Declined because the corresponding product was removed: Spotify playback
 authorization, Connect device discovery, credential-protection prose, and the
 Spotify issue-triage and maintainer workflows. Upstream's website, packaging,
 release metadata, and version remain fork-owned as usual.
+
+## Sync through upstream 0.8.0
+
+`upstream/v0.8.0` is recorded as the second parent of the Fastsonic sync
+commit. The portable changes taken before that waypoint are:
+
+- Long right-to-left titles are truncated to their actual shaped width.
+- Yi artist names can use an installed system font, with a fixture-backed test.
+- Shift-modified shortcuts no longer trigger their unmodified counterparts.
+- Modified arrow keys stay with a focused text field for caret navigation.
+- Selected song rows use a neutral fill and no focus outline, leaving the
+  accent color to identify playback.
+
+Upstream's Spotify personal-app authentication, session and cache work,
+Spotifast rename, Spotify-specific history and playlist behavior, website,
+packaging, update installer, release automation, translations, Omarchy
+integration, and version metadata remain excluded. Larger portable features
+whose implementations are coupled to upstream's rewritten Spotify app state
+(finite collection scrolling, settings search, window restoration, and
+Windows middle-button autoscroll) need separate Fastsonic-native ports.
