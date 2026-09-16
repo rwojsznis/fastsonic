@@ -730,6 +730,7 @@ pub enum Action {
     /// Open a web page in the browser.
     OpenUrl(String),
     Search(String),
+    ForgetSearch(String),
     SetSearchFilter(SearchFilter),
     FocusSearch,
     LoadMore(Page),
