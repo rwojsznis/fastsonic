@@ -345,6 +345,7 @@ fn main() -> eframe::Result<()> {
                 // repaint.
                 #[cfg(target_os = "macos")]
                 {
+                    fastsonic::mac_touchbar_crash_guard::install();
                     fastsonic::mac_menu::init();
                     let ctx = cc.egui_ctx.clone();
                     fastsonic::mac_menu::set_waker(move || ctx.request_repaint());

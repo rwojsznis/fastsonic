@@ -16,6 +16,8 @@ pub mod lyrics;
 pub mod mac_fonts;
 #[cfg(target_os = "macos")]
 pub mod mac_menu;
+#[cfg(target_os = "macos")]
+pub mod mac_touchbar_crash_guard;
 pub mod media;
 #[cfg(target_os = "linux")]
 #[path = "mpris.rs"]
