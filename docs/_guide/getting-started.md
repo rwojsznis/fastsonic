@@ -67,7 +67,8 @@ features; Navidrome-only personalisation sections may be empty.
 
 - Closing the window keeps music playing from the system tray by default.
   Reopen it from the tray or Dock, and quit from the tray menu or Ctrl+Q.
-- Space plays and pauses, Ctrl+F or `/` searches, and `Q` opens the queue.
+- Space plays and pauses—even when a row or button has focus—Ctrl+F or `/`
+  searches, and `Q` opens the queue. Text fields keep Space for typing.
   Ctrl+/ shows every shortcut. On macOS, Cmd replaces Ctrl.
 - Right-click a song, playlist, album, or artist for actions such as Play
   next, star, add to playlist, and copy link.

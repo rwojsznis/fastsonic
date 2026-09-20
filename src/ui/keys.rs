@@ -94,6 +94,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         // Cmd to the end of the line, Up and Down to the end of the text.
         // Taking them here skipped songs while a search was being typed.
         if !editing_text {
+            // Space always controls the current song, even when a song row
+            // or button has focus. Enter still activates the focused control.
+            key(Modifiers::NONE, Key::Space, Action::TogglePlay);
             key(Modifiers::ALT, Key::ArrowLeft, Action::Back);
             key(Modifiers::ALT, Key::ArrowRight, Action::Forward);
             key(Modifiers::COMMAND, Key::ArrowLeft, Action::Previous);
@@ -114,7 +117,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             );
             key(Modifiers::SHIFT, Key::ArrowLeft, Action::SeekBy(-10_000));
             key(Modifiers::SHIFT, Key::ArrowRight, Action::SeekBy(10_000));
-            key(Modifiers::NONE, Key::Space, Action::TogglePlay);
             key(Modifiers::NONE, Key::M, Action::ToggleMute);
             key(Modifiers::NONE, Key::S, Action::ToggleShuffle);
             key(Modifiers::NONE, Key::R, Action::CycleRepeat);
@@ -269,11 +271,19 @@ mod tests {
                 |ui| {
                     handle(app, ui.ctx());
                     ui.add(egui::TextEdit::singleline(text).id(field));
-                    ui.interact(
-                        egui::Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(200.0, 28.0)),
-                        row,
-                        egui::Sense::click(),
-                    );
+                    if ui
+                        .interact(
+                            egui::Rect::from_min_size(
+                                egui::pos2(0.0, 100.0),
+                                egui::vec2(200.0, 28.0),
+                            ),
+                            row,
+                            egui::Sense::click(),
+                        )
+                        .clicked()
+                    {
+                        app.actions.push(Action::Open(Page::Home));
+                    }
                 },
             );
             output.textures_delta.clear();
@@ -334,6 +344,13 @@ mod tests {
         }
         assert_eq!(text, "find this song");
 
+        // Space belongs to text editing while the field has focus.
+        caret_at(end);
+        let mut space = press(Key::Space, Modifiers::NONE);
+        space.push(egui::Event::Text(" ".into()));
+        assert_eq!(frame(&mut app, &mut text, space), "[]");
+        assert_eq!(text, "find this song ");
+
         // With nothing being typed into, the shortcuts are the app's again.
         ctx.memory_mut(|memory| memory.surrender_focus(field));
         frame(&mut app, &mut text, vec![]);
@@ -350,6 +367,16 @@ mod tests {
         frame(&mut app, &mut text, vec![]);
         assert!(ctx.memory(|memory| memory.has_focus(row)));
         assert!(!ctx.text_edit_focused());
+        assert_eq!(
+            frame(&mut app, &mut text, press(Key::Space, Modifiers::NONE)),
+            format!("{:?}", [Action::TogglePlay]),
+            "a focused row must not steal Space from play/pause"
+        );
+        assert_eq!(
+            frame(&mut app, &mut text, press(Key::Enter, Modifiers::NONE)),
+            format!("{:?}", [Action::Open(Page::Home)]),
+            "Enter still activates the focused row"
+        );
         assert_eq!(
             frame(&mut app, &mut text, press(Key::ArrowRight, command)),
             format!("{:?}", [Action::Next])
