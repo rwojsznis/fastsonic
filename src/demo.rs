@@ -1710,6 +1710,57 @@ mod tests {
     }
 
     #[test]
+    fn song_top_result_artist_name_opens_the_available_profile_or_the_album() {
+        for artist_id in [Some("artist-ween"), None] {
+            let (ctx, mut app) = accessible_app("top-result-song-artist");
+            let mut item = songs().0[0].clone();
+            let album_id = item.album.as_ref().unwrap().id.clone();
+            item.artists = vec![ArtistRef {
+                id: artist_id.map(str::to_string),
+                name: "Ween".into(),
+                uri: artist_id.map(artist_uri),
+            }];
+            app.search.results = Loadable::Loaded(SearchResults {
+                tracks: Some(page(vec![item])),
+                ..Default::default()
+            });
+            view_frame(&ctx, &mut app, vec![], crate::ui::search::show);
+            let text = view_frame(&ctx, &mut app, vec![], crate::ui::search::show);
+            let songs_left = text
+                .iter()
+                .filter(|(text, _)| text == "Songs")
+                .max_by(|(_, left), (_, right)| left.left().total_cmp(&right.left()))
+                .expect("songs heading")
+                .1
+                .left();
+            let artist = text
+                .iter()
+                .find(|(text, rect)| text == "Ween" && rect.left() < songs_left)
+                .expect("top result artist name");
+            app.actions.clear();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(
+                    egui::pos2(artist.1.right() - 4.0, artist.1.center().y),
+                    egui::PointerButton::Primary,
+                ),
+                crate::ui::search::show,
+            );
+            if artist_id.is_some() {
+                assert!(
+                    matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if id == "artist-ween")
+                );
+            } else {
+                assert!(
+                    matches!(app.actions.as_slice(), [Action::Open(Page::Album(id))] if id == &album_id)
+                );
+            }
+            app.backend.shutdown();
+        }
+    }
+
+    #[test]
     fn home_cards_open_item_menus() {
         let (ctx, mut app) = accessible_app("home-card-menu");
         let title = songs().0[1].name.clone();
