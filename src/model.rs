@@ -755,7 +755,6 @@ pub enum Action {
     FollowLyrics,
     PauseLyricsFollow,
     RetryLyrics,
-    ToggleLyricsMotion,
     /// Ask GitHub for the latest release and report the result to the user.
     CheckForUpdates,
     SettingsChanged,
