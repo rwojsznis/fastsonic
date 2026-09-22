@@ -22,7 +22,6 @@
 //! `Box::new(move |cc| ...)` app creator in `entrypoint.rs` is early enough
 //! and already runs other one-time macOS setup.
 
-use std::ffi::CStr;
 use std::sync::OnceLock;
 
 use objc2::exception::catch;
@@ -45,7 +44,7 @@ pub fn install() {
     if INSTALLED.set(()).is_err() {
         return;
     }
-    let class_name = CStr::from_bytes_with_nul(b"WinitView\0").unwrap();
+    let class_name = c"WinitView";
     let Some(view_class) = AnyClass::get(class_name) else {
         // A winit version that renamed or restructured its view class:
         // nothing to patch here.
