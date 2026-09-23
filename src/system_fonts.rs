@@ -851,7 +851,9 @@ mod ranking_tests {
 
     /// NixOS lists each font package's store path in fontconfig's own
     /// configuration, often through an included directory of files, and
-    /// nowhere else.
+    /// nowhere else. Fontconfig paths follow Unix rules, and only Linux
+    /// reads them.
+    #[cfg(unix)]
     #[test]
     fn fontconfig_configuration_names_the_font_directories() {
         let root =
