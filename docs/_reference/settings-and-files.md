@@ -45,7 +45,9 @@ gaplessly. There is no audio-quality selector because the source file is not
 transcoded, and there is no autoplay source after a context ends.
 
 Interface settings cover theme, album-art accents, compact rows, shortcut
-hints, sidebar state, zoom, Winamp skin/windows/equalizer, and MilkDrop. Close
+hints, sidebar state, zoom, Winamp skin/windows/equalizer, and MilkDrop. On
+Linux, Follow system reads the light or dark preference from the desktop portal.
+Close
 to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer
 either way, including when the version installed is the current one; on macOS

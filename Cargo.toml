@@ -142,6 +142,8 @@ windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globali
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", features = ["blocking"] }
 mpris-server = { version = "0.10", features = ["tokio"] }
+# Read the desktop portal theme without blocking the UI thread.
+zbus = { version = "5.19", features = ["blocking"] }
 
 # The icon and version information Windows shows for the executable.
 [target.'cfg(windows)'.build-dependencies]

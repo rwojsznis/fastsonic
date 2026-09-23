@@ -118,6 +118,8 @@ pub struct App {
     last_settings_save: Instant,
     pub backend: Backend,
     media_controls: Option<MediaService>,
+    #[cfg(target_os = "linux")]
+    system_appearance: Option<crate::appearance::SystemAppearance>,
     /// The artwork the media controls were last given, and the URL it came
     /// from. Finding the file touches the disk and the controls are synced
     /// every frame, so the answer is kept until the artwork changes.
@@ -400,6 +402,13 @@ impl App {
         let media_controls = options
             .media_controls
             .then(|| MediaService::spawn(move || wake.wake()));
+        #[cfg(target_os = "linux")]
+        let system_appearance = {
+            let wake = waker.clone();
+            options
+                .media_controls
+                .then(|| crate::appearance::SystemAppearance::spawn(move || wake.wake()))
+        };
         #[cfg(target_os = "macos")]
         let media_controls = {
             let mut media_controls = media_controls;
@@ -430,6 +439,8 @@ impl App {
             last_settings_save: Instant::now(),
             backend,
             media_controls,
+            #[cfg(target_os = "linux")]
+            system_appearance,
             media_art: None,
             tray,
             window_hidden: false,
@@ -1802,6 +1813,21 @@ impl App {
     }
 
     fn apply_theme(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "linux")]
+        if let Some(dark) = self
+            .system_appearance
+            .as_ref()
+            .and_then(crate::appearance::SystemAppearance::dark)
+        {
+            let theme = if dark {
+                egui::Theme::Dark
+            } else {
+                egui::Theme::Light
+            };
+            if ctx.options(|options| options.fallback_theme) != theme {
+                ctx.options_mut(|options| options.fallback_theme = theme);
+            }
+        }
         let dark = ctx.theme() == egui::Theme::Dark;
         if self.applied_dark != Some(dark) {
             self.palette = if dark {
@@ -5968,6 +5994,26 @@ mod tests {
         app.pick_row(&album, "v", 2, RowPick::Only, 10);
         assert_eq!(picked(&app, &album), vec![2]);
         assert!(picked(&app, &liked).is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn system_theme_follows_desktop_but_fixed_choice_wins() {
+        let mut app = test_app("system-theme");
+        let ctx = egui::Context::default();
+        app.settings.theme = ThemeChoice::System;
+        ctx.set_theme(egui::ThemePreference::System);
+        app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(false));
+        app.apply_theme(&ctx);
+        assert_eq!(ctx.theme(), egui::Theme::Light);
+        app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(true));
+        app.apply_theme(&ctx);
+        assert_eq!(ctx.theme(), egui::Theme::Dark);
+        app.settings.theme = ThemeChoice::Dark;
+        ctx.set_theme(egui::ThemePreference::Dark);
+        app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(false));
+        app.apply_theme(&ctx);
+        assert_eq!(ctx.theme(), egui::Theme::Dark);
     }
 
     fn test_app(name: &str) -> App {
