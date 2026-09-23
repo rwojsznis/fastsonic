@@ -1,6 +1,6 @@
 //! The now-playing bar along the bottom of the window.
 
-use egui::{Align, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
+use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
 
 use crate::app::{App, NowPlaying};
 use crate::engine::RepeatMode;
@@ -10,13 +10,20 @@ use crate::util;
 
 use super::widgets::{SliderEvent, thin_slider};
 
+/// How much of the playing art's tint the bar's fill carries.
+const TINT_STRENGTH: f32 = 0.12;
+/// How long the bar takes to cross over to a new song's tint.
+const TINT_FADE_SECONDS: f32 = 0.45;
+const TINT_SESSION_ID: &str = "player-bar-tint-session";
+
+/// Forget this bar's animation session while the sign-in screen is shown.
+pub(crate) fn end_tint_session(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.remove::<u64>(egui::Id::new(TINT_SESSION_ID)));
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let tint = app.now_playing_tint();
-    let fill = match tint {
-        Some(tint) => super::blend(palette.panel, tint, 0.12),
-        None => palette.panel,
-    };
+    let fill = eased_fill(ui.ctx(), palette.panel, app.now_playing_tint());
     egui::Panel::bottom("player-bar")
         .exact_size(theme::PLAYER_BAR_HEIGHT)
         .resizable(false)
@@ -59,6 +66,33 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             );
             extras(app, &mut right_ui, now.as_ref());
         });
+}
+
+/// Ease the final fill's RGB. Untinted custom panels keep their alpha while
+/// the colour returns to the panel colour.
+fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Color32 {
+    let target = tint.map_or(panel, |tint| super::blend(panel, tint, TINT_STRENGTH));
+    // Color32 stores premultiplied RGB, so interpolate unmultiplied channels.
+    let [r, g, b, _] = target.to_srgba_unmultiplied();
+    // A new pass after sign-out gets new ids without clearing other animations.
+    let pass = ctx.cumulative_pass_nr();
+    let session = ctx.data_mut(|data| {
+        *data.get_temp_mut_or_insert_with(egui::Id::new(TINT_SESSION_ID), || pass)
+    });
+    let channel = |axis: &'static str, value: u8| {
+        ctx.animate_value_with_time(
+            egui::Id::new(("player-bar-tint", session, axis)),
+            f32::from(value),
+            TINT_FADE_SECONDS,
+        )
+        .round() as u8
+    };
+    let eased = [channel("r", r), channel("g", g), channel("b", b)];
+    if eased == [r, g, b] {
+        target
+    } else {
+        Color32::from_rgba_unmultiplied(eased[0], eased[1], eased[2], target.a())
+    }
 }
 
 fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option<&NowPlaying>) {
@@ -513,5 +547,116 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     .clicked()
     {
         app.actions.push(Action::ToggleLyricsPanel);
+    }
+}
+
+#[cfg(test)]
+mod player_bar_tint_tests {
+    use super::*;
+    use crate::theme::Palette;
+
+    /// Run one frame at `time` and report the bar's actual fill.
+    fn frame(ctx: &egui::Context, time: f64, panel: Color32, tint: Option<Color32>) -> Color32 {
+        let mut fill = Color32::PLACEHOLDER;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                time: Some(time),
+                ..Default::default()
+            },
+            |ui| fill = eased_fill(ui.ctx(), panel, tint),
+        );
+        output.textures_delta.clear();
+        fill
+    }
+
+    #[test]
+    fn a_song_without_art_preserves_translucent_panel() {
+        for panel in [
+            Palette::dark().panel,
+            Palette::light().panel,
+            Color32::from_rgba_unmultiplied(80, 120, 180, 128),
+        ] {
+            let ctx = egui::Context::default();
+            assert_eq!(frame(&ctx, 0.0, panel, None), panel);
+            let art = Color32::from_rgb(200, 40, 90);
+            frame(&ctx, 0.1, panel, Some(art));
+            frame(&ctx, 0.6, panel, Some(art));
+            assert_eq!(frame(&ctx, 0.7, panel, None).a(), panel.a());
+            assert_eq!(frame(&ctx, 1.2, panel, None), panel);
+        }
+    }
+
+    #[test]
+    fn the_first_frame_shows_the_tint_without_fading_in() {
+        let ctx = egui::Context::default();
+        let panel = Palette::dark().panel;
+        let art = Color32::from_rgb(200, 40, 90);
+        assert_eq!(
+            frame(&ctx, 0.0, panel, Some(art)),
+            super::super::blend(panel, art, TINT_STRENGTH)
+        );
+    }
+
+    #[test]
+    fn first_art_after_an_untinted_frame_fades_in() {
+        let ctx = egui::Context::default();
+        let panel = Palette::dark().panel;
+        let art = Color32::from_rgb(220, 140, 160);
+        let target = super::super::blend(panel, art, TINT_STRENGTH);
+        let fade = f64::from(TINT_FADE_SECONDS);
+
+        assert_eq!(frame(&ctx, 0.0, panel, None), panel);
+        assert_eq!(frame(&ctx, 0.1, panel, Some(art)), panel);
+        let middle = frame(&ctx, 0.1 + fade / 2.0, panel, Some(art));
+        assert_ne!(middle, panel);
+        assert_ne!(middle, target);
+        assert_eq!(frame(&ctx, 0.1 + fade, panel, Some(art)), target);
+    }
+
+    #[test]
+    fn changing_songs_mid_fade_continues_from_the_visible_colour() {
+        let ctx = egui::Context::default();
+        let panel = Palette::dark().panel;
+        let first = Color32::from_rgb(20, 40, 60);
+        let second = Color32::from_rgb(220, 140, 160);
+        let third = Color32::from_rgb(40, 230, 30);
+        let first_fill = super::super::blend(panel, first, TINT_STRENGTH);
+        let second_fill = super::super::blend(panel, second, TINT_STRENGTH);
+        let third_fill = super::super::blend(panel, third, TINT_STRENGTH);
+        let fade = f64::from(TINT_FADE_SECONDS);
+
+        assert_eq!(frame(&ctx, 0.0, panel, Some(first)), first_fill);
+        assert_eq!(frame(&ctx, 0.05, panel, Some(second)), first_fill);
+        let middle = frame(&ctx, 0.2, panel, Some(second));
+        assert_ne!(middle, first_fill);
+        assert_ne!(middle, second_fill);
+        assert_eq!(frame(&ctx, 0.2, panel, Some(third)), middle);
+        assert_ne!(frame(&ctx, 0.2 + fade / 2.0, panel, Some(third)), middle);
+        assert_eq!(frame(&ctx, 0.2 + fade, panel, Some(third)), third_fill);
+    }
+
+    #[test]
+    fn a_new_session_does_not_reuse_the_previous_tint() {
+        let ctx = egui::Context::default();
+        let panel = Palette::dark().panel;
+        let first = Color32::from_rgb(20, 40, 60);
+        let second = Color32::from_rgb(220, 140, 160);
+        let next_session = Color32::from_rgb(40, 230, 30);
+
+        frame(&ctx, 0.0, panel, Some(first));
+        frame(&ctx, 0.1, panel, Some(second));
+        assert_ne!(
+            frame(&ctx, 0.2, panel, Some(second)),
+            super::super::blend(panel, second, TINT_STRENGTH)
+        );
+
+        end_tint_session(&ctx);
+        assert_eq!(
+            frame(&ctx, 0.21, panel, Some(next_session)),
+            super::super::blend(panel, next_session, TINT_STRENGTH)
+        );
+
+        end_tint_session(&ctx);
+        assert_eq!(frame(&ctx, 0.22, panel, None), panel);
     }
 }
