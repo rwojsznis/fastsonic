@@ -612,6 +612,10 @@ impl App {
         self.hide_intent = false;
         self.wants_show = false;
         self.switch_intent = false;
+        self.winamp_level_reassert = 0;
+        // A new window starts titled "Fastsonic"; name the playing song
+        // again rather than trust what the replaced window was told.
+        self.window_title.clear();
         if let Some(tray) = &mut self.tray {
             tray.attach();
         }
