@@ -545,9 +545,12 @@ fn font_dirs() -> Vec<PathBuf> {
             add(PathBuf::from(local).join(r"Microsoft\Windows\Fonts"));
         }
     } else {
+        for dir in fontconfig_dirs() {
+            add(dir);
+        }
         // Every data directory fontconfig looks in, in its order, so a
-        // distribution that keeps its fonts elsewhere (NixOS, Guix) is
-        // covered along with the usual two.
+        // distribution that keeps its fonts elsewhere (Guix) is covered
+        // along with the usual two.
         let data_dirs = std::env::var("XDG_DATA_DIRS")
             .ok()
             .filter(|value| !value.is_empty())
@@ -569,6 +572,141 @@ fn font_dirs() -> Vec<PathBuf> {
         add(font_dir.to_path_buf());
     }
     dirs
+}
+
+/// The font directories fontconfig's own configuration names. NixOS keeps
+/// each font package in its own store path and lists those paths only there,
+/// so asking the data directories alone finds none of them.
+fn fontconfig_dirs() -> Vec<PathBuf> {
+    let root = std::env::var_os("FONTCONFIG_FILE")
+        .map(PathBuf::from)
+        .filter(|file| file.is_absolute())
+        .unwrap_or_else(|| {
+            std::env::var_os("FONTCONFIG_PATH")
+                .map_or_else(|| PathBuf::from("/etc/fonts"), PathBuf::from)
+                .join("fonts.conf")
+        });
+    let home = directories::UserDirs::new().map(|user| user.home_dir().to_path_buf());
+    let mut dirs = Vec::new();
+    let mut read = Vec::new();
+    read_fontconfig(&root, home.as_deref(), 0, &mut read, &mut dirs);
+    dirs
+}
+
+/// How deeply configuration files may include one another.
+const FONTCONFIG_INCLUDE_DEPTH: usize = 8;
+
+/// Collects the `<dir>` entries of one configuration file and of the files
+/// and directories it includes. Paths relative to a file are relative to the
+/// directory it is in; `prefix="xdg"` entries are left out, because the data
+/// directories are asked for separately.
+fn read_fontconfig(
+    path: &Path,
+    home: Option<&Path>,
+    depth: usize,
+    read: &mut Vec<PathBuf>,
+    dirs: &mut Vec<PathBuf>,
+) {
+    if depth > FONTCONFIG_INCLUDE_DEPTH || read.iter().any(|seen| seen == path) {
+        return;
+    }
+    read.push(path.to_path_buf());
+    if path.is_dir() {
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
+        let mut files: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|file| {
+                file.extension()
+                    .is_some_and(|extension| extension == "conf")
+            })
+            .collect();
+        files.sort();
+        for file in files {
+            read_fontconfig(&file, home, depth + 1, read, dirs);
+        }
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let base = path.parent().unwrap_or(Path::new("/"));
+    for (tag, attributes, value) in fontconfig_elements(&text) {
+        if attributes.contains("prefix=\"xdg\"") {
+            continue;
+        }
+        let Some(resolved) = fontconfig_path(&value, base, home) else {
+            continue;
+        };
+        match tag {
+            "dir" => {
+                if !dirs.contains(&resolved) {
+                    dirs.push(resolved);
+                }
+            }
+            _ => read_fontconfig(&resolved, home, depth + 1, read, dirs),
+        }
+    }
+}
+
+/// The `<dir>` and `<include>` elements of a configuration file, with their
+/// attributes and text, outside comments.
+fn fontconfig_elements(text: &str) -> Vec<(&'static str, String, String)> {
+    let mut elements = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('<') {
+        rest = &rest[open..];
+        if let Some(comment) = rest.strip_prefix("<!--") {
+            rest = comment.find("-->").map_or("", |end| &comment[end + 3..]);
+            continue;
+        }
+        let tag = ["dir", "include"].into_iter().find(|tag| {
+            rest[1..].starts_with(tag)
+                && rest[1 + tag.len()..].starts_with(|c: char| c == '>' || c.is_whitespace())
+        });
+        let Some(tag) = tag else {
+            rest = &rest[1..];
+            continue;
+        };
+        let Some(head_end) = rest.find('>') else {
+            break;
+        };
+        let attributes = rest[1 + tag.len()..head_end].trim().to_string();
+        let body = &rest[head_end + 1..];
+        let close = format!("</{tag}>");
+        let Some(body_end) = body.find(&close) else {
+            break;
+        };
+        let value = body[..body_end]
+            .trim()
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&");
+        elements.push((tag, attributes, value));
+        rest = &body[body_end + close.len()..];
+    }
+    elements
+}
+
+/// Resolves a path from a configuration file: `~` is the home directory and
+/// a relative path is relative to the file's own directory.
+fn fontconfig_path(value: &str, base: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(rest) = value.strip_prefix('~') {
+        return Some(home?.join(rest.trim_start_matches('/')));
+    }
+    let path = PathBuf::from(value);
+    Some(if path.is_absolute() {
+        path
+    } else {
+        base.join(path)
+    })
 }
 
 #[cfg(test)]
@@ -709,5 +847,57 @@ mod ranking_tests {
         let symbol = face_score("noto sans symbols", 400.0, "sc", "symbol");
         let non_symbol = face_score("noto sans arabic", 400.0, "sc", "symbol");
         assert!(symbol < non_symbol);
+    }
+
+    /// NixOS lists each font package's store path in fontconfig's own
+    /// configuration, often through an included directory of files, and
+    /// nowhere else.
+    #[test]
+    fn fontconfig_configuration_names_the_font_directories() {
+        let root =
+            std::env::temp_dir().join(format!("spotifast-fontconfig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("conf.d")).unwrap();
+        std::fs::write(
+            root.join("fonts.conf"),
+            r#"<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <!-- <dir>/commented/out</dir> -->
+  <dir>/nix/store/abc-noto-fonts-cjk-sans/share/fonts</dir>
+  <dir prefix="xdg">fonts</dir>
+  <dir>~/.local/fonts</dir>
+  <include ignore_missing="yes">conf.d</include>
+  <include ignore_missing="yes">missing.conf</include>
+  <include>fonts.conf</include>
+</fontconfig>"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("conf.d/10-extra.conf"),
+            "<fontconfig><dir>relative/fonts</dir><dir>/a&amp;b</dir></fontconfig>",
+        )
+        .unwrap();
+        std::fs::write(root.join("conf.d/README"), "<dir>/not/a/conf</dir>").unwrap();
+
+        let mut dirs = Vec::new();
+        let mut read = Vec::new();
+        read_fontconfig(
+            &root.join("fonts.conf"),
+            Some(Path::new("/home/listener")),
+            0,
+            &mut read,
+            &mut dirs,
+        );
+        assert_eq!(
+            dirs,
+            vec![
+                PathBuf::from("/nix/store/abc-noto-fonts-cjk-sans/share/fonts"),
+                PathBuf::from("/home/listener/.local/fonts"),
+                root.join("conf.d/relative/fonts"),
+                PathBuf::from("/a&b"),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
