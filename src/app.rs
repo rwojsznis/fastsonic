@@ -313,7 +313,6 @@ pub struct App {
     /// The platform says when fingers touch and lift (Wayland does, X11
     /// does not), so a pause with fingers resting is not taken for a lift.
     scroll_lift_announced: bool,
-    autoscroll: crate::autoscroll::Autoscroll,
     /// How each table is sorted, per page, for as long as the app runs.
     /// The rows picked out in a track table, and the page they belong to.
     /// One table at a time: picking rows on another page replaces it.
@@ -553,7 +552,6 @@ impl App {
             glide: None,
             scroll_last_event: None,
             scroll_lift_announced: false,
-            autoscroll: crate::autoscroll::Autoscroll::default(),
             selection: None,
             table_sorts: session
                 .sorts
@@ -4383,6 +4381,22 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls();
         self.sync_window_title(ctx);
+        self.schedule_next_pass(ctx);
+    }
+
+    /// Asks for the next pass that playback, pending plays and polling need.
+    ///
+    /// This runs with the logic, not the drawing: eframe skips drawing a
+    /// hidden, minimised or occluded window but still runs its logic, so
+    /// a hidden window keeps polling and keeps media controls current.
+    fn schedule_next_pass(&self, ctx: &egui::Context) {
+        let playing = self.now_playing().is_some_and(|now| now.playing);
+        if playing {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
+        if self.any_play_pending() {
+            ctx.request_repaint_after(Duration::from_millis(120));
+        }
     }
 
     /// Records a track after enough active listening time.
@@ -4509,14 +4523,7 @@ impl App {
             }
         }
 
-        let playing = self.now_playing().is_some_and(|now| now.playing);
-        if playing {
-            ctx.request_repaint_after(Duration::from_millis(250));
-        }
         if !self.toasts.is_empty() {
-            ctx.request_repaint_after(Duration::from_millis(120));
-        }
-        if self.any_play_pending() {
             ctx.request_repaint_after(Duration::from_millis(120));
         }
         if ctx.input(|input| input.viewport().close_requested())
@@ -6080,6 +6087,25 @@ mod tests {
         assert!(app.glide.is_none());
         frame(&mut app, 1.0, Some(egui::TouchPhase::End), 0.0);
         assert!(app.glide.is_none());
+    }
+
+    #[test]
+    fn background_logic_schedules_pending_play_without_drawing() {
+        let mut app = test_app("background-pending-play");
+        app.pending_play_keys.push("song".into());
+        let ctx = egui::Context::default();
+        let delays = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = delays.clone();
+        ctx.set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| app.background_frame(&ctx));
+        output.textures_delta.clear();
+        assert!(
+            delays
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|delay| *delay <= Duration::from_millis(120))
+        );
     }
 
     fn test_app(name: &str) -> App {
