@@ -310,6 +310,10 @@ pub struct App {
     glide: Option<egui::Vec2>,
     /// Time of the last scroll event, used to detect the end of a gesture.
     scroll_last_event: Option<Instant>,
+    /// The platform says when fingers touch and lift (Wayland does, X11
+    /// does not), so a pause with fingers resting is not taken for a lift.
+    scroll_lift_announced: bool,
+    autoscroll: crate::autoscroll::Autoscroll,
     /// How each table is sorted, per page, for as long as the app runs.
     /// The rows picked out in a track table, and the page they belong to.
     /// One table at a time: picking rows on another page replaces it.
@@ -380,6 +384,9 @@ const RECENTS_PAGE: u32 = 50;
 const GLIDE_DECAY: f32 = 0.35;
 const GLIDE_START: f32 = 120.0;
 const GLIDE_STOP: f32 = 40.0;
+/// How long fingers may rest on the pad before lifting and still glide,
+/// in seconds: the span the release speed is measured over.
+const GLIDE_REST: f64 = 0.1;
 
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, settings: Settings, options: AppOptions) -> Self {
@@ -545,6 +552,8 @@ impl App {
             scroll_accum: egui::Vec2::ZERO,
             glide: None,
             scroll_last_event: None,
+            scroll_lift_announced: false,
+            autoscroll: crate::autoscroll::Autoscroll::default(),
             selection: None,
             table_sorts: session
                 .sorts
@@ -4529,10 +4538,11 @@ impl App {
     /// and hold that axis until the gesture ends.
     fn lock_scroll_axis(&mut self, ctx: &egui::Context) {
         let options = ctx.options(|options| options.input_options);
-        let (raw, from_trackpad, ended, forced_axis) = ctx.input(|input| {
+        let (raw, from_trackpad, ended, announced, forced_axis) = ctx.input(|input| {
             let mut sum = egui::Vec2::ZERO;
             let mut pointish = false;
             let mut ended = false;
+            let mut announced = false;
             let mut forced_axis = None;
             for event in &input.events {
                 if let egui::Event::MouseWheel {
@@ -4558,10 +4568,12 @@ impl App {
                     };
                     pointish |= *unit == egui::MouseWheelUnit::Point;
                     ended |= matches!(phase, egui::TouchPhase::End | egui::TouchPhase::Cancel);
+                    announced |= *phase != egui::TouchPhase::Move;
                 }
             }
-            (sum, pointish, ended, forced_axis)
+            (sum, pointish, ended, announced, forced_axis)
         });
+        self.scroll_lift_announced |= announced;
         let now = Instant::now();
         if raw != egui::Vec2::ZERO {
             self.scroll_from_trackpad = from_trackpad;
@@ -4589,11 +4601,27 @@ impl App {
             self.scroll_history.clear();
             self.scroll_last_event = None;
         }
-        let quiet = self
-            .scroll_last_event
-            .is_some_and(|at| now.duration_since(at).as_secs_f32() > 0.15);
+        // Where the platform never says when fingers lift, a quiet gap is
+        // taken for one. Where it does, fingers resting on the pad are not.
+        let quiet = !self.scroll_lift_announced
+            && self
+                .scroll_last_event
+                .is_some_and(|at| now.duration_since(at).as_secs_f32() > 0.15);
         if ended || quiet {
-            let mut velocity = self.scroll_history.velocity().unwrap_or(egui::Vec2::ZERO);
+            // Only movement just before the lift carries on: fingers that
+            // stopped and rested first leave nothing to glide on.
+            let lift_time = ctx.input(|input| input.time);
+            let rested = ended
+                && self
+                    .scroll_history
+                    .iter()
+                    .last()
+                    .is_some_and(|(time, _)| lift_time - time > GLIDE_REST);
+            let mut velocity = if rested {
+                egui::Vec2::ZERO
+            } else {
+                self.scroll_history.velocity().unwrap_or(egui::Vec2::ZERO)
+            };
             if let Some((axis, _)) = self.scroll_lock {
                 match axis {
                     ScrollAxis::Horizontal => velocity.y = 0.0,
@@ -6014,6 +6042,40 @@ mod tests {
         app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(false));
         app.apply_theme(&ctx);
         assert_eq!(ctx.theme(), egui::Theme::Dark);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn touchpad_rest_does_not_start_glide() {
+        let mut app = test_app("touchpad-rest");
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, time, phase, delta| {
+            let events = phase
+                .map(|phase| egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, delta),
+                    phase,
+                    modifiers: egui::Modifiers::default(),
+                })
+                .into_iter()
+                .collect();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |_| app.lock_scroll_axis(&ctx),
+            );
+            output.textures_delta.clear();
+        };
+        frame(&mut app, 0.0, Some(egui::TouchPhase::Start), 20.0);
+        frame(&mut app, 0.016, Some(egui::TouchPhase::Move), 20.0);
+        std::thread::sleep(Duration::from_millis(200));
+        frame(&mut app, 0.3, None, 0.0);
+        assert!(app.glide.is_none());
+        frame(&mut app, 1.0, Some(egui::TouchPhase::End), 0.0);
+        assert!(app.glide.is_none());
     }
 
     fn test_app(name: &str) -> App {
