@@ -20,7 +20,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   repeat, ReplayGain normalisation, a ten-band equalizer, and a bounded
   on-disk audio cache.
 - Restores the last track, position, context, and manually queued songs.
-- Light, dark, and system themes with optional album-art colour.
+- Light, dark, and system themes with optional album-art colour that fades
+  between songs. On Linux, the system theme follows the desktop portal.
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
   oscilloscope, equalizer, and playlist.
 - A projectM-powered MilkDrop window with optional preset packs.
