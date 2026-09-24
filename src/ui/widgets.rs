@@ -2048,11 +2048,17 @@ pub fn setting_row(
     description: &str,
     control: impl FnOnce(&mut Ui),
 ) {
+    // Reserve the measured control width so long descriptions wrap before it.
+    // The row's own id keeps controls with the same label independent.
+    let control_id = ui.next_auto_id().with("setting-row-control");
+    let reserved = ui
+        .data(|data| data.get_temp::<f32>(control_id))
+        .map_or(260.0, |width| (width + 16.0).max(260.0));
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             // A frame can arrive before the window has its size (a fullscreen
             // request on Wayland answers a frame late), so never go negative.
-            ui.set_width((ui.available_width() - 260.0).max(0.0));
+            ui.set_width((ui.available_width() - reserved).max(0.0));
             theme::text(ui, label, theme::medium(14.0), palette.text);
             if !description.is_empty() {
                 ui.add(
@@ -2065,7 +2071,18 @@ pub fn setting_row(
                 );
             }
         });
-        ui.with_layout(Layout::right_to_left(Align::Center), control);
+        let width = ui
+            .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let start = ui.cursor().right();
+                control(ui);
+                start - ui.min_rect().left()
+            })
+            .inner;
+        let known = ui.data(|data| data.get_temp::<f32>(control_id));
+        if known.is_none_or(|known| (known - width).abs() > 0.5) {
+            ui.data_mut(|data| data.insert_temp(control_id, width));
+            ui.ctx().request_discard("a settings control changed width");
+        }
     });
     ui.add_space(10.0);
 }
@@ -2386,5 +2403,49 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn setting_description_stays_before_a_wide_control() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install(&ctx);
+        let palette = Palette::dark();
+        let description = "A long description should wrap within the space left by the control, even when the control uses much more than the usual width.";
+        let frame = || {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 400.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    setting_row(ui, &palette, "Control", description, |ui| {
+                        let _ = ui.button("First choice");
+                        let _ = ui.button("Second choice");
+                        ui.add_space(300.0);
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        frame();
+        let tree = frame();
+        let bounds = |label: &str| {
+            tree.nodes
+                .iter()
+                .find(|(_, node)| {
+                    [node.label(), node.value()]
+                        .into_iter()
+                        .flatten()
+                        .any(|text| text.starts_with(label))
+                })
+                .and_then(|(_, node)| node.bounds())
+                .unwrap()
+        };
+        assert!(bounds("A long description").x1 <= bounds("Second choice").x0);
     }
 }
