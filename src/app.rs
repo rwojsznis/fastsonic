@@ -6060,7 +6060,7 @@ mod tests {
     fn touchpad_rest_does_not_start_glide() {
         let mut app = test_app("touchpad-rest");
         let ctx = egui::Context::default();
-        let frame = |app: &mut App, time, phase, delta| {
+        let frame = |app: &mut App, time: f64, phase: Option<egui::TouchPhase>, delta: f32| {
             let events = phase
                 .map(|phase| egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Point,
