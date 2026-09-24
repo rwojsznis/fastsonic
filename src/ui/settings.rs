@@ -12,6 +12,49 @@ use super::widgets;
 
 const PLAYBACK_DIRTY_ID: &str = "playback-settings-dirty";
 
+/// The space between choices in a settings row.
+const CHOICE_GAP: f32 = 6.0;
+
+/// The audio cache switch and the space before its sizes.
+const AUDIO_CACHE_SWITCH_WIDTH: f32 = 40.0 + 6.0 + 2.0 * CHOICE_GAP;
+
+/// The width a row of `soft_button` choices needs, measured before drawing
+/// it so a settings row can make room.
+fn choices_width<'a>(ui: &egui::Ui, labels: impl IntoIterator<Item = &'a str>) -> f32 {
+    let widths: Vec<f32> = labels
+        .into_iter()
+        .map(|label| theme::soft_button_width(ui, label))
+        .collect();
+    widths.iter().sum::<f32>() + CHOICE_GAP * widths.len().saturating_sub(1) as f32
+}
+
+/// Lays out `count` choices side by side when `width` fits, or in a column
+/// when even a line of their own is too narrow. Side by side the row runs
+/// right to left, so the column is drawn in reverse to read in the same
+/// order from top to bottom.
+fn choices(
+    ui: &mut egui::Ui,
+    width: f32,
+    count: usize,
+    mut choice: impl FnMut(&mut egui::Ui, usize),
+) {
+    if ui.available_width() >= width {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = CHOICE_GAP;
+            for index in 0..count {
+                choice(ui, index);
+            }
+        });
+    } else {
+        ui.with_layout(Layout::top_down(Align::Max), |ui| {
+            ui.spacing_mut().item_spacing.y = CHOICE_GAP;
+            for index in (0..count).rev() {
+                choice(ui, index);
+            }
+        });
+    }
+}
+
 fn section(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -164,32 +207,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             },
         );
         if cfg!(target_os = "linux") {
-            widgets::setting_row(
+            let backends = [
+                ("rodio", "ALSA (rodio)"),
+                ("pulseaudio", "PulseAudio / PipeWire"),
+            ];
+            let width = choices_width(ui, backends.map(|(_, label)| label));
+            widgets::setting_row_sized(
                 ui,
                 &palette,
                 "Audio output",
                 "PulseAudio also covers PipeWire. Rodio talks to ALSA directly.",
+                width,
                 |ui| {
                     let current = app
                         .settings
                         .platform_backend()
                         .unwrap_or_else(|| "rodio".into());
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        for backend in ["rodio", "pulseaudio"] {
-                            let label = if backend == "pulseaudio" {
-                                "PulseAudio / PipeWire"
-                            } else {
-                                "ALSA (rodio)"
-                            };
-                            if theme::soft_button(ui, &palette, None, label, current == backend)
-                                .clicked()
-                                && current != backend
-                            {
-                                app.settings.audio_backend = Some(backend.to_string());
-                                changed = true;
-                                playback_dirty = true;
-                            }
+                    choices(ui, width, backends.len(), |ui, index| {
+                        let (backend, label) = backends[index];
+                        if theme::soft_button(ui, &palette, None, label, current == backend)
+                            .clicked()
+                            && current != backend
+                        {
+                            app.settings.audio_backend = Some(backend.to_string());
+                            changed = true;
+                            playback_dirty = true;
                         }
                     });
                 },
@@ -218,11 +260,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 });
             },
         );
-        widgets::setting_row(
+        let cache_sizes = [(4096u64, "4 GB"), (1024, "1 GB"), (512, "512 MB")];
+        let cache_width = if app.settings.audio_cache {
+            AUDIO_CACHE_SWITCH_WIDTH + choices_width(ui, cache_sizes.map(|(_, label)| label))
+        } else {
+            0.0
+        };
+        widgets::setting_row_sized(
             ui,
             &palette,
             "Audio cache",
             "Save downloaded audio for later playback.",
+            cache_width,
             |ui| {
                 // The control area lays out right-to-left: add the rightmost item first.
                 ui.horizontal(|ui| {
@@ -235,7 +284,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     }
                     if app.settings.audio_cache {
                         ui.add_space(6.0);
-                        for (mb, label) in [(4096u64, "4 GB"), (1024, "1 GB"), (512, "512 MB")] {
+                        for (mb, label) in cache_sizes {
                             if theme::soft_button(
                                 ui,
                                 &palette,
@@ -274,23 +323,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     });
 
     section(ui, &palette, "Appearance", |ui| {
-        widgets::setting_row(ui, &palette, "Theme", "", |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                for choice in ThemeChoice::ALL {
-                    if theme::soft_button(
-                        ui,
-                        &palette,
-                        None,
-                        choice.label(),
-                        app.settings.theme == choice,
-                    )
-                    .clicked()
-                        && app.settings.theme != choice
-                    {
-                        app.settings.theme = choice;
-                        changed = true;
-                    }
+        let width = choices_width(ui, ThemeChoice::ALL.map(ThemeChoice::label));
+        widgets::setting_row_sized(ui, &palette, "Theme", "", width, |ui| {
+            choices(ui, width, ThemeChoice::ALL.len(), |ui, index| {
+                let choice = ThemeChoice::ALL[index];
+                if theme::soft_button(
+                    ui,
+                    &palette,
+                    None,
+                    choice.label(),
+                    app.settings.theme == choice,
+                )
+                .clicked()
+                    && app.settings.theme != choice
+                {
+                    app.settings.theme = choice;
+                    changed = true;
                 }
             });
         });

@@ -763,6 +763,17 @@ pub fn soft_button_dismiss(
     soft_button_inner(ui, palette, Some(icon), label, false, true)
 }
 
+/// The width `soft_button` gives a button without an icon, for laying out
+/// a row of them before drawing it.
+pub fn soft_button_width(ui: &egui::Ui, label: &str) -> f32 {
+    let galley = ui.painter().layout_no_wrap(
+        crate::bidi::display_text(label).into_owned(),
+        medium(13.0),
+        Color32::WHITE,
+    );
+    galley.size().x + 24.0
+}
+
 fn soft_button_inner(
     ui: &mut egui::Ui,
     palette: &Palette,

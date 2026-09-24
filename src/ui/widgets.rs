@@ -2040,6 +2040,14 @@ pub fn switch(ui: &mut Ui, palette: &Palette, label: &str, on: &mut bool) -> egu
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// The width a settings row keeps for its control: switches, fields and
+/// buttons fit in it.
+const SETTING_CONTROL_WIDTH: f32 = 260.0;
+
+/// The narrowest a settings row's text may get beside its control before
+/// the control moves below it.
+const SETTING_TEXT_MIN_WIDTH: f32 = 140.0;
+
 /// A labelled row in a settings section.
 pub fn setting_row(
     ui: &mut Ui,
@@ -2048,42 +2056,56 @@ pub fn setting_row(
     description: &str,
     control: impl FnOnce(&mut Ui),
 ) {
-    // Reserve the measured control width so long descriptions wrap before it.
-    // The row's own id keeps controls with the same label independent.
-    let control_id = ui.next_auto_id().with("setting-row-control");
-    let reserved = ui
-        .data(|data| data.get_temp::<f32>(control_id))
-        .map_or(260.0, |width| (width + 16.0).max(260.0));
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            // A frame can arrive before the window has its size (a fullscreen
-            // request on Wayland answers a frame late), so never go negative.
-            ui.set_width((ui.available_width() - reserved).max(0.0));
-            theme::text(ui, label, theme::medium(14.0), palette.text);
-            if !description.is_empty() {
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(description)
-                            .font(theme::regular(12.5))
-                            .color(palette.secondary),
-                    )
-                    .wrap(),
-                );
-            }
-        });
-        let width = ui
-            .with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let start = ui.cursor().right();
-                control(ui);
-                start - ui.min_rect().left()
-            })
-            .inner;
-        let known = ui.data(|data| data.get_temp::<f32>(control_id));
-        if known.is_none_or(|known| (known - width).abs() > 0.5) {
-            ui.data_mut(|data| data.insert_temp(control_id, width));
-            ui.ctx().request_discard("a settings control changed width");
+    setting_row_sized(ui, palette, label, description, 0.0, control);
+}
+
+/// A settings row whose control needs `control_width` points, such as a
+/// row of choices. Its text wraps before a control wider than usual, and
+/// in a window too narrow for both, any control goes on its own line below
+/// the text. The width comes from the caller, not from the last frame, so
+/// the layout never has to settle.
+pub fn setting_row_sized(
+    ui: &mut Ui,
+    palette: &Palette,
+    label: &str,
+    description: &str,
+    control_width: f32,
+    control: impl FnOnce(&mut Ui),
+) {
+    let reserved = (control_width + 16.0).max(SETTING_CONTROL_WIDTH);
+    let text = |ui: &mut Ui| {
+        theme::text(ui, label, theme::medium(14.0), palette.text);
+        if !description.is_empty() {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(description)
+                        .font(theme::regular(12.5))
+                        .color(palette.secondary),
+                )
+                .wrap(),
+            );
         }
-    });
+    };
+    if ui.available_width() - reserved < SETTING_TEXT_MIN_WIDTH {
+        ui.vertical(|ui| {
+            text(ui);
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), control);
+            });
+        });
+    } else {
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                // A frame can arrive before the window has its size (a
+                // fullscreen request on Wayland answers a frame late), so
+                // never go negative.
+                ui.set_width((ui.available_width() - reserved).max(0.0));
+                text(ui);
+            });
+            ui.with_layout(Layout::right_to_left(Align::Center), control);
+        });
+    }
     ui.add_space(10.0);
 }
 
@@ -2405,35 +2427,37 @@ mod tests {
         }
     }
 
-    #[test]
-    fn setting_description_stays_before_a_wide_control() {
+    /// Draws a settings row in a window `width` points wide with a control
+    /// `control_width` points wide; returns the description's and the
+    /// control's bounds.
+    fn setting_row_bounds(
+        width: f32,
+        control_width: f32,
+    ) -> (egui::accesskit::Rect, egui::accesskit::Rect) {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         crate::theme::install(&ctx);
         let palette = Palette::dark();
         let description = "A long description should wrap within the space left by the control, even when the control uses much more than the usual width.";
-        let frame = || {
-            let mut output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(1000.0, 400.0),
-                    )),
-                    ..Default::default()
-                },
-                |ui| {
-                    setting_row(ui, &palette, "Control", description, |ui| {
-                        let _ = ui.button("First choice");
-                        let _ = ui.button("Second choice");
-                        ui.add_space(300.0);
-                    });
-                },
-            );
-            output.textures_delta.clear();
-            output.platform_output.accesskit_update.unwrap()
-        };
-        frame();
-        let tree = frame();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                setting_row_sized(ui, &palette, "Control", description, control_width, |ui| {
+                    let _ = ui.add_sized(
+                        [control_width.max(40.0), 28.0],
+                        egui::Button::new("The control"),
+                    );
+                });
+            },
+        );
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
         let bounds = |label: &str| {
             tree.nodes
                 .iter()
@@ -2444,8 +2468,54 @@ mod tests {
                         .any(|text| text.starts_with(label))
                 })
                 .and_then(|(_, node)| node.bounds())
-                .unwrap()
+                .unwrap_or_else(|| panic!("{label} is drawn"))
         };
-        assert!(bounds("A long description").x1 <= bounds("Second choice").x0);
+        (bounds("A long description"), bounds("The control"))
+    }
+
+    #[test]
+    fn setting_description_stays_before_a_wide_control() {
+        let (text, control) = setting_row_bounds(1000.0, 600.0);
+        assert!(
+            text.x1 <= control.x0,
+            "the description ends at {} but the control starts at {}",
+            text.x1,
+            control.x0
+        );
+    }
+
+    /// In a narrow window a wide control leaves no room beside it, so it
+    /// goes below the text rather than squeezing the text into a column
+    /// one letter wide.
+    #[test]
+    fn setting_control_that_leaves_no_room_goes_below_its_text() {
+        let (text, control) = setting_row_bounds(560.0, 600.0);
+        assert!(
+            text.width() >= SETTING_TEXT_MIN_WIDTH as f64,
+            "the description is only {} points wide",
+            text.width()
+        );
+        assert!(
+            control.y0 >= text.y1,
+            "the control starts at {} but the description ends at {}",
+            control.y0,
+            text.y1
+        );
+    }
+
+    /// Ordinary controls stay beside the text while it has room; only a
+    /// window too narrow for both moves them below.
+    #[test]
+    fn ordinary_setting_control_stays_beside_the_text() {
+        let (below, beside) = setting_row_bounds(380.0, 0.0);
+        assert!(
+            beside.y0 >= below.y1,
+            "a window too narrow for both puts the control below: {below:?} {beside:?}"
+        );
+        let (text, control) = setting_row_bounds(460.0, 0.0);
+        assert!(
+            text.x1 <= control.x0,
+            "the control moved: description {text:?}, control {control:?}"
+        );
     }
 }
