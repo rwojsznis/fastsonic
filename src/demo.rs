@@ -1908,6 +1908,59 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[test]
+    fn playlist_filter_arrows_choose_a_match_before_enter() {
+        let (ctx, mut app) = accessible_app("playlist-filter-arrows");
+        let songs = [(track_uri("trk0"), "First song".to_string())];
+        let mut query = String::new();
+        let draw = |app: &mut App, query: &mut String, focus, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let field = crate::ui::widgets::playlist_picker(ui, app, &songs, query);
+                    if focus {
+                        field.request_focus();
+                    }
+                },
+            );
+            output.textures_delta.clear();
+        };
+        draw(&mut app, &mut query, true, vec![]);
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![egui::Event::Text("night".into())],
+        );
+        draw(&mut app, &mut query, false, vec![]);
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![keyboard(egui::Key::ArrowDown, egui::Modifiers::NONE)],
+        );
+        draw(
+            &mut app,
+            &mut query,
+            false,
+            vec![keyboard(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+        assert_eq!(query, "night");
+        assert!(
+            matches!(app.actions.as_slice(), [Action::AddToPlaylist { playlist_name, .. }] if playlist_name == "Berlin nights"),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
     fn frame_events(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(

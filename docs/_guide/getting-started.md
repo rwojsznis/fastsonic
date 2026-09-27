@@ -72,6 +72,8 @@ features; Navidrome-only personalisation sections may be empty.
   Ctrl+/ shows every shortcut. On macOS, Cmd replaces Ctrl.
 - Right-click a song, playlist, album, or artist for actions such as Play
   next, star, add to playlist, and copy link.
+  In **Add to playlist**, type to filter, use Up or Down to pick a match,
+  and press Enter to add the song to it.
 
 ## Lyrics
 

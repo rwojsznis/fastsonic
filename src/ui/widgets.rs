@@ -215,6 +215,17 @@ pub fn menu_item_enabled(
     label: &str,
     enabled: bool,
 ) -> bool {
+    menu_item_response(ui, palette, icon, label, enabled, false).1
+}
+
+fn menu_item_response(
+    ui: &mut Ui,
+    palette: &Palette,
+    icon: Option<Icon>,
+    label: &str,
+    enabled: bool,
+    highlighted: bool,
+) -> (egui::Response, bool) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(
         vec2(width, 28.0),
@@ -225,7 +236,7 @@ pub fn menu_item_enabled(
         },
     );
     if ui.is_rect_visible(rect) {
-        if response.hovered() && enabled {
+        if (response.hovered() || highlighted) && enabled {
             ui.painter()
                 .rect_filled(rect, CornerRadius::same(6), palette.surface_hover);
         }
@@ -264,17 +275,24 @@ pub fn menu_item_enabled(
             .galley(crate::bidi::galley_pos(text_rect, &galley), galley, color);
     }
     response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && ui.is_enabled(), label)
+        let mut info =
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && ui.is_enabled(), label);
+        if highlighted {
+            info.selected = Some(true);
+        }
+        info
     });
     theme::focus_ring(ui, &response);
     let clicked = enabled && response.clicked();
     if clicked {
         ui.close();
     }
-    if enabled {
-        response.on_hover_cursor(egui::CursorIcon::PointingHand);
-    }
-    clicked
+    let response = if enabled {
+        response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        response
+    };
+    (response, clicked)
 }
 
 pub fn menu_separator(ui: &mut Ui, palette: &Palette) {
@@ -374,14 +392,52 @@ pub(crate) fn playlist_picker(
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
     let width = ui.available_width();
-    let field = search_field(
-        ui,
-        &palette,
-        ui.make_persistent_id("playlist-filter"),
-        query,
-        "Filter playlists",
-        width,
-    );
+    let field_id = ui.make_persistent_id("playlist-filter");
+    let highlight_id = ui.make_persistent_id("playlist-highlight");
+    let playlists = app.editable_playlists();
+    let matching = |query: &str| {
+        let needle = query.trim().to_lowercase();
+        playlists
+            .iter()
+            .filter(|(_, name)| name.to_lowercase().contains(&needle))
+            .count()
+    };
+    let frame = ui.ctx().cumulative_frame_nr();
+    let (mut highlighted, chosen_for) = ui
+        .data(|data| data.get_temp::<(u64, Option<usize>, String)>(highlight_id))
+        .filter(|(last_frame, _, _)| frame.saturating_sub(*last_frame) <= 1)
+        .map(|(_, highlighted, query)| (highlighted, query))
+        .unwrap_or_default();
+    let mut moved = false;
+    let mut enter = false;
+    if ui.memory(|memory| memory.has_focus(field_id)) {
+        let count = matching(query);
+        let (down, up, pressed) = ui.input_mut(|input| {
+            (
+                input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                highlighted.is_some_and(|index| index < count)
+                    && input.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+            )
+        });
+        enter = pressed;
+        if count > 0 && down + up > 0 {
+            moved = true;
+            let last = count - 1;
+            let mut index = highlighted.map(|index| index.min(last));
+            for _ in 0..down {
+                index = Some(index.map_or(0, |index| (index + 1).min(last)));
+            }
+            for _ in 0..up {
+                index = Some(index.map_or(last, |index| index.saturating_sub(1)));
+            }
+            highlighted = index;
+        }
+    }
+    let field = search_field(ui, &palette, field_id, query, "Filter playlists", width);
+    if *query != chosen_for {
+        highlighted = (!query.trim().is_empty()).then_some(0);
+    }
     ui.add_space(4.0);
     if menu_item(ui, &palette, Some(Icon::Plus), "New playlist") {
         app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
@@ -392,11 +448,20 @@ pub(crate) fn playlist_picker(
     }
     menu_separator(ui, &palette);
     let needle = query.trim().to_lowercase();
-    let playlists = app.editable_playlists();
     let matches: Vec<_> = playlists
         .iter()
         .filter(|(_, name)| name.to_lowercase().contains(&needle))
         .collect();
+    highlighted = highlighted.filter(|index| *index < matches.len());
+    ui.data_mut(|data| data.insert_temp(highlight_id, (frame, highlighted, query.clone())));
+    if enter && let Some((id, name)) = highlighted.and_then(|index| matches.get(index)) {
+        app.actions.push(Action::AddToPlaylist {
+            playlist_id: id.clone(),
+            playlist_name: name.clone(),
+            uris: songs.iter().map(|(uri, _)| uri.clone()).collect(),
+        });
+        ui.close();
+    }
     if matches.is_empty() {
         theme::subtle(
             ui,
@@ -412,9 +477,15 @@ pub(crate) fn playlist_picker(
         .id_salt("filtered-playlists")
         .max_height(320.0)
         .show(ui, |ui| {
-            for (id, name) in matches {
+            for (index, (id, name)) in matches.into_iter().enumerate() {
                 ui.push_id(id, |ui| {
-                    if menu_item(ui, &palette, Some(Icon::ListMusic), name) {
+                    let chosen = highlighted == Some(index);
+                    let (row, clicked) =
+                        menu_item_response(ui, &palette, Some(Icon::ListMusic), name, true, chosen);
+                    if chosen && moved {
+                        row.scroll_to_me(None);
+                    }
+                    if clicked {
                         app.actions.push(Action::AddToPlaylist {
                             playlist_id: id.clone(),
                             playlist_name: name.clone(),
