@@ -14,6 +14,10 @@ the shortcut again, to return to the main window.
 Drop a `.wsz` file on either window to install and use it. Settings lists the
 installed skins and can open the skins folder.
 
+Choose **Random** in Winamp skins to pick a different installed skin each time
+the mini player opens. The built-in skin is part of the selection. Choosing a
+specific skin turns Random off.
+
 The mini player uses whole-number scaling to keep pixels sharp. Right-click
 the title bar, or click **O**, to choose 1x to 4x and set always-on-top. **D**
 toggles double size and **A** toggles always-on-top. Fastsonic remembers the

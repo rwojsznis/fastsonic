@@ -4096,6 +4096,21 @@ impl App {
                 // `main` opens the other kind where each was last.
                 if self.settings.winamp_window {
                     self.winamp.remember_position();
+                } else if self.settings.random_skin {
+                    self.winamp.refresh_choices(&self.dirs.skins_dir());
+                    let candidates: Vec<Option<String>> = std::iter::once(None)
+                        .chain(
+                            self.winamp
+                                .choices
+                                .iter()
+                                .map(|choice| Some(choice.name.clone())),
+                        )
+                        .collect();
+                    self.settings.skin = crate::winamp::pick_another(
+                        &candidates,
+                        &self.settings.skin,
+                        &mut rand::rng(),
+                    );
                 }
                 self.session_window_size = self.last_window_size.or(self.session_window_size);
                 self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
@@ -4106,6 +4121,11 @@ impl App {
             }
             Action::SetSkin(name) => {
                 self.settings.skin = name;
+                self.settings.random_skin = false;
+                self.settings_dirty = true;
+            }
+            Action::SetRandomSkin(random) => {
+                self.settings.random_skin = random;
                 self.settings_dirty = true;
             }
             Action::InstallSkin(path) => {
@@ -7266,6 +7286,27 @@ mod tests {
         });
         assert_eq!(app.winamp.worn.as_deref(), Some("A.wsz"));
         assert_eq!(app.settings.skin.as_deref(), Some("B.wsz"));
+    }
+
+    #[test]
+    fn random_skin_changes_when_mini_player_opens_and_manual_choice_stops_it() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let skins = app.dirs.skins_dir();
+        std::fs::create_dir_all(&skins).unwrap();
+        std::fs::write(skins.join("A.wsz"), b"skin").unwrap();
+        app.apply(Action::SetRandomSkin(true), &ctx);
+        app.settings.skin = None;
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        assert_eq!(app.settings.skin.as_deref(), Some("A.wsz"));
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        assert_eq!(app.settings.skin, None);
+        app.apply(Action::SetSkin(Some("A.wsz".into())), &ctx);
+        assert!(!app.settings.random_skin);
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        assert_eq!(app.settings.skin.as_deref(), Some("A.wsz"));
     }
 
     #[test]

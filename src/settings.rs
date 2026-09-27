@@ -96,6 +96,8 @@ pub struct Settings {
     pub winamp_window: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
     pub skin: Option<String>,
+    /// Choose another installed skin whenever the mini player opens.
+    pub random_skin: bool,
     /// Screen pixels per skin pixel; `None` picks double size for the
     /// display.
     pub skin_scale: Option<u8>,
@@ -171,6 +173,7 @@ impl Default for Settings {
             zoom: 1.0,
             winamp_window: false,
             skin: None,
+            random_skin: false,
             skin_scale: None,
             winamp_on_top: false,
             vis: VisMode::default(),
@@ -254,6 +257,13 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::Settings;
+
+    #[test]
+    fn older_settings_preserve_the_selected_skin_without_random_mode() {
+        let settings: Settings = serde_json::from_str(r#"{"skin":"A.wsz"}"#).unwrap();
+        assert!(!settings.random_skin);
+        assert_eq!(settings.skin.as_deref(), Some("A.wsz"));
+    }
 
     #[test]
     fn older_settings_keep_the_sidebar_visible() {

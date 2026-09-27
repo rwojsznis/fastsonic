@@ -359,9 +359,36 @@ fn has_main_bitmap(folder: &Path) -> bool {
     })
 }
 
+/// Pick a different installed skin, including the built-in one.
+pub fn pick_another(
+    candidates: &[Option<String>],
+    current: &Option<String>,
+    rng: &mut impl rand::Rng,
+) -> Option<String> {
+    let others: Vec<&Option<String>> = candidates
+        .iter()
+        .filter(|candidate| *candidate != current)
+        .collect();
+    if others.is_empty() {
+        return current.clone();
+    }
+    others[rng.random_range(0..others.len())].clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn random_skin_does_not_repeat_current_and_handles_one_choice() {
+        let candidates = [None, Some("A.wsz".to_owned()), Some("B.wsz".to_owned())];
+        let current = Some("A.wsz".to_owned());
+        let mut rng = rand::rng();
+        for _ in 0..100 {
+            assert_ne!(pick_another(&candidates, &current, &mut rng), current);
+        }
+        assert_eq!(pick_another(&[None], &None, &mut rng), None);
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("fastsonic-{name}-{}", std::process::id()));

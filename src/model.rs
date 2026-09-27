@@ -769,6 +769,7 @@ pub enum Action {
     ToggleWinampWindow,
     /// Select a skin, or the built-in skin for `None`.
     SetSkin(Option<String>),
+    SetRandomSkin(bool),
     /// Install and select a skin file.
     InstallSkin(std::path::PathBuf),
     /// Screen pixels per skin pixel in the Winamp window.

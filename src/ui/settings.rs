@@ -479,26 +479,49 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             },
         );
         let choices = app.winamp.choices.clone();
-        let mut options: Vec<(usize, &str)> = vec![(0, "Fastsonic")];
+        const RANDOM: usize = usize::MAX;
+        let mut options: Vec<(usize, &str)> = vec![(RANDOM, "Random"), (0, "Fastsonic")];
         options.extend(
             choices
                 .iter()
                 .enumerate()
                 .map(|(index, choice)| (index + 1, choice.label())),
         );
-        let current = app
+        let showing = app
             .settings
             .skin
             .as_deref()
             .and_then(|name| choices.iter().position(|choice| choice.name == name))
             .map_or(0, |index| index + 1);
+        let current = if app.settings.random_skin {
+            RANDOM
+        } else {
+            showing
+        };
         if let Some(picked) = widgets::chips(ui, &palette, &options, current)
             && picked != current
         {
-            let name = picked
-                .checked_sub(1)
-                .map(|index| choices[index].name.clone());
-            app.actions.push(Action::SetSkin(name));
+            if picked == RANDOM {
+                app.actions.push(Action::SetRandomSkin(true));
+            } else {
+                let name = picked
+                    .checked_sub(1)
+                    .map(|index| choices[index].name.clone());
+                app.actions.push(Action::SetSkin(name));
+            }
+        }
+        if app.settings.random_skin {
+            let label = options
+                .iter()
+                .find(|(value, _)| *value == showing)
+                .map_or("Fastsonic", |(_, label)| *label);
+            theme::subtle(
+                ui,
+                &palette,
+                &format!(
+                    "Now showing {label}. Another skin is picked each time the mini player opens."
+                ),
+            );
         }
         ui.add_space(4.0);
         widgets::setting_row(
