@@ -62,7 +62,7 @@ pub fn load() -> Vec<Fallback> {
                 continue;
             }
         };
-        log::debug!(
+        log::info!(
             "{script} fallback: {family}, {} (face {index})",
             path.display()
         );

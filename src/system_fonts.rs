@@ -238,6 +238,11 @@ fn scan() -> Vec<Fallback> {
             log::debug!("no fallback face covers {script}");
             continue;
         };
+        log::info!(
+            "{script} fallback: {} (face {})",
+            candidate.path.display(),
+            candidate.index
+        );
         if taken.contains(&(candidate.path.clone(), candidate.index)) {
             continue;
         }
@@ -248,11 +253,6 @@ fn scan() -> Vec<Fallback> {
                 continue;
             }
         };
-        log::debug!(
-            "{script} fallback: {} (face {})",
-            candidate.path.display(),
-            candidate.index
-        );
         taken.push((candidate.path.clone(), candidate.index));
         fonts.push(Fallback {
             name: format!("fallback-{script}"),
@@ -381,6 +381,11 @@ fn probe_file(path: &Path, han: &str, best: &mut BTreeMap<&str, Candidate>) {
 #[cfg(not(target_os = "macos"))]
 fn face_score(family: &str, weight: f32, han: &str, hint: &str) -> u32 {
     let mut score = ((weight - 400.0).abs() / 25.0) as u32;
+    // Windows' interface faces are sized for screen text. Prefer them to
+    // older print faces that can cover the same script but draw much smaller.
+    if cfg!(target_os = "windows") && windows_ui_face(hint).is_some_and(|ui| family == ui) {
+        return score;
+    }
     // A face that names the script was drawn for it. Liberation Sans carries
     // enough Hebrew to pass the coverage test, but Noto Sans Hebrew is the
     // one a reader wants.
@@ -422,6 +427,17 @@ fn face_score(family: &str, weight: f32, han: &str, hint: &str) -> u32 {
         score += 40;
     }
     score
+}
+
+#[cfg(not(target_os = "macos"))]
+fn windows_ui_face(script: &str) -> Option<&'static str> {
+    match script {
+        "arabic" | "hebrew" => Some("segoe ui"),
+        "thai" | "khmer" => Some("leelawadee ui"),
+        "devanagari" | "bengali" | "gurmukhi" | "gujarati" | "tamil" | "telugu" | "kannada"
+        | "malayalam" | "sinhala" => Some("nirmala ui"),
+        _ => None,
+    }
 }
 
 /// The OS/2 `ulCodePageRange1` bit a face sets to declare it covers a
@@ -733,6 +749,15 @@ mod tests {
 #[cfg(all(test, not(target_os = "macos")))]
 mod ranking_tests {
     use super::*;
+
+    #[test]
+    fn windows_ui_faces_cover_the_interface_scripts() {
+        assert_eq!(windows_ui_face("arabic"), Some("segoe ui"));
+        assert_eq!(windows_ui_face("hebrew"), Some("segoe ui"));
+        assert_eq!(windows_ui_face("thai"), Some("leelawadee ui"));
+        assert_eq!(windows_ui_face("devanagari"), Some("nirmala ui"));
+        assert_eq!(windows_ui_face("han"), None);
+    }
 
     #[test]
     fn selects_a_font_that_draws_a_yi_artist_name() {
