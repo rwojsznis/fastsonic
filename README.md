@@ -30,7 +30,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - Smooth local Play and Pause transitions, plus searchable playlist choices
   when adding one song or a selection.
 - Synced lyrics in a side panel or full-screen view, with line seeking and
-  automatic following; untimed lyrics remain readable too.
+  automatic following. Full screen places a large cover beside the lyrics in
+  wide windows, or centres it when there are no words.
 
 Fastsonic plays only on single computer. It does not provide Spotify Connect,
 Subsonic jukebox mode, podcasts, offline sync, multiple server profiles, or a
