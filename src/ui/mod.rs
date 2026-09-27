@@ -119,9 +119,12 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                 widgets::paint_vertical_gradient(ui, header, top, palette.window);
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+            // The default edge fade blends into the panel's plain colour,
+            // leaving a pale strip over a tinted page.
+            ui.spacing_mut().scroll.fade.strength = 0.0;
             topbar::show(app, ui);
             let page = app.page().clone();
-            egui::ScrollArea::vertical()
+            let scroll = egui::ScrollArea::vertical()
                 .id_salt(("page", page.encode()))
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -148,7 +151,60 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                             }
                         });
                 });
+            header_shadow(ui, scroll.inner_rect, scroll.state.offset.y, palette.dark);
         });
+}
+
+fn header_shadow(ui: &egui::Ui, page: Rect, scrolled: f32, dark: bool) {
+    let depth = (scrolled / 24.0).clamp(0.0, 1.0);
+    if depth <= 0.0 {
+        return;
+    }
+    let strength = if dark { 110.0 } else { 36.0 };
+    let rect = Rect::from_min_size(page.min, vec2(page.width(), 14.0));
+    widgets::paint_vertical_gradient(
+        ui,
+        rect,
+        Color32::from_black_alpha((strength * depth) as u8),
+        Color32::TRANSPARENT,
+    );
+}
+
+#[cfg(test)]
+mod header_shadow_tests {
+    use super::*;
+
+    #[test]
+    fn scrolled_page_has_a_shadow_only_below_the_header() {
+        let ctx = egui::Context::default();
+        let page = Rect::from_min_size(egui::pos2(0.0, 80.0), vec2(800.0, 600.0));
+        let draw = |scrolled, dark| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                header_shadow(ui, page, scrolled, dark);
+            });
+            output.textures_delta.clear();
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|shape| match shape.shape {
+                    egui::Shape::Mesh(mesh) => Some(mesh.vertices.clone()),
+                    _ => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>()
+        };
+        assert!(draw(0.0, true).is_empty());
+        for dark in [true, false] {
+            let vertices = draw(40.0, dark);
+            assert!(vertices.iter().any(|vertex| {
+                vertex.pos.y == page.top()
+                    && vertex.color.a() > 0
+                    && vertex.color.r() == 0
+                    && vertex.color.g() == 0
+                    && vertex.color.b() == 0
+            }));
+        }
+    }
 }
 
 /// Makes `rect` drag the borderless window. Register it before child widgets so
