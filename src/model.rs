@@ -778,6 +778,7 @@ pub enum Action {
     OpenSkinsFolder,
     /// Cycle bars, scope, and off.
     CycleVisualiser,
+    CyclePlayerBarVis,
     /// Set the visualizer mode directly.
     SetVisualiser(crate::settings::VisMode),
     /// Open or close the playlist window under the mini player.

@@ -46,6 +46,26 @@ impl ThemeChoice {
     }
 }
 
+/// What moves behind the main player bar's controls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlayerBarVis {
+    #[default]
+    Off,
+    Spectrum,
+    Waveform,
+}
+
+impl PlayerBarVis {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Spectrum,
+            Self::Spectrum => Self::Waveform,
+            Self::Waveform => Self::Off,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -63,6 +83,7 @@ pub struct Settings {
     pub theme: ThemeChoice,
     /// Tint the interface with the colour of the playing album's art.
     pub accent_from_art: bool,
+    pub player_bar_vis: PlayerBarVis,
     /// Last local volume, 0..=65535.
     pub volume: u16,
     /// Whether the library sidebar is visible.
@@ -155,6 +176,7 @@ impl Default for Settings {
             audio_cache_mb: 1024,
             theme: ThemeChoice::Dark,
             accent_from_art: true,
+            player_bar_vis: PlayerBarVis::Off,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
             art_expanded: false,
@@ -257,6 +279,18 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::Settings;
+
+    #[test]
+    fn player_bar_visualizer_defaults_off_and_cycles_through_modes() {
+        use super::PlayerBarVis;
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.player_bar_vis, PlayerBarVis::Off);
+        let spectrum: Settings = serde_json::from_str(r#"{"player_bar_vis":"spectrum"}"#).unwrap();
+        assert_eq!(spectrum.player_bar_vis, PlayerBarVis::Spectrum);
+        assert_eq!(PlayerBarVis::Off.next(), PlayerBarVis::Spectrum);
+        assert_eq!(PlayerBarVis::Spectrum.next(), PlayerBarVis::Waveform);
+        assert_eq!(PlayerBarVis::Waveform.next(), PlayerBarVis::Off);
+    }
 
     #[test]
     fn older_settings_preserve_the_selected_skin_without_random_mode() {

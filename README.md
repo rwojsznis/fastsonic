@@ -22,6 +22,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - Restores the last track, position, context, and manually queued songs.
 - Light, dark, and system themes with optional album-art colour that fades
   between songs. On Linux, the system theme follows the desktop portal.
+- A player-bar spectrum or waveform that follows post-EQ sound and stays
+  lively at zero volume, off by default. Click empty bar space to cycle modes.
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
   oscilloscope, equalizer, and playlist.
 - A projectM-powered MilkDrop window with optional preset packs.

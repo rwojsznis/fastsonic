@@ -356,6 +356,7 @@ pub struct App {
     pub update_checking: bool,
     /// Winamp window state and active skin.
     pub winamp: crate::winamp::WinampState,
+    pub player_bar_analyser: crate::vis::WideAnalyser,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -574,6 +575,7 @@ impl App {
             last_update_check: None,
             update_checking: false,
             winamp: crate::winamp::WinampState::new(session.winamp_pos, tap, eq),
+            player_bar_analyser: crate::vis::WideAnalyser::default(),
         };
         app.local.volume = app.settings.volume;
         // The queue as it was at close, shown until something plays; then
@@ -4206,6 +4208,10 @@ impl App {
                 self.settings.vis = self.settings.vis.next();
                 self.settings_dirty = true;
                 self.winamp.analyser.reset();
+            }
+            Action::CyclePlayerBarVis => {
+                self.settings.player_bar_vis = self.settings.player_bar_vis.next();
+                self.settings_dirty = true;
             }
             Action::SetVisualiser(mode) => {
                 if self.settings.vis != mode {

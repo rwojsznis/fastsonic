@@ -921,6 +921,25 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.actions.push(Action::SetLyricsFullscreen(true));
                 }
             }
+            "player-bar-spectrum" | "player-bar-waveform" => {
+                app.settings.player_bar_vis = if surface == "player-bar-spectrum" {
+                    crate::settings::PlayerBarVis::Spectrum
+                } else {
+                    crate::settings::PlayerBarVis::Waveform
+                };
+                // Enough fixed sound for the tap's speaker lag and the
+                // analyzer window. No server or audio device is involved.
+                let samples: Vec<f64> = (0..20_000)
+                    .flat_map(|frame| {
+                        let phase = frame as f64 / 44_100.0 * std::f64::consts::TAU;
+                        let sample = (phase * 220.0).sin() * 0.35
+                            + (phase * 440.0).sin() * 0.2
+                            + (phase * 880.0).sin() * 0.1;
+                        [sample, sample]
+                    })
+                    .collect();
+                app.winamp.tap.push(&samples, 1.0);
+            }
             // Titles in scripts the interface font does not cover.
             "scripts" => {
                 let titles = [
@@ -2388,6 +2407,15 @@ mod tests {
             frame(&ctx, &mut app);
         }
         assert!(!app.palette.dark);
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Spectrum;
+        frame(&ctx, &mut app);
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Waveform;
+        frame(&ctx, &mut app);
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+        app.lyrics_fullscreen = Some(false);
+        frame(&ctx, &mut app);
+        app.lyrics = Loadable::Loaded(None);
+        frame(&ctx, &mut app);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }

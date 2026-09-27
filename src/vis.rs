@@ -186,7 +186,8 @@ impl AudioTap {
 }
 
 /// The classic analyser's FFT, as Winamp's own source has it: 512
-/// samples under a Hann window, 256 magnitudes out, each halved.
+/// samples under a Hann window, 256 magnitudes out, each halved. The
+/// player bar's analyser uses the same transform and samples.
 struct Fft {
     bit_reversed: Vec<usize>,
     envelope: Vec<f32>,
@@ -196,8 +197,7 @@ struct Fft {
 }
 
 impl Fft {
-    fn new() -> Self {
-        let n = FFT_SAMPLES;
+    fn new(n: usize) -> Self {
         let mut bit_reversed: Vec<usize> = (0..n).collect();
         let mut j = 0;
         for i in 0..n {
@@ -233,8 +233,8 @@ impl Fft {
         }
     }
 
-    fn spectrum(&mut self, wave: &[f32], out: &mut [f32; SPECTRUM_BINS]) {
-        let n = FFT_SAMPLES;
+    fn spectrum(&mut self, wave: &[f32], out: &mut [f32]) {
+        let n = self.real.len();
         for i in 0..n {
             let from = self.bit_reversed[i];
             self.real[i] = wave.get(from).copied().unwrap_or(0.0) * self.envelope[from];
@@ -300,7 +300,7 @@ pub struct Analyser {
 impl Default for Analyser {
     fn default() -> Self {
         Self {
-            fft: Fft::new(),
+            fft: Fft::new(FFT_SAMPLES),
             spectrum: [0.0; SPECTRUM_BINS],
             wave: [0.0; FFT_SAMPLES],
             falloff: [0.0; BARS],
@@ -381,53 +381,58 @@ impl Analyser {
     /// the classic analyser always looked alive. One extra silent column
     /// pads the last bar's group of four.
     fn bands(&self) -> [f32; COLUMNS + 1] {
-        let bla = 255.0 / 2f32.powf(75.0 / 12.0);
-        let warp = |x: f32| (2f32.powf(x / 12.0) - 1.0) * bla;
-        let sample = |index: usize| self.spectrum.get(index).copied().unwrap_or(0.0);
-        let hermite = |x: f32, y0: f32, y1: f32, y2: f32, y3: f32| {
-            let c1 = 0.5 * (y2 - y0);
-            let c3 = 1.5 * (y1 - y2) + 0.5 * (y3 - y0);
-            let c2 = y0 - y1 + c1 - c3;
-            ((c3 * x + c2) * x + c1) * x + y1
-        };
-        let mut columns = [0.0; COLUMNS + 1];
-        let mut next = warp(0.0) + 1.0;
-        for (x, column) in columns.iter_mut().take(COLUMNS).enumerate() {
-            let low = next;
-            next = warp(x as f32 + 1.0) + 1.0;
-            let mut value = 0.0f32;
-            let mut bin = low.floor() as usize;
-            let end = (next.floor() as usize).min(SPECTRUM_BINS - 1);
-            let mut fraction = low;
-            let mut mult = (bin as f32 + 1.0) - low;
-            let mut herm = true;
-            loop {
-                if bin == end {
-                    mult = next - fraction;
-                    herm = true;
-                }
-                if herm {
-                    value += hermite(
-                        fraction - bin as f32,
-                        sample(bin.saturating_sub(1)),
-                        sample(bin),
-                        sample(bin + 1),
-                        sample(bin + 2),
-                    ) * mult;
-                } else {
-                    value += sample(bin);
-                }
-                herm = false;
-                bin += 1;
-                if bin > end {
-                    break;
-                }
-                fraction = bin as f32;
-            }
-            *column = value.min(255.0);
-        }
-        columns
+        bands(&self.spectrum)
     }
+}
+
+/// Winamp's bands over a 256-bin spectrum; see [`Analyser::bands`].
+fn bands(spectrum: &[f32; SPECTRUM_BINS]) -> [f32; COLUMNS + 1] {
+    let bla = 255.0 / 2f32.powf(75.0 / 12.0);
+    let warp = |x: f32| (2f32.powf(x / 12.0) - 1.0) * bla;
+    let sample = |index: usize| spectrum.get(index).copied().unwrap_or(0.0);
+    let hermite = |x: f32, y0: f32, y1: f32, y2: f32, y3: f32| {
+        let c1 = 0.5 * (y2 - y0);
+        let c3 = 1.5 * (y1 - y2) + 0.5 * (y3 - y0);
+        let c2 = y0 - y1 + c1 - c3;
+        ((c3 * x + c2) * x + c1) * x + y1
+    };
+    let mut columns = [0.0; COLUMNS + 1];
+    let mut next = warp(0.0) + 1.0;
+    for (x, column) in columns.iter_mut().take(COLUMNS).enumerate() {
+        let low = next;
+        next = warp(x as f32 + 1.0) + 1.0;
+        let mut value = 0.0f32;
+        let mut bin = low.floor() as usize;
+        let end = (next.floor() as usize).min(SPECTRUM_BINS - 1);
+        let mut fraction = low;
+        let mut mult = (bin as f32 + 1.0) - low;
+        let mut herm = true;
+        loop {
+            if bin == end {
+                mult = next - fraction;
+                herm = true;
+            }
+            if herm {
+                value += hermite(
+                    fraction - bin as f32,
+                    sample(bin.saturating_sub(1)),
+                    sample(bin),
+                    sample(bin + 1),
+                    sample(bin + 2),
+                ) * mult;
+            } else {
+                value += sample(bin);
+            }
+            herm = false;
+            bin += 1;
+            if bin > end {
+                break;
+            }
+            fraction = bin as f32;
+        }
+        *column = value.min(255.0);
+    }
+    columns
 }
 
 /// The oscilloscope's trace: a row (0 at the top) for each column, from
@@ -457,6 +462,126 @@ pub fn scope_shade(row: u8) -> usize {
         _ => 3,
     }
 }
+
+/// Samples in one spectrum of the player bar's analyser: Winamp's own.
+pub const WIDE_SAMPLES: usize = FFT_SAMPLES;
+/// The player bar's bands: every one of Winamp's semitone columns as a bar
+/// of its own, where the skin groups them four to a bar.
+pub const WIDE_BANDS: usize = COLUMNS;
+/// How fast a bar falls, in heights per second: Winamp's twelve
+/// sixteenths of a row each sixtieth of a second, over fifteen rows.
+const WIDE_FALL: f32 = FALLOFF / MAX_HEIGHT / 0.016_667;
+/// How long a peak cap hangs above its band before it drops, and how fast
+/// it then falls, in heights per second squared.
+const PEAK_HOLD: f32 = 0.35;
+const PEAK_GRAVITY: f32 = 2.4;
+
+/// The player bar's spectrum analyser: Winamp's classic analyser, with
+/// each of its seventy-five columns as a bar, heights from 0 to 1 instead
+/// of whole rows, and falls timed by the clock, so they move smoothly at
+/// any frame rate.
+pub struct WideAnalyser {
+    fft: Fft,
+    wave: [f32; FFT_SAMPLES],
+    spectrum: [f32; SPECTRUM_BINS],
+    levels: [f32; WIDE_BANDS],
+    /// Each band's peak cap, how long it has hung there, and how fast it
+    /// is falling.
+    peaks: [f32; WIDE_BANDS],
+    held: [f32; WIDE_BANDS],
+    speed: [f32; WIDE_BANDS],
+    last: Option<Instant>,
+}
+
+impl Default for WideAnalyser {
+    fn default() -> Self {
+        Self {
+            fft: Fft::new(FFT_SAMPLES),
+            wave: [0.0; FFT_SAMPLES],
+            spectrum: [0.0; SPECTRUM_BINS],
+            levels: [0.0; WIDE_BANDS],
+            peaks: [0.0; WIDE_BANDS],
+            held: [0.0; WIDE_BANDS],
+            speed: [0.0; WIDE_BANDS],
+            last: None,
+        }
+    }
+}
+
+impl WideAnalyser {
+    /// Moves the bars towards the spectrum of `samples` (mono, -1 to 1,
+    /// `WIDE_SAMPLES` of them): up at once, as Winamp's, and down at its
+    /// rate for the time since the last step.
+    pub fn step(&mut self, samples: &[f32], now: Instant) -> [f32; WIDE_BANDS] {
+        let elapsed = self
+            .last
+            .map_or(STEP, |last| now.saturating_duration_since(last))
+            .min(Duration::from_millis(250))
+            .as_secs_f32();
+        self.last = Some(now);
+        self.wave.fill(0.0);
+        for (slot, sample) in self.wave.iter_mut().zip(samples) {
+            *slot = sample * CHANNEL_SUM;
+        }
+        self.fft.spectrum(&self.wave, &mut self.spectrum);
+        let columns = bands(&self.spectrum);
+        for (level, column) in self.levels.iter_mut().zip(columns) {
+            let target = column.min(MAX_HEIGHT) / MAX_HEIGHT;
+            *level = (*level - WIDE_FALL * elapsed).max(target);
+            // Too low to see: at rest.
+            if *level < 0.01 {
+                *level = 0.0;
+            }
+        }
+        for band in 0..WIDE_BANDS {
+            let level = self.levels[band];
+            if level >= self.peaks[band] {
+                self.peaks[band] = level;
+                self.held[band] = 0.0;
+                self.speed[band] = 0.0;
+            } else if self.held[band] < PEAK_HOLD {
+                self.held[band] += elapsed;
+            } else {
+                self.speed[band] += PEAK_GRAVITY * elapsed;
+                self.peaks[band] = (self.peaks[band] - self.speed[band] * elapsed).max(level);
+            }
+            if self.peaks[band] < 0.01 {
+                self.peaks[band] = 0.0;
+            }
+        }
+        self.levels
+    }
+
+    /// Where each band's peak cap hangs, from 0 to 1.
+    pub fn peaks(&self) -> [f32; WIDE_BANDS] {
+        self.peaks
+    }
+
+    /// Whether every band and peak has fallen to rest.
+    pub fn settled(&self) -> bool {
+        self.levels
+            .iter()
+            .chain(&self.peaks)
+            .all(|level| *level == 0.0)
+    }
+}
+
+/// The player bar's waveform: Winamp's scope, every seventh sample with
+/// nothing smoothed or lined up, so it trembles as Winamp's does, for
+/// `points` columns instead of seventy-five. Each value runs from -1 to 1
+/// across the bar's height; like Winamp's, whose sixteen rows span half of
+/// full scale, anything louder than half full scale reaches the edge.
+pub fn scope_line(samples: &[f32], points: usize) -> Vec<f32> {
+    (0..points)
+        .map(|point| {
+            let sample = samples.get(point * SCOPE_STEP).copied().unwrap_or(0.0);
+            (sample * 2.0).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// Winamp's scope reads every seventh sample.
+pub const SCOPE_STEP: usize = 7;
 
 #[cfg(test)]
 mod tests {
@@ -490,7 +615,7 @@ mod tests {
 
     #[test]
     fn the_spectrum_peaks_where_the_tone_is() {
-        let mut fft = Fft::new();
+        let mut fft = Fft::new(FFT_SAMPLES);
         let mut out = [0.0; SPECTRUM_BINS];
         let wave: Vec<f32> = sine(1000.0, 0.5, FFT_SAMPLES)
             .into_iter()
@@ -617,5 +742,27 @@ mod tests {
             reused_empty.spectrum, fresh_empty.spectrum,
             "an empty frame left the previous spectrum in the scratch buffer"
         );
+    }
+
+    #[test]
+    fn wide_analyser_follows_a_tone_then_settles_in_silence() {
+        let mut analyser = WideAnalyser::default();
+        let start = Instant::now();
+        let levels = analyser.step(&sine(1000.0, 0.8, WIDE_SAMPLES), start);
+        assert!(levels.iter().copied().fold(0.0, f32::max) > 0.99);
+        for frame in 1..120 {
+            analyser.step(&[], start + STEP * frame);
+        }
+        assert!(analyser.settled());
+    }
+
+    #[test]
+    fn player_bar_scope_uses_winamp_sample_spacing_and_gain() {
+        let mut samples = vec![0.0; SCOPE_STEP * 3];
+        samples[0] = 0.25;
+        samples[SCOPE_STEP] = -0.5;
+        samples[SCOPE_STEP * 2] = 0.75;
+        assert_eq!(scope_line(&samples, 3), vec![0.5, -1.0, 1.0]);
+        assert_eq!(scope_line(&[], 2), vec![0.0, 0.0]);
     }
 }

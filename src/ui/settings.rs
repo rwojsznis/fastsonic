@@ -360,6 +360,39 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        {
+            use crate::settings::PlayerBarVis;
+            let modes = [
+                (PlayerBarVis::Off, "Off"),
+                (PlayerBarVis::Spectrum, "Spectrum"),
+                (PlayerBarVis::Waveform, "Waveform"),
+            ];
+            let width = choices_width(ui, modes.map(|(_, label)| label));
+            widgets::setting_row_sized(
+                ui,
+                &palette,
+                "Player bar visualizer",
+                "Show the song moving behind the player bar while it plays here.",
+                width,
+                |ui| {
+                    choices(ui, width, modes.len(), |ui, index| {
+                        let (mode, label) = modes[index];
+                        if theme::soft_button(
+                            ui,
+                            &palette,
+                            None,
+                            label,
+                            app.settings.player_bar_vis == mode,
+                        )
+                        .clicked()
+                        {
+                            app.settings.player_bar_vis = mode;
+                            changed = true;
+                        }
+                    });
+                },
+            );
+        }
         widgets::setting_row(
             ui,
             &palette,

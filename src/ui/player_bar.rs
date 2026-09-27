@@ -15,6 +15,28 @@ const TINT_STRENGTH: f32 = 0.12;
 /// How long the bar takes to cross over to a new song's tint.
 const TINT_FADE_SECONDS: f32 = 0.45;
 const TINT_SESSION_ID: &str = "player-bar-tint-session";
+/// How strongly the visualizer shows through behind the controls: the
+/// spectrum's bars fade from their foot to their top, with a glow around
+/// them, a brighter cap above, and a pulse along the foot with the bass.
+const SPECTRUM_ALPHA: (f32, f32) = (0.28, 0.08);
+const GLOW_ALPHA: f32 = 0.12;
+const PEAK_ALPHA: f32 = 0.7;
+const PULSE_ALPHA: f32 = 0.35;
+/// The peak cap's thickness, and its gap above the band.
+const PEAK_HEIGHT: f32 = 2.0;
+const PEAK_GAP: f32 = 2.0;
+/// The waveform's line, as layers from the widest glow to the core, the
+/// shading under it, and its mirrored echo.
+const WAVE_LAYERS: [(f32, f32); 3] = [(9.0, 0.06), (4.0, 0.16), (1.6, 0.85)];
+const WAVE_FILL_ALPHA: f32 = 0.14;
+const WAVE_ECHO_ALPHA: f32 = 0.18;
+/// How much more strongly the visualizer paints over a light bar.
+const LIGHT_STRENGTH: f32 = 1.5;
+/// The gap between spectrum bars.
+const SPECTRUM_GAP: f32 = 2.0;
+/// How often a moving visualizer is drawn: sixty times a second, as the
+/// mini player's.
+const VIS_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
 
 /// Forget this bar's animation session while the sign-in screen is shown.
 pub(crate) fn end_tint_session(ctx: &egui::Context) {
@@ -35,12 +57,30 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| {
             let rect = ui.max_rect();
+            let now = app.now_playing();
+            // The whole bar, margins included, behind everything else.
+            let behind = rect.expand2(vec2(16.0, 0.0));
+            if visualizer(app, ui, behind, now.as_ref()) {
+                ui.ctx().request_repaint_after(VIS_FRAME);
+            }
+            // Its empty space is the visualizer's control, as Winamp's
+            // visualizer was: a click moves to the next mode. The controls
+            // drawn after it take their own clicks.
+            let empty = ui
+                .interact(
+                    behind,
+                    ui.id().with("player-bar-visualizer"),
+                    Sense::click(),
+                )
+                .on_hover_text_at_pointer("Click to change the visualizer");
+            if empty.clicked() {
+                app.actions.push(Action::CyclePlayerBarVis);
+            }
             ui.painter().hline(
                 rect.x_range(),
                 rect.top() + 0.5,
                 egui::Stroke::new(1.0, palette.outline),
             );
-            let now = app.now_playing();
             let width = rect.width();
             let side = (width * 0.3).clamp(200.0, 420.0);
             let cy = rect.center().y;
@@ -66,6 +106,240 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             );
             extras(app, &mut right_ui, now.as_ref());
         });
+}
+
+/// Draws the chosen spectrum or waveform of the song playing on this
+/// computer across `rect`, in colours drawn from the cover. It reads the
+/// same post-equalizer, pre-volume sound as the mini player's visualizer,
+/// so the volume never moves it. Returns whether it is still moving.
+fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>) -> bool {
+    use crate::settings::PlayerBarVis;
+    use crate::vis;
+    let mode = app.settings.player_bar_vis;
+    let sounding = now.is_some_and(|now| now.playing || now.loading);
+    let dark = ui.visuals().dark_mode;
+    let (low, high) = vis_colours(app.now_playing_tint().unwrap_or(app.palette.accent), dark);
+    // Over a light bar the same colour paints more strongly, or white
+    // would wash it out.
+    let strength = if dark { 1.0 } else { LIGHT_STRENGTH };
+    let painter = ui.painter().with_clip_rect(rect);
+    match mode {
+        PlayerBarVis::Off => false,
+        PlayerBarVis::Spectrum => {
+            if !sounding && app.player_bar_analyser.settled() {
+                return false;
+            }
+            let samples = if sounding {
+                app.winamp.tap.window(vis::WIDE_SAMPLES, vis::LAG)
+            } else {
+                Vec::new()
+            };
+            let levels = app
+                .player_bar_analyser
+                .step(&samples, std::time::Instant::now());
+            let peaks = app.player_bar_analyser.peaks();
+            spectrum(&painter, rect, &levels, &peaks, (low, high), strength);
+            sounding || !app.player_bar_analyser.settled()
+        }
+        PlayerBarVis::Waveform => {
+            if !sounding {
+                return false;
+            }
+            // Winamp's scope with a column every eight points or so.
+            let count = (rect.width() / 8.0).clamp(75.0, 320.0) as usize;
+            let samples = app.winamp.tap.window(count * vis::SCOPE_STEP, vis::LAG);
+            waveform(
+                &painter,
+                rect,
+                &vis::scope_line(&samples, count),
+                (low, high),
+                strength,
+            );
+            true
+        }
+    }
+}
+
+/// The visualizer's two colours: the cover's own for the bass, and the same
+/// turned a sixth of the way round the colour wheel for the treble. Both
+/// are made vivid, then kept to a band of brightness, so the words the bars
+/// pass behind always stand out: no lighter than [`DARK_CEILING`] under the
+/// dark theme's white text, no darker than [`LIGHT_FLOOR`] under the light
+/// theme's dark text.
+fn vis_colours(base: Color32, dark: bool) -> (Color32, Color32) {
+    let mut low = egui::ecolor::Hsva::from(base);
+    low.s = low.s.max(0.55);
+    low.v = 1.0;
+    low.a = 1.0;
+    let mut high = low;
+    high.h = (high.h + 1.0 / 6.0).fract();
+    let keep = |colour: egui::ecolor::Hsva| within_brightness(Color32::from(colour), dark);
+    (keep(low), keep(high))
+}
+
+/// The most luminance a visualizer colour has under the dark theme, and the
+/// band it is kept in under the light theme, as relative luminance from 0
+/// to 1. On white the colour must be dark enough to show at all yet light
+/// enough that dark words stay clear over it.
+const DARK_CEILING: f32 = 0.35;
+const LIGHT_FLOOR: f32 = 0.2;
+const LIGHT_CEILING: f32 = 0.4;
+
+/// `colour` with its hue kept and its brightness moved into the band the
+/// theme's text reads against: darkened towards black when too light,
+/// lightened towards white when too dark.
+fn within_brightness(colour: Color32, dark: bool) -> Color32 {
+    let linear = egui::Rgba::from(colour);
+    let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
+    let ceiling = if dark { DARK_CEILING } else { LIGHT_CEILING };
+    let adjusted = if luminance > ceiling {
+        linear * (ceiling / luminance)
+    } else if !dark && luminance < LIGHT_FLOOR {
+        let toward_white = (LIGHT_FLOOR - luminance) / (1.0 - luminance).max(f32::EPSILON);
+        egui::Rgba::from_rgb(
+            linear.r() + (1.0 - linear.r()) * toward_white,
+            linear.g() + (1.0 - linear.g()) * toward_white,
+            linear.b() + (1.0 - linear.b()) * toward_white,
+        )
+    } else {
+        linear
+    };
+    Color32::from(egui::Rgba::from_rgb(
+        adjusted.r(),
+        adjusted.g(),
+        adjusted.b(),
+    ))
+}
+
+/// Adds a rectangle shaded from `top` to `bottom`.
+fn shaded(mesh: &mut egui::Mesh, rect: Rect, top: Color32, bottom: Color32) {
+    let base = mesh.vertices.len() as u32;
+    mesh.colored_vertex(rect.left_top(), top);
+    mesh.colored_vertex(rect.right_top(), top);
+    mesh.colored_vertex(rect.right_bottom(), bottom);
+    mesh.colored_vertex(rect.left_bottom(), bottom);
+    mesh.add_triangle(base, base + 1, base + 2);
+    mesh.add_triangle(base, base + 2, base + 3);
+}
+
+/// Bars rising from the foot of the player bar, swept from the bass colour
+/// to the treble colour, with a soft glow, a peak cap hanging above each,
+/// and the whole foot of the bar breathing with the bass.
+fn spectrum(
+    painter: &egui::Painter,
+    rect: Rect,
+    levels: &[f32],
+    peaks: &[f32],
+    (low, high): (Color32, Color32),
+    strength: f32,
+) {
+    let bands = levels.len() as f32;
+    let width = (rect.width() - SPECTRUM_GAP * (bands - 1.0)) / bands;
+    // A full band reaches the top, with room above for its cap.
+    let reach = rect.height() - PEAK_GAP - PEAK_HEIGHT - 1.0;
+    let mut mesh = egui::Mesh::default();
+
+    // The bass pulse: a glow along the foot, as strong as the low bands.
+    let bass = levels.iter().take(levels.len() / 8).copied().sum::<f32>()
+        / (levels.len() / 8).max(1) as f32;
+    let pulse = Rect::from_min_max(pos2(rect.left(), rect.center().y), rect.right_bottom());
+    shaded(
+        &mut mesh,
+        pulse,
+        Color32::TRANSPARENT,
+        low.gamma_multiply(PULSE_ALPHA * strength * bass * bass),
+    );
+
+    for (index, (level, peak)) in levels.iter().zip(peaks).enumerate() {
+        let left = rect.left() + index as f32 * (width + SPECTRUM_GAP);
+        let colour = low.lerp_to_gamma(high, index as f32 / (bands - 1.0));
+        let height = level * reach;
+        if height >= 1.0 {
+            let bar = Rect::from_min_max(
+                pos2(left, rect.bottom() - height),
+                pos2(left + width, rect.bottom()),
+            );
+            // The glow: the bar again, wider and fainter.
+            shaded(
+                &mut mesh,
+                bar.expand2(vec2(SPECTRUM_GAP, 3.0)),
+                colour.gamma_multiply(GLOW_ALPHA * strength * 0.3),
+                colour.gamma_multiply(GLOW_ALPHA * strength),
+            );
+            let (foot, top) = (SPECTRUM_ALPHA.0 * strength, SPECTRUM_ALPHA.1 * strength);
+            shaded(
+                &mut mesh,
+                bar,
+                colour.gamma_multiply(foot + (top - foot) * level),
+                colour.gamma_multiply(foot),
+            );
+        }
+        let cap = peak * reach;
+        if cap >= 2.0 {
+            let y = rect.bottom() - cap - PEAK_GAP;
+            shaded(
+                &mut mesh,
+                Rect::from_min_max(pos2(left, y - PEAK_HEIGHT), pos2(left + width, y)),
+                colour.gamma_multiply(PEAK_ALPHA),
+                colour.gamma_multiply(PEAK_ALPHA),
+            );
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// The wave as a neon line in layers of glow, swept from the bass colour to
+/// the treble colour, over a faint shading down to the midline and a dim
+/// mirrored echo.
+fn waveform(
+    painter: &egui::Painter,
+    rect: Rect,
+    trace: &[f32],
+    (low, high): (Color32, Color32),
+    strength: f32,
+) {
+    if trace.len() < 2 {
+        return;
+    }
+    let reach = rect.height() * 0.46;
+    let step = rect.width() / (trace.len() - 1) as f32;
+    let midline = rect.center().y;
+    let point =
+        |index: usize, value: f32| pos2(rect.left() + index as f32 * step, midline - value * reach);
+    let colour_at = |index: usize| low.lerp_to_gamma(high, index as f32 / (trace.len() - 1) as f32);
+
+    // The shading between the wave and the midline.
+    let mut mesh = egui::Mesh::default();
+    for index in 0..trace.len() - 1 {
+        let colour = colour_at(index).gamma_multiply(WAVE_FILL_ALPHA * strength);
+        let base = mesh.vertices.len() as u32;
+        mesh.colored_vertex(point(index, trace[index]), colour);
+        mesh.colored_vertex(point(index + 1, trace[index + 1]), colour);
+        mesh.colored_vertex(pos2(point(index + 1, 0.0).x, midline), Color32::TRANSPARENT);
+        mesh.colored_vertex(pos2(point(index, 0.0).x, midline), Color32::TRANSPARENT);
+        mesh.add_triangle(base, base + 1, base + 2);
+        mesh.add_triangle(base, base + 2, base + 3);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+
+    // Short runs of line, so the colour can sweep along the wave.
+    let run = 8;
+    let stroke = |mirror: f32, width: f32, alpha: f32| {
+        let mut start = 0;
+        while start < trace.len() - 1 {
+            let end = (start + run).min(trace.len() - 1);
+            let points = (start..=end)
+                .map(|index| point(index, trace[index] * mirror))
+                .collect();
+            let colour = colour_at((start + end) / 2).gamma_multiply(alpha);
+            painter.add(egui::Shape::line(points, egui::Stroke::new(width, colour)));
+            start = end;
+        }
+    };
+    stroke(-0.6, 1.0, WAVE_ECHO_ALPHA);
+    for (width, alpha) in WAVE_LAYERS {
+        stroke(1.0, width, alpha);
+    }
 }
 
 /// Ease the final fill's RGB. Untinted custom panels keep their alpha while
@@ -658,5 +932,40 @@ mod player_bar_tint_tests {
 
         end_tint_session(&ctx);
         assert_eq!(frame(&ctx, 0.22, panel, None), panel);
+    }
+
+    /// However light or dark the cover, the visualizer's colours stay in the
+    /// band the theme's text reads against, and keep their hue.
+    #[test]
+    fn visualizer_colours_stay_behind_the_words() {
+        let luminance = |colour: Color32| {
+            let linear = egui::Rgba::from(colour);
+            0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b()
+        };
+        for base in [
+            Color32::from_rgb(255, 240, 80),
+            Color32::from_rgb(20, 30, 90),
+            Color32::WHITE,
+            Color32::BLACK,
+            Color32::from_rgb(30, 215, 96),
+        ] {
+            let (low, high) = vis_colours(base, true);
+            for colour in [low, high] {
+                assert!(
+                    luminance(colour) <= DARK_CEILING + 0.01,
+                    "{base:?} on dark: {colour:?}"
+                );
+            }
+            let (low, high) = vis_colours(base, false);
+            for colour in [low, high] {
+                assert!(
+                    (LIGHT_FLOOR - 0.01..=LIGHT_CEILING + 0.01).contains(&luminance(colour)),
+                    "{base:?} on light: {colour:?}"
+                );
+            }
+        }
+        // A yellow cover stays yellow, only deeper.
+        let (low, _) = vis_colours(Color32::from_rgb(255, 240, 80), true);
+        assert!(low.r() > low.b() && low.g() > low.b(), "{low:?}");
     }
 }

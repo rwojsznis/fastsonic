@@ -37,6 +37,10 @@ Local Play and Pause fade smoothly. The visualizers still follow the
 post-equalizer, pre-volume signal, so transport and volume changes do not move
 the picture.
 
+Settings → Appearance → **Player bar visualizer** offers a spectrum or waveform
+behind the controls. It is off by default. Click empty space on the player bar
+to cycle through spectrum, waveform, and off.
+
 ## Recent plays
 
 The queue panel's second tab combines the server's recent songs with tracks
