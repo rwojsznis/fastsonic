@@ -36,6 +36,13 @@ skin logo, and launching Fastsonic again still reach the app, and returning to
 the main window always brings its taskbar button back. Changing the option
 while the mini player is open replaces that window while playback continues.
 
+**Always on top** works on Windows, macOS and X11. On Wayland the app's
+controls are unavailable, because the window backend cannot apply them; use
+your desktop's window rule or shortcut instead. In KDE Plasma, configure
+**Keep Window Above Others** under **Settings > Keyboard > Shortcuts > Window
+Management**. Your saved preference returns when you use Fastsonic on a
+supported backend again.
+
 Non-rectangular skins use `region.txt` for transparent areas. Winamp 3 and 5
 skins use a different format and are not supported.
 

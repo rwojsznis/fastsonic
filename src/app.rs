@@ -142,6 +142,8 @@ pub struct App {
     /// Sample data is loaded; server requests are disabled.
     pub offline: bool,
     pub palette: Palette,
+    /// Whether this window's native backend can keep it above other windows.
+    pub window_level_supported: bool,
     /// Whether this window's native backend can leave the mini player out of
     /// the taskbar.
     pub taskbar_hiding_supported: bool,
@@ -468,6 +470,7 @@ impl App {
             control_now_playing: None,
             offline: false,
             palette: Palette::dark(),
+            window_level_supported: true,
             taskbar_hiding_supported: cfg!(windows),
             applied_dark: None,
             auth: AuthStatus::Starting,
@@ -655,7 +658,7 @@ impl App {
             // Re-assert the on-top level over the
             // first frames, once the window is mapped, because the level set
             // at creation does not stick on X11.
-            if self.settings.winamp_on_top {
+            if self.settings.winamp_on_top && self.window_level_supported {
                 self.winamp_level_reassert = 3;
             }
             return;
@@ -1620,8 +1623,9 @@ impl App {
 
     /// Pushes the Winamp window's always-on-top level to the live window.
     fn push_winamp_level(&self, ctx: &egui::Context) {
-        if let Some(level) =
-            winamp_on_top_level(self.settings.winamp_window, self.settings.winamp_on_top)
+        if self.window_level_supported
+            && let Some(level) =
+                winamp_on_top_level(self.settings.winamp_window, self.settings.winamp_on_top)
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
         }
@@ -4375,11 +4379,13 @@ impl App {
                 self.settings_dirty = true;
             }
             Action::ToggleWinampOnTop => {
-                self.settings.winamp_on_top = !self.settings.winamp_on_top;
-                self.settings_dirty = true;
-                // The window level is set at creation, so push the new level to
-                // the live window.
-                self.push_winamp_level(ctx);
+                if self.window_level_supported {
+                    self.settings.winamp_on_top = !self.settings.winamp_on_top;
+                    self.settings_dirty = true;
+                    // The window level is set at creation, so push the new
+                    // level to the live window.
+                    self.push_winamp_level(ctx);
+                }
             }
             Action::SetWinampTaskbar(visible) => {
                 if self.settings.winamp_show_taskbar != visible {
@@ -5642,6 +5648,33 @@ mod tests {
         app.settings.winamp_on_top = false;
         app.attach(&ctx);
         assert_eq!(app.winamp_level_reassert, 0);
+    }
+
+    #[test]
+    fn unsupported_on_top_controls_keep_the_saved_preference_without_commands() {
+        for saved in [false, true] {
+            let ctx = egui::Context::default();
+            let mut app = headless_app();
+            app.settings.winamp_window = true;
+            app.settings.winamp_on_top = saved;
+            app.window_level_supported = false;
+            app.attach(&ctx);
+            assert_eq!(app.winamp_level_reassert, 0);
+            app.settings_dirty = false;
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.apply(Action::ToggleWinampOnTop, ui.ctx());
+                app.push_winamp_level(ui.ctx());
+            });
+            output.textures_delta.clear();
+            assert_eq!(app.settings.winamp_on_top, saved);
+            assert!(!app.settings_dirty);
+            assert!(
+                !output.viewport_output[&egui::ViewportId::ROOT]
+                    .commands
+                    .iter()
+                    .any(|command| matches!(command, egui::ViewportCommand::WindowLevel(_)))
+            );
+        }
     }
 
     #[test]

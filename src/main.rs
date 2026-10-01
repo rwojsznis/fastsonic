@@ -411,6 +411,13 @@ fn main() -> eframe::Result<()> {
                     let ctx = cc.egui_ctx.clone();
                     fastsonic::mac_menu::set_waker(move || ctx.request_repaint());
                 }
+                {
+                    use raw_window_handle::HasDisplayHandle;
+                    if let Ok(display) = cc.display_handle() {
+                        app.window_level_supported =
+                            fastsonic::window::supports_window_level(display.as_raw());
+                    }
+                }
                 app.attach(&cc.egui_ctx);
                 #[cfg(windows)]
                 let thumbbar = {
