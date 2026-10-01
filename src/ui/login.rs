@@ -173,9 +173,12 @@ fn field(app: &mut App, ui: &mut egui::Ui, label: &str, which: Field) -> bool {
             .desired_width(f32::INFINITY)
             .margin(Margin::symmetric(10, 8))
             .font(theme::regular(14.0))
-            .hint_text(hint)
-            .password(which == Field::Password);
-        let response = ui.add(edit);
+            .hint_text(hint);
+        let response = if which == Field::Password {
+            super::widgets::secret_text_edit(ui, edit)
+        } else {
+            super::widgets::text_edit(ui, edit)
+        };
         ui.add_space(6.0);
         response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter))
     })

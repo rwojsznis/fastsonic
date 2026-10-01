@@ -41,6 +41,9 @@ copies them and removes them from a playlist you can edit, so Ctrl+V in
 another moves them there. A focused text field or an open dialog keeps these
 keys.
 
+Right-click a text field for Cut, Copy, Paste and Select all; the password
+field offers only Paste and Select all.
+
 Ctrl, Cmd and Alt arrow keys move the caret while a text field has focus.
 Playback and navigation shortcuts on those keys remain available from song
 rows and other controls.
