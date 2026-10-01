@@ -803,6 +803,7 @@ pub fn populate(app: &mut App) {
         username: USER.into(),
         error: None,
         seek_sequence: 0,
+        track_sequence: 1,
     });
 }
 

@@ -91,7 +91,9 @@ played through Fastsonic. Server rows may not include an exact play time;
 local rows do.
 
 A song enters local history after about 30 seconds, or halfway through a
-shorter song. Paused time and seeking do not count. Fastsonic also scrobbles
+shorter song. Paused time and seeking do not count. A song played twice in a
+row, on Repeat one for instance, is two plays, each counted once it has been
+heard long enough. Fastsonic also scrobbles
 playback to your own server so its history and play counts stay current.
 
 The local list is stored in `history.json` and is never uploaded anywhere

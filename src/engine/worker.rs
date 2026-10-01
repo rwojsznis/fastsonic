@@ -812,6 +812,7 @@ impl Worker {
         if replays(self.state.track.as_ref(), next) {
             self.state.seek_sequence = self.state.seek_sequence.wrapping_add(1);
         }
+        self.state.track_sequence = self.state.track_sequence.wrapping_add(1);
     }
 
     fn toggle(&mut self) {

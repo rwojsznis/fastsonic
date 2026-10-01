@@ -1328,6 +1328,10 @@ impl App {
     /// What the engine says it is doing. Demo mode sends one of these too,
     /// for the same reason it publishes a queue.
     pub(crate) fn handle_local(&mut self, state: LocalState) {
+        // Another start, the same song's included, is another play to count.
+        if state.track_sequence != self.local.track_sequence {
+            self.listening = None;
+        }
         let track_changed = state.track != self.local.track;
         let reconnected = state.connected && !self.local.connected;
         if state.shuffle != self.local.shuffle
@@ -7704,6 +7708,48 @@ mod tests {
         }
         assert!(app.album_pages.contains_key("al6"));
         assert!(!app.album_pages.contains_key("al7"));
+        app.backend.shutdown();
+    }
+
+    /// A short song played twice in a row is two plays, each counted once
+    /// it has been listened to long enough; pausing or seeking one play does
+    /// not count it again.
+    #[test]
+    fn each_repeat_of_a_short_song_earns_its_own_history_entry() {
+        let mut app = headless_app();
+        app.plays = crate::history::History::default();
+        for sequence in [1, 2] {
+            app.handle_local(LocalState {
+                connected: true,
+                playback: Playback::Playing,
+                track_sequence: sequence,
+                track: Some(crate::engine::LocalTrack {
+                    uri: "sonic:track:short".into(),
+                    title: "Short interlude".into(),
+                    duration_ms: 40_000,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+            app.note_listening();
+            assert_eq!(app.plays.plays().len(), sequence as usize - 1);
+            let listening = app.listening.as_mut().unwrap();
+            assert!(!listening.recorded, "the new play is counted separately");
+            listening.playing_since = Some(Instant::now() - Duration::from_secs(21));
+            app.note_listening();
+            assert_eq!(app.plays.plays().len(), sequence as usize);
+
+            let mut paused = app.local.clone();
+            paused.playback = Playback::Paused;
+            paused.seek_sequence += 1;
+            app.handle_local(paused);
+            app.note_listening();
+            let mut resumed = app.local.clone();
+            resumed.playback = Playback::Playing;
+            app.handle_local(resumed);
+            app.note_listening();
+            assert_eq!(app.plays.plays().len(), sequence as usize);
+        }
         app.backend.shutdown();
     }
 

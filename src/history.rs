@@ -129,23 +129,44 @@ pub fn played_track(now: &crate::app::NowPlaying) -> Track {
 
 /// Merges local and server history, newest first.
 ///
-/// Matching plays within the duplicate window are deduplicated. Entries
-/// without a timestamp sort to the end.
+/// A play the server reports within the duplicate window of one made here is
+/// that same play, and is shown once. Plays from one source are never merged
+/// with each other: each is its own listen, however close together they
+/// start. Entries without a timestamp sort to the end.
 pub fn merged(local: &[PlayHistory], remote: &[PlayHistory]) -> Vec<PlayHistory> {
-    let mut seen: HashMap<String, Vec<i64>> = HashMap::new();
-    let mut out: Vec<(Option<i64>, PlayHistory)> = Vec::new();
-    for play in local.iter().chain(remote) {
-        let at = play
-            .played_at
+    let time = |play: &PlayHistory| {
+        play.played_at
             .as_deref()
             .and_then(|at| at.parse::<jiff::Timestamp>().ok())
-            .map(|at| at.as_second());
+            .map(|at| at.as_second())
+    };
+    // The plays made here that no report from the server has matched yet.
+    let mut unmatched: HashMap<&str, Vec<i64>> = HashMap::new();
+    let mut out: Vec<(Option<i64>, PlayHistory)> = Vec::new();
+    for play in local {
+        let at = time(play);
         if let Some(at) = at {
-            let times = seen.entry(play.track.uri.clone()).or_default();
-            if times.iter().any(|held| (held - at).abs() <= SAME_PLAY) {
-                continue;
-            }
-            times.push(at);
+            unmatched
+                .entry(play.track.uri.as_str())
+                .or_default()
+                .push(at);
+        }
+        out.push((at, play.clone()));
+    }
+    for play in remote {
+        let at = time(play);
+        // Each play made here stands for at most one report: the closest.
+        if let Some(at) = at
+            && let Some(times) = unmatched.get_mut(play.track.uri.as_str())
+            && let Some(nearest) = times
+                .iter()
+                .enumerate()
+                .filter(|&(_, &held)| (held - at).abs() <= SAME_PLAY)
+                .min_by_key(|&(_, &held)| (held - at).abs())
+                .map(|(index, _)| index)
+        {
+            times.swap_remove(nearest);
+            continue;
         }
         out.push((at, play.clone()));
     }
@@ -171,6 +192,24 @@ mod tests {
             played_at: Some(at.to_string()),
             context: None,
         }
+    }
+
+    /// Each source reports every play it heard: a short song played twice
+    /// in a row is two plays, however close together they start. Only a
+    /// play that both sources report becomes one row.
+    #[test]
+    fn a_short_song_played_twice_by_one_source_is_two_rows() {
+        let twice = vec![
+            play("sonic:track:short", "2026-09-01T15:00:40Z"),
+            play("sonic:track:short", "2026-09-01T15:00:00Z"),
+        ];
+        assert_eq!(merged(&[], &twice).len(), 2, "two plays the server heard");
+        assert_eq!(merged(&twice, &[]).len(), 2, "two plays on this computer");
+        let reported = vec![
+            play("sonic:track:short", "2026-09-01T15:00:45Z"),
+            play("sonic:track:short", "2026-09-01T15:00:05Z"),
+        ];
+        assert_eq!(merged(&twice, &reported).len(), 2, "each play once");
     }
 
     /// A play counts after 30 seconds or halfway through a shorter track.

@@ -107,6 +107,9 @@ pub struct LocalState {
     pub username: String,
     pub error: Option<String>,
     pub seek_sequence: u64,
+    /// Counts every start of a track, a replay of the same one included,
+    /// so a song played twice in a row is told apart from one play of it.
+    pub track_sequence: u64,
 }
 
 /// What playback was doing when its engine was replaced, so the next one
