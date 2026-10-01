@@ -213,7 +213,11 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
     let fullscreen = ui
         .ctx()
         .input(|input| input.viewport().fullscreen.unwrap_or(false));
-    if !titlebar_drags(cfg!(target_os = "macos"), cfg!(windows), fullscreen) {
+    if !titlebar_drags(
+        cfg!(target_os = "macos"),
+        crate::window::custom_titlebar(),
+        fullscreen,
+    ) {
         return;
     }
     let response = ui.interact(
@@ -221,13 +225,13 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
         ui.id().with("titlebar-drag"),
         egui::Sense::click_and_drag(),
     );
-    if cfg!(windows) && response.double_clicked() {
+    if crate::window::custom_titlebar() && response.double_clicked() {
         let maximized = ui
             .ctx()
             .input(|input| input.viewport().maximized.unwrap_or(false));
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-    } else if cfg!(windows) && response.drag_started() {
+    } else if crate::window::custom_titlebar() && response.drag_started() {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     } else if cfg!(target_os = "macos")
         && response.is_pointer_button_down_on()
@@ -238,11 +242,12 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
     }
 }
 
-/// Whether the window has a top edge of its own to drag by: macOS hides its
-/// title bar and Windows draws none, so the interface stands in for it.
-/// Elsewhere the desktop's title bar does, and full screen has none.
-const fn titlebar_drags(on_macos: bool, on_windows: bool, fullscreen: bool) -> bool {
-    (on_macos || on_windows) && !fullscreen
+/// Whether the interface stands in for a title bar to drag the window by:
+/// macOS hides its title bar, and the Windows custom title bar replaces the
+/// standard frame. Elsewhere the desktop's title bar does, and full screen
+/// has none.
+const fn titlebar_drags(on_macos: bool, custom_titlebar: bool, fullscreen: bool) -> bool {
+    (on_macos || custom_titlebar) && !fullscreen
 }
 
 const WINDOW_RESIZE_BORDER: f32 = 5.0;
@@ -266,7 +271,7 @@ const fn windows_chrome_visible(on_windows: bool, fullscreen: bool) -> bool {
 
 fn windows_chrome_visible_here(ctx: &egui::Context) -> bool {
     let fullscreen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
-    windows_chrome_visible(cfg!(windows), fullscreen)
+    windows_chrome_visible(crate::window::custom_titlebar(), fullscreen)
 }
 
 const fn windows_controls_reservation(
@@ -303,7 +308,13 @@ pub(super) fn window_controls_reservation(
     topbar_width: f32,
 ) -> WindowControlsReservation {
     let fullscreen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
-    windows_controls_reservation(cfg!(windows), fullscreen, queue, lyrics, topbar_width)
+    windows_controls_reservation(
+        crate::window::custom_titlebar(),
+        fullscreen,
+        queue,
+        lyrics,
+        topbar_width,
+    )
 }
 
 /// Draws the Windows caption controls over the outermost top-right header.
@@ -357,7 +368,7 @@ fn window_resize(ui: &mut egui::Ui) {
             input.viewport().maximized.unwrap_or(false),
         )
     });
-    if !window_resize_enabled(cfg!(windows), fullscreen, maximized) {
+    if !window_resize_enabled(crate::window::custom_titlebar(), fullscreen, maximized) {
         return;
     }
 
@@ -482,9 +493,9 @@ fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
 mod window_chrome_tests {
     use super::*;
 
-    /// The Windows window has no frame, so its top bar is the only thing to
-    /// drag it by. Keying this on the macOS title-bar inset, which is zero on
-    /// Windows, left it immovable.
+    /// A window with the custom title bar has no frame, so its top bar is the
+    /// only thing to drag it by. Keying this on the macOS title-bar inset,
+    /// which is zero on Windows, once left it immovable.
     #[test]
     fn the_borderless_windows_window_drags_by_its_top_bar() {
         assert!(titlebar_drags(false, true, false));

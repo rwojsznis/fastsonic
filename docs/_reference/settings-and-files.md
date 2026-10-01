@@ -48,6 +48,9 @@ Interface settings cover theme, album-art accents, compact rows, shortcut
 hints, sidebar state, zoom, player bar visualizer, Winamp skin/random
 selection/windows/equalizer, and MilkDrop. On
 Linux, Follow system reads the light or dark preference from the desktop portal.
+On Windows the main window uses the standard title bar; **Custom title bar**
+(`custom_titlebar`) draws Fastsonic's own title bar and window buttons instead,
+and changing it replaces only the native window.
 Close
 to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer

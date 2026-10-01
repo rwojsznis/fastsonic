@@ -113,6 +113,9 @@ pub struct Settings {
     pub sidebar_order: Vec<String>,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
+    /// Windows: draw Fastsonic's own title bar and window buttons instead of
+    /// the standard Windows frame.
+    pub custom_titlebar: bool,
     /// The Winamp window is open.
     pub winamp_window: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
@@ -193,6 +196,7 @@ impl Default for Settings {
             pinned_contexts: Vec::new(),
             sidebar_order: Vec::new(),
             zoom: 1.0,
+            custom_titlebar: false,
             winamp_window: false,
             skin: None,
             random_skin: false,

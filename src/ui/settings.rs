@@ -461,6 +461,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 });
             },
         );
+        if cfg!(windows) {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Custom title bar",
+                "Draw Fastsonic's own title bar and window buttons instead of the standard Windows ones.",
+                |ui| {
+                    let mut custom = app.settings.custom_titlebar;
+                    if widgets::switch(ui, &palette, "Custom title bar", &mut custom).changed() {
+                        app.actions.push(Action::SetCustomTitlebar(custom));
+                    }
+                },
+            );
+        }
     });
 
     section(ui, &palette, "Winamp skins", |ui| {

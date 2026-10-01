@@ -273,6 +273,7 @@ fn main() -> eframe::Result<()> {
     }
     log_panics(dirs.panic_log());
     let settings = settings::Settings::load(&dirs.settings_file());
+    fastsonic::window::set_custom_titlebar(settings.custom_titlebar);
     // The application (audio engine, Web API, MPRIS, tray) outlives any
     // window. Closing to the tray destroys the window and this loop creates
     // a new one when the tray or MPRIS asks for it. Plain window lifecycle,
@@ -501,8 +502,8 @@ impl MiniWindow {
     }
 }
 
-const fn main_window_decorated(on_windows: bool) -> bool {
-    !on_windows
+const fn main_window_decorated(custom_titlebar: bool) -> bool {
+    !custom_titlebar
 }
 
 #[cfg(any(test, feature = "demo"))]
@@ -579,8 +580,9 @@ fn native_options(
                 .with_titlebar_shown(false)
                 .with_title_shown(false)
                 // Windows has no equivalent to macOS's floating traffic lights.
-                // Removing its decorations lets the app surface fill the window.
-                .with_decorations(main_window_decorated(cfg!(windows)))
+                // The custom title bar removes its decorations so the app
+                // surface fills the window; the standard frame is the default.
+                .with_decorations(main_window_decorated(fastsonic::window::custom_titlebar()))
                 .with_inner_size(size)
                 .with_min_inner_size(inner_size.unwrap_or([760.0, 520.0]))
                 .with_fullscreen(fullscreen);
@@ -827,7 +829,10 @@ mod native_window_tests {
     #[test]
     fn main_window_uses_the_platform_decoration_policy() {
         let options = native_options(false, None, None);
-        assert_eq!(options.viewport.decorations, Some(!cfg!(windows)));
+        assert_eq!(
+            options.viewport.decorations,
+            Some(!fastsonic::window::custom_titlebar())
+        );
         assert_eq!(options.viewport.fullsize_content_view, Some(true));
         assert_eq!(options.viewport.titlebar_shown, Some(false));
         assert_eq!(options.viewport.title_shown, Some(false));

@@ -770,6 +770,8 @@ pub enum Action {
     /// Select a skin, or the built-in skin for `None`.
     SetSkin(Option<String>),
     SetRandomSkin(bool),
+    /// Windows: draw Fastsonic's own title bar instead of the standard one.
+    SetCustomTitlebar(bool),
     /// Install and select a skin file.
     InstallSkin(std::path::PathBuf),
     /// Screen pixels per skin pixel in the Winamp window.
