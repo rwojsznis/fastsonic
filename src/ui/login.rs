@@ -194,6 +194,9 @@ fn big_button(ui: &mut egui::Ui, app: &App, label: &str, enabled: bool) -> bool 
         .layout_no_wrap(label.to_string(), theme::bold(15.0), text_color);
     let size = Vec2::new(ui.available_width().min(300.0), 46.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    // Drawn by hand, so it has to say what it is for a screen reader to
+    // find it.
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
     let fill = match (enabled, response.hovered()) {
         (false, _) => palette.surface,
         (true, true) => palette.accent_hover,

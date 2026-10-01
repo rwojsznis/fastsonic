@@ -2694,6 +2694,8 @@ mod tests {
         view_frame(&ctx, &mut app, vec![], whole);
         let painted = view_frame(&ctx, &mut app, vec![], whole);
         assert!(painted.iter().any(|(text, _)| text == "Connect"));
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Connect", egui::accesskit::Role::Button);
         apply_flags(&mut app, None, Some("connecting"));
         assert!(matches!(app.auth, AuthStatus::Connecting) && app.user.is_none());
         view_frame(&ctx, &mut app, vec![], whole);
