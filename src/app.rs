@@ -145,7 +145,7 @@ pub struct App {
     /// Whether this window's native backend can keep it above other windows.
     pub window_level_supported: bool,
     /// Whether this window's native backend can leave the mini player out of
-    /// the taskbar.
+    /// the taskbar: Windows and X11.
     pub taskbar_hiding_supported: bool,
     applied_dark: Option<bool>,
 

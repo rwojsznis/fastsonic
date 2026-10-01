@@ -66,7 +66,7 @@ On Windows the main window uses the standard title bar; **Custom title bar**
 and changing it replaces only the native window. On Windows, **Show in
 taskbar** under Winamp skins (`winamp_show_taskbar`, on by default) decides
 whether the mini player keeps a taskbar button; the main window always keeps
-its own.
+its own. Linux X11 sessions offer the same switch; Wayland and macOS do not.
 Close
 to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer

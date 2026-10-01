@@ -118,7 +118,7 @@ pub struct Settings {
     pub custom_titlebar: bool,
     /// The Winamp window is open.
     pub winamp_window: bool,
-    /// Windows: keep a taskbar button while the Winamp window is visible.
+    /// Windows and X11: keep a taskbar button while the Winamp window is visible.
     pub winamp_show_taskbar: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
     pub skin: Option<String>,

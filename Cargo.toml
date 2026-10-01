@@ -148,6 +148,10 @@ ksni = { version = "0.3", features = ["blocking"] }
 mpris-server = { version = "0.10", features = ["tokio"] }
 # Read the desktop portal theme without blocking the UI thread.
 zbus = { version = "5.19", features = ["blocking"] }
+# Keeps the X11 mini player out of the taskbar with _NET_WM_STATE_SKIP_TASKBAR
+# (src/window.rs), which winit only offers on Windows. winit already
+# compiles this version.
+x11rb = { version = "0.13", default-features = false }
 
 # The icon and version information Windows shows for the executable.
 [target.'cfg(windows)'.build-dependencies]

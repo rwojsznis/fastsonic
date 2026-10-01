@@ -377,6 +377,8 @@ fn main() -> eframe::Result<()> {
         #[cfg(not(feature = "demo"))]
         let options = native_options(false, mini, None);
         let persist_memory = options.persist_window;
+        #[cfg(target_os = "linux")]
+        let hide_from_taskbar = options.viewport.taskbar == Some(false);
         eframe::run_native(
             "Fastsonic",
             options,
@@ -416,6 +418,19 @@ fn main() -> eframe::Result<()> {
                     if let Ok(display) = cc.display_handle() {
                         app.window_level_supported =
                             fastsonic::window::supports_window_level(display.as_raw());
+                        // Or'd so that the `taskbar` demo surface keeps the
+                        // row on any backend.
+                        app.taskbar_hiding_supported |=
+                            fastsonic::window::supports_hiding_from_taskbar(display.as_raw());
+                    }
+                }
+                // winit hides a taskbar button on Windows only; X11 is asked
+                // here, while the window is still unmapped.
+                #[cfg(target_os = "linux")]
+                if hide_from_taskbar {
+                    use raw_window_handle::HasWindowHandle;
+                    if let Ok(handle) = cc.window_handle() {
+                        fastsonic::window::skip_x11_taskbar(handle.as_raw());
                     }
                 }
                 app.attach(&cc.egui_ctx);
@@ -659,7 +674,8 @@ fn native_options(
                 .with_min_inner_size(mini.size)
                 .with_max_inner_size(mini.size)
                 .with_window_level(level)
-                // egui applies this native attribute on Windows only.
+                // egui applies this native attribute on Windows only; the app
+                // creator asks X11 itself (window::skip_x11_taskbar).
                 .with_taskbar(mini.taskbar);
             match mini_creation_position(mini.position, cfg!(windows)) {
                 Some([x, y]) => viewport.with_position([x, y]),

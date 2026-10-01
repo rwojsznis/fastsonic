@@ -29,12 +29,17 @@ the title bar, or click **O**, to choose 1x to 4x and set always-on-top. **D**
 toggles double size and **A** toggles always-on-top. Fastsonic remembers the
 window position.
 
-On Windows, turn off **Show in taskbar** under **Settings > Winamp skins**, or
-in the **O** menu, to drop the mini player's taskbar button. The choice
+On Windows and in Linux X11 sessions, turn off **Show in taskbar** under
+**Settings > Winamp skins**, or in the **O** menu, to drop the mini player's
+taskbar button. The choice
 survives restarts. The mini player stays visible; the tray icon, Ctrl+M, the
 skin logo, and launching Fastsonic again still reach the app, and returning to
 the main window always brings its taskbar button back. Changing the option
 while the mini player is open replaces that window while playback continues.
+On X11 it hides the mini player from panels and task switchers that follow
+the window manager's skip-taskbar state. Wayland has no standard way for an
+app to leave the taskbar, so the option is not offered there; use your
+desktop's window rules instead. It does not change the macOS Dock.
 
 **Always on top** works on Windows, macOS and X11. On Wayland the app's
 controls are unavailable, because the window backend cannot apply them; use
