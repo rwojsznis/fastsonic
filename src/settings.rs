@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeChoice {
-    #[default]
     Dark,
     Light,
+    #[default]
     System,
 }
 
@@ -35,7 +35,7 @@ impl VisMode {
 }
 
 impl ThemeChoice {
-    pub const ALL: [ThemeChoice; 3] = [Self::Dark, Self::Light, Self::System];
+    pub const ALL: [ThemeChoice; 3] = [Self::System, Self::Dark, Self::Light];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -177,7 +177,7 @@ impl Default for Settings {
             audio_buffer_ms: default_buffer_ms(),
             audio_cache: true,
             audio_cache_mb: 1024,
-            theme: ThemeChoice::Dark,
+            theme: ThemeChoice::System,
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
@@ -325,6 +325,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(settings.volume, 12345);
         assert!(!settings.sidebar_visible);
+    }
+
+    /// A new profile follows the desktop; a theme chosen before is kept,
+    /// since every saved settings file names one.
+    #[test]
+    fn new_profiles_follow_the_system_and_saved_choices_are_preserved() {
+        use super::ThemeChoice;
+        assert_eq!(Settings::default().theme, ThemeChoice::System);
+        assert_eq!(ThemeChoice::ALL[0], ThemeChoice::System);
+        for (saved, choice) in [
+            ("dark", ThemeChoice::Dark),
+            ("light", ThemeChoice::Light),
+            ("system", ThemeChoice::System),
+        ] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"theme":"{saved}"}}"#)).unwrap();
+            assert_eq!(settings.theme, choice);
+        }
+        let saved = serde_json::to_string(&Settings {
+            theme: ThemeChoice::Dark,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert!(saved.contains(r#""theme":"dark""#), "{saved}");
     }
 
     #[test]

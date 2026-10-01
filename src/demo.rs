@@ -572,6 +572,9 @@ fn history(songs: &[Track]) -> Vec<PlayHistory> {
 pub fn populate(app: &mut App) {
     app.backend.set_offline(true);
     app.offline = true;
+    // Screenshots look the same whatever the desktop prefers; `light` asks
+    // for the other theme.
+    app.settings.theme = crate::settings::ThemeChoice::Dark;
     app.auth = AuthStatus::Connected {
         username: USER.into(),
     };
