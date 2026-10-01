@@ -230,6 +230,12 @@ pub enum ApiRequest {
     Track {
         id: String,
     },
+    /// Songs to go with a song, album, artist or playlist, by its URI.
+    /// `generation` tells a page's latest request from the ones before it.
+    Radio {
+        seed: String,
+        generation: u64,
+    },
 }
 
 impl ApiRequest {
@@ -360,6 +366,11 @@ pub enum ApiResponse {
     Track {
         id: String,
         result: ApiResult<Track>,
+    },
+    Radio {
+        seed: String,
+        generation: u64,
+        result: ApiResult<Radio>,
     },
 }
 
@@ -1445,6 +1456,11 @@ async fn handle(
         ApiRequest::Track { id } => ApiResponse::Track {
             result: client.track(&id).await,
             id,
+        },
+        ApiRequest::Radio { seed, generation } => ApiResponse::Radio {
+            result: client.radio(&seed).await,
+            seed,
+            generation,
         },
     };
     Some(response)

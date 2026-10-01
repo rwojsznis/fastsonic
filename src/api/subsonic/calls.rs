@@ -25,16 +25,22 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::api::models::{
-    Album, Artist, Page, Playlist, PlaylistItem, SavedTrack, SearchResults, Track, User,
+    Album, Artist, Page, Playlist, PlaylistItem, Radio, SavedTrack, SearchResults, Track, User,
 };
 
 use super::client::{ApiError, Result, SubsonicClient};
 use super::convert;
 use super::types::{
     AlbumId3, AlbumList2, ArtistInfo2, ArtistWithAlbumsId3, ArtistsId3, Child, LyricsList,
-    NowPlaying, OpenSubsonicExtension, PlaylistWithSongs, Playlists, SearchResult3, Songs,
-    Starred2, TopSongs, User as SubsonicUser,
+    NowPlaying, OpenSubsonicExtension, PlaylistWithSongs, Playlists, SearchResult3, SimilarSongs,
+    SimilarSongs2, Songs, Starred2, TopSongs, User as SubsonicUser,
 };
+
+/// How many songs a radio holds.
+const RADIO_SIZE: usize = 50;
+
+/// How many of a playlist's songs its radio is based on.
+const PLAYLIST_RADIO_SEEDS: usize = 5;
 
 /// `getAlbumList2`'s orderings, as far as this app uses them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,6 +267,32 @@ impl SubsonicClient {
                 "getTopSongs",
                 "topSongs",
                 &[param("artist", artist_name), param("count", count)],
+            )
+            .await?;
+        Ok(songs.song)
+    }
+
+    /// Songs to go with a song, an album or an artist, by its id; Navidrome
+    /// takes all three. Agent-backed, so `{}` on a server with no Last.fm
+    /// key or other agent, which is the ordinary case and not an error.
+    pub async fn similar_songs(&self, id: &str, count: u32) -> Result<Vec<Child>> {
+        let songs: SimilarSongs = self
+            .get(
+                "getSimilarSongs",
+                "similarSongs",
+                &[param("id", id), param("count", count)],
+            )
+            .await?;
+        Ok(songs.song)
+    }
+
+    /// The ID3 counterpart, for an artist. Empty for the same reason.
+    pub async fn similar_songs2(&self, artist_id: &str, count: u32) -> Result<Vec<Child>> {
+        let songs: SimilarSongs2 = self
+            .get(
+                "getSimilarSongs2",
+                "similarSongs2",
+                &[param("id", artist_id), param("count", count)],
             )
             .await?;
         Ok(songs.song)
@@ -738,6 +770,62 @@ impl SubsonicClient {
         Ok(convert::track(&self.get_song(id).await?))
     }
 
+    /// `ApiRequest::Radio`: songs the server picks to go with `seed`, and
+    /// the seed's name and art to title them with, asked for together.
+    ///
+    /// Subsonic takes no playlist as a seed, so a playlist's radio is the
+    /// similar songs of a few of its songs, by different artists where it
+    /// has them, taken in turn and without repeats.
+    pub async fn radio(&self, seed: &str) -> Result<Radio> {
+        let count = RADIO_SIZE as u32;
+        let (name, images, songs) = match convert::parse_uri(seed) {
+            Some((convert::Kind::Track, id)) => {
+                let (song, similar) =
+                    tokio::join!(self.get_song(id), self.similar_songs(id, count));
+                let song = convert::track(&song?);
+                let images = song.album.map(|album| album.images).unwrap_or_default();
+                (song.name, images, similar?)
+            }
+            Some((convert::Kind::Album, id)) => {
+                let (album, similar) =
+                    tokio::join!(self.get_album(id), self.similar_songs(id, count));
+                let album = convert::album(&album?.album);
+                (album.name, album.images, similar?)
+            }
+            Some((convert::Kind::Artist, id)) => {
+                let (artist, similar) =
+                    tokio::join!(self.get_artist(id), self.similar_songs2(id, count));
+                let artist = convert::artist_with_albums(&artist?);
+                (artist.name, artist.images, similar?)
+            }
+            Some((convert::Kind::Playlist, id)) => {
+                let playlist = self.get_playlist(id).await?;
+                let seeds = playlist_seeds(&playlist.entry, PLAYLIST_RADIO_SEEDS, &mut rand::rng());
+                let mut lists = Vec::with_capacity(seeds.len());
+                for song in seeds {
+                    lists.push(self.similar_songs(&song.id, count).await?);
+                }
+                let playlist = convert::playlist(&playlist.playlist);
+                (
+                    playlist.name,
+                    playlist.images,
+                    take_turns(lists, RADIO_SIZE),
+                )
+            }
+            _ => {
+                return Err(ApiError::Server {
+                    code: 0,
+                    message: "There is no radio for this.".into(),
+                });
+            }
+        };
+        Ok(Radio {
+            name,
+            images,
+            songs: songs.iter().map(convert::track).collect(),
+        })
+    }
+
     // ---- what Home is made of now ---------------------------------------
     //
     // Recommendations, Discover and Made-for-you have no equivalent and are
@@ -798,6 +886,48 @@ fn reorder(ids: &mut Vec<String>, from: usize, insert_before: usize) -> bool {
     let moved = ids.remove(from);
     ids.insert(target.min(ids.len()), moved);
     true
+}
+
+/// Up to `wanted` of a playlist's songs to base its radio on, picked at
+/// random so that Refresh mixes afresh: one song per artist first, since
+/// the server's similar songs follow the artist, then any others.
+fn playlist_seeds<'a>(
+    songs: &'a [Child],
+    wanted: usize,
+    rng: &mut impl rand::Rng,
+) -> Vec<&'a Child> {
+    use rand::seq::SliceRandom;
+    let mut order: Vec<&Child> = songs.iter().filter(|song| !song.id.is_empty()).collect();
+    order.shuffle(rng);
+    let artist = |song: &Child| song.artist_id.clone().or_else(|| song.artist.clone());
+    let mut seen = std::collections::HashSet::new();
+    let (mut seeds, rest): (Vec<&Child>, Vec<&Child>) = order
+        .into_iter()
+        .partition(|song| seen.insert(artist(song)));
+    seeds.truncate(wanted);
+    let missing = wanted.saturating_sub(seeds.len());
+    seeds.extend(rest.into_iter().take(missing));
+    seeds
+}
+
+/// One list from several, a song from each in turn, without repeats and at
+/// most `cap` long, so that every seed is heard from near the top.
+fn take_turns(lists: Vec<Vec<Child>>, cap: usize) -> Vec<Child> {
+    let mut lists: Vec<std::vec::IntoIter<Child>> = lists.into_iter().map(Vec::into_iter).collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut merged = Vec::new();
+    while merged.len() < cap && !lists.is_empty() {
+        lists.retain_mut(|list| {
+            let Some(song) = list.next() else {
+                return false;
+            };
+            if merged.len() < cap && seen.insert(song.id.clone()) {
+                merged.push(song);
+            }
+            true
+        });
+    }
+    merged
 }
 
 /// The starred songs as the Liked Songs page wants them: newest star
@@ -946,6 +1076,69 @@ mod tests {
             .map(|saved| saved.track.name.as_str())
             .collect();
         assert_eq!(order, ["first", "second"]);
+    }
+
+    fn by(id: &str, artist: &str) -> Child {
+        Child {
+            id: id.to_string(),
+            artist_id: Some(artist.to_string()),
+            ..Child::default()
+        }
+    }
+
+    fn song_ids(songs: &[Child]) -> Vec<&str> {
+        songs.iter().map(|song| song.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_playlist_radio_is_based_on_songs_by_different_artists() {
+        use rand::SeedableRng;
+        let playlist = [
+            by("a1", "a"),
+            by("a2", "a"),
+            by("a3", "a"),
+            by("b1", "b"),
+            by("b2", "b"),
+            by("c1", "c"),
+        ];
+        for seed in 0..20 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            let picked = playlist_seeds(&playlist, 3, &mut rng);
+            let mut artists: Vec<&str> = picked
+                .iter()
+                .map(|song| song.artist_id.as_deref().unwrap())
+                .collect();
+            artists.sort_unstable();
+            assert_eq!(artists, ["a", "b", "c"], "rng seed {seed}");
+        }
+        // With fewer artists than seeds wanted, the rest are other songs,
+        // each once.
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+        let mut picked: Vec<&str> = playlist_seeds(&playlist, 5, &mut rng)
+            .iter()
+            .map(|song| song.id.as_str())
+            .collect();
+        picked.sort_unstable();
+        picked.dedup();
+        assert_eq!(picked.len(), 5);
+        assert_eq!(playlist_seeds(&playlist[..2], 5, &mut rng).len(), 2);
+        assert!(playlist_seeds(&[], 5, &mut rng).is_empty());
+    }
+
+    #[test]
+    fn a_playlist_radio_takes_turns_without_repeats_up_to_its_size() {
+        let lists = vec![
+            vec![by("x1", "x"), by("shared", "s"), by("x2", "x")],
+            vec![by("shared", "s"), by("y1", "y")],
+            vec![by("z1", "z")],
+        ];
+        let merged = take_turns(lists.clone(), 50);
+        assert_eq!(song_ids(&merged), ["x1", "shared", "z1", "y1", "x2"]);
+        let capped = take_turns(lists, 3);
+        assert_eq!(song_ids(&capped), ["x1", "shared", "z1"]);
+        assert!(take_turns(vec![Vec::new(), Vec::new()], 50).is_empty());
+        let long: Vec<Child> = (0..80).map(|index| by(&index.to_string(), "a")).collect();
+        assert_eq!(take_turns(vec![long], RADIO_SIZE).len(), RADIO_SIZE);
     }
 
     #[test]

@@ -40,6 +40,15 @@ rewrites it whole in the new order under the same id and name. Playback requests
 HTTP byte ranges remain available for seeking and the in-process decoder sees
 the library's real format.
 
+A radio page asks the server for similar songs: `getSimilarSongs` for a song
+or an album, `getSimilarSongs2` for an artist, each beside `getSong`,
+`getAlbum` or `getArtist` for the name and cover it is titled with. Subsonic
+takes no playlist, so a playlist's radio reads the playlist with `getPlaylist`
+and sends `getSimilarSongs` for up to five of its songs. **Refresh** repeats
+the same requests. The server answers from its own agents, such as Last.fm,
+which it may contact itself; Fastsonic talks only to the server, and without
+an agent the answers are empty.
+
 The audio engine runs outside the UI thread. It reads the HTTP stream through
 a bounded on-disk block cache, decodes and resamples it, applies ReplayGain and
 the equalizer, sends post-EQ/pre-volume samples to the visualisers, then sends

@@ -205,6 +205,8 @@ pub struct App {
     load_generation: u64,
     pub album_pages: HashMap<String, AlbumPage>,
     pub artist_pages: HashMap<String, ArtistPage>,
+    /// Radio pages, by the seed's URI.
+    pub radio_pages: HashMap<String, RadioPage>,
     pub track_cache: HashMap<String, Track>,
     track_requests: HashSet<String>,
     /// When each cached page and track was last used, for evicting the
@@ -506,6 +508,7 @@ impl App {
             load_generation: 0,
             album_pages: HashMap::new(),
             artist_pages: HashMap::new(),
+            radio_pages: HashMap::new(),
             track_cache: HashMap::new(),
             track_requests: HashSet::new(),
             page_used: HashMap::new(),
@@ -816,6 +819,12 @@ impl App {
             return Some(PlayingFrom {
                 name: "Liked Songs".into(),
                 page: Page::LikedSongs,
+            });
+        }
+        if let Some(seed) = convert::radio_seed(&context) {
+            return Some(PlayingFrom {
+                name: self.radio_name(&seed).unwrap_or_else(|| "Radio".into()),
+                page: Page::Radio(seed),
             });
         }
         let kind = util::uri_kind(&context)?;
@@ -1186,6 +1195,7 @@ impl App {
         self.playlist_pages.clear();
         self.album_pages.clear();
         self.artist_pages.clear();
+        self.radio_pages.clear();
         self.saved.clear();
         self.saved_pending.clear();
         self.queue = Queue::default();
@@ -1210,6 +1220,7 @@ impl App {
                 || match page {
                     Page::Playlist(id) => self.playlist_pages.contains_key(id),
                     Page::Album(id) => self.album_pages.contains_key(id),
+                    Page::Radio(seed) => self.radio_pages.contains_key(seed),
                     Page::LikedSongs | Page::TopSongs => true,
                     _ => false,
                 }
@@ -2265,6 +2276,7 @@ impl App {
                         .api(ApiRequest::RelatedArtists { id: id.clone() });
                 }
             }
+            Page::Radio(seed) => self.load_radio(&seed),
             // The queue page has nothing to load: the engine's last word
             // on the queue is already here.
             Page::Queue | Page::Settings => {}
@@ -2478,6 +2490,13 @@ impl App {
             }
             Page::Artist(id) => {
                 self.artist_pages.remove(id);
+            }
+            Page::Radio(seed) => {
+                // A new mix replaces the songs on screen when it arrives.
+                if self.refresh_radio(seed) {
+                    return;
+                }
+                self.radio_pages.remove(seed);
             }
             // The queue page has nothing to throw away and reload: the
             // engine is the only thing that knows what the queue is.
@@ -3248,6 +3267,11 @@ impl App {
                     self.load_more(Page::Album(id));
                 }
             }
+            ApiResponse::Radio {
+                seed,
+                generation,
+                result,
+            } => self.receive_radio(&seed, generation, result),
             ApiResponse::Track { id, result } => {
                 self.track_requests.remove(&id);
                 if let Ok(track) = result {
@@ -3288,6 +3312,7 @@ impl App {
         const MAX_PLAYLIST_PAGES: usize = 12;
         const MAX_ALBUM_PAGES: usize = 16;
         const MAX_ARTIST_PAGES: usize = 10;
+        const MAX_RADIO_PAGES: usize = 6;
         const MAX_TRACK_CACHE: usize = 800;
 
         let mut protected: HashSet<Page> = HashSet::new();
@@ -3297,7 +3322,8 @@ impl App {
                 Some((Kind::Playlist, id)) => protected.insert(Page::Playlist(id.into())),
                 Some((Kind::Album, id)) => protected.insert(Page::Album(id.into())),
                 Some((Kind::Artist, id)) => protected.insert(Page::Artist(id.into())),
-                _ => false,
+                _ => convert::radio_seed(&uri)
+                    .is_some_and(|seed| protected.insert(Page::Radio(seed))),
             };
         }
         if self.playlist_busy {
@@ -3324,10 +3350,18 @@ impl App {
             &protected,
             MAX_ARTIST_PAGES,
         );
+        evict_lru_map(
+            &mut self.radio_pages,
+            &self.page_used,
+            |seed| Page::Radio(seed.to_string()),
+            &protected,
+            MAX_RADIO_PAGES,
+        );
         self.page_used.retain(|page, _| match page {
             Page::Playlist(id) => self.playlist_pages.contains_key(id),
             Page::Album(id) => self.album_pages.contains_key(id),
             Page::Artist(id) => self.artist_pages.contains_key(id),
+            Page::Radio(seed) => self.radio_pages.contains_key(seed),
             _ => true,
         });
         if self.track_cache.len() > MAX_TRACK_CACHE {
@@ -3363,7 +3397,11 @@ impl App {
     /// sidebar's order.
     fn note_recent_context(&mut self, uri: &str) {
         self.session_dirty = true;
-        if !uri.contains(":playlist:") && !uri.contains(":album:") && !uri.contains(":collection") {
+        // Parsed, not searched: a radio's URI names its seed's kind too.
+        if !matches!(
+            convert::parse_uri(uri),
+            Some((Kind::Playlist | Kind::Album | Kind::Collection, _))
+        ) {
             return;
         }
         self.recent_contexts.retain(|held| held != uri);
@@ -3525,7 +3563,7 @@ impl App {
         }
         self.intent_track = keys
             .iter()
-            .find(|key| key.contains(":track:"))
+            .find(|key| convert::id_of(key, Kind::Track).is_some())
             .cloned()
             .map(|uri| (uri, Instant::now()));
         self.set_play_pending(keys);
@@ -3611,6 +3649,12 @@ impl App {
         let queued = std::mem::take(&mut self.resume_queue);
         self.session_dirty = true;
         let mut request = match self.resume_context.clone() {
+            // A radio was the songs it showed, which did not outlive the
+            // session: the song plays on alone, still the radio's.
+            Some(context) if convert::radio_seed(&context).is_some() => PlayRequest {
+                context_uri: Some(context),
+                ..PlayRequest::tracks(vec![track])
+            },
             Some(context) => {
                 // The album goes back to the row it was on, which is not
                 // the remembered track when a queued song was playing over
@@ -3864,14 +3908,22 @@ impl App {
                     uris, context_uri, ..
                 } => {
                     let (uris, index) = cap_uris(uris.as_ref(), index);
-                    let request = PlayRequest::tracks(uris).starting_at_index(index);
+                    let mut request = PlayRequest::tracks(uris).starting_at_index(index);
+                    // A radio is only ever the songs it showed, so the
+                    // engine is handed both and names the radio itself.
+                    let radio = convert::radio_seed(&context_uri).is_some();
+                    if radio {
+                        request.context_uri = Some(context_uri.clone());
+                    }
                     self.play_request(request, false);
-                    self.note_recent_context(&context_uri);
-                    self.assumed_context = Some(AssumedContext {
-                        uri: context_uri,
-                        shuffle: None,
-                        at: Instant::now(),
-                    });
+                    if !radio {
+                        self.note_recent_context(&context_uri);
+                        self.assumed_context = Some(AssumedContext {
+                            uri: context_uri,
+                            shuffle: None,
+                            at: Instant::now(),
+                        });
+                    }
                 }
             },
             Action::ShufflePlay(uri) => {
@@ -4140,6 +4192,7 @@ impl App {
             }
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
+            Action::SaveRadio(seed) => self.save_radio(&seed),
             Action::CopyLink(uri) => {
                 ctx.copy_text(uri);
                 self.toast("Link copied");
@@ -5447,6 +5500,8 @@ fn cap_uris(uris: &[String], index: u32) -> (Vec<String>, u32) {
     let end = (start + MAX).min(uris.len());
     (uris[start..end].to_vec(), 0)
 }
+
+mod radio;
 
 #[cfg(test)]
 mod tests {

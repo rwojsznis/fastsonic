@@ -94,6 +94,9 @@ pub enum Page {
     Playlist(String),
     Album(String),
     Artist(String),
+    /// Songs the server picks to go with a song, playlist, album or
+    /// artist, by the seed's URI.
+    Radio(String),
     Queue,
     Settings,
 }
@@ -110,6 +113,7 @@ impl Page {
             Page::Playlist(id) => format!("playlist:{id}"),
             Page::Album(id) => format!("album:{id}"),
             Page::Artist(id) => format!("artist:{id}"),
+            Page::Radio(seed) => format!("radio:{seed}"),
             Page::Queue => "queue".into(),
             Page::Settings => "settings".into(),
         }
@@ -131,6 +135,9 @@ impl Page {
                     "playlist" => Page::Playlist(id.into()),
                     "album" => Page::Album(id.into()),
                     "artist" => Page::Artist(id.into()),
+                    "radio" if crate::api::subsonic::convert::is_radio_seed(id) => {
+                        Page::Radio(id.into())
+                    }
                     _ => return None,
                 }
             }
@@ -484,6 +491,30 @@ mod migration_tests {
     use super::{Page, SearchFilter};
 
     #[test]
+    fn a_radio_page_is_named_by_its_whole_seed() {
+        for seed in [
+            "sonic:track:s1",
+            "sonic:album:al1",
+            "sonic:artist:ar1",
+            "sonic:playlist:p1",
+            // Ids are opaque and may hold a colon.
+            "sonic:track:a:b",
+        ] {
+            let page = Page::Radio(seed.into());
+            assert_eq!(page.encode(), format!("radio:{seed}"));
+            assert_eq!(Page::decode(&page.encode()), Some(page));
+        }
+        for text in [
+            "radio:",
+            "radio:s1",
+            "radio:sonic:collection:songs",
+            "radio:sonic:radio:track:s1",
+        ] {
+            assert_eq!(Page::decode(text), None, "{text}");
+        }
+    }
+
+    #[test]
     fn podcast_pages_and_search_filters_are_no_longer_exposed() {
         assert_eq!(Page::decode("podcasts"), None);
         assert_eq!(Page::decode("episodes"), None);
@@ -569,6 +600,20 @@ pub struct ArtistPage {
     pub related: Loadable<Vec<Artist>>,
     pub filter: DiscographyFilter,
     pub show_all_top: bool,
+}
+
+/// A radio page: the songs the server picked for its seed, which are the
+/// songs its Play button plays.
+#[derive(Default)]
+pub struct RadioPage {
+    pub songs: Loadable<Vec<Track>>,
+    /// The seed's name and art, as the server last gave them.
+    pub name: Option<String>,
+    pub images: Vec<Image>,
+    /// Identifies the request whose answer may fill `songs`.
+    pub generation: u64,
+    /// A new mix is on its way; the songs shown stay until it arrives.
+    pub refreshing: bool,
 }
 
 /// A table's sort, chosen by clicking a column heading.
@@ -790,6 +835,8 @@ pub enum Action {
     ClearQueue,
     /// Save the current and upcoming queue as a playlist.
     SaveQueueAsPlaylist,
+    /// Save a radio page's songs as a new playlist, by the seed's URI.
+    SaveRadio(String),
     CopyLink(String),
     /// Open a web page in the browser.
     OpenUrl(String),

@@ -5,8 +5,10 @@ under **Playing next**, are the songs you queued yourself. Below them,
 under **Next up**, are the songs that come next in whatever playlist or
 album is playing. Your songs always play first.
 
-Above the playing song, the queue names the album, playlist, artist, or
-Liked Songs it came from. Select that name to open its page.
+Above the playing song, the queue names the album, playlist, artist,
+Liked Songs, or radio it came from; a radio is named after the song,
+playlist, album, or artist it is based on. Select that name to open its
+page.
 
 The **Shuffle** button beside a page's **Play** button changes the shuffle
 mode and starts nothing. Chosen while nothing plays, it applies to the next
@@ -58,5 +60,8 @@ the panel draws and what a click asks for.
    resume the last song, it restores your queued songs and the place the
    album or playlist had reached — including the album's own place under a
    song you had queued, so that resuming plays your song and then carries
-   on where the album was. Changing the output device or the normalisation
-   switch replaces the player; the queue comes across with it.
+   on where the album was. A radio is only the songs its page showed, and
+   those are not kept: resuming one plays the last song on its own, still
+   named as the radio's. Changing the output device or the normalisation
+   switch replaces the player; the queue comes across with it, a radio's
+   songs included.

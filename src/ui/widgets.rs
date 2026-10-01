@@ -694,6 +694,11 @@ pub fn item_menu(
     menu_separator(ui, &palette);
     match item {
         PlayableItem::Track(track) => {
+            if crate::api::subsonic::convert::is_radio_seed(&uri)
+                && menu_item(ui, &palette, Some(Icon::Radio), "Go to song radio")
+            {
+                app.actions.push(Action::Open(Page::Radio(uri.clone())));
+            }
             let artists: Vec<&ArtistRef> = track
                 .artists
                 .iter()
@@ -793,6 +798,18 @@ pub fn context_menu_items(
         }
     }
     menu_separator(ui, &palette);
+    let radio = match kind {
+        "playlist" => Some("Go to playlist radio"),
+        "album" => Some("Go to album radio"),
+        "artist" => Some("Go to artist radio"),
+        _ => None,
+    };
+    if let Some(label) = radio
+        && crate::api::subsonic::convert::is_radio_seed(uri)
+        && menu_item(ui, &palette, Some(Icon::Radio), label)
+    {
+        app.actions.push(Action::Open(Page::Radio(uri.to_string())));
+    }
     if menu_item(ui, &palette, Some(Icon::Copy), "Copy link") {
         app.actions.push(Action::CopyLink(uri.to_string()));
     }

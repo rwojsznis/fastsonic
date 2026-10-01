@@ -20,6 +20,7 @@
 use std::time::Instant;
 
 use super::queue::QueueSnapshot;
+use crate::api::subsonic::convert;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Playback {
@@ -164,9 +165,10 @@ impl LocalState {
 /// across, since the queue lives in the engine (rule 9).
 ///
 /// `None` when there is nothing to carry. The context is named rather than
-/// listed wherever it has a name, so the new engine reloads an album in one
-/// request instead of asking about every track in it; a bare list of songs
-/// has no name and travels as its rows.
+/// listed wherever the server can list it again, so the new engine reloads
+/// an album in one request instead of asking about every track in it; a
+/// bare list of songs has no name and travels as its rows, and so does a
+/// radio, which is only the songs it was given, under its name.
 pub fn carry_over(state: &LocalState, queue: &QueueSnapshot) -> Option<LoadSpec> {
     let interrupted = state.interrupted();
     let current = queue.current.as_ref().map(|row| row.uri.clone());
@@ -184,7 +186,7 @@ pub fn carry_over(state: &LocalState, queue: &QueueSnapshot) -> Option<LoadSpec>
         ..LoadSpec::default()
     };
     match &queue.context_uri {
-        Some(context) => {
+        Some(context) if convert::parse_uri(context).is_some() => {
             spec.context_uri = Some(context.clone());
             // The album keeps its place under a queued song, so the offset
             // is where the album is and `current` is what is heard.
@@ -193,9 +195,10 @@ pub fn carry_over(state: &LocalState, queue: &QueueSnapshot) -> Option<LoadSpec>
                 spec.current = current;
             }
         }
-        None => {
+        context => {
             // No album to name: the rows are the list, and the song playing
             // is its first row.
+            spec.context_uri = context.clone();
             spec.uris = current
                 .into_iter()
                 .chain(queue.upcoming.iter().map(|row| row.uri.clone()))
@@ -209,7 +212,9 @@ pub fn carry_over(state: &LocalState, queue: &QueueSnapshot) -> Option<LoadSpec>
 /// What to play, and where to start.
 ///
 /// `context_uri` is an album or a playlist to play in order; `uris` is a
-/// list of tracks to play as it stands. The old service's `autoplay` — the station
+/// list of tracks to play as it stands. Given both, the list plays under
+/// the context's name, which is how a radio plays the songs it showed. The
+/// old service's `autoplay` — the station
 /// it invented once a context ran out — has no equivalent and is gone.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LoadSpec {
@@ -382,6 +387,20 @@ mod tests {
         assert_eq!(spec.context_uri, None);
         assert_eq!(spec.uris, vec!["sonic:track:b", "sonic:track:c"]);
         assert_eq!(spec.offset_index, Some(0));
+        assert_eq!(spec.queued, vec!["sonic:track:q1"]);
+    }
+
+    /// A radio cannot be asked for again and come back the same, so its
+    /// rows travel, still under the radio's name.
+    #[test]
+    fn a_radio_is_carried_as_its_rows_under_its_name() {
+        let (state, mut queue) = playing_album();
+        queue.context_uri = Some("sonic:radio:track:seed".into());
+        let spec = carry_over(&state, &queue).expect("something was playing");
+        assert_eq!(spec.context_uri.as_deref(), Some("sonic:radio:track:seed"));
+        assert_eq!(spec.uris, vec!["sonic:track:b", "sonic:track:c"]);
+        assert_eq!(spec.offset_index, Some(0));
+        assert_eq!(spec.offset_uri, None);
         assert_eq!(spec.queued, vec!["sonic:track:q1"]);
     }
 

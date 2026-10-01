@@ -74,6 +74,29 @@ turn on **Middle-click autoscroll** under **Settings > Appearance**. It is
 off by default, because Linux desktops usually paste the primary selection on
 middle click. macOS keeps its existing middle-click behaviour.
 
+## Radio
+
+**Go to song radio** in a song's menu opens a page of songs your server picks
+to go with it, without starting playback. Playlist, album, and artist menus,
+including the **…** menu on their pages, have **Go to playlist radio**, **Go
+to album radio**, and **Go to artist radio**.
+
+The server picks afresh each time it is asked, so the page keeps the songs it
+shows: **Play** and a double-clicked row play those songs, in the order shown,
+and the queue names the radio and links back to its page. Choose **Refresh**
+in the page's **…** menu for a new mix; the songs stay on the page until it
+arrives, and stay if it fails. **Save as playlist** creates a private playlist
+named after the radio with the songs on the page.
+
+Subsonic has no radio for a playlist, so a playlist's radio is the songs that
+go with a few of its songs, picked at random from different artists, merged
+without repeats, up to 50.
+
+The server finds similar songs through an agent, such as Navidrome's Last.fm
+integration once it has an API key. Without one, every radio page says there
+are no similar songs; nothing is broken. A radio's songs are not saved when
+Fastsonic closes, so resuming one plays the last song on its own.
+
 ## Sidebar order
 
 Click a playlist, album or artist in the sidebar to open it; double-click it
@@ -88,9 +111,9 @@ restore the default order.
 
 Songs added with **Add to queue** appear after songs already queued and before
 the rest of the current album or playlist. The queue names the playing album,
-playlist, artist, or Liked Songs and links back to it. Clear removes only those
-manually queued songs. The player owns the queue, so every change is visible on
-the next frame and needs no server round-trip. The complete contract is in
+playlist, artist, radio, or Liked Songs and links back to it. Clear removes
+only those manually queued songs. The player owns the queue, so every change is
+visible on the next frame and needs no server round-trip. The complete contract is in
 [The Queue's Rules](../_reference/queue.md).
 
 Local Play and Pause fade smoothly. The visualizers still follow the

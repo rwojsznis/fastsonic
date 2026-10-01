@@ -111,6 +111,35 @@ pub fn id_of(uri: &str, kind: Kind) -> Option<&str> {
         .map(|(_, id)| id)
 }
 
+// ---- radio ---------------------------------------------------------------
+//
+// A radio is the songs the server picks to go with a song, an album, an
+// artist or a playlist. It is nothing the server stores, so it is not a
+// `Kind` and `parse_uri` does not know it: it is named after its seed, as
+// `sonic:radio:<kind>:<id>`, which is how the engine carries it as the
+// context of the songs it was given.
+
+/// Whether a radio can be based on what `uri` points at.
+pub fn is_radio_seed(uri: &str) -> bool {
+    matches!(
+        parse_uri(uri),
+        Some((Kind::Track | Kind::Album | Kind::Artist | Kind::Playlist, _))
+    )
+}
+
+/// The radio based on `seed`.
+pub fn radio_uri(seed: &str) -> Option<String> {
+    let rest = seed.strip_prefix(URI_SCHEME)?.strip_prefix(':')?;
+    is_radio_seed(seed).then(|| format!("{URI_SCHEME}:radio:{rest}"))
+}
+
+/// What a radio is based on.
+pub fn radio_seed(radio: &str) -> Option<String> {
+    let rest = radio.strip_prefix(URI_SCHEME)?.strip_prefix(":radio:")?;
+    let seed = format!("{URI_SCHEME}:{rest}");
+    is_radio_seed(&seed).then_some(seed)
+}
+
 // ---- artwork -------------------------------------------------------------
 
 /// The sizes art is offered in, so `models::pick_image` keeps choosing the
@@ -498,6 +527,33 @@ mod tests {
         assert_eq!(parse_uri("sonic:bogus:x"), None);
         // Ids are opaque: whatever a server puts after the kind is the id.
         assert_eq!(parse_uri("sonic:track:a:b"), Some((Kind::Track, "a:b")));
+    }
+
+    #[test]
+    fn a_radio_is_named_after_its_seed_and_back() {
+        for seed in [
+            "sonic:track:s1",
+            "sonic:album:al1",
+            "sonic:artist:ar1",
+            "sonic:playlist:p1",
+            "sonic:track:a:b",
+        ] {
+            let radio = radio_uri(seed).expect("a radio");
+            assert!(radio.starts_with("sonic:radio:"), "{radio}");
+            assert_eq!(radio_seed(&radio).as_deref(), Some(seed));
+            // Nothing that reads `sonic:` URIs mistakes it for its seed.
+            assert_eq!(parse_uri(&radio), None);
+        }
+        assert_eq!(
+            radio_uri("sonic:track:a:b").as_deref(),
+            Some("sonic:radio:track:a:b")
+        );
+        for seed in [COLLECTION_URI, "sonic:track:", "sonic:bogus:x", "track:s1"] {
+            assert_eq!(radio_uri(seed), None, "{seed}");
+        }
+        assert_eq!(radio_seed("sonic:track:s1"), None);
+        assert_eq!(radio_seed("sonic:radio:collection:songs"), None);
+        assert_eq!(radio_seed("sonic:radio:sonic:track:s1"), None);
     }
 
     #[test]

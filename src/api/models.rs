@@ -604,6 +604,15 @@ pub struct Recommendations {
     pub tracks: Vec<Track>,
 }
 
+/// Songs the server picks to go with a song, album, artist or playlist,
+/// and the name and art of what they go with.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Radio {
+    pub name: String,
+    pub images: Vec<Image>,
+    pub songs: Vec<Track>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct SnapshotId {
     #[serde(default)]

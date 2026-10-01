@@ -16,6 +16,10 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - In-process playback of the formats in your library, including FLAC, MP3,
   AAC/ALAC, Vorbis, Opus, WAV, and AIFF; gapless transitions and byte-range
   seeking.
+- Radio pages for a song, album, artist or playlist: the songs your server
+  picks to go with it, which it finds through Last.fm or another agent.
+  **Play** plays the songs on the page, **Refresh** asks for a new mix, and
+  **Save as playlist** keeps it. Without an agent the page says so.
 - An engine-owned queue that links back to its playing context, shuffle and
   repeat, ReplayGain normalisation, a ten-band equalizer, and a bounded
   on-disk audio cache.

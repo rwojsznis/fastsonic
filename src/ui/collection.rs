@@ -5,6 +5,7 @@ use std::sync::Arc;
 use egui::{Align, Layout, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::{Album, PlayableItem, Playlist, pick_image};
+use crate::api::subsonic::convert;
 use crate::app::App;
 use crate::model::{
     Action, Dialog, DragTrack, Loadable, Page, PagedList, RowContext, RowPick, SortColumn,
@@ -131,6 +132,10 @@ pub fn actions_row(
     filter: Option<&mut String>,
 ) {
     let palette = app.palette;
+    // The server picks a radio afresh each time it is asked, so a radio
+    // plays the songs on screen, saves them, and has no item menu.
+    let radio = actions.play_uri.as_deref().and_then(convert::radio_seed);
+    let has_songs = actions.view.as_ref().is_some_and(|uris| !uris.is_empty());
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         if let Some(uri) = &actions.play_uri {
@@ -166,7 +171,8 @@ pub fn actions_row(
                 if now_playing_here {
                     app.actions.push(Action::TogglePlay);
                 } else if let Some(uris) = actions.view.clone()
-                    && should_play_view(app.playing_context_shuffle(), is_filtered)
+                    && (radio.is_some()
+                        || should_play_view(app.playing_context_shuffle(), is_filtered))
                 {
                     app.actions.push(Action::PlayFromRow {
                         context: RowContext::View {
@@ -225,6 +231,23 @@ pub fn actions_row(
                 app.actions.push(Action::ToggleSaved(uri.clone()));
             }
         }
+        if let Some(seed) = &radio
+            && ui
+                .add_enabled_ui(has_songs, |ui| {
+                    theme::icon_button(
+                        ui,
+                        Icon::ListPlus,
+                        26.0,
+                        palette.secondary,
+                        palette.text,
+                        "Save as playlist",
+                    )
+                })
+                .inner
+                .clicked()
+        {
+            app.actions.push(Action::SaveRadio(seed.clone()));
+        }
         if let Some(uri) = &actions.play_uri {
             let more = theme::icon_button(
                 ui,
@@ -237,13 +260,28 @@ pub fn actions_row(
             egui::Popup::menu(&more)
                 .frame(widgets::menu_frame(&palette))
                 .show(|ui| {
-                    widgets::context_menu_items(
-                        ui,
-                        app,
-                        uri,
-                        actions.name,
-                        actions.owned_playlist.as_ref(),
-                    );
+                    if let Some(seed) = &radio {
+                        // As narrow as every other item menu.
+                        ui.set_min_width(200.0);
+                        ui.set_max_width(300.0);
+                        if widgets::menu_item_enabled(
+                            ui,
+                            &palette,
+                            Some(Icon::ListPlus),
+                            "Save as playlist",
+                            has_songs,
+                        ) {
+                            app.actions.push(Action::SaveRadio(seed.clone()));
+                        }
+                    } else {
+                        widgets::context_menu_items(
+                            ui,
+                            app,
+                            uri,
+                            actions.name,
+                            actions.owned_playlist.as_ref(),
+                        );
+                    }
                     if let Some((page, loading)) = &actions.reload {
                         widgets::menu_separator(ui, &palette);
                         let clicked = ui
@@ -570,6 +608,16 @@ fn view_context(base: &RowContext, view_uris: Option<&Arc<[String]>>) -> RowCont
             } => RowContext::View {
                 uris: Arc::clone(uris),
                 context_uri: uri.clone(),
+                editable_playlist: editable_playlist.clone(),
+            },
+            // A sorted radio is still the radio.
+            RowContext::View {
+                context_uri,
+                editable_playlist,
+                ..
+            } => RowContext::View {
+                uris: Arc::clone(uris),
+                context_uri: context_uri.clone(),
                 editable_playlist: editable_playlist.clone(),
             },
             _ => RowContext::Uris(Arc::clone(uris)),
@@ -2038,6 +2086,28 @@ mod tests {
         );
 
         assert_eq!(view_context(&base, None), base);
+    }
+
+    /// A radio's table is already a view of its songs; sorted, it plays
+    /// the sorted songs and is still the radio.
+    #[test]
+    fn a_sorted_radio_is_still_the_radio() {
+        let shown: Arc<[String]> = Arc::from(["sonic:track:a".to_string(), "sonic:track:b".into()]);
+        let sorted: Arc<[String]> =
+            Arc::from(["sonic:track:b".to_string(), "sonic:track:a".into()]);
+        let radio = RowContext::View {
+            uris: shown,
+            context_uri: "sonic:radio:track:seed".into(),
+            editable_playlist: None,
+        };
+        assert_eq!(
+            view_context(&radio, Some(&sorted)),
+            RowContext::View {
+                uris: Arc::clone(&sorted),
+                context_uri: "sonic:radio:track:seed".into(),
+                editable_playlist: None,
+            }
+        );
     }
 
     /// Refresh lives in a playlist's More menu, and is disabled while the

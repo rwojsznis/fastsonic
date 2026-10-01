@@ -681,6 +681,51 @@ pub fn populate(app: &mut App) {
         app.artist_pages.insert(format!("art{index}"), artist_page);
     }
 
+    // Radio pages. A song's and a playlist's, as a server with a Last.fm
+    // key answers them, and `art0`'s from a bare server, where
+    // `getSimilarSongs2` answers `{}` as it does for every artist.
+    for (seed, name, images, first) in [
+        (
+            track_uri("trk0"),
+            &songs[0].name,
+            songs[0].album.as_ref().map(|album| album.images.clone()),
+            1,
+        ),
+        (
+            playlist_uri("pl1"),
+            &playlists[1].name,
+            Some(playlists[1].images.clone()),
+            8,
+        ),
+    ] {
+        app.radio_pages.insert(
+            seed,
+            RadioPage {
+                songs: Loadable::Loaded(
+                    songs
+                        .iter()
+                        .skip(first)
+                        .step_by(2)
+                        .take(30)
+                        .cloned()
+                        .collect(),
+                ),
+                name: Some(name.clone()),
+                images: images.unwrap_or_default(),
+                ..RadioPage::default()
+            },
+        );
+    }
+    app.radio_pages.insert(
+        artist_uri("art0"),
+        RadioPage {
+            songs: Loadable::Loaded(Vec::new()),
+            name: Some(artists[0].name.clone()),
+            images: artists[0].images.clone(),
+            ..RadioPage::default()
+        },
+    );
+
     // Library. Starred songs carry the date they were starred, as
     // `getStarred2` reports it, newest first; starred albums and artists
     // do not, because those pages are drawn from calls that omit it.
@@ -1951,6 +1996,119 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A song's menu offers its radio, and so do an album's, an artist's
+    /// and a playlist's; each opens the radio's page and plays nothing.
+    #[test]
+    fn radio_menu_items_open_radio_pages() {
+        fn playlist(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::collection::playlist(app, ui, "pl1");
+        }
+        fn albums(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::library::show(app, ui, Page::Albums);
+        }
+        fn artists(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::library::show(app, ui, Page::Artists);
+        }
+        let (ctx, mut app) = accessible_app("radio-menus");
+        let song = app.playlist_pages["pl1"].items.items[0]
+            .playable()
+            .unwrap()
+            .clone();
+        let album = app.library.albums.items[0].album.clone();
+        let artist = app.library.artists.items[0].clone();
+        let sidebar_playlist = PLAYLISTS[1].0.to_string();
+        type View = fn(&mut App, &mut egui::Ui);
+        let cases: [(String, View, &str, String); 4] = [
+            (
+                song.name().to_string(),
+                playlist,
+                "Go to song radio",
+                song.uri().to_string(),
+            ),
+            (album.name, albums, "Go to album radio", album.uri),
+            (artist.name, artists, "Go to artist radio", artist.uri),
+            (
+                sidebar_playlist,
+                crate::ui::sidebar::show,
+                "Go to playlist radio",
+                playlist_uri("pl1"),
+            ),
+        ];
+        for (title, view, item, seed) in cases {
+            view_frame(&ctx, &mut app, vec![], view);
+            let text = view_frame(&ctx, &mut app, vec![], view);
+            let at = |text: &[(String, egui::Rect)], wanted: &str| {
+                text.iter()
+                    .rev()
+                    .find(|(text, _)| text == wanted)
+                    .unwrap_or_else(|| panic!("{wanted} is not drawn"))
+                    .1
+                    .center()
+            };
+            let pos = at(&text, &title);
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(pos, egui::PointerButton::Secondary),
+                view,
+            );
+            let text = view_frame(&ctx, &mut app, vec![], view);
+            app.actions.clear();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(at(&text, item), egui::PointerButton::Primary),
+                view,
+            );
+            assert!(
+                matches!(app.actions.as_slice(), [Action::Open(Page::Radio(asked))] if *asked == seed),
+                "{item}: {:?}",
+                app.actions
+            );
+            app.actions.clear();
+        }
+        app.backend.shutdown();
+    }
+
+    /// The demo's radios draw as a server answers them: a song's and a
+    /// playlist's with songs, and a bare server's, which has nothing to go
+    /// with anything and says so instead of looking broken.
+    #[test]
+    fn a_radio_page_shows_its_songs_or_why_it_has_none() {
+        fn song_radio(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::radio::radio(app, ui, "sonic:track:trk0");
+        }
+        fn bare_radio(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::radio::radio(app, ui, "sonic:artist:art0");
+        }
+        let (ctx, mut app) = accessible_app("radio-pages");
+        let first = app.radio_pages["sonic:track:trk0"].songs.get().unwrap()[0]
+            .name
+            .clone();
+        view_frame(&ctx, &mut app, vec![], song_radio);
+        let text: Vec<String> = view_frame(&ctx, &mut app, vec![], song_radio)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+        let title = format!("{} Radio", RECORDS[0].songs[0].0);
+        for wanted in [title.as_str(), "Based on this song", first.as_str()] {
+            assert!(text.iter().any(|text| text == wanted), "{wanted}: {text:?}");
+        }
+        assert!(!text.iter().any(|text| text == "No similar songs"));
+
+        view_frame(&ctx, &mut app, vec![], bare_radio);
+        let text: Vec<String> = view_frame(&ctx, &mut app, vec![], bare_radio)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+        let title = format!("{} Radio", ARTISTS[0]);
+        for wanted in [title.as_str(), "Based on this artist", "No similar songs"] {
+            assert!(text.iter().any(|text| text == wanted), "{wanted}: {text:?}");
+        }
+        assert!(app.actions.is_empty(), "drawing asks for nothing");
+        app.backend.shutdown();
+    }
+
     #[test]
     fn search_top_results_open_their_item_menus() {
         for (kind, results, title) in [
@@ -2783,6 +2941,10 @@ mod tests {
             Page::Artist("art0".into()),
             // One with a Last.fm key, which has both.
             Page::Artist("art2".into()),
+            Page::Radio(track_uri("trk0")),
+            Page::Radio(playlist_uri("pl1")),
+            // A bare server's: nothing goes with anything.
+            Page::Radio(artist_uri("art0")),
             Page::Queue,
             Page::Settings,
         ];

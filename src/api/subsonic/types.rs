@@ -433,6 +433,13 @@ pub struct TopSongs {
     pub song: Vec<Child>,
 }
 
+/// `getSimilarSongs`. Last.fm-backed, so `{}` on a server without a key.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SimilarSongs {
+    pub song: Vec<Child>,
+}
+
 /// `getSimilarSongs2`. Last.fm-backed, so `{}` on a server without a key.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
@@ -461,6 +468,12 @@ mod tests {
         assert!(starred.song.is_empty() && starred.album.is_empty());
         let playlists: Playlists = serde_json::from_str("{}").unwrap();
         assert!(playlists.playlist.is_empty());
+        // What the development server, with no agent, says to every
+        // similar-songs question.
+        let similar: SimilarSongs = serde_json::from_str("{}").unwrap();
+        assert!(similar.song.is_empty());
+        let similar: SimilarSongs2 = serde_json::from_str("{}").unwrap();
+        assert!(similar.song.is_empty());
     }
 
     #[test]

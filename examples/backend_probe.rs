@@ -188,6 +188,21 @@ fn main() -> anyhow::Result<()> {
             .is_some_and(|track| track.starred.is_some()),
     );
 
+    // An album's radio. Similar songs come from the server's agent, so a
+    // server without one answers with none; only the title is certain.
+    probe.backend.api(ApiRequest::Radio {
+        seed: album.uri.clone(),
+        generation: 1,
+    });
+    let radio = probe.next_api(|response| match response {
+        ApiResponse::Radio { result, .. } => Some(result),
+        _ => None,
+    })??;
+    probe.check(
+        "a radio is titled after what it is based on",
+        radio.name == album.name,
+    );
+
     // Home's three album shelves. Recently added and the random one have
     // something in them on any real library; most played needs the server
     // to have counted a play, so only the answer is checked.
@@ -485,6 +500,42 @@ fn main() -> anyhow::Result<()> {
         _ => None,
     });
     probe.backend.player(PlayerCommand::Toggle);
+
+    println!("\n-- a radio plays the songs it showed, under its name");
+    // Whatever the server's agent picks, the engine is handed the songs the
+    // page showed; the album's, the other way round, stand in for them.
+    let shown: Vec<String> = album
+        .tracks
+        .as_ref()
+        .map(|page| {
+            page.items
+                .iter()
+                .rev()
+                .map(|track| track.uri.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let radio = fastsonic::api::subsonic::convert::radio_uri(&album.uri).unwrap_or_default();
+    probe.forget_queues();
+    probe.backend.player(PlayerCommand::Load(LoadSpec {
+        context_uri: Some(radio.clone()),
+        uris: shown.clone(),
+        offset_index: Some(0),
+        ..LoadSpec::default()
+    }));
+    let wanted = radio.clone();
+    let named = probe.until_queue(move |queue| queue.context_uri.as_deref() == Some(&wanted))?;
+    let rows: Vec<String> = named
+        .current
+        .iter()
+        .chain(&named.upcoming)
+        .map(|row| row.uri.clone())
+        .collect();
+    probe.check(
+        "the queue names the radio",
+        named.context_uri == Some(radio),
+    );
+    probe.check("and holds the songs it was handed, in order", rows == shown);
 
     println!("\n-- start again against the same files");
     probe.backend.shutdown();

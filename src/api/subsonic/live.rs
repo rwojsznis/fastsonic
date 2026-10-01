@@ -158,6 +158,46 @@ async fn an_artist_page_loads_and_its_lastfm_half_is_empty_not_broken() {
 
 #[tokio::test]
 #[ignore = "needs migration/devserver"]
+async fn a_radio_names_its_seed_and_without_an_agent_is_empty_not_broken() {
+    let client = client();
+    let name = format!("{TEST_PLAYLIST_PREFIX}radio");
+    remove_test_playlists(&client, &name).await;
+    let newest = client.newest_albums(1).await.unwrap();
+    let album = client.album(&newest[0].id).await.unwrap();
+    let song = album.tracks.as_ref().unwrap().items[0].clone();
+    let artist_id = album.artists[0]
+        .id
+        .clone()
+        .expect("an album names its artist");
+    let playlist = client.create_playlist(&name, false, "").await.unwrap();
+    client
+        .add_to_playlist(&playlist.id, std::slice::from_ref(&song.uri))
+        .await
+        .unwrap();
+
+    for (seed, expected) in [
+        (song.uri.clone(), song.name.clone()),
+        (album.uri.clone(), album.name.clone()),
+        (
+            convert::artist_uri(&artist_id),
+            album.artists[0].name.clone(),
+        ),
+        (playlist.uri.clone(), name.clone()),
+    ] {
+        let radio = client.radio(&seed).await.unwrap();
+        assert_eq!(radio.name, expected, "{seed}");
+        // The development server has no Last.fm key, so nothing goes with
+        // anything — an answer, not a failure.
+        assert!(radio.songs.is_empty(), "{seed}");
+    }
+    let missing = client.radio("sonic:track:no-such-song").await.unwrap_err();
+    assert!(missing.is_not_found(), "{missing:?}");
+
+    client.delete_playlist(&playlist.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs migration/devserver"]
 async fn search_finds_by_name_and_an_empty_query_is_not_sent() {
     let client = client();
     let results = client.search("signal", 0).await.unwrap();
