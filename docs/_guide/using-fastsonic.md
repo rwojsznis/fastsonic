@@ -33,6 +33,14 @@ playlist takes its first song the same way. The song stays where it came from
 and playback carries on. Clear the playlist's filter and sort first, so the
 positions on screen are the saved ones.
 
+Pick several songs with Ctrl-click (Cmd-click on macOS) or Shift-click, then
+drag any picked row: the whole selection travels together in the order shown,
+however you picked it, and the chip under the pointer names the first song
+and counts the rest. Drop it on a sidebar playlist to append, between the rows
+of another playlist you can edit to insert, or on Liked Songs to star every
+song. Dragging a row that is not picked carries that song alone, and moving
+rows within a playlist still moves one song at a time.
+
 ## Keyboard input
 
 In a playlist, album or Liked Songs, Up and Down move between songs in the

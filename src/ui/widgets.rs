@@ -423,14 +423,19 @@ pub fn menu_frame(palette: &Palette) -> egui::Frame {
 pub fn picked_menu(
     ui: &mut Ui,
     app: &mut App,
-    songs: &[(String, String)],
+    songs: &[PlayableItem],
     editable_playlist: Option<&(String, Option<String>)>,
 ) {
     let palette = app.palette;
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
     let count = songs.len();
-    let uris: Vec<String> = songs.iter().map(|(uri, _)| uri.clone()).collect();
+    let uris: Vec<String> = songs.iter().map(|item| item.uri().to_string()).collect();
+    // Names with URIs, for immediate optimistic queue rows.
+    let named: Vec<(String, String)> = songs
+        .iter()
+        .map(|item| (item.uri().to_string(), item.name().to_string()))
+        .collect();
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -444,7 +449,7 @@ pub fn picked_menu(
     menu_separator(ui, &palette);
     if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
         app.actions.push(Action::QueueMany {
-            songs: songs.to_vec(),
+            songs: named.clone(),
         });
     }
     // Set one explicit saved state for the full selection.
@@ -471,7 +476,7 @@ pub fn picked_menu(
             uris: uris.clone(),
         });
     }
-    add_to_playlist_menu(ui, app, songs);
+    add_to_playlist_menu(ui, app, &named);
 }
 
 fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, songs: &[(String, String)]) {
@@ -840,7 +845,8 @@ pub struct TrackRow<'a> {
     /// they sit in it, so the menu on a picked row can act on all of them
     /// and the queue can show their names before the backend answers. Empty
     /// where a list does not offer picking.
-    pub picked_songs: &'a [(String, String)],
+    /// Every picked row of the table, in the order shown.
+    pub picked_songs: &'a [PlayableItem],
 }
 
 /// Draw each credited artist separately so its id remains clickable.
@@ -986,15 +992,21 @@ fn track_row_contents(
     }
     // Start a sidebar drag only after egui's drag threshold.
     if response.drag_started_by(egui::PointerButton::Primary) {
-        // Keep the source index for moves within an editable playlist.
-        let from = match row.context {
-            RowContext::Context {
-                editable_playlist: Some((id, _)),
-                ..
-            } => Some((id.clone(), row.index as u32)),
-            _ => None,
-        };
-        egui::DragAndDrop::set_payload(ui.ctx(), DragTrack::song(row.item, from));
+        let items = dragged_items(row.item, row.picked, row.picked_songs);
+        // Keep the source index for moves within an editable playlist; a
+        // selection is copied, never moved.
+        let from = (items.len() == 1)
+            .then(|| match row.context {
+                RowContext::Context {
+                    editable_playlist: Some((id, _)),
+                    ..
+                } => Some((id.clone(), row.index as u32)),
+                _ => None,
+            })
+            .flatten();
+        let mut track = DragTrack::song(items.first().unwrap_or(row.item), from);
+        track.items = items;
+        egui::DragAndDrop::set_payload(ui.ctx(), track);
     }
     // A queue row is a position, not the song itself: the same song can
     // sit in the queue while it plays (a repeat wrapping around, a song
@@ -1495,11 +1507,33 @@ pub(crate) fn scroll_during_drag(ui: &Ui) {
     ui.ctx().request_repaint();
 }
 
+/// What a drag carries: the whole selection when a picked row is dragged,
+/// otherwise the row alone.
+fn dragged_items(
+    item: &PlayableItem,
+    picked: bool,
+    picked_songs: &[PlayableItem],
+) -> Vec<PlayableItem> {
+    if picked && !picked_songs.is_empty() {
+        picked_songs.to_vec()
+    } else {
+        vec![item.clone()]
+    }
+}
+
+fn drag_label(track: &DragTrack) -> String {
+    match track.items.as_slice() {
+        [] => track.title.clone(),
+        [item] => item.name().to_string(),
+        [first, rest @ ..] => format!("{} + {} more", first.name(), rest.len()),
+    }
+}
+
 /// The chip that rides the pointer while a song is being dragged.
 pub fn drag_ghost(ctx: &egui::Context, palette: &Palette) {
     // A song and a sidebar row ride the pointer the same way.
     let chip = egui::DragAndDrop::payload::<DragTrack>(ctx)
-        .map(|track| (track.title.clone(), track.image.clone()))
+        .map(|track| (drag_label(&track), track.image.clone()))
         .or_else(|| {
             egui::DragAndDrop::payload::<DragEntry>(ctx)
                 .map(|entry| (entry.title.clone(), entry.image.clone()))
@@ -2459,6 +2493,43 @@ pub fn setting_row_sized(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn named(uri: &str, name: &str) -> PlayableItem {
+        PlayableItem::Track(crate::api::models::Track {
+            uri: uri.into(),
+            name: name.into(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn dragging_a_picked_row_carries_the_whole_selection() {
+        let first = named("sonic:track:first", "First");
+        let second = named("sonic:track:second", "Second");
+        let picked = [first.clone(), second.clone()];
+        let uris = |items: Vec<PlayableItem>| -> Vec<String> {
+            items.iter().map(|item| item.uri().to_string()).collect()
+        };
+        assert_eq!(
+            uris(dragged_items(&second, true, &picked)),
+            ["sonic:track:first", "sonic:track:second"],
+            "every selected row, in table order"
+        );
+        assert_eq!(
+            uris(dragged_items(&second, false, &picked)),
+            ["sonic:track:second"],
+            "an unpicked row goes alone"
+        );
+    }
+
+    #[test]
+    fn dragging_several_songs_names_the_first_and_counts_the_rest() {
+        let mut track = DragTrack::song(&named("sonic:track:a", "Kora Panna"), None);
+        assert_eq!(drag_label(&track), "Kora Panna");
+        track.items.push(named("sonic:track:b", "Fitraten"));
+        track.items.push(named("sonic:track:c", "Third"));
+        assert_eq!(drag_label(&track), "Kora Panna + 2 more");
+    }
 
     #[test]
     fn menu_submenu_registers_focus_and_opens_from_keyboard() {

@@ -481,7 +481,7 @@ fn list_shortcuts(
     table: &Table<'_>,
     view: &str,
     visible: &[usize],
-    picked_songs: &[(String, String)],
+    picked_songs: &[PlayableItem],
 ) {
     if ui.ctx().text_edit_focused() || app.dialog.is_some() {
         return;
@@ -541,7 +541,12 @@ fn list_shortcuts(
             .collect();
         app.pick_rows(&table.page, view, all);
     }
-    let uris = || picked_songs.iter().map(|(uri, _)| uri.clone()).collect();
+    let uris = || {
+        picked_songs
+            .iter()
+            .map(|item| item.uri().to_string())
+            .collect()
+    };
     if let (true, Some(playlist_id)) = (delete, &editable) {
         app.actions.push(Action::RemoveFromPlaylist {
             playlist_id: playlist_id.clone(),
@@ -732,12 +737,11 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     app.keep_picked_rows_for(&table.page, &view);
     let picked: std::collections::BTreeSet<usize> =
         app.picked_rows(&table.page).cloned().unwrap_or_default();
-    // Keep names with URIs for immediate optimistic queue rows.
-    let picked_songs: Vec<(String, String)> = picked
+    let picked_songs: Vec<PlayableItem> = picked
         .iter()
         .filter_map(|row| entry.visible.get(*row))
         .filter_map(|index| table.items.get(*index))
-        .map(|(item, _, _)| (item.uri().to_string(), item.name().to_string()))
+        .map(|(item, _, _)| item.clone())
         .collect();
     let rows = entry.visible.len();
     let mut pick = None;

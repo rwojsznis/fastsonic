@@ -3896,6 +3896,90 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Picking rows with Cmd/Ctrl-click and dragging one of them carries
+    /// the whole selection in the order shown, however it was picked, and
+    /// a selection is copied rather than moved.
+    #[test]
+    fn dragging_a_picked_row_carries_every_picked_song_in_table_order() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("drag-selection");
+        app.open(Page::Playlist("pl1".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let mut rows: Vec<(String, egui::Pos2)> =
+            tree.nodes
+                .iter()
+                .filter(|(_, node)| node.role() == Role::Button)
+                .filter_map(|(_, node)| {
+                    let label = node.label()?;
+                    let bounds = node.bounds()?;
+                    (label.starts_with("Play ") && label.contains(',') && bounds.width() > 400.0)
+                        .then(|| {
+                            (
+                                label.to_string(),
+                                egui::pos2(bounds.x0 as f32 + 200.0, bounds.y0 as f32 + 10.0),
+                            )
+                        })
+                })
+                .filter(|(_, pos)| pos.y > 100.0 && pos.y < 650.0)
+                .collect();
+        rows.sort_by(|a, b| a.1.y.total_cmp(&b.1.y));
+        assert!(rows.len() >= 3, "the playlist shows its rows");
+        // egui takes held modifiers from ModifiersChanged, not the click,
+        // and holds the last one for the whole frame.
+        let click = |pos: egui::Pos2| {
+            vec![
+                egui::Event::ModifiersChanged(egui::Modifiers::COMMAND),
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::COMMAND,
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::COMMAND,
+                },
+            ]
+        };
+        // Picked bottom row first, to show the drag uses table order.
+        accessible_frame(&ctx, &mut app, click(rows[2].1));
+        accessible_frame(&ctx, &mut app, click(rows[0].1));
+        let start = rows[2].1;
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(start + egui::vec2(-60.0, -30.0))],
+        );
+        let payload = egui::DragAndDrop::payload::<DragTrack>(&ctx).expect("a song drag");
+        let names: Vec<String> = payload
+            .items
+            .iter()
+            .map(|item| format!("Play {}, {}", item.name(), item.subtitle()))
+            .collect();
+        assert_eq!(names, [rows[0].0.clone(), rows[2].0.clone()]);
+        assert_eq!(payload.from, None, "a selection is copied, not moved");
+        egui::DragAndDrop::clear_payload(&ctx);
+        app.backend.shutdown();
+    }
+
     /// The custom order is a setting like any other: it survives the trip
     /// through the settings file, and older files without it stay in the
     /// automatic order.
