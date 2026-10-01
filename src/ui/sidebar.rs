@@ -209,7 +209,7 @@ fn order_entries(app: &App, sort: LibrarySort, entries: &mut [Entry]) {
 fn playlist_entry(playlist: &crate::api::models::Playlist, index: usize, user_id: &str) -> Entry {
     Entry {
         image: pick_image(&playlist.images, 64).map(str::to_string),
-        grid_image: pick_image(&playlist.images, 640).map(str::to_string),
+        grid_image: pick_image(&playlist.images, super::GRID_ART_TARGET_WIDTH).map(str::to_string),
         name: playlist.name.clone(),
         subtitle: format!("Playlist • {}", playlist.owner_name()),
         grid_subtitle: playlist.owner_name().to_string(),
@@ -845,7 +845,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 );
                 entries.push(Entry {
                     image: pick_image(&album.images, 64).map(str::to_string),
-                    grid_image: pick_image(&album.images, 640).map(str::to_string),
+                    grid_image: pick_image(&album.images, super::GRID_ART_TARGET_WIDTH)
+                        .map(str::to_string),
                     name: album.name.clone(),
                     subtitle: format!("{} • {artists}", album.kind_label()),
                     grid_subtitle: artists.clone(),
@@ -874,7 +875,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 }
                 entries.push(Entry {
                     image: pick_image(&artist.images, 64).map(str::to_string),
-                    grid_image: pick_image(&artist.images, 640).map(str::to_string),
+                    grid_image: pick_image(&artist.images, super::GRID_ART_TARGET_WIDTH)
+                        .map(str::to_string),
                     name: artist.name.clone(),
                     subtitle: "Artist".into(),
                     grid_subtitle: String::new(),
@@ -1793,6 +1795,24 @@ mod ordering_tests {
             .iter()
             .map(|entry| entry.uri.rsplit(':').next().unwrap())
             .collect()
+    }
+
+    /// A grid card asks for the 300-pixel cover a page header uses rather
+    /// than the 640-pixel one, and a list row keeps its 64-pixel thumbnail.
+    #[test]
+    fn grid_cards_use_the_page_header_art_size() {
+        let playlist = Playlist {
+            images: crate::api::subsonic::convert::art_images_for("pl-1"),
+            ..Default::default()
+        };
+        let entry = playlist_entry(&playlist, 0, "");
+        assert_eq!(entry.image.as_deref(), Some("sonic:art:64:pl-1"));
+        assert_eq!(entry.grid_image.as_deref(), Some("sonic:art:300:pl-1"));
+        assert_eq!(
+            entry.grid_image.as_deref(),
+            pick_image(&playlist.images, 300),
+            "the header's cover"
+        );
     }
 
     /// The sidebar's frame takes 20 points of its width; the grid gets the

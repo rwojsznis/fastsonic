@@ -53,6 +53,12 @@ the same requests. The server answers from its own agents, such as Last.fm,
 which it may contact itself; Fastsonic talks only to the server, and without
 an agent the answers are empty.
 
+Cover art comes from `getCoverArt` at one of three sizes: 64 pixels for song
+rows and the Library list, 300 pixels for cards, page headers and the Library
+grid, and 640 pixels for the playing song's large artwork. Each size is
+downloaded once and cached, so a Library grid card and the page it opens share
+one cover. An artist image the server offers as its own URL is fetched as is.
+
 Sorting the Library's albums or artists by anything but the server's own
 order loads the rest of that section, one page after another through the same
 calls that list it, while the loaded entries stay visible. A failed page stops

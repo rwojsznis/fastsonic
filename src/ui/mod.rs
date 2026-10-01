@@ -78,6 +78,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     window_resize(ui);
 }
 
+/// The cover size a library grid card asks the server for. Cards and page
+/// headers use the same one, so a card's cover is already cached when its
+/// page opens.
+const GRID_ART_TARGET_WIDTH: u32 = 300;
+
 fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {
