@@ -49,6 +49,18 @@ const USER: &str = "demo";
 /// can read it and cannot edit it.
 const OTHER_USER: &str = "kasia";
 
+/// Invented Hebrew and Arabic titles for `--demo-show rtl`: whole lines,
+/// lines mixed with English, numbers, brackets, and punctuation.
+#[cfg(feature = "demo")]
+const RTL_TRACKS: &[(&str, &str, &str)] = &[
+    ("שיר ישן (גרסה חיה)", "להקת הים", "גלים, 2024"),
+    ("Song 12 שיר ישן, part 3", "Kasia & נועה", "Sessions: חלק ב"),
+    ("غيوم في السماء (Live) 2024", "فرقة الغيوم", "السماء"),
+    ("ليل طويل، الجزء الأول", "نور", "رحلة 7"),
+    ("Tel Aviv Nights: לילות, חלק 2", "Sam & דנה", "Nights"),
+    ("مدينة [Remix]", "فرقة الغيوم", "Remixes: مدينة"),
+];
+
 /// Cover art, in the three sizes `convert::art_images` offers. A real one
 /// is a `sonic:art:` request; see the note at the top of the module.
 fn cover(seed: u32) -> Vec<Image> {
@@ -941,6 +953,33 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.winamp.tap.push(&samples, 1.0);
             }
             // Titles in scripts the interface font does not cover.
+            "rtl" => {
+                if let Some(page) = app.playlist_pages.get_mut("pl1") {
+                    for (item, &(title, artist, album)) in
+                        page.items.items.iter_mut().zip(RTL_TRACKS)
+                    {
+                        if let Some(PlayableItem::Track(track)) = &mut item.item {
+                            track.name = title.into();
+                            if let Some(first) = track.artists.first_mut() {
+                                first.name = artist.into();
+                            }
+                            if let Some(album_ref) = &mut track.album {
+                                album_ref.name = album.into();
+                            }
+                        }
+                    }
+                    page.items.revision += 1;
+                }
+            }
+            // The sign-in card and the card while the session connects.
+            "signed-out" => {
+                app.auth = AuthStatus::SignedOut;
+                app.user = None;
+            }
+            "connecting" => {
+                app.auth = AuthStatus::Connecting;
+                app.user = None;
+            }
             "scripts" => {
                 let titles = [
                     ("\u{591c}\u{306b}\u{99c6}\u{3051}\u{308b}", "YOASOBI"),
@@ -2613,6 +2652,52 @@ mod tests {
         frame(&ctx, &mut app);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// `--demo-show rtl` fills the playlist with right-to-left titles.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_rtl_demo_shows_right_to_left_titles() {
+        fn playlist(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::collection::playlist(app, ui, "pl1");
+        }
+        let (ctx, mut app) = accessible_app("rtl-titles");
+        apply_flags(&mut app, Some("playlist:pl1"), Some("rtl"));
+        view_frame(&ctx, &mut app, vec![], playlist);
+        let painted = view_frame(&ctx, &mut app, vec![], playlist);
+        for (title, artist, _) in RTL_TRACKS {
+            let title = crate::bidi::display_text(title);
+            let artist = crate::bidi::display_text(artist);
+            assert!(
+                painted.iter().any(|(text, _)| *text == title),
+                "{title} is not drawn"
+            );
+            assert!(
+                painted
+                    .iter()
+                    .any(|(text, _)| text.contains(artist.as_ref())),
+                "{artist} is not drawn"
+            );
+        }
+        app.backend.shutdown();
+    }
+
+    /// `--demo-show signed-out` and `connecting` draw the sign-in card.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_sign_in_card_shows_in_demo_mode() {
+        fn whole(app: &mut App, ui: &mut egui::Ui) {
+            app.frame_ui(ui);
+        }
+        let (ctx, mut app) = accessible_app("sign-in-card");
+        apply_flags(&mut app, None, Some("signed-out"));
+        view_frame(&ctx, &mut app, vec![], whole);
+        let painted = view_frame(&ctx, &mut app, vec![], whole);
+        assert!(painted.iter().any(|(text, _)| text == "Connect"));
+        apply_flags(&mut app, None, Some("connecting"));
+        assert!(matches!(app.auth, AuthStatus::Connecting) && app.user.is_none());
+        view_frame(&ctx, &mut app, vec![], whole);
+        app.backend.shutdown();
     }
 
     /// In a wide window the cover moves aside only for words to read. While

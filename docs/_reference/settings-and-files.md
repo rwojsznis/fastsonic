@@ -86,7 +86,9 @@ arguments.
 
 Builds made with `--features demo` accept `--demo` for deterministic sample
 data and no server connection. `--demo-page` opens a named page;
-`--demo-show` adds comma-separated panels or states; and `--demo-shot <PATH>`
+`--demo-show` adds comma-separated panels or states (among them `rtl`, for
+right-to-left titles, and `signed-out` and `connecting`, for the sign-in
+card); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a
 profile of its own under the system temporary directory, so it never reads the
 saved sign-in, never contacts your server, and leaves your settings, session,
