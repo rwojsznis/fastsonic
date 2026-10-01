@@ -10,6 +10,11 @@ affecting browsing or playback.
 Search covers the songs, albums, artists, and playlists indexed by your
 server. Right-click rows and cards to star music, add songs to a playlist, or
 put a song in the queue. The playlist submenu filters as you type.
+Sorting or filtering a playlist, an album or Liked Songs changes what Play
+plays: the songs on screen, in the order shown, including a song that appears
+twice. Play is disabled when a filter matches nothing; it never falls back to
+the whole list. Clearing the filter restores the original order.
+
 Right-clicking a song in a playlist you can edit offers **Remove from this
 playlist** even when the list is sorted or filtered, since removal does not
 depend on position; with several songs picked, it removes them all. **Move

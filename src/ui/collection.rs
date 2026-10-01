@@ -138,18 +138,26 @@ pub fn actions_row(
             } else {
                 Icon::PlayFilled
             };
+            // A filter that matches nothing has nothing to play, and must
+            // not fall back to playing everything it hid.
+            let can_start = actions.view.as_ref().is_none_or(|uris| !uris.is_empty());
             if app.play_pending(uri) {
                 theme::circle_spinner(ui, 56.0, palette.accent, palette.on_accent, "Starting…");
-            } else if theme::circle_button(
-                ui,
-                icon,
-                56.0,
-                palette.accent,
-                palette.accent_hover,
-                palette.on_accent,
-                if now_playing_here { "Pause" } else { "Play" },
-            )
-            .clicked()
+            } else if ui
+                .add_enabled_ui(now_playing_here || can_start, |ui| {
+                    theme::circle_button(
+                        ui,
+                        icon,
+                        56.0,
+                        palette.accent,
+                        palette.accent_hover,
+                        palette.on_accent,
+                        if now_playing_here { "Pause" } else { "Play" },
+                    )
+                })
+                .inner
+                .on_disabled_hover_text("No songs in this view")
+                .clicked()
             {
                 let is_filtered = filter.as_ref().is_some_and(|f| !f.trim().is_empty());
                 if now_playing_here {
@@ -384,12 +392,7 @@ pub fn prepare_table_view(
         entry
     } else {
         let visible = view_indices(items, needle, sort);
-        let view_uris = sort.map(|_| {
-            visible
-                .iter()
-                .map(|&index| items[index].0.uri().to_string())
-                .collect::<Arc<[String]>>()
-        });
+        let view_uris = view_uris(items, &visible, needle, sort);
         let entry = Arc::new(TableCache {
             sort,
             needle: needle.to_string(),
@@ -401,6 +404,23 @@ pub fn prepare_table_view(
         ui.data_mut(|d| d.insert_temp(cache_id, Arc::clone(&entry)));
         entry
     }
+}
+
+/// The songs a sorted or filtered view plays, in the order it shows them.
+/// A filter is a view too: playing it plays the matching songs, not the
+/// whole collection they were found in.
+fn view_uris(
+    items: &[TableItem],
+    visible: &[usize],
+    needle: &str,
+    sort: Option<TableSort>,
+) -> Option<Arc<[String]>> {
+    (sort.is_some() || !needle.is_empty()).then(|| {
+        visible
+            .iter()
+            .map(|&index| items[index].0.uri().to_string())
+            .collect()
+    })
 }
 
 fn view_context(base: &RowContext, view_uris: Option<&Arc<[String]>>) -> RowContext {
@@ -547,7 +567,11 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             ui,
             app,
             TrackRow {
-                index: if sorted { row } else { index },
+                index: if entry.view_uris.is_some() {
+                    row
+                } else {
+                    index
+                },
                 number: Some(if sorted { row + 1 } else { index + 1 }),
                 item,
                 context: &context,
@@ -1280,6 +1304,32 @@ fn palette_of(app: &App) -> Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_filter_alone_is_a_view_that_plays_only_its_matches() {
+        let items = make_test_tracks();
+        let uri = |index: usize| items[index].0.uri().to_string();
+        assert_eq!(view_uris(&items, &[0, 1, 2, 3], "", None), None);
+        let filtered = view_indices(&items, "soda", None);
+        assert_eq!(
+            view_uris(&items, &filtered, "soda", None).as_deref(),
+            Some(&[uri(1)][..])
+        );
+        let sorted = Some(TableSort {
+            column: SortColumn::Title,
+            ascending: false,
+        });
+        let order = view_indices(&items, "", sorted);
+        assert_eq!(
+            view_uris(&items, &order, "", sorted).as_deref(),
+            Some(&order.iter().map(|&index| uri(index)).collect::<Vec<_>>()[..])
+        );
+        assert_eq!(
+            view_uris(&items, &[], "nothing matches", None).as_deref(),
+            Some(&[][..]),
+            "an empty view is still a view, so Play does not fall back"
+        );
+    }
 
     #[test]
     fn sorted_view_context_keeps_playlist_remove_rights() {
