@@ -875,6 +875,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     egui::Popup::context_menu(&response)
                         .frame(super::widgets::menu_frame(&palette))
                         .show(|ui| {
+                            // The same width as every other menu; without it the menu
+                            // stretches as wide as the window.
+                            ui.set_min_width(200.0);
+                            ui.set_max_width(300.0);
                             if super::widgets::menu_item(ui, &palette, Some(Icon::Play), "Play") {
                                 app.actions.push(Action::PlayContext {
                                     uri: crate::api::subsonic::convert::COLLECTION_URI.to_string(),

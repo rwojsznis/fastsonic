@@ -1674,6 +1674,44 @@ mod tests {
     }
 
     #[test]
+    fn the_liked_songs_menu_is_as_narrow_as_the_other_menus() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("liked-menu-width");
+        let button = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.role() == Role::Button && node.label() == Some(label))
+                .unwrap_or_else(|| panic!("missing button {label}"))
+                .1
+                .bounds()
+                .unwrap();
+            (
+                bounds.x0 as f32,
+                bounds.x1 as f32,
+                bounds.y0 as f32,
+                bounds.y1 as f32,
+            )
+        };
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let (x0, x1, y0, y1) = button(&tree, "Liked Songs");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(
+                egui::pos2((x0 + x1) / 2.0, (y0 + y1) / 2.0),
+                egui::PointerButton::Secondary,
+            ),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        // A menu item spans its menu, so its width is the menu's.
+        let (x0, x1, _, _) = button(&tree, "Play");
+        assert!(x1 - x0 <= 300.0, "the menu is {} points wide", x1 - x0);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn search_top_results_open_their_item_menus() {
         for (kind, results, title) in [
             {
