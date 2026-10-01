@@ -289,8 +289,8 @@ impl Inner {
         .await
         .ok()
         .flatten();
-        let bytes: Vec<u8> = match cached {
-            Some(bytes) if !bytes.is_empty() => bytes,
+        let bytes: Arc<[u8]> = match cached {
+            Some(bytes) if !bytes.is_empty() => Arc::from(bytes),
             _ => {
                 let url = self.resolve(uri)?;
                 let response = self
@@ -321,9 +321,10 @@ impl Inner {
                     // of a picture.
                     return Err(server_art_error(&bytes));
                 }
-                let bytes = bytes.to_vec();
+                // The loader and the file worker share one payload.
+                let bytes: Arc<[u8]> = Arc::from(bytes.as_ref());
                 let write_path = path.clone();
-                let payload = bytes.clone();
+                let payload = Arc::clone(&bytes);
                 self.runtime.spawn_blocking(move || {
                     let temporary = write_path.with_extension("part");
                     if std::fs::write(&temporary, &payload).is_ok() {
@@ -333,7 +334,7 @@ impl Inner {
                 bytes
             }
         };
-        Ok(Arc::from(bytes))
+        Ok(bytes)
     }
 
     fn start(self: &Arc<Self>, ctx: &egui::Context, url: String) {
