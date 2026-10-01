@@ -2615,6 +2615,47 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// In a wide window the cover moves aside only for words to read. While
+    /// lyrics load, and when they fail or turn out to be missing, it stays
+    /// centred with the reason under it, so a song without words never
+    /// moves.
+    #[test]
+    fn full_screen_lyrics_keep_the_cover_centred_until_there_are_words() {
+        let (ctx, mut app) = accessible_app("lyrics-cover-states");
+        app.lyrics_fullscreen = Some(false);
+        let title = app.now_playing().expect("the demo plays a song").title;
+        let draw = |app: &mut App| {
+            view_frame(&ctx, app, Vec::new(), crate::ui::lyrics::fullscreen);
+            view_frame(&ctx, app, Vec::new(), crate::ui::lyrics::fullscreen)
+        };
+        let centred = |text: &[(String, egui::Rect)]| {
+            text.iter()
+                .filter(|(shown, _)| *shown == title)
+                .any(|(_, rect)| (rect.center().x - 640.0).abs() < 2.0)
+        };
+        for (state, says) in [
+            (Loadable::Loading, "Loading…"),
+            (
+                Loadable::Failed("boom".into()),
+                "Couldn't fetch the lyrics: boom",
+            ),
+            (Loadable::Loaded(None), "No lyrics"),
+        ] {
+            app.lyrics = state;
+            let text = draw(&mut app);
+            assert!(centred(&text), "{says}: the cover stays in the middle");
+            assert!(text.iter().any(|(shown, _)| shown == says), "{says}");
+            assert_eq!(
+                text.iter().any(|(shown, _)| shown == "Try again"),
+                says.starts_with("Couldn't"),
+                "{says}: only a failure offers to try again"
+            );
+        }
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+        assert!(!centred(&draw(&mut app)), "words move the cover aside");
+        app.backend.shutdown();
+    }
+
     /// Virtual queue rows and library cards still draw a long list, and the
     /// library still asks for the next page when the end is near.
     #[test]

@@ -7,7 +7,7 @@ pub mod home;
 mod keys;
 pub mod library;
 pub mod login;
-mod lyrics;
+pub mod lyrics;
 pub mod player_bar;
 pub mod queue;
 pub mod search;
