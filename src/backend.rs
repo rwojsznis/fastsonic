@@ -167,6 +167,8 @@ pub enum ApiRequest {
         playlist_id: String,
         playlist_name: String,
         uris: Vec<String>,
+        /// Before which row; `None` appends.
+        position: Option<u32>,
     },
     RemoveFromPlaylist {
         playlist_id: String,
@@ -508,6 +510,9 @@ pub struct Backend {
     /// no engine on the other end to observe it arriving.
     #[cfg(test)]
     asked: Mutex<Vec<PlayerCommand>>,
+    /// Every server request, for the same reason.
+    #[cfg(test)]
+    asked_api: Mutex<Vec<ApiRequest>>,
 }
 
 impl Backend {
@@ -561,6 +566,8 @@ impl Backend {
             offline: false,
             #[cfg(test)]
             asked: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            asked_api: Mutex::new(Vec::new()),
         }
     }
 
@@ -584,6 +591,11 @@ impl Backend {
     }
 
     pub fn api(&self, request: ApiRequest) {
+        #[cfg(test)]
+        self.asked_api
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(request.clone());
         self.send(Command::Api(request));
     }
 
@@ -602,6 +614,17 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .asked
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    /// Every server request sent since the last call, oldest first.
+    #[cfg(test)]
+    pub fn asked_api(&self) -> Vec<ApiRequest> {
+        std::mem::take(
+            &mut *self
+                .asked_api
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -1305,11 +1328,18 @@ async fn handle(
             playlist_id,
             playlist_name,
             uris,
+            position,
         } => ApiResponse::PlaylistItemsChanged {
-            result: client
-                .add_to_playlist(&playlist_id, &uris)
-                .await
-                .map(|()| None),
+            result: match position {
+                Some(position) => client
+                    .insert_into_playlist(&playlist_id, &uris, position)
+                    .await
+                    .map(|playlist| playlist.snapshot_id),
+                None => client
+                    .add_to_playlist(&playlist_id, &uris)
+                    .await
+                    .map(|()| None),
+            },
             id: playlist_id,
             message: format!("Added to {playlist_name}"),
         },

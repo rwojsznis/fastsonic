@@ -34,7 +34,9 @@ cached under an opaque `sonic:art:` key rather than a credential-bearing URL.
 
 Library, search, playlists, stars, artwork, lyrics supplied by the server,
 streams, and scrobbles use Subsonic/OpenSubsonic. Playlist edits use form POST
-when necessary. Playback requests the original file, without transcoding, so
+when necessary. Subsonic can only append to a playlist or remove rows from it,
+so a move, or a song dropped between rows, reads the playlist again and
+rewrites it whole in the new order under the same id and name. Playback requests the original file, without transcoding, so
 HTTP byte ranges remain available for seeking and the in-process decoder sees
 the library's real format.
 

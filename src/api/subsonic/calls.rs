@@ -623,6 +623,37 @@ impl SubsonicClient {
         Ok(convert::playlist(&rewritten.playlist))
     }
 
+    /// `ApiRequest::AddToPlaylist` with a position: the songs go in before
+    /// the row at `insert_before`. `updatePlaylist` can only append, so a
+    /// drop above the last row rewrites the playlist the way a reorder does,
+    /// from a fresh read; a drop past the end is an ordinary append.
+    ///
+    /// Returns the playlist as it stands afterwards.
+    pub async fn insert_into_playlist(
+        &self,
+        id: &str,
+        uris: &[String],
+        insert_before: u32,
+    ) -> Result<Playlist> {
+        let current = self.get_playlist(id).await?;
+        let mut song_ids: Vec<String> = current.entry.iter().map(|song| song.id.clone()).collect();
+        let added: Vec<String> = uris
+            .iter()
+            .filter_map(|uri| convert::id_of(uri, convert::Kind::Track))
+            .map(str::to_string)
+            .collect();
+        if insert_before as usize >= song_ids.len() {
+            self.add_to_playlist(id, uris).await?;
+            return self.playlist(id).await;
+        }
+        insert(&mut song_ids, added, insert_before as usize);
+        let name = current.playlist.name.clone();
+        let rewritten = self
+            .write_playlist(Some(id), Some(&name), &song_ids)
+            .await?;
+        Ok(convert::playlist(&rewritten.playlist))
+    }
+
     /// `ApiRequest::Search`. An empty query matches the whole library, so
     /// it is answered with nothing instead of being sent.
     pub async fn search(&self, query: &str, offset: u32) -> Result<SearchResults> {
@@ -747,6 +778,11 @@ impl SubsonicClient {
 /// `insert_before` is the index the entry should sit *before* in the list as
 /// it was, so moving down by one is `to == from + 2`. Returns whether
 /// anything moved.
+fn insert(ids: &mut Vec<String>, added: Vec<String>, insert_before: usize) {
+    let at = insert_before.min(ids.len());
+    ids.splice(at..at, added);
+}
+
 fn reorder(ids: &mut Vec<String>, from: usize, insert_before: usize) -> bool {
     if from >= ids.len() || insert_before > ids.len() {
         return false;
@@ -799,6 +835,20 @@ mod tests {
 
     fn ids(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    #[test]
+    fn inserted_songs_go_in_before_the_row_they_were_dropped_on() {
+        let mut list = ids(&["a", "b", "c"]);
+        insert(&mut list, ids(&["x", "y"]), 1);
+        assert_eq!(list, ids(&["a", "x", "y", "b", "c"]));
+        let mut list = ids(&["a"]);
+        insert(&mut list, ids(&["x"]), 0);
+        assert_eq!(list, ids(&["x", "a"]));
+        // A slot past the end is an append, never a panic.
+        let mut list = ids(&["a"]);
+        insert(&mut list, ids(&["x"]), 9);
+        assert_eq!(list, ids(&["a", "x"]));
     }
 
     #[test]

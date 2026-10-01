@@ -822,14 +822,16 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     if entry.liked {
                         // Dropping on Liked Songs saves; a song already
                         // saved is left alone.
-                        if app.is_saved(&track.uri) != Some(true) {
-                            app.actions.push(Action::ToggleSaved(track.uri.clone()));
+                        for uri in track.uris() {
+                            if app.is_saved(&uri) != Some(true) {
+                                app.actions.push(Action::ToggleSaved(uri));
+                            }
                         }
                     } else if let Page::Playlist(id) = &entry.page {
                         app.actions.push(Action::AddToPlaylist {
                             playlist_id: id.clone(),
                             playlist_name: entry.name.clone(),
-                            uris: vec![track.uri.clone()],
+                            uris: track.uris(),
                         });
                     }
                 }

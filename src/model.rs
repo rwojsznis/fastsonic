@@ -292,6 +292,24 @@ impl<T> PagedList<T> {
         self.revision = self.revision.wrapping_add(1);
     }
 
+    /// Puts rows in before `at`, counting them into the total. Rows beyond
+    /// what is loaded shift the next page to fetch, so it is not read twice.
+    pub fn insert(&mut self, at: usize, rows: impl IntoIterator<Item = T>) {
+        if at > self.items.len() {
+            return;
+        }
+        let before = self.items.len();
+        self.items.splice(at..at, rows);
+        let added = (self.items.len() - before) as u32;
+        self.total = self.total.map(|total| total.saturating_add(added));
+        if let Some(next) = &mut self.next_offset
+            && self.loaded_once
+        {
+            *next = next.saturating_add(added);
+        }
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     pub fn reorder(&mut self, from: usize, to: usize) {
         if from < self.items.len() && to <= self.items.len() {
             let item = self.items.remove(from);
@@ -598,12 +616,32 @@ pub enum RowContext {
 /// Track data held during a drag.
 #[derive(Clone, Debug)]
 pub struct DragTrack {
-    pub uri: String,
     pub title: String,
     /// Cover art for the drag preview.
     pub image: Option<String>,
+    /// Full row data, so a drop can show the songs in an open playlist at
+    /// once.
+    pub items: Vec<PlayableItem>,
     /// Source playlist ID and row index for moves within an editable playlist.
     pub from: Option<(String, u32)>,
+}
+
+impl DragTrack {
+    pub fn song(item: &PlayableItem, from: Option<(String, u32)>) -> Self {
+        Self {
+            title: item.name().to_string(),
+            image: item.image(64).map(str::to_string),
+            items: vec![item.clone()],
+            from,
+        }
+    }
+
+    pub fn uris(&self) -> Vec<String> {
+        self.items
+            .iter()
+            .map(|item| item.uri().to_string())
+            .collect()
+    }
 }
 
 /// Sidebar entry held during a drag.
@@ -726,6 +764,13 @@ pub enum Action {
         playlist_id: String,
         from: u32,
         to: u32,
+    },
+    /// Copy dragged songs into an open playlist, before the row at
+    /// `position`.
+    InsertInPlaylist {
+        playlist_id: String,
+        position: u32,
+        items: Vec<PlayableItem>,
     },
     ShowDialog(Dialog),
     CloseDialog,

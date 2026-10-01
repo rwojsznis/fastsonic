@@ -284,6 +284,52 @@ async fn a_playlist_can_be_made_added_to_reordered_and_removed_from() {
         vec![uris[1].clone(), uris[0].clone(), uris[2].clone()]
     );
 
+    // A positioned add goes in before the row it was dropped on, keeping
+    // the id and the name; past the end it is an ordinary append.
+    let extra = client
+        .random_tracks(10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|track| track.uri)
+        .find(|uri| !uris.contains(uri))
+        .expect("a song not yet in the playlist");
+    let inserted = client
+        .insert_into_playlist(&created.id, std::slice::from_ref(&extra), 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        (inserted.id.as_str(), inserted.name.as_str()),
+        (created.id.as_str(), name.as_str())
+    );
+    let order: Vec<String> = client
+        .playlist_items(&created.id, 0, 50)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| item.playable().unwrap().uri().to_string())
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            uris[1].clone(),
+            extra.clone(),
+            uris[0].clone(),
+            uris[2].clone()
+        ]
+    );
+    let appended = client
+        .insert_into_playlist(&created.id, std::slice::from_ref(&extra), 99)
+        .await
+        .unwrap();
+    assert_eq!(appended.track_total(), 5);
+    let left = client
+        .remove_from_playlist(&created.id, std::slice::from_ref(&extra))
+        .await
+        .unwrap();
+    assert_eq!(left.track_total(), 3);
+
     // Paging a playlist is local slicing, since the server sends it whole.
     let page = client.playlist_items(&created.id, 1, 1).await.unwrap();
     assert_eq!(page.items.len(), 1);

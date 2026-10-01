@@ -490,15 +490,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         || info_response.drag_started_by(egui::PointerButton::Primary))
         && let Some(item) = &song
     {
-        egui::DragAndDrop::set_payload(
-            ui.ctx(),
-            DragTrack {
-                uri: item.uri().to_string(),
-                title: item.name().to_string(),
-                image: item.image(64).map(str::to_string),
-                from: None,
-            },
-        );
+        egui::DragAndDrop::set_payload(ui.ctx(), DragTrack::song(item, None));
     }
 
     // The playing thing answers the same right-click menu as a table row,

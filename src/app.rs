@@ -2946,6 +2946,7 @@ impl App {
                                 playlist_id: playlist.id.clone(),
                                 playlist_name: playlist.name.clone(),
                                 uris: add_uris,
+                                position: None,
                             });
                         }
                         self.open(Page::Playlist(playlist.id));
@@ -3999,6 +4000,7 @@ impl App {
                     playlist_id,
                     playlist_name,
                     uris,
+                    position: None,
                 });
             }
             Action::RemoveFromPlaylist { playlist_id, uris } => {
@@ -4039,6 +4041,43 @@ impl App {
                     range_start: from,
                     insert_before: to,
                     snapshot_id,
+                });
+            }
+            Action::InsertInPlaylist {
+                playlist_id,
+                position,
+                items,
+            } => {
+                let Some(name) = self
+                    .playlist_pages
+                    .get(&playlist_id)
+                    .and_then(|page| page.playlist.get())
+                    .filter(|playlist| self.can_edit_playlist(playlist))
+                    .map(|playlist| playlist.name.clone())
+                else {
+                    return;
+                };
+                if items.is_empty() {
+                    return;
+                }
+                let uris = items.iter().map(|item| item.uri().to_string()).collect();
+                if let Some(page) = self.playlist_pages.get_mut(&playlist_id) {
+                    page.items.insert(
+                        position as usize,
+                        items
+                            .into_iter()
+                            .map(|item| crate::api::models::PlaylistItem {
+                                item: Some(item),
+                                ..Default::default()
+                            }),
+                    );
+                }
+                self.playlist_busy = true;
+                self.backend.api(ApiRequest::AddToPlaylist {
+                    playlist_id,
+                    playlist_name: name,
+                    uris,
+                    position: Some(position),
                 });
             }
             Action::ShowDialog(dialog) => self.dialog = Some(dialog),
@@ -4676,6 +4715,12 @@ impl App {
     /// comes from a playlist the account may edit. The player bar menu
     /// uses this so removal matches a row's URI-based entry; moves need
     /// a row index and stay in the playlist view.
+    /// Whether this account may change the playlist's songs.
+    pub fn can_edit_playlist(&self, playlist: &crate::api::models::Playlist) -> bool {
+        self.user_id()
+            .is_some_and(|user| playlist.owned_by(user) || playlist.collaborative)
+    }
+
     pub fn editable_context_playlist(&self) -> Option<RowContext> {
         let user_id = self.user_id()?;
         let uri = self.playing_context_uri()?;
@@ -6637,6 +6682,84 @@ mod tests {
         }
         app.handle_queue(snapshot(Some("sonic:track:a"), &["sonic:track:b"], &[]));
         assert!(app.queue_names.is_empty());
+    }
+
+    /// A positioned add is shown where it was dropped, keeps a partly
+    /// loaded list's next page pointing past it, and asks the server for
+    /// the same slot. A playlist this account cannot edit takes nothing.
+    #[test]
+    fn inserting_into_a_playlist_shows_the_song_and_sends_its_slot() {
+        use crate::api::models::{PlaylistItem, Track};
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.user = Some(User {
+            id: "me".into(),
+            ..Default::default()
+        });
+        let song = |uri: &str| {
+            PlayableItem::Track(Track {
+                uri: uri.into(),
+                ..Default::default()
+            })
+        };
+        for (owner, editable) in [("me", true), ("someone-else", false)] {
+            let mut page = PlaylistPage {
+                playlist: Loadable::Loaded(crate::api::models::Playlist {
+                    id: "p".into(),
+                    name: "Mine".into(),
+                    owner: crate::api::models::Owner {
+                        id: Some(owner.into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            page.items.absorb(
+                0,
+                crate::api::models::Page {
+                    items: ["sonic:track:a", "sonic:track:b"]
+                        .map(|uri| PlaylistItem {
+                            item: Some(song(uri)),
+                            ..Default::default()
+                        })
+                        .into(),
+                    total: 5,
+                    limit: 2,
+                    next: Some("more".into()),
+                    ..Default::default()
+                },
+            );
+            app.playlist_pages.insert("p".into(), page);
+            app.backend.asked_api();
+            app.apply(
+                Action::InsertInPlaylist {
+                    playlist_id: "p".into(),
+                    position: 1,
+                    items: vec![song("sonic:track:new")],
+                },
+                &ctx,
+            );
+            let items = &app.playlist_pages["p"].items;
+            let uris: Vec<&str> = items
+                .items
+                .iter()
+                .filter_map(|row| row.playable().map(|item| item.uri()))
+                .collect();
+            if editable {
+                assert_eq!(uris, ["sonic:track:a", "sonic:track:new", "sonic:track:b"]);
+                assert_eq!(items.total, Some(6));
+                assert_eq!(items.next_offset, Some(3));
+                assert!(matches!(
+                    app.backend.asked_api().as_slice(),
+                    [ApiRequest::AddToPlaylist { position: Some(1), uris, .. }]
+                        if uris == &["sonic:track:new"]
+                ));
+            } else {
+                assert_eq!(uris, ["sonic:track:a", "sonic:track:b"]);
+                assert!(app.backend.asked_api().is_empty());
+            }
+        }
     }
 
     #[test]

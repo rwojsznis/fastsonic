@@ -26,7 +26,12 @@ playing song in the player bar offers the same removal while it plays from a
 playlist you can edit.
 
 Drag a song row, or the playing song's cover or title in the player bar, onto
-a playlist in the sidebar to add it there.
+a playlist in the sidebar to add it there. Drop it between the rows of an open
+playlist you can edit to put a copy at that spot; the line between rows marks
+where it goes, the blank space below the last row appends, and an empty
+playlist takes its first song the same way. The song stays where it came from
+and playback carries on. Clear the playlist's filter and sort first, so the
+positions on screen are the saved ones.
 
 ## Keyboard input
 

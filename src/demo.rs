@@ -1726,6 +1726,14 @@ mod tests {
         frame_events(ctx, app, Vec::new());
     }
 
+    fn song(uri: &str, name: &str) -> PlayableItem {
+        PlayableItem::Track(crate::api::models::Track {
+            uri: uri.into(),
+            name: name.into(),
+            ..Default::default()
+        })
+    }
+
     fn view_frame(
         ctx: &egui::Context,
         app: &mut App,
@@ -3305,12 +3313,7 @@ mod tests {
             let pos = egui::pos2(120.0, 120.0 + step as f32 * 15.0);
             egui::DragAndDrop::set_payload(
                 &ctx,
-                DragTrack {
-                    uri: track_uri("trk0"),
-                    title: "Rosewood".into(),
-                    image: None,
-                    from: None,
-                },
+                DragTrack::song(&song(&track_uri("trk0"), "Rosewood"), None),
             );
             frame_events(&ctx, &mut app, vec![egui::Event::PointerMoved(pos)]);
             frame_events(
@@ -3381,7 +3384,7 @@ mod tests {
             payload
         });
         let payload = payload.expect("dragging the player bar's song should carry it");
-        assert_eq!(payload.uri, playing);
+        assert_eq!(payload.uris(), vec![playing]);
         assert_eq!(payload.from, None, "this is an add, not a playlist move");
         app.backend.shutdown();
     }
@@ -3572,11 +3575,8 @@ mod tests {
         };
         let original = order(&app);
         let from = 5usize;
-        let held = |from: usize, uri: &str| DragTrack {
-            uri: uri.to_string(),
-            title: "Elysian".into(),
-            image: None,
-            from: Some(("pl1".into(), from as u32)),
+        let held = |from: usize, uri: &str| {
+            DragTrack::song(&song(uri, "Elysian"), Some(("pl1".into(), from as u32)))
         };
 
         // Sweep the held row down the page; above the table nothing
@@ -3656,6 +3656,82 @@ mod tests {
         assert_eq!(order(&app), expected);
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A song from anywhere else dropped between an editable playlist's
+    /// rows is copied in at that slot, at once; the playlist's own rows
+    /// still move instead, and a sorted view takes nothing.
+    #[test]
+    fn dropping_a_song_into_an_open_playlist_inserts_it_at_the_slot() {
+        let (ctx, mut app) = accessible_app("insert-drop");
+        app.open(Page::Playlist("pl1".into()));
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+        let order = |app: &App| -> Vec<String> {
+            app.playlist_pages["pl1"]
+                .items
+                .items
+                .iter()
+                .filter_map(|item| item.playable().map(|playable| playable.uri().to_string()))
+                .collect()
+        };
+        let original = order(&app);
+        let total = app.playlist_pages["pl1"].items.total;
+        let stranger = song(&track_uri("from-elsewhere"), "Stranger");
+        let drop_at = |ctx: &egui::Context, app: &mut App, pos: egui::Pos2, payload: DragTrack| {
+            egui::DragAndDrop::set_payload(ctx, payload);
+            frame_events(ctx, app, vec![egui::Event::PointerMoved(pos)]);
+            frame_events(
+                ctx,
+                app,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            egui::DragAndDrop::clear_payload(ctx);
+        };
+        // Where the table begins depends on the loaded fonts; sweep down
+        // until a drop lands.
+        let landed = (0..45)
+            .map(|step| egui::pos2(700.0, 120.0 + step as f32 * 15.0))
+            .find(|pos| {
+                drop_at(&ctx, &mut app, *pos, DragTrack::song(&stranger, None));
+                app.playlist_busy
+            })
+            .expect("no sweep position landed inside the table");
+        let now = order(&app);
+        let at = now
+            .iter()
+            .position(|uri| *uri == track_uri("from-elsewhere"))
+            .expect("the dropped song shows at once");
+        let mut expected = original.clone();
+        expected.insert(at, track_uri("from-elsewhere"));
+        assert_eq!(now, expected, "the other rows keep their order");
+        assert_eq!(
+            app.playlist_pages["pl1"].items.total,
+            total.map(|total| total + 1)
+        );
+
+        app.table_sorts.insert(
+            Page::Playlist("pl1".into()),
+            TableSort {
+                column: SortColumn::Title,
+                ascending: true,
+            },
+        );
+        app.playlist_busy = false;
+        frame(&ctx, &mut app);
+        drop_at(&ctx, &mut app, landed, DragTrack::song(&stranger, None));
+        assert!(
+            !app.playlist_busy,
+            "a sorted view accepted a positioned add"
+        );
+        assert_eq!(order(&app), expected);
+        app.backend.shutdown();
     }
 
     /// The custom order is a setting like any other: it survives the trip

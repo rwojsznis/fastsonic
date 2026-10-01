@@ -977,15 +977,7 @@ fn track_row_contents(
             } => Some((id.clone(), row.index as u32)),
             _ => None,
         };
-        egui::DragAndDrop::set_payload(
-            ui.ctx(),
-            DragTrack {
-                uri: row.item.uri().to_string(),
-                title: row.item.name().to_string(),
-                image: row.item.image(64).map(str::to_string),
-                from,
-            },
-        );
+        egui::DragAndDrop::set_payload(ui.ctx(), DragTrack::song(row.item, from));
     }
     // A queue row is a position, not the song itself: the same song can
     // sit in the queue while it plays (a repeat wrapping around, a song
