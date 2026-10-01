@@ -201,6 +201,10 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         "Song list: copy the selected songs' links",
     ),
     (
+        platform_shortcut("Ctrl+X", "Cmd+X"),
+        "Playlist: cut the selected songs",
+    ),
+    (
         platform_shortcut("Ctrl+V", "Cmd+V"),
         "Playlist: add the pasted song links",
     ),

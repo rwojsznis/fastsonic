@@ -31,8 +31,10 @@ a row. Clicking a song's row selects it and gives it the keyboard.
 
 Ctrl+A (Cmd+A on macOS) selects every song the list shows, following its
 filter. Ctrl+C copies the selected songs' links, one a line, and Ctrl+V in a
-playlist you can edit adds the songs whose links are on the clipboard. A
-focused text field or an open dialog keeps these keys.
+playlist you can edit adds the songs whose links are on the clipboard. Ctrl+X
+copies them and removes them from a playlist you can edit, so Ctrl+V in
+another moves them there. A focused text field or an open dialog keeps these
+keys.
 
 Ctrl, Cmd and Alt arrow keys move the caret while a text field has focus.
 Playback and navigation shortcuts on those keys remain available from song
