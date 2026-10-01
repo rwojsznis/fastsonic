@@ -29,6 +29,9 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
   oscilloscope, equalizer, and playlist.
 - A projectM-powered MilkDrop window with optional preset packs.
+- Native window behaviour: on macOS, double-clicking the top bar does what
+  Desktop & Dock asks (Fill, Zoom, Minimize or nothing); on Windows, the
+  standard title bar, or Fastsonic's own if you choose it.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
   shortcuts, tray/Dock reopening, a Play/Pause, Next and Previous Dock menu
   on macOS, and single-instance behavior.

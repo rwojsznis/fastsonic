@@ -53,6 +53,135 @@ pub fn can_restore(pos: [f32; 2], pixels_per_point: f32) -> bool {
     .contains(anchor)
 }
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MacosDoubleClickAction {
+    Ignore,
+    Minimize,
+    Zoom,
+}
+
+/// What Desktop & Dock's "Double-click a window's title bar to" asks for.
+/// When that choice was never stored, the older "Double-click a window's
+/// title bar to minimize" switch decides between Minimize and Zoom.
+#[cfg(any(target_os = "macos", test))]
+fn macos_double_click_action(
+    preference: Option<&str>,
+    legacy_minimize: bool,
+) -> MacosDoubleClickAction {
+    match preference {
+        Some("Minimize") => MacosDoubleClickAction::Minimize,
+        Some("None") => MacosDoubleClickAction::Ignore,
+        // AppKit already handles Fill as part of the native window drag.
+        Some("Maximize" | "Fill") => MacosDoubleClickAction::Ignore,
+        Some("Zoom") => MacosDoubleClickAction::Zoom,
+        None if legacy_minimize => MacosDoubleClickAction::Minimize,
+        None => MacosDoubleClickAction::Zoom,
+        Some(_) => MacosDoubleClickAction::Ignore,
+    }
+}
+
+/// Handles a macOS title-bar double-click, or leaves a first click to drag.
+#[cfg(target_os = "macos")]
+pub fn macos_titlebar_should_drag() -> bool {
+    use objc2::{MainThreadMarker, sel};
+    use objc2_app_kit::{NSApplication, NSEventType};
+    use objc2_foundation::{NSObjectNSDelayedPerforming, NSUserDefaults, ns_string};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return true;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(event) = app.currentEvent() else {
+        return true;
+    };
+    if event.r#type() != NSEventType::LeftMouseDown || event.clickCount() != 2 {
+        return true;
+    }
+
+    let defaults = NSUserDefaults::standardUserDefaults();
+    let preference = defaults
+        .stringForKey(ns_string!("AppleActionOnDoubleClick"))
+        .map(|action| action.to_string());
+    let legacy_minimize = defaults.boolForKey(ns_string!("AppleMiniaturizeOnDoubleClick"));
+    let action = macos_double_click_action(preference.as_deref(), legacy_minimize);
+    if let Some(window) = event.window(mtm) {
+        // Let egui finish this frame before AppKit starts resizing the window.
+        // SAFETY: Both NSWindow selectors take one optional sender argument.
+        unsafe {
+            match action {
+                MacosDoubleClickAction::Ignore => {}
+                MacosDoubleClickAction::Minimize => window.performSelector_withObject_afterDelay(
+                    sel!(performMiniaturize:),
+                    None,
+                    0.0,
+                ),
+                MacosDoubleClickAction::Zoom => {
+                    window.performSelector_withObject_afterDelay(sel!(performZoom:), None, 0.0)
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn macos_titlebar_should_drag() -> bool {
+    true
+}
+
+/// Minimize the active window without leaving egui's macOS viewport flag stale
+/// when the user later restores it from the Dock.
+pub fn minimize_window(ctx: &egui::Context) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::{MainThreadMarker, sel};
+        use objc2_app_kit::NSApplication;
+        use objc2_foundation::NSObjectNSDelayedPerforming;
+
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        let window = app.currentEvent().and_then(|event| event.window(mtm));
+        if let Some(window) = window.or_else(|| app.keyWindow()) {
+            // Let egui finish this frame before AppKit minimizes the window.
+            // SAFETY: NSWindow's selector takes one optional sender argument.
+            unsafe {
+                window.performSelector_withObject_afterDelay(sel!(miniaturize:), None, 0.0);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+    #[cfg(target_os = "macos")]
+    let _ = ctx;
+}
+
+/// Whether windows wait for the display before swapping buffers. AppKit's
+/// resize and zoom animations need swaps paced with the display. Elsewhere it
+/// stays off: a hidden Wayland window receives no frame callbacks and a
+/// vsync wait there would block the event loop.
+pub fn vsync() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// How long to ask egui to wait for the next frame of an animation that
+/// moves once per `frame`. egui takes one predicted frame off every delayed
+/// repaint, expecting vsync to supply it; without vsync that leaves nothing
+/// and spins a core, so ask for two frames and wait one.
+pub fn animation_repaint_delay(frame: std::time::Duration) -> std::time::Duration {
+    repaint_delay_for(vsync(), frame)
+}
+
+const fn repaint_delay_for(vsync: bool, frame: std::time::Duration) -> std::time::Duration {
+    if vsync {
+        frame
+    } else {
+        frame.saturating_mul(2)
+    }
+}
+
 static CUSTOM_TITLEBAR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether the main window draws its own title bar and window buttons
@@ -77,6 +206,34 @@ const fn custom_titlebar_for(on_windows: bool, chosen: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_animation_waits_one_frame_with_or_without_vsync() {
+        let frame = std::time::Duration::from_micros(16_667);
+        assert_eq!(repaint_delay_for(true, frame), frame);
+        assert_eq!(repaint_delay_for(false, frame), frame * 2);
+    }
+
+    #[test]
+    fn macos_titlebar_preferences_map_to_native_actions() {
+        for (preference, legacy, action) in [
+            (Some("Minimize"), false, MacosDoubleClickAction::Minimize),
+            (Some("None"), false, MacosDoubleClickAction::Ignore),
+            (Some("Maximize"), false, MacosDoubleClickAction::Ignore),
+            (Some("Fill"), false, MacosDoubleClickAction::Ignore),
+            (Some("Zoom"), false, MacosDoubleClickAction::Zoom),
+            (Some("Zoom"), true, MacosDoubleClickAction::Zoom),
+            (None, false, MacosDoubleClickAction::Zoom),
+            (None, true, MacosDoubleClickAction::Minimize),
+            (Some("FutureAction"), false, MacosDoubleClickAction::Ignore),
+        ] {
+            assert_eq!(
+                macos_double_click_action(preference, legacy),
+                action,
+                "{preference:?}, legacy minimize {legacy}"
+            );
+        }
+    }
 
     #[test]
     fn only_windows_draws_its_own_title_bar_and_only_when_chosen() {

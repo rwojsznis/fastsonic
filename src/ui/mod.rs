@@ -43,6 +43,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         window_resize(ui);
         return;
     }
+    if cfg!(target_os = "macos") {
+        titlebar_drag(
+            ui,
+            Rect::from_min_size(
+                ui.max_rect().min,
+                vec2(
+                    ui.max_rect().width(),
+                    theme::TOP_BAR_HEIGHT + theme::titlebar_inset(ui.ctx()),
+                ),
+            ),
+        );
+    }
     player_bar::show(app, ui);
     if app.lyrics_fullscreen.is_some() {
         lyrics::fullscreen(app, ui);
@@ -231,13 +243,14 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
             .input(|input| input.viewport().maximized.unwrap_or(false));
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-    } else if crate::window::custom_titlebar() && response.drag_started() {
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-    } else if cfg!(target_os = "macos")
-        && response.is_pointer_button_down_on()
-        && ui.input(|input| input.pointer.primary_pressed())
+    } else if (crate::window::custom_titlebar() && response.drag_started())
+        // macOS needs the live mouse-down event rather than egui's drag
+        // threshold, and a second click is the Desktop & Dock action instead.
+        || (cfg!(target_os = "macos")
+            && response.is_pointer_button_down_on()
+            && ui.input(|input| input.pointer.primary_pressed())
+            && crate::window::macos_titlebar_should_drag())
     {
-        // macOS needs the live mouse-down event rather than egui's drag threshold.
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
 }

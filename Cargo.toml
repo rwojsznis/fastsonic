@@ -116,8 +116,10 @@ souvlaki = { version = "0.8", default-features = false }
 # src/mac_touchbar_crash_guard.rs catch a specific AppKit Objective-C
 # exception instead of letting it abort the process.
 objc2 = { version = "0.6", features = ["exception"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+# NSWindow and NSUserDefaults answer a title-bar double-click the way the
+# Desktop & Dock setting asks (src/window.rs).
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSUserDefaults"] }
 
 # AccessKit connects egui's control names, states, and actions to native
 # screen readers.

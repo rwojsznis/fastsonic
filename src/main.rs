@@ -596,11 +596,10 @@ fn native_options(
         viewport,
         persist_window,
         persistence_path,
-        // A Wayland compositor stops sending frame callbacks to a hidden
-        // window; waiting for vsync there would block the event loop.
+        // See `window::vsync` for where waiting for the display is safe.
         // Repaints are event-driven, so nothing spins.
         glow_options: eframe::egui_glow::GlowConfiguration {
-            vsync: false,
+            vsync: fastsonic::window::vsync(),
             ..Default::default()
         },
         ..Default::default()
@@ -836,6 +835,24 @@ mod native_window_tests {
         assert_eq!(options.viewport.fullsize_content_view, Some(true));
         assert_eq!(options.viewport.titlebar_shown, Some(false));
         assert_eq!(options.viewport.title_shown, Some(false));
+    }
+
+    #[test]
+    fn both_windows_follow_the_vsync_decision() {
+        assert_eq!(
+            native_options(false, None, None).glow_options.vsync,
+            fastsonic::window::vsync()
+        );
+        let mini = MiniWindow {
+            size: egui::vec2(550.0, 232.0),
+            position: None,
+            on_top: false,
+            storage_path: "cache/winamp.ron".into(),
+        };
+        assert_eq!(
+            native_options(false, Some(mini), None).glow_options.vsync,
+            fastsonic::window::vsync()
+        );
     }
 
     #[test]

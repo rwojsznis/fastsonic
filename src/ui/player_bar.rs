@@ -61,7 +61,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {
-                ui.ctx().request_repaint_after(VIS_FRAME);
+                ui.ctx()
+                    .request_repaint_after(crate::window::animation_repaint_delay(VIS_FRAME));
             }
             // Its empty space is the visualizer's control, as Winamp's
             // visualizer was: a click moves to the next mode. The controls

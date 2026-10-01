@@ -386,12 +386,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // The visualiser wants a frame every 60th of a second while it moves;
     // otherwise the marquee steps and the time ticks, and while paused the
-    // time blinks. egui takes one predicted frame (a 60th) off every delay
-    // on the assumption that vsync paces the loop, and this app runs with
-    // vsync off, so asking for a 60th would leave nothing and spin a core;
-    // asking for two frames waits one.
+    // time blinks.
     if vis_moving {
-        ctx.request_repaint_after(VIS_FRAME * 2);
+        ctx.request_repaint_after(crate::window::animation_repaint_delay(VIS_FRAME));
     } else if now.is_some() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }
@@ -494,7 +491,7 @@ fn shade_bar(
         )
         .clicked()
     {
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+        crate::window::minimize_window(ctx);
     }
     if view
         .button(
@@ -663,7 +660,7 @@ fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool)
         )
         .clicked()
     {
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+        crate::window::minimize_window(ctx);
     }
     if view
         .button(
