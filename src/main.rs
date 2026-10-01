@@ -186,12 +186,23 @@ fn run_control(control: Control) -> i32 {
 }
 
 #[cfg(target_os = "linux")]
-fn run_control(_control: Control) -> i32 {
-    eprintln!(
-        "On Linux the running instance speaks MPRIS instead; use e.g. \
-         `playerctl --player=fastsonic play-pause`."
-    );
-    2
+fn run_control(control: Control) -> i32 {
+    // MPRIS has no verb for starring a song, so the instance answers that
+    // one itself.
+    if !matches!(control, Control::Like) {
+        eprintln!(
+            "On Linux the running instance speaks MPRIS instead; use e.g. \
+             `playerctl --player=fastsonic play-pause`."
+        );
+        return 2;
+    }
+    match single_instance::toggle_saved() {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Fastsonic is not running or does not support remote control: {error}");
+            1
+        }
+    }
 }
 
 /// The `nowplaying` snapshot as one human-readable line.

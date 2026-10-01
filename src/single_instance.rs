@@ -35,6 +35,10 @@ const INSTANCE_NAME: &str = "io.github.rwojsznis.Fastsonic.Instance";
 #[cfg(target_os = "linux")]
 const MPRIS_NAME: &str = "org.mpris.MediaPlayer2.fastsonic";
 
+/// Where the running instance answers the commands MPRIS has no verb for.
+#[cfg(target_os = "linux")]
+const INSTANCE_PATH: &str = "/io/github/rwojsznis/Fastsonic/Instance";
+
 pub enum Outcome {
     /// This process is the only instance. Hold the guard until it exits.
     Only(Guard),
@@ -78,7 +82,8 @@ pub struct Guard {
     #[cfg(target_os = "linux")]
     _connection: Option<mpris_server::zbus::blocking::Connection>,
     /// Filled by control clients, drained by the app every frame. On Linux
-    /// the same requests arrive through MPRIS instead and this stays empty.
+    /// most requests arrive through MPRIS instead; only those it has no verb
+    /// for land here, through the instance's own interface.
     commands: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>,
     /// Current-track snapshot for `nowplaying` requests.
     now_playing: std::sync::Arc<std::sync::Mutex<String>>,
@@ -324,13 +329,14 @@ fn read_line(stream: &mut std::net::TcpStream) -> Option<String> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn acquire(_waker: &crate::backend::Waker) -> Outcome {
+pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
     use mpris_server::zbus::blocking::Connection;
     use mpris_server::zbus::fdo::{RequestNameFlags, RequestNameReply};
 
+    let commands: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>> = Default::default();
     let guard = |connection: Option<Connection>| Guard {
         _connection: connection,
-        commands: Default::default(),
+        commands: std::sync::Arc::clone(&commands),
         now_playing: std::sync::Arc::new(std::sync::Mutex::new(NOTHING_PLAYING.to_owned())),
     };
 
@@ -347,6 +353,13 @@ pub fn acquire(_waker: &crate::backend::Waker) -> Outcome {
     // `NameTaken` is the normal second-launch result.
     match connection.request_name_with_flags(INSTANCE_NAME, RequestNameFlags::DoNotQueue.into()) {
         Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {
+            let instance = Instance {
+                commands: std::sync::Arc::clone(&commands),
+                waker: waker.clone(),
+            };
+            if let Err(error) = serve_instance(connection.clone(), instance) {
+                log::warn!("`fastsonic like` will not reach this instance: {error}");
+            }
             Outcome::Only(guard(Some(connection)))
         }
         Ok(_) | Err(mpris_server::zbus::Error::NameTaken) => {
@@ -362,6 +375,94 @@ pub fn acquire(_waker: &crate::backend::Waker) -> Outcome {
             Outcome::Only(guard(None))
         }
     }
+}
+
+/// The commands a client can send on Linux that MPRIS has no verb for.
+#[cfg(target_os = "linux")]
+struct Instance {
+    commands: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>,
+    waker: crate::backend::Waker,
+}
+
+#[cfg(target_os = "linux")]
+#[zbus::interface(name = "io.github.rwojsznis.Fastsonic.Instance")]
+impl Instance {
+    fn toggle_saved(&self) {
+        self.commands
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(ControlCommand::ToggleSaved);
+        self.waker.wake();
+    }
+}
+
+/// Serves `instance` on `connection` for the rest of the process, from a
+/// thread of its own: with tokio behind zbus, an interface's dispatch task
+/// runs on whichever runtime registers it, and outside one there is no
+/// registering it at all. This runtime is never dropped. Returns once the
+/// interface answers, or with what went wrong.
+#[cfg(target_os = "linux")]
+fn serve_instance(
+    connection: mpris_server::zbus::blocking::Connection,
+    instance: Instance,
+) -> Result<(), String> {
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name("fastsonic-instance".to_owned())
+        .spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error.to_string()));
+                    return;
+                }
+            };
+            runtime.block_on(async move {
+                let served = connection
+                    .inner()
+                    .object_server()
+                    .at(INSTANCE_PATH, instance)
+                    .await;
+                match served {
+                    Ok(_) => {
+                        let _ = ready_tx.send(Ok(()));
+                        // The interface's dispatch task lives on this
+                        // runtime; so does the thread.
+                        std::future::pending::<()>().await;
+                    }
+                    Err(error) => {
+                        let _ = ready_tx.send(Err(error.to_string()));
+                    }
+                }
+            });
+        });
+    if let Err(error) = spawned {
+        return Err(error.to_string());
+    }
+    match ready_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(result) => result,
+        Err(_) => Err("the instance interface did not come up in time".to_owned()),
+    }
+}
+
+/// Toggles the playing song's star in the running instance, without
+/// starting or raising it.
+#[cfg(target_os = "linux")]
+pub fn toggle_saved() -> zbus::Result<()> {
+    let connection = zbus::blocking::connection::Builder::session()?
+        .method_timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let proxy =
+        zbus::blocking::Proxy::new(&connection, INSTANCE_NAME, INSTANCE_PATH, INSTANCE_NAME)?;
+    let _: Option<()> = proxy.call_with_flags(
+        "ToggleSaved",
+        zbus::proxy::MethodFlags::NoAutoStart.into(),
+        &(),
+    )?;
+    Ok(())
 }
 
 /// Asks the running instance to show its window, retrying briefly because it
@@ -557,5 +658,55 @@ mod tests {
         );
 
         drop(served);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+
+    /// `fastsonic like` reaches the running instance through its own
+    /// interface, and says so when there is none.
+    #[test]
+    fn like_reaches_the_running_instance_on_a_private_bus() {
+        const CHILD: &str = "FASTSONIC_INSTANCE_PRIVATE_BUS";
+        const NAME: &str =
+            "single_instance::linux_tests::like_reaches_the_running_instance_on_a_private_bus";
+        if std::env::var_os(CHILD).is_none() {
+            let root = std::env::temp_dir().join(format!(
+                "fastsonic-instance-bus-{:016x}",
+                rand::random::<u64>()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let config = root.join("session.conf");
+            std::fs::write(&config, r#"<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context="default"><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>"#).unwrap();
+            let result = std::process::Command::new("dbus-run-session")
+                .arg("--config-file")
+                .arg(config)
+                .arg("--")
+                .arg(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        assert!(toggle_saved().is_err(), "nothing is running yet");
+        let Outcome::Only(guard) = acquire(&Default::default()) else {
+            panic!("the first instance holds the name");
+        };
+        toggle_saved().unwrap();
+        assert_eq!(
+            std::mem::take(&mut *guard.commands().lock().unwrap()),
+            vec![ControlCommand::ToggleSaved],
+            "like only toggles the saved state"
+        );
     }
 }

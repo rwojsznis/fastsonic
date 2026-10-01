@@ -82,6 +82,9 @@ On Linux, control the running player over MPRIS, for example:
 playerctl --player=fastsonic play-pause
 ```
 
+MPRIS has no verb for starring a song, so `fastsonic like` stars or unstars the
+playing one in the running instance on Linux too.
+
 On macOS and Windows, `fastsonic play-pause`, `play`, `pause`, `next`,
 `previous`, `seek`, `seek-to`, `volume`, `volume-up`, `volume-down`, `mute`,
 `shuffle`, `repeat`, `like`, `play-uri`, `now-playing`, and `show` address the
