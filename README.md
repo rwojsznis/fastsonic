@@ -37,7 +37,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   standard title bar, or Fastsonic's own if you choose it.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
   shortcuts, tray/Dock reopening, a Play/Pause, Next and Previous Dock menu
-  on macOS, and single-instance behavior.
+  on macOS, the same three buttons under the taskbar preview on Windows,
+  and single-instance behavior.
 - Smooth local Play and Pause transitions, plus searchable playlist choices
   when adding one song or a selection.
 - Synced lyrics in a side panel or full-screen view, with line seeking and

@@ -2043,6 +2043,16 @@ impl App {
         Some(file)
     }
 
+    pub fn thumb_state(&self, dark: bool) -> crate::thumbbar::ThumbState {
+        let now = self.now_playing();
+        crate::thumbbar::ThumbState {
+            has_track: now.is_some(),
+            playing: now.as_ref().is_some_and(|now| now.playing),
+            can_control: now.as_ref().is_some_and(|now| now.can_control),
+            dark,
+        }
+    }
+
     fn sync_media_controls(&mut self) {
         let art_file = self
             .now_playing()
@@ -6287,6 +6297,32 @@ mod tests {
         }
         app.handle_queue(snapshot(Some("sonic:track:a"), &["sonic:track:b"], &[]));
         assert!(app.queue_names.is_empty());
+    }
+
+    #[test]
+    fn thumbnail_transport_tracks_optimistic_pause_and_window_recreation() {
+        use crate::thumbbar::{Icon, ThumbCommand, buttons};
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        assert!(!app.thumb_state(true).has_track);
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:thumbnail".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let state = app.thumb_state(true);
+        assert!(state.has_track && state.playing && state.can_control);
+        assert_eq!(buttons(&state)[1].icon, Icon::Pause);
+        app.apply(ThumbCommand::PlayPause.action(&state).unwrap(), &ctx);
+        assert_eq!(
+            buttons(&app.thumb_state(true))[1].icon,
+            Icon::Play,
+            "pause updates before the engine answers"
+        );
+        app.window_gone();
+        app.attach(&ctx);
+        assert_eq!(buttons(&app.thumb_state(false))[1].icon, Icon::Play);
+        assert!(!app.thumb_state(false).dark);
     }
 
     /// Rule 4: Next asks the engine, which takes the top row off before it

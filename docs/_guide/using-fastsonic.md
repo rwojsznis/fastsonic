@@ -84,6 +84,18 @@ Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
 while music plays), **Next**, and **Previous**, above the standard Dock items.
 They keep working while the window is closed to the menu bar.
 
+## Windows taskbar controls
+
+Hovering Fastsonic's taskbar button offers **Previous**, **Play/Pause**, and
+**Next** beneath its window preview. They act like the player bar's
+buttons, update immediately, and are disabled when nothing is playing. The
+icons follow the system appearance and display scaling.
+
+Closing to the tray removes the window and its preview. Reopening the main
+window or switching to the Winamp window creates its controls again. Media
+keys and the system's now-playing controls keep working while the window is
+closed.
+
 ## Recent plays
 
 The queue panel's second tab combines the server's recent songs with tracks
