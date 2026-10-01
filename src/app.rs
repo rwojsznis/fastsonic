@@ -4574,6 +4574,13 @@ impl App {
     }
 
     pub fn frame_ui(&mut self, ui: &mut egui::Ui) {
+        // The native close can take another frame. Settings already describe
+        // the replacement window, but drawing it here would resize this one
+        // before eframe saves its geometry. attach clears the switch intent
+        // only once the replacement exists.
+        if self.switch_intent {
+            return;
+        }
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
         self.refresh_frame_now();
@@ -7047,6 +7054,33 @@ mod tests {
         assert!(!app.settings.custom_titlebar);
         assert!(!app.switch_intent, "the mini player is not the main window");
         assert!(!crate::window::custom_titlebar());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_closing_main_window_never_takes_the_mini_players_size() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        app.actions.push(Action::ToggleWinampWindow);
+        app.apply_actions(&ctx);
+        assert!(app.switch_intent && app.settings.winamp_window);
+
+        // Native close events may leave another UI frame to draw. It still
+        // belongs to the main window, whose geometry eframe will save.
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.frame_ui(ui));
+        output.textures_delta.clear();
+        let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(
+            !commands.iter().any(|command| matches!(
+                command,
+                egui::ViewportCommand::InnerSize(_)
+                    | egui::ViewportCommand::MinInnerSize(_)
+                    | egui::ViewportCommand::MaxInnerSize(_)
+                    | egui::ViewportCommand::Maximized(_)
+            )),
+            "the retiring main window must keep its geometry: {commands:?}"
+        );
         app.backend.shutdown();
     }
 
