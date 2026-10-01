@@ -4975,6 +4975,41 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A shelf hidden in settings is not drawn, and the others keep their
+    /// order.
+    #[test]
+    fn hidden_home_shelves_are_left_out_and_the_rest_keep_their_order() {
+        let (ctx, mut app) = accessible_app("home-shelves");
+        let titles = |app: &mut App| -> Vec<String> {
+            let shelves = [
+                "Recently added",
+                "Recently played",
+                "Your top songs",
+                "Most played",
+                "Your top artists",
+                "Something at random",
+            ];
+            view_frame(&ctx, app, vec![], crate::ui::home::show);
+            view_frame(&ctx, app, vec![], crate::ui::home::show)
+                .into_iter()
+                .map(|(text, _)| text)
+                .filter(|text| shelves.contains(&text.as_str()))
+                .collect()
+        };
+        let all = titles(&mut app);
+        assert!(all.contains(&"Something at random".to_string()), "{all:?}");
+        assert!(all.contains(&"Your top artists".to_string()), "{all:?}");
+        app.settings.home.random.visible = false;
+        app.settings.home.top_artists.visible = false;
+        let expected: Vec<String> = all
+            .iter()
+            .filter(|title| *title != "Something at random" && *title != "Your top artists")
+            .cloned()
+            .collect();
+        assert_eq!(titles(&mut app), expected);
+        app.backend.shutdown();
+    }
+
     /// The custom order is a setting like any other: it survives the trip
     /// through the settings file, and older files without it stay in the
     /// automatic order.

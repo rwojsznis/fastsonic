@@ -28,12 +28,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     quick_access(app, ui);
     ui.add_space(16.0);
 
-    album_shelf(app, ui, "newest", "Recently added", Shelf::Newest);
-    recently_played(app, ui);
-    top_tracks(app, ui);
-    album_shelf(app, ui, "frequent", "Most played", Shelf::Frequent);
-    top_artists(app, ui);
-    album_shelf(app, ui, "random", "Something at random", Shelf::Random);
+    // Hidden shelves still load, so showing one again needs no request.
+    let shown = app.settings.home;
+    if shown.recently_added.visible {
+        album_shelf(app, ui, "newest", "Recently added", Shelf::Newest);
+    }
+    if shown.recently_played.visible {
+        recently_played(app, ui);
+    }
+    if shown.top_songs.visible {
+        top_tracks(app, ui);
+    }
+    if shown.most_played.visible {
+        album_shelf(app, ui, "frequent", "Most played", Shelf::Frequent);
+    }
+    if shown.top_artists.visible {
+        top_artists(app, ui);
+    }
+    if shown.random.visible {
+        album_shelf(app, ui, "random", "Something at random", Shelf::Random);
+    }
 }
 
 /// Which of Home's album shelves is being drawn. Mirrors

@@ -66,6 +66,31 @@ where
         .collect())
 }
 
+/// Whether a Home shelf is drawn. Hidden shelves still refresh normally.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HomeShelfSettings {
+    pub visible: bool,
+}
+
+impl Default for HomeShelfSettings {
+    fn default() -> Self {
+        Self { visible: true }
+    }
+}
+
+/// Which of Home's shelves are drawn, set by hand in `settings.json`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HomeSettings {
+    pub recently_added: HomeShelfSettings,
+    pub recently_played: HomeShelfSettings,
+    pub top_songs: HomeShelfSettings,
+    pub most_played: HomeShelfSettings,
+    pub top_artists: HomeShelfSettings,
+    pub random: HomeShelfSettings,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeChoice {
@@ -144,6 +169,7 @@ pub struct Settings {
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
     pub theme: ThemeChoice,
+    pub home: HomeSettings,
     /// The palette file chosen from the themes folder, by filename. While
     /// set, it is shown instead of `theme`.
     pub custom_theme: Option<String>,
@@ -269,6 +295,7 @@ impl Default for Settings {
             audio_cache: true,
             audio_cache_mb: 1024,
             theme: ThemeChoice::System,
+            home: HomeSettings::default(),
             custom_theme: None,
             custom_theme_cache: None,
             accent_from_art: true,
@@ -407,6 +434,34 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::Settings;
+
+    #[test]
+    fn partial_home_preferences_keep_defaults_and_survive_a_settings_round_trip() {
+        for (home, random, top_artists) in [
+            ("{}", true, true),
+            (r#"{"random":{"visible":false}}"#, false, true),
+            (r#"{"top_artists":{"visible":false}}"#, true, false),
+            (
+                r#"{"random":{"visible":false},"top_artists":{"visible":false}}"#,
+                false,
+                false,
+            ),
+        ] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"volume":12345,"home":{home}}}"#)).unwrap();
+            assert_eq!(settings.home.random.visible, random);
+            assert_eq!(settings.home.top_artists.visible, top_artists);
+            assert!(settings.home.recently_added.visible);
+            assert_eq!(settings.volume, 12345);
+            let restored: Settings =
+                serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(restored, settings);
+        }
+        let old: Settings = serde_json::from_str(r#"{"volume":12345}"#).unwrap();
+        assert_eq!(old.home, super::HomeSettings::default());
+        assert!(old.home.most_played.visible);
+        assert_eq!(old.volume, 12345);
+    }
 
     #[test]
     fn player_bar_visualizer_defaults_off_and_cycles_through_modes() {

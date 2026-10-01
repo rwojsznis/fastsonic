@@ -190,6 +190,25 @@ later deleted or broken, its last colours stay, including across restarts, and
 the Theme row explains why until you fix the file or choose another theme. A
 damaged copy is ignored without resetting any other setting.
 
+## Home shelves
+
+Each of Home's shelves can be hidden on its own. Quit Fastsonic before editing
+`settings.json`, then start it again. This hides the random shelf and your top
+artists:
+
+```json
+"home": {
+  "random": { "visible": false },
+  "top_artists": { "visible": false }
+}
+```
+
+The shelves are `recently_added`, `recently_played`, `top_songs`,
+`most_played`, `top_artists` and `random`. Set `visible` back to `true`, or
+remove the entry, to show a shelf again; anything left out stays visible. The
+shortcuts at the top of Home are not a shelf and always show. Hidden shelves
+still refresh in the background, so this changes only what is drawn.
+
 ## Command line
 
 `fastsonic -v` logs more from the audio engine and server API client. Attach
