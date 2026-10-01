@@ -1812,6 +1812,71 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Library cards and an artist's discography and related-artist cards
+    /// answer a right click with their own menu, as Home's and Search's do.
+    #[test]
+    fn library_and_discography_cards_open_their_own_menus() {
+        fn albums(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::library::show(app, ui, Page::Albums);
+        }
+        fn artists(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::library::show(app, ui, Page::Artists);
+        }
+        fn artist_page(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::artist::show(app, ui, "art2");
+        }
+        let (ctx, mut app) = accessible_app("library-card-menus");
+        let library_album = app.library.albums.items[0].album.name.clone();
+        let library_artist = app.library.artists.items[0].name.clone();
+        let page = &app.artist_pages["art2"];
+        let discography = page.albums[DiscographyFilter::All.groups()].items[0]
+            .name
+            .clone();
+        let related = page.related.get().unwrap()[0].name.clone();
+        type View = fn(&mut App, &mut egui::Ui);
+        let cases: [(&str, String, View, &str); 4] = [
+            ("library album", library_album, albums, "Add to queue"),
+            ("library artist", library_artist, artists, "Copy link"),
+            ("discography", discography, artist_page, "Add to queue"),
+            ("related artist", related, artist_page, "Copy link"),
+        ];
+        for (name, title, view, item) in cases {
+            view_frame(&ctx, &mut app, vec![], view);
+            let text = view_frame(&ctx, &mut app, vec![], view);
+            let pos = text
+                .iter()
+                .rev()
+                .find(|(text, _)| *text == title)
+                .unwrap_or_else(|| panic!("{name}: {title} is not drawn"))
+                .1
+                .center();
+            app.actions.clear();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(pos, egui::PointerButton::Secondary),
+                view,
+            );
+            let text = view_frame(&ctx, &mut app, vec![], view);
+            assert!(
+                app.actions.is_empty(),
+                "right-clicking a {name} must not act"
+            );
+            assert!(
+                text.iter().any(|(text, _)| text == item),
+                "the {name} menu did not open"
+            );
+            // Close the menu before the next case.
+            view_frame(
+                &ctx,
+                &mut app,
+                vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+                view,
+            );
+        }
+        app.backend.shutdown();
+    }
+
     #[test]
     fn search_top_results_open_their_item_menus() {
         for (kind, results, title) in [

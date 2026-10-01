@@ -45,6 +45,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 if card.clicked {
                     app.actions.push(Action::Open(Page::Album(id)));
                 }
+                egui::Popup::context_menu(&card.response)
+                    .id(ui.make_persistent_id(("library-album-menu", &album.uri)))
+                    .frame(widgets::menu_frame(&palette))
+                    .show(|ui| widgets::context_menu_items(ui, app, &album.uri, &album.name, None));
             });
             let list = &app.library.albums;
             let (loading, error, can_load, empty) = (
@@ -92,6 +96,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 if card.clicked {
                     app.actions.push(Action::Open(Page::Artist(id)));
                 }
+                egui::Popup::context_menu(&card.response)
+                    .id(ui.make_persistent_id(("library-artist-menu", &artist.uri)))
+                    .frame(widgets::menu_frame(&palette))
+                    .show(|ui| {
+                        widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None)
+                    });
             });
             let list = &app.library.artists;
             let (loading, error, can_load, empty) = (
