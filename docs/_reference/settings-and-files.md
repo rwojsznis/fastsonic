@@ -40,7 +40,9 @@ without bound; the open page, what is playing, and playlists with an edit on
 its way are always kept. A page dropped from memory is read again when you
 open it. Besides the artwork itself, up to 64 softened 256-pixel covers, made
 from sidebar thumbnails to stand in for a page's cover while it loads, are kept
-in memory; nothing about them is written to disk.
+in memory; nothing about them is written to disk. They are made from the
+thumbnail already decoded for the screen, so keeping a page open never reads
+its cover from the disk cache or downloads it again.
 
 A playlist read in full is kept in the playlist cache under the server's
 `changed` time. Opening it again shows the cached songs at once only if that
