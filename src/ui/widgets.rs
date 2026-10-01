@@ -283,6 +283,9 @@ fn menu_item_response(
         info
     });
     theme::focus_ring(ui, &response);
+    if enabled {
+        crate::autoscroll::row(ui, &response);
+    }
     let clicked = enabled && response.clicked();
     if clicked {
         ui.close();
@@ -591,10 +594,13 @@ pub(crate) fn playlist_picker(
             },
         );
     }
-    egui::ScrollArea::vertical()
-        .id_salt("filtered-playlists")
-        .max_height(320.0)
-        .show(ui, |ui| {
+    crate::autoscroll::show(
+        ui,
+        egui::ScrollArea::vertical()
+            .id_salt("filtered-playlists")
+            .max_height(320.0),
+        egui::Vec2b::new(false, true),
+        |ui| {
             for (index, (id, name)) in matches.into_iter().enumerate() {
                 ui.push_id(id, |ui| {
                     let chosen = highlighted == Some(index);
@@ -612,7 +618,8 @@ pub(crate) fn playlist_picker(
                     }
                 });
             }
-        });
+        },
+    );
     field
 }
 
@@ -1425,6 +1432,7 @@ fn track_row_contents(
                 item_menu(ui, app, row.item, Some(row.context), Some(row.index));
             }
         });
+    crate::autoscroll::row(ui, &response);
     (response, pick)
 }
 
@@ -1922,6 +1930,7 @@ pub fn card(
             .clicked();
         }
     }
+    crate::autoscroll::row(ui, &response);
     theme::focus_ring(ui, &response);
     CardResponse {
         clicked: response.clicked() && !play,
@@ -1941,12 +1950,17 @@ pub fn shelf(
     ui.add_space(8.0);
     theme::section_title(ui, palette, title);
     ui.add_space(4.0);
-    egui::ScrollArea::horizontal().id_salt(id).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
-            add_contents(ui);
-        });
-    });
+    crate::autoscroll::show(
+        ui,
+        egui::ScrollArea::horizontal().id_salt(id),
+        egui::Vec2b::new(true, false),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
+                add_contents(ui);
+            });
+        },
+    );
     ui.add_space(12.0);
 }
 

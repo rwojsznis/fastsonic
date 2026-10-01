@@ -146,10 +146,13 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     // line is quiet, regular text, the same before and after it has been
     // sung. A line takes 220 ms to light up or fade, as in omarchy-lyrics.
     let quiet = palette.text.gamma_multiply(0.45);
-    let scroll = egui::ScrollArea::vertical()
-        .id_salt("lyrics-scroll")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
+    let scroll = crate::autoscroll::show(
+        ui,
+        egui::ScrollArea::vertical()
+            .id_salt("lyrics-scroll")
+            .auto_shrink([false, false]),
+        egui::Vec2b::new(false, true),
+        |ui| {
             // Before the first line there is nothing to highlight, so the
             // panel sits at the top rather than wherever it was left.
             if follow && lyrics.synced && active.is_none() {
@@ -201,6 +204,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                             .sense(sense),
                     )
                 };
+                crate::autoscroll::row(ui, &response);
                 let rect = response.rect;
                 if lyrics.synced
                     && response.clicked()
@@ -230,7 +234,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 );
             }
             ui.add_space((ui.clip_rect().height() * (1.0 - SUNG_LINE_AT)).max(60.0));
-        });
+        },
+    );
+    crate::autoscroll::lyrics(ui, scroll.id);
     // Scrolling by hand means the reader wants to look elsewhere; the
     // Follow button in the header picks the song back up.
     if ui.rect_contains_pointer(scroll.inner_rect)

@@ -4,6 +4,7 @@ pub mod api;
 pub mod app;
 #[cfg(target_os = "linux")]
 pub mod appearance;
+pub mod autoscroll;
 pub mod backend;
 pub mod bidi;
 #[cfg(any(test, feature = "demo"))]

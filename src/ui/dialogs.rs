@@ -94,10 +94,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     // scrolls inside the dialog rather than running off the
                     // bottom with the Done button beyond reach.
                     let room = ui.ctx().content_rect().height() - 190.0;
-                    egui::ScrollArea::vertical()
-                        .max_height(room.max(120.0))
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
+                    crate::autoscroll::show(
+                        ui,
+                        egui::ScrollArea::vertical()
+                            .max_height(room.max(120.0))
+                            .auto_shrink([false, true]),
+                        egui::Vec2b::new(false, true),
+                        |ui| {
                             egui::Grid::new("shortcuts")
                                 .num_columns(2)
                                 .spacing([24.0, 8.0])
@@ -113,7 +116,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                         ui.end_row();
                                     }
                                 });
-                        });
+                        },
+                    );
                     ui.add_space(16.0);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if theme::pill_button(ui, &palette, "Done", true).clicked() {

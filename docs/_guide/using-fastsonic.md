@@ -51,6 +51,19 @@ rows and other controls.
 Choose **Refresh** in a playlist's **…** menu to read it from the server
 again, for instance after another app changed it.
 
+## Middle-click autoscroll
+
+On Windows, middle-click a scrolling list or its empty background, then move
+the pointer away from the starting point. That list follows the pointer,
+faster as the distance grows; a shelf scrolls sideways. Moving across another
+pane keeps the original list in control. A small dead zone prevents an
+ordinary middle-click from moving the view. Click again, press Esc, turn the
+wheel, or switch to another window to stop. Buttons and text fields keep
+their normal middle-click behaviour.
+
+This works automatically on Windows, with no setting to enable. Linux and
+macOS keep their existing middle-click behaviour.
+
 ## Sidebar order
 
 Click a playlist, album or artist in the sidebar to open it; double-click it

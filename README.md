@@ -42,6 +42,9 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   and single-instance behavior.
 - Smooth local Play and Pause transitions, plus searchable playlist choices
   when adding one song or a selection.
+- Middle-click autoscroll on Windows: middle-click a list and move the
+  pointer to scroll it; click, press Esc, turn the wheel or switch windows to
+  stop. See [autoscroll](docs/_guide/using-fastsonic.md#middle-click-autoscroll).
 - Synced lyrics in a side panel or full-screen view, with line seeking and
   automatic following. Full screen places a large cover beside the lyrics in
   wide windows, or centres it when there are no words.

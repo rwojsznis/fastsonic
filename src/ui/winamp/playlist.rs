@@ -389,6 +389,14 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
     }
     app.winamp.playlist_scroll = app.winamp.playlist_scroll.min(most);
     let scroll = app.winamp.playlist_scroll;
+    let autoscroll_rect = view.rect(area);
+    crate::autoscroll::playlist(
+        view.ui,
+        autoscroll_rect,
+        scroll,
+        most,
+        layout::PLAYLIST_TRACK_HEIGHT as f32 * view.unit,
+    );
 
     let ctx = view.ui.ctx().clone();
     let clip = view.rect(area).intersect(view.ui.clip_rect());
@@ -407,6 +415,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
             egui::Id::new(("playlist-row", scroll + offset)),
             Sense::click(),
         );
+        crate::autoscroll::row(view.ui, &response);
         if response.clicked() {
             let adding = view.ui.ctx().input(|input| input.modifiers.command);
             // Selection is by row, not by song: the same song can sit in
@@ -705,9 +714,11 @@ fn list_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row], queue_uris: &[Strin
         })
         .unwrap_or_default();
     ui.menu_button("Load list", |ui| {
-        egui::ScrollArea::vertical()
-            .max_height(super::menu_limit(ui))
-            .show(ui, |ui| {
+        crate::autoscroll::show(
+            ui,
+            egui::ScrollArea::vertical().max_height(super::menu_limit(ui)),
+            egui::Vec2b::new(false, true),
+            |ui| {
                 if playlists.is_empty() {
                     ui.add_enabled(false, egui::Button::new("No playlists yet"));
                 }
@@ -721,7 +732,8 @@ fn list_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row], queue_uris: &[Strin
                         ui.close();
                     }
                 }
-            });
+            },
+        );
     });
     let saveable = !queue_uris.is_empty() || rows.iter().any(|row| row.current);
     if ui

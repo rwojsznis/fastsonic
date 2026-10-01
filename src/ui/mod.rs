@@ -136,10 +136,13 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             ui.spacing_mut().scroll.fade.strength = 0.0;
             topbar::show(app, ui);
             let page = app.page().clone();
-            let scroll = egui::ScrollArea::vertical()
-                .id_salt(("page", page.encode()))
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
+            let scroll = crate::autoscroll::show(
+                ui,
+                egui::ScrollArea::vertical()
+                    .id_salt(("page", page.encode()))
+                    .auto_shrink([false, false]),
+                egui::Vec2b::new(false, true),
+                |ui| {
                     Frame::new()
                         .inner_margin(Margin {
                             left: widgets::PAGE_PADDING as i8,
@@ -162,7 +165,8 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                                 Page::Settings => settings::show(app, ui),
                             }
                         });
-                });
+                },
+            );
             header_shadow(ui, scroll.inner_rect, scroll.state.offset.y, palette.dark);
         });
 }

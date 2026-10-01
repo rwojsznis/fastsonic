@@ -792,10 +792,13 @@ pub(super) fn menu<R>(
         }
     };
     popup.style(style).show(|ui| {
-        egui::ScrollArea::vertical()
-            .max_height(menu_limit(ui))
-            .show(ui, contents)
-            .inner
+        crate::autoscroll::show(
+            ui,
+            egui::ScrollArea::vertical().max_height(menu_limit(ui)),
+            egui::Vec2b::new(false, true),
+            contents,
+        )
+        .inner
     })
 }
 

@@ -94,13 +94,17 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         {
             app.actions.push(Action::LoadMoreRecents);
         }
-        egui::ScrollArea::vertical()
-            .id_salt("queue-panel-scroll")
-            .auto_shrink([false, false])
-            .show(ui, |ui| match app.queue_tab {
+        crate::autoscroll::show(
+            ui,
+            egui::ScrollArea::vertical()
+                .id_salt("queue-panel-scroll")
+                .auto_shrink([false, false]),
+            egui::Vec2b::new(false, true),
+            |ui| match app.queue_tab {
                 QueueTab::Queue => contents(app, ui, true),
                 QueueTab::Recents => recents_contents(app, ui),
-            });
+            },
+        );
     });
     let width = response.response.rect.width();
     if (width - app.settings.queue_width).abs() > 1.0 {
