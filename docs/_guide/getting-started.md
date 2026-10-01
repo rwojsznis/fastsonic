@@ -49,8 +49,11 @@ On Windows, the default build needs Visual Studio 2022, CMake, LLVM, and vcpkg
 with `glew:x64-windows-static-md`; set `VCPKG_INSTALLATION_ROOT` to the vcpkg
 folder.
 
-Fastsonic uses system fonts for scripts that its interface font does not
-cover. On Linux, install `noto-fonts` and `noto-fonts-cjk` (Arch) or
+Text is drawn the way the desktop draws its own: on Linux, Fastsonic reads the
+font hinting and antialiasing settings from the desktop portal, or from
+fontconfig, once at startup; macOS text is unhinted, as CoreText draws it; and
+Windows uses slight hinting. Fastsonic uses system fonts for scripts that its
+interface font does not cover. On Linux, install `noto-fonts` and `noto-fonts-cjk` (Arch) or
 `fonts-noto` and `fonts-noto-cjk` (Debian or Ubuntu) if titles appear as empty
 boxes.
 

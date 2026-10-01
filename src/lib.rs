@@ -39,6 +39,7 @@ pub mod single_instance;
 pub mod sink;
 pub mod skin;
 pub mod system_fonts;
+pub mod text_rendering;
 pub mod theme;
 pub mod thumbbar;
 #[cfg(target_os = "linux")]
