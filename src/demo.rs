@@ -727,8 +727,9 @@ pub fn populate(app: &mut App) {
     );
 
     // Library. Starred songs carry the date they were starred, as
-    // `getStarred2` reports it, newest first; starred albums and artists
-    // do not, because those pages are drawn from calls that omit it.
+    // `getStarred2` reports it, newest first, and starred albums the date
+    // `getAlbumList2` reports, listed in the server's own order. Starred
+    // artists carry none, because the Library keeps no date for them.
     let starred_at = Timestamp::now();
     app.library.liked.absorb(
         0,
@@ -750,8 +751,10 @@ pub fn populate(app: &mut App) {
             albums
                 .iter()
                 .filter(|album| album.starred.unwrap_or_default())
-                .map(|album| SavedAlbum {
-                    added_at: None,
+                .enumerate()
+                .map(|(index, album)| SavedAlbum {
+                    // The last one listed was starred most recently.
+                    added_at: Some((starred_at - starred_ago(RECORDS.len() - index)).to_string()),
                     album: album.clone(),
                 })
                 .collect(),
@@ -3021,6 +3024,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    fn sidebar_text(painted: &[(String, egui::Rect)], text: &str) -> egui::Rect {
+        painted
+            .iter()
+            .find(|(painted, _)| painted == text)
+            .map(|(_, rect)| *rect)
+            .unwrap_or_else(|| panic!("{text:?} is not on screen"))
+    }
+
     fn played_contexts(app: &App) -> Vec<String> {
         app.actions
             .iter()
@@ -3068,6 +3079,202 @@ mod tests {
                 ),
                 "double click must still open the page"
             );
+            app.backend.shutdown();
+        }
+    }
+
+    /// The Library's order menu works from the keyboard and a screen reader,
+    /// offers only the orders the section has data for, and switching away
+    /// from the custom order and back finds the arrangement where it was.
+    #[test]
+    fn library_sort_menu_keeps_the_custom_order_and_works_from_the_keyboard() {
+        use crate::settings::{LibraryShelf, LibrarySort};
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("library-sort");
+        app.settings.sidebar_order = vec![playlist_uri("pl4"), playlist_uri("pl1")];
+        let saved = app.settings.sidebar_order.clone();
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let sort = accessible_node(&tree, "Custom order", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(sort, AccessibleAction::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| node.label())
+            .collect();
+        assert!(labels.contains(&"Creator"));
+        for absent in ["Recently added", "Library order", "Artist"] {
+            assert!(!labels.contains(&absent), "playlists offered {absent}");
+        }
+        let name = accessible_node(&tree, "Name", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(name, AccessibleAction::Focus, None)],
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+        assert_eq!(
+            app.settings.library_sort.get(&LibraryShelf::Playlists),
+            Some(&LibrarySort::Name)
+        );
+        assert_eq!(app.settings.sidebar_order, saved);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let sort = accessible_node(&tree, "Name", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(sort, AccessibleAction::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let custom = accessible_node(&tree, "Custom order", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(custom, AccessibleAction::Click, None)],
+        );
+        assert_eq!(
+            app.settings.library_sort.get(&LibraryShelf::Playlists),
+            Some(&LibrarySort::Local)
+        );
+        assert_eq!(app.settings.sidebar_order, saved);
+        let path = app.dirs.config.join("library-sort.json");
+        app.settings.save(&path);
+        let restored = Settings::load(&path);
+        assert_eq!(restored.library_sort, app.settings.library_sort);
+        assert_eq!(restored.sidebar_order, saved);
+        app.backend.shutdown();
+    }
+
+    /// Albums offer the star date and sort by artist; the order on screen
+    /// follows the choice.
+    #[test]
+    fn albums_sort_by_star_date_and_by_artist() {
+        use crate::settings::{LibraryShelf, LibrarySort};
+        let (ctx, mut app) = accessible_app("library-sort-albums");
+        let view = crate::ui::sidebar::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let albums = sidebar_text(&painted, "Albums").center();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(albums, egui::PointerButton::Primary),
+            view,
+        );
+        let names = |app: &App| -> Vec<String> {
+            app.library
+                .albums
+                .items
+                .iter()
+                .map(|saved| saved.album.name.clone())
+                .collect()
+        };
+        let order = |painted: &[(String, egui::Rect)], names: &[String]| {
+            let mut shown: Vec<_> = painted
+                .iter()
+                .filter(|(text, _)| names.contains(text))
+                .map(|(text, rect)| (rect.top(), text.clone()))
+                .collect();
+            shown.sort_by(|a, b| a.0.total_cmp(&b.0));
+            shown.dedup_by(|a, b| a.1 == b.1);
+            shown.into_iter().map(|(_, text)| text).collect::<Vec<_>>()
+        };
+        let listed = names(&app);
+        assert!(listed.len() > 2);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert_eq!(order(&painted, &listed), listed, "the server's order");
+
+        app.settings
+            .library_sort
+            .insert(LibraryShelf::Albums, LibrarySort::RecentlyAdded);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let newest: Vec<_> = listed.iter().rev().cloned().collect();
+        assert_eq!(order(&painted, &listed), newest, "the newest star first");
+        sidebar_text(&painted, "Recently added");
+
+        app.settings
+            .library_sort
+            .insert(LibraryShelf::Albums, LibrarySort::Creator);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        sidebar_text(&painted, "Artist");
+        let mut by_artist: Vec<_> = app
+            .library
+            .albums
+            .items
+            .iter()
+            .map(|saved| {
+                (
+                    crate::api::models::join_names(
+                        saved
+                            .album
+                            .artists
+                            .iter()
+                            .map(|artist| artist.name.as_str()),
+                    )
+                    .to_lowercase(),
+                    saved.album.name.to_lowercase(),
+                    saved.album.name.clone(),
+                )
+            })
+            .collect();
+        by_artist.sort();
+        let by_artist: Vec<_> = by_artist.into_iter().map(|(_, _, name)| name).collect();
+        assert_eq!(order(&painted, &listed), by_artist);
+        app.backend.shutdown();
+    }
+
+    /// Any order but the server's needs the whole section, so it pages on;
+    /// a page that failed is not asked for again every frame.
+    #[test]
+    fn library_sorts_finish_paging_without_retrying_failed_pages() {
+        use crate::settings::{LibraryShelf, LibrarySort};
+        for (shelf, label, page) in [
+            (LibraryShelf::Albums, "Albums", Page::Albums),
+            (LibraryShelf::Artists, "Artists", Page::Artists),
+        ] {
+            let (ctx, mut app) = accessible_app(&format!("library-sort-paging-{shelf:?}"));
+            let view = crate::ui::sidebar::show;
+            app.settings.library_sort.insert(shelf, LibrarySort::Name);
+            app.library.albums.next_offset = Some(50);
+            app.library.artists.complete = false;
+            app.library.artists.after = Some("50".into());
+            view_frame(&ctx, &mut app, vec![], view);
+            let painted = view_frame(&ctx, &mut app, vec![], view);
+            let chip = sidebar_text(&painted, label).center();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(chip, egui::PointerButton::Primary),
+                view,
+            );
+            app.actions.clear();
+            view_frame(&ctx, &mut app, vec![], view);
+            assert!(
+                app.actions
+                    .iter()
+                    .any(|action| matches!(action, Action::LoadMore(found) if *found == page))
+            );
+            app.actions.clear();
+            app.library.albums.error = Some("Try again later".into());
+            app.library.artists.error = Some("Try again later".into());
+            for _ in 0..3 {
+                view_frame(&ctx, &mut app, vec![], view);
+                assert!(
+                    !app.actions
+                        .iter()
+                        .any(|action| matches!(action, Action::LoadMore(found) if *found == page)),
+                    "failed pages must not retry every frame"
+                );
+            }
             app.backend.shutdown();
         }
     }

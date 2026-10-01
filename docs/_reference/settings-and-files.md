@@ -60,7 +60,14 @@ transcoded, and there is no autoplay source after a context ends.
 
 Interface settings cover theme, album-art accents, compact rows, shortcut
 hints, sidebar state, zoom, player bar visualizer, Winamp skin/random
-selection/windows/equalizer, and MilkDrop. On
+selection/windows/equalizer, and MilkDrop. The sidebar's Library keeps
+`library_sort`, the order chosen for each section (`playlists`, `albums`,
+`artists`), as one of `library`, `recently_played`, `name`, `creator`,
+`recently_added` or `local` where the section supports it; a section missing
+from it keeps the order it had before sorts could be chosen, and an entry this
+version does not know is ignored. `sidebar_order` is the dragged playlist
+arrangement, kept while another order is chosen, and `pinned_contexts` the
+pins, in order. On
 Linux, Follow system reads the light or dark preference from the desktop portal.
 The theme can also be a palette file of your own; see
 [Custom themes](#custom-themes).

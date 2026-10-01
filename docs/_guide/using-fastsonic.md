@@ -110,10 +110,21 @@ Fastsonic closes, so resuming one plays the last song on its own.
 Click a playlist, album or artist in the sidebar to open it; double-click it
 to play it, as its cover's play button does.
 
-By default, the sidebar sorts playlists by when you last played them. Drag a
-playlist to switch to a custom order. New playlists appear below the pinned
-group. Choose **Sort by recently played** from a playlist's context menu to
-restore the default order.
+The menu under the Library filters chooses an order for each section, and
+the choice is remembered. **Name** and **Recently played** are offered
+everywhere. Playlists also sort by **Creator**, their owner, and albums by
+**Artist** and by **Recently added**, the date you starred them; an album
+without a date comes last. Playlists cannot be starred and the Library keeps
+no star date for artists, so those sections do not offer it. Albums and
+artists start in **Library order**, the order the server lists them in.
+
+By default, playlists are sorted by when you last played them. Drag a
+playlist to switch to **Custom order**. New playlists appear below the pinned
+group. Choosing another order keeps the arrangement, so choosing **Custom
+order** again restores it; so does **Sort by recently played** in a
+playlist's context menu. Any order but **Library order** loads the rest of the
+section in the background; a page that fails stops that, and choosing the
+order again retries it.
 
 ## Queue
 

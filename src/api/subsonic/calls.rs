@@ -25,7 +25,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::api::models::{
-    Album, Artist, Page, Playlist, PlaylistItem, Radio, SavedTrack, SearchResults, Track, User,
+    Album, Artist, Page, Playlist, PlaylistItem, Radio, SavedAlbum, SavedTrack, SearchResults,
+    Track, User,
 };
 
 use super::client::{ApiError, Result, SubsonicClient};
@@ -465,13 +466,20 @@ impl SubsonicClient {
     }
 
     /// `ApiRequest::SavedAlbums`. `getAlbumList2 type=starred` pages
-    /// properly, unlike `getStarred2`, so this one asks the server.
-    pub async fn saved_albums(&self, offset: u32, limit: u32) -> Result<Page<Album>> {
+    /// properly, unlike `getStarred2`, so this one asks the server. The
+    /// star date rides on the album, so the Library can sort by it.
+    pub async fn saved_albums(&self, offset: u32, limit: u32) -> Result<Page<SavedAlbum>> {
         let albums = self
             .album_list(AlbumListKind::Starred, limit, offset)
             .await?;
         Ok(convert::page(
-            albums.iter().map(convert::album).collect(),
+            albums
+                .iter()
+                .map(|album| SavedAlbum {
+                    added_at: album.starred.clone(),
+                    album: convert::album(album),
+                })
+                .collect(),
             offset,
             limit,
         ))

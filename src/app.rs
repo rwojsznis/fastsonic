@@ -4423,6 +4423,20 @@ impl App {
             Action::PauseLyricsFollow => self.lyrics_following = false,
             Action::RetryLyrics => self.request_lyrics(),
             Action::CheckForUpdates => self.check_for_updates(true),
+            Action::SetLibrarySort { shelf, sort } => {
+                if sort.supports(shelf) {
+                    self.settings.library_sort.insert(shelf, sort);
+                    // Choosing an order again retries a page that failed.
+                    match shelf {
+                        crate::settings::LibraryShelf::Albums => self.library.albums.error = None,
+                        crate::settings::LibraryShelf::Artists => {
+                            self.library.artists.error = None;
+                        }
+                        crate::settings::LibraryShelf::Playlists => {}
+                    }
+                    self.mark_settings_dirty();
+                }
+            }
             Action::SettingsChanged => {
                 self.settings_dirty = true;
                 ctx.set_theme(self.theme_preference());

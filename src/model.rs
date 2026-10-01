@@ -915,6 +915,11 @@ pub enum Action {
     /// colours if its file changed.
     ReloadThemes,
     OpenThemesFolder,
+    /// Choose how one Library section is ordered.
+    SetLibrarySort {
+        shelf: crate::settings::LibraryShelf,
+        sort: crate::settings::LibrarySort,
+    },
     RestartEngine,
     ShowWindow,
     HideWindow,

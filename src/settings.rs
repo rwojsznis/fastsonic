@@ -4,6 +4,64 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// A section of the sidebar's Library, each with its own sort.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LibraryShelf {
+    #[default]
+    Playlists,
+    Albums,
+    Artists,
+}
+
+/// How a Library section orders what it lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LibrarySort {
+    /// The order the server lists them in.
+    Library,
+    RecentlyPlayed,
+    Name,
+    /// Playlists by owner, albums by artist.
+    Creator,
+    /// When an album was starred, which the server records.
+    RecentlyAdded,
+    /// The playlist arrangement saved by dragging rows.
+    Local,
+}
+
+impl LibrarySort {
+    pub fn supports(self, shelf: LibraryShelf) -> bool {
+        match self {
+            Self::Library | Self::RecentlyPlayed | Self::Name => true,
+            Self::Creator => shelf != LibraryShelf::Artists,
+            Self::RecentlyAdded => shelf == LibraryShelf::Albums,
+            Self::Local => shelf == LibraryShelf::Playlists,
+        }
+    }
+}
+
+/// Reads `library_sort` one entry at a time, so a section or order this
+/// version does not know is dropped instead of making the whole file
+/// unreadable.
+fn known_library_sorts<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::BTreeMap<LibraryShelf, LibrarySort>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let saved = std::collections::BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    Ok(saved
+        .into_iter()
+        .filter_map(|(shelf, sort)| {
+            Some((
+                serde_json::from_value(serde_json::Value::String(shelf)).ok()?,
+                serde_json::from_value(sort).ok()?,
+            ))
+        })
+        .collect())
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeChoice {
@@ -124,9 +182,14 @@ pub struct Settings {
     pub check_for_updates: bool,
     /// Context URIs pinned to the top of the sidebar, in pin order.
     pub pinned_contexts: Vec<String>,
-    /// The sidebar's own playlist order, set by dragging rows. Empty means
-    /// the automatic order: the pinned block first, then recently played.
+    /// The sidebar's own playlist order, set by dragging rows. Kept while
+    /// another sort is selected; empty means no saved local arrangement.
     pub sidebar_order: Vec<String>,
+    /// The order chosen for each Library section. A missing section keeps
+    /// its previous behaviour; choosing another order never deletes the
+    /// local arrangement.
+    #[serde(deserialize_with = "known_library_sorts")]
+    pub library_sort: std::collections::BTreeMap<LibraryShelf, LibrarySort>,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
     /// Windows: draw Fastsonic's own title bar and window buttons instead of
@@ -216,6 +279,7 @@ impl Default for Settings {
             check_for_updates: true,
             pinned_contexts: Vec::new(),
             sidebar_order: Vec::new(),
+            library_sort: std::collections::BTreeMap::new(),
             zoom: 1.0,
             custom_titlebar: false,
             winamp_window: false,
@@ -546,6 +610,46 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
         assert!(restored.sidebar_compact);
+    }
+
+    #[test]
+    fn library_sorts_round_trip_and_older_settings_keep_the_previous_order() {
+        use super::{LibraryShelf, LibrarySort};
+        let older: Settings =
+            serde_json::from_str(r#"{"sidebar_order":["sonic:playlist:a"]}"#).unwrap();
+        assert!(older.library_sort.is_empty());
+        assert_eq!(older.sidebar_order, ["sonic:playlist:a"]);
+
+        let mut settings = Settings::default();
+        settings
+            .library_sort
+            .insert(LibraryShelf::Playlists, LibrarySort::Name);
+        settings
+            .library_sort
+            .insert(LibraryShelf::Albums, LibrarySort::RecentlyAdded);
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(
+            json.contains(r#""library_sort":{"playlists":"name","albums":"recently_added"}"#),
+            "{json}"
+        );
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, settings);
+    }
+
+    /// A section or order from another version is dropped on its own; the
+    /// rest of the file, and the other sections' orders, are kept.
+    #[test]
+    fn an_unknown_library_sort_does_not_reset_the_settings() {
+        use super::{LibraryShelf, LibrarySort};
+        let settings: Settings = serde_json::from_str(
+            r#"{"volume":123,"library_sort":{"podcasts":"name","playlists":"spotify","artists":"name"}}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.volume, 123);
+        assert_eq!(
+            settings.library_sort.into_iter().collect::<Vec<_>>(),
+            [(LibraryShelf::Artists, LibrarySort::Name)]
+        );
     }
 
     #[test]

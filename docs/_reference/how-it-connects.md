@@ -53,6 +53,12 @@ the same requests. The server answers from its own agents, such as Last.fm,
 which it may contact itself; Fastsonic talks only to the server, and without
 an agent the answers are empty.
 
+Sorting the Library's albums or artists by anything but the server's own
+order loads the rest of that section, one page after another through the same
+calls that list it, while the loaded entries stay visible. A failed page stops
+the loading. Album star dates come with those pages; sorting adds no request
+of its own, and every order is applied in the client.
+
 The audio engine runs outside the UI thread. It reads the HTTP stream through
 a bounded on-disk block cache, decodes and resamples it, applies ReplayGain and
 the equalizer, sends post-EQ/pre-volume samples to the visualisers, then sends

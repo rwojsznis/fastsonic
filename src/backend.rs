@@ -1386,15 +1386,7 @@ async fn handle(
         ApiRequest::SavedAlbums { offset, generation } => ApiResponse::SavedAlbums {
             offset,
             generation,
-            result: client
-                .saved_albums(offset, PLAYLIST_PAGE_SIZE)
-                .await
-                .map(|page| {
-                    page.map(|album| SavedAlbum {
-                        added_at: None,
-                        album,
-                    })
-                }),
+            result: client.saved_albums(offset, PLAYLIST_PAGE_SIZE).await,
         },
         ApiRequest::FollowedArtists { after, generation } => {
             let offset = after.as_deref().and_then(|at| at.parse().ok()).unwrap_or(0);
