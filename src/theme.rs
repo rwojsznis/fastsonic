@@ -159,6 +159,10 @@ pub fn apply_local(ui: &mut egui::Ui, palette: &Palette) {
     apply_to_style(ui.style_mut(), palette);
 }
 
+const fn linear_text_coverage() -> bool {
+    cfg!(all(unix, not(target_os = "macos")))
+}
+
 fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
     let visuals = &mut style.visuals;
     *visuals = if palette.dark {
@@ -167,6 +171,13 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
         egui::Visuals::light()
     };
     visuals.dark_mode = palette.dark;
+    // Linux desktops (FreeType and cairo, GTK, browsers) draw glyph coverage
+    // as the rasterizer produced it, in both themes; egui's dark default
+    // (2c - c²) made light text on dark heavier than everything beside it.
+    // macOS and Windows keep egui's per-theme curve, closer to their own.
+    if linear_text_coverage() {
+        visuals.text_options.color_transfer_function = egui::epaint::FontColorTransferFunction::Off;
+    }
     visuals.panel_fill = palette.panel;
     visuals.window_fill = palette.overlay;
     visuals.extreme_bg_color = palette.surface;
@@ -956,6 +967,38 @@ pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_coverage_is_linear_in_both_themes_on_linux_only() {
+        for palette in [Palette::dark(), Palette::light()] {
+            let ctx = egui::Context::default();
+            apply(&ctx, &palette);
+            let transfer = ctx
+                .global_style()
+                .visuals
+                .text_options
+                .color_transfer_function;
+            if linear_text_coverage() {
+                assert_eq!(
+                    transfer,
+                    egui::epaint::FontColorTransferFunction::Off,
+                    "dark: {}",
+                    palette.dark
+                );
+            } else {
+                assert_eq!(
+                    transfer,
+                    if palette.dark {
+                        egui::epaint::FontColorTransferFunction::DARK_MODE_DEFAULT
+                    } else {
+                        egui::epaint::FontColorTransferFunction::LIGHT_MODE_DEFAULT
+                    },
+                    "dark: {}",
+                    palette.dark
+                );
+            }
+        }
+    }
 
     #[test]
     fn a_local_palette_keeps_fastpotifys_widget_style_local() {
