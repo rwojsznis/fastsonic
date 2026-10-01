@@ -2654,6 +2654,57 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    fn played_contexts(app: &App) -> Vec<String> {
+        app.actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::PlayContext { uri, .. } => Some(uri.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Double-clicking a playable Library row plays its context, in both the
+    /// normal and compact sidebar modes. The first click still opens the
+    /// page, and a single click only does that.
+    #[test]
+    fn double_clicking_a_sidebar_row_plays_its_context() {
+        for compact in [false, true] {
+            let (ctx, mut app) = accessible_app(&format!("sidebar-double-click-{compact}"));
+            app.settings.sidebar_compact = compact;
+            let view = crate::ui::sidebar::show;
+            view_frame(&ctx, &mut app, vec![], view);
+            let painted = view_frame(&ctx, &mut app, vec![], view);
+            let name = painted
+                .iter()
+                .find(|(text, _)| text == "Sunday morning")
+                .map(|(_, rect)| rect.center())
+                .expect("the playlist in the sidebar");
+            app.actions.clear();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(name, egui::PointerButton::Primary),
+                view,
+            );
+            assert!(played_contexts(&app).is_empty(), "one click only opens");
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(name, egui::PointerButton::Primary),
+                view,
+            );
+            assert_eq!(played_contexts(&app), ["sonic:playlist:pl2"]);
+            assert!(
+                app.actions.iter().any(
+                    |action| matches!(action, Action::Open(Page::Playlist(id)) if id == "pl2")
+                ),
+                "double click must still open the page"
+            );
+            app.backend.shutdown();
+        }
+    }
+
     #[test]
     fn compact_track_rows_leave_a_gap_before_the_added_date_separator() {
         fn rows(app: &mut App, ui: &mut egui::Ui) {

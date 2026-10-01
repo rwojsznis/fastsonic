@@ -35,6 +35,18 @@ struct Entry {
     depth: u8,
 }
 
+/// The context a library row plays, matching the cover play button and the
+/// right-click menu. Liked Songs plays the starred songs.
+fn entry_play_uri(entry: &Entry) -> Option<String> {
+    if entry.liked {
+        Some(crate::api::subsonic::convert::COLLECTION_URI.to_string())
+    } else if entry.uri.is_empty() {
+        None
+    } else {
+        Some(entry.uri.clone())
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     // The traffic lights float over the top-left of the sidebar now, so the
@@ -580,6 +592,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     0.12,
                 );
                 let rect = rect.translate(vec2(0.0, shift));
+                // Set when the cover play button takes a click, so a double
+                // click on it does not also play from the row.
+                let mut cover_took_click = false;
                 if ui.is_rect_visible(rect) {
                     if active {
                         ui.painter()
@@ -749,12 +764,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                                     ),
                                 );
                         }
-                        if play_response.is_some_and(|play| play.clicked()) {
-                            let uri = if entry.liked {
-                                crate::api::subsonic::convert::COLLECTION_URI.to_string()
-                            } else {
-                                entry.uri.clone()
-                            };
+                        if let Some(play) = &play_response
+                            && play.clicked()
+                        {
+                            cover_took_click = true;
+                            // The first click of a double click plays; the
+                            // second must not play again.
+                            if !play.double_clicked()
+                                && let Some(uri) = entry_play_uri(entry)
                             {
                                 app.actions.push(Action::PlayContext {
                                     uri,
@@ -811,6 +828,18 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 theme::focus_ring(ui, &response);
                 if response.clicked() {
                     app.actions.push(Action::Open(entry.page.clone()));
+                }
+                // A double click plays the row's context; the cover button
+                // handled its own click.
+                if response.double_clicked()
+                    && !cover_took_click
+                    && let Some(uri) = entry_play_uri(entry)
+                {
+                    app.actions.push(Action::PlayContext {
+                        uri,
+                        offset_uri: None,
+                        offset_index: None,
+                    });
                 }
                 if !entry.uri.is_empty() {
                     let owned_playlist = entry

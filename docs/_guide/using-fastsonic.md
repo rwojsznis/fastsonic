@@ -31,6 +31,9 @@ rows and other controls.
 
 ## Sidebar order
 
+Click a playlist, album or artist in the sidebar to open it; double-click it
+to play it, as its cover's play button does.
+
 By default, the sidebar sorts playlists by when you last played them. Drag a
 playlist to switch to a custom order. New playlists appear below the pinned
 group. Choose **Sort by recently played** from a playlist's context menu to
