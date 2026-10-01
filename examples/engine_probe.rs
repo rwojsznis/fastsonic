@@ -340,6 +340,7 @@ fn main() -> anyhow::Result<()> {
     println!("\n-- the end of a track, repeating it");
     engine.command(PlayerCommand::Repeat(RepeatMode::Track))?;
     engine.command(PlayerCommand::Seek(near_the_end))?;
+    let sequence = settle(&engine, Duration::from_millis(200)).seek_sequence;
     engine.command(PlayerCommand::Toggle)?;
     let repeated = settle(&engine, Duration::from_millis(3_000));
     check(
@@ -347,6 +348,12 @@ fn main() -> anyhow::Result<()> {
         repeated.track.as_ref().map(|track| track.uri.clone())
             == next.track.as_ref().map(|track| track.uri.clone())
             && repeated.position_ms < near_the_end,
+    );
+    // The same track again carries the same metadata, so this is the only
+    // way media controls learn the position went back to the start.
+    check(
+        "the replay is reported as a seek to its start",
+        repeated.seek_sequence != sequence,
     );
     check(
         "and it is still playing",

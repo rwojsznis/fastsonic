@@ -517,6 +517,7 @@ impl Worker {
             self.publish_queue();
         }
         log::info!("{} started without a gap", track.title);
+        self.note_replay(&track);
         self.state.track = Some(track);
         self.state.position_ms = heard.position.as_millis().min(u128::from(u32::MAX)) as u32;
         self.state.position_at = (self.state.playback == Playback::Playing).then(Instant::now);
@@ -803,6 +804,16 @@ impl Worker {
         }
     }
 
+    /// Another play of the track that was playing — Repeat one, or the same
+    /// song twice in a row — carries identical metadata, so media controls
+    /// see no change and count on past its end. It is told as a seek back
+    /// to the start instead.
+    fn note_replay(&mut self, next: &LocalTrack) {
+        if replays(self.state.track.as_ref(), next) {
+            self.state.seek_sequence = self.state.seek_sequence.wrapping_add(1);
+        }
+    }
+
     fn toggle(&mut self) {
         match self.state.playback {
             Playback::Playing => {
@@ -836,8 +847,8 @@ impl Worker {
         // seek back out of it — symphonia's MP4 reader answers "no atom
         // pending read" — and the end of a track is exactly where repeat
         // one asks for a seek. So the track is opened again instead.
+        // `start` tells media controls about the jump, as a replay.
         if current.drained {
-            self.state.seek_sequence = self.state.seek_sequence.wrapping_add(1);
             let play = self.state.playback != Playback::Paused;
             self.start(play, position_ms);
             return;
@@ -1016,7 +1027,9 @@ impl Worker {
             Ok(song) => song,
             Err(message) => return self.fail(message),
         };
-        self.state.track = Some(local_track(&song));
+        let track = local_track(&song);
+        self.note_replay(&track);
+        self.state.track = Some(track);
         self.publish();
 
         // Opening the device first: its rate is what the track decodes to.
@@ -1255,12 +1268,33 @@ fn start_index(entries: &[Entry], offset_uri: Option<&str>, offset_index: Option
         .unwrap_or(0)
 }
 
+fn replays(previous: Option<&LocalTrack>, next: &LocalTrack) -> bool {
+    previous.is_some_and(|previous| previous.uri == next.uri)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn entries(ids: &[&str]) -> Vec<Entry> {
         ids.iter().map(|id| Entry::new(*id)).collect()
+    }
+
+    #[test]
+    fn the_same_track_starting_again_is_a_replay() {
+        let track = |uri: &str| LocalTrack {
+            uri: uri.into(),
+            ..LocalTrack::default()
+        };
+        assert!(replays(
+            Some(&track("sonic:track:a")),
+            &track("sonic:track:a")
+        ));
+        assert!(!replays(
+            Some(&track("sonic:track:a")),
+            &track("sonic:track:b")
+        ));
+        assert!(!replays(None, &track("sonic:track:a")));
     }
 
     #[test]
