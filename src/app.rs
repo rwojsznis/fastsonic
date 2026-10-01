@@ -3017,8 +3017,9 @@ impl App {
                             {
                                 playlist.snapshot_id = Some(snapshot.clone());
                             }
-                            page.items.reset();
-                            page.contributors.clear();
+                            // The rows on screen already show the edit; they
+                            // stay until the server's copy replaces them.
+                            page.items.reload();
                             page.tail_checked = false;
                             page.cache_complete = false;
                             page.pending_cache = None;
@@ -3035,7 +3036,7 @@ impl App {
                     Err(error) => {
                         self.toast_error(format!("Playlist change failed: {error}"));
                         if let Some(page) = self.playlist_pages.get_mut(&id) {
-                            page.items.reset();
+                            page.items.reload();
                             page.contributors.clear();
                             page.tail_checked = false;
                             page.cache_complete = false;
@@ -6819,6 +6820,16 @@ mod tests {
                     [ApiRequest::AddToPlaylist { position: Some(1), uris, .. }]
                         if uris == &["sonic:track:new"]
                 ));
+                // The server's answer reloads the list, and the rows stay
+                // on screen until the reload replaces them.
+                app.handle_api(ApiResponse::PlaylistItemsChanged {
+                    id: "p".into(),
+                    message: "Added to Mine".into(),
+                    result: Ok(Some("after".into())),
+                });
+                let items = &app.playlist_pages["p"].items;
+                assert_eq!(items.items.len(), 3, "the edit must not blank the list");
+                assert!(items.refreshing && items.can_load_more());
             } else {
                 assert_eq!(uris, ["sonic:track:a", "sonic:track:b"]);
                 assert!(app.backend.asked_api().is_empty());

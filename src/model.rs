@@ -242,6 +242,9 @@ pub struct PagedList<T> {
     pub error: Option<String>,
     pub loaded_once: bool,
     pub revision: u64,
+    /// Reading the list again while its old rows stay on screen: pages
+    /// replace the rows at their offsets instead of cutting the list short.
+    pub refreshing: bool,
 }
 
 impl<T> Default for PagedList<T> {
@@ -254,6 +257,7 @@ impl<T> Default for PagedList<T> {
             error: None,
             loaded_once: false,
             revision: 0,
+            refreshing: false,
         }
     }
 }
@@ -274,15 +278,33 @@ impl<T> PagedList<T> {
         self.loaded_once && self.next_offset.is_none()
     }
 
+    /// Asks for the list again from the top, keeping what is shown until
+    /// the answer replaces it, so an edit's reload never blanks the list.
+    pub fn reload(&mut self) {
+        self.next_offset = Some(0);
+        self.loaded_once = false;
+        self.loading = false;
+        self.error = None;
+        self.refreshing = true;
+    }
+
     pub fn absorb(&mut self, offset: u32, page: Page_<T>) {
-        if offset == 0 {
-            self.items.clear();
-        }
-        if (offset as usize) < self.items.len() {
-            self.items.truncate(offset as usize);
-        }
         let next_offset = page.next_offset();
-        self.items.extend(page.items);
+        if self.refreshing {
+            let start = (offset as usize).min(self.items.len());
+            let end = (start + page.items.len()).min(self.items.len());
+            self.items.splice(start..end, page.items);
+            self.items.truncate(page.total as usize);
+            self.refreshing = next_offset.is_some();
+        } else {
+            if offset == 0 {
+                self.items.clear();
+            }
+            if (offset as usize) < self.items.len() {
+                self.items.truncate(offset as usize);
+            }
+            self.items.extend(page.items);
+        }
         self.total = Some(page.total);
         self.next_offset = next_offset;
         self.loading = false;
@@ -327,6 +349,7 @@ impl<T> PagedList<T> {
     }
 
     pub fn set_cached(&mut self, items: Vec<T>) {
+        self.refreshing = false;
         self.total = Some(items.len() as u32);
         self.items = items;
         self.next_offset = None;
@@ -931,4 +954,54 @@ pub enum Action {
     /// in the list.
     DownloadMilkdropPack(usize),
     Quit,
+}
+
+#[cfg(test)]
+mod paged_list_tests {
+    use super::*;
+
+    fn page(items: &[&str], offset: u32, total: u32, more: bool) -> Page_<String> {
+        Page_ {
+            items: items.iter().map(|item| (*item).to_string()).collect(),
+            total,
+            limit: items.len() as u32,
+            offset,
+            next: more.then(|| "more".into()),
+        }
+    }
+
+    /// An edit's reload keeps the rows up until the answer lands, then the
+    /// answer replaces them in place, page by page, without cutting the
+    /// rows below short.
+    #[test]
+    fn a_reload_replaces_rows_in_place_instead_of_blanking_them() {
+        let mut list = PagedList::default();
+        list.absorb(0, page(&["a", "b"], 0, 4, true));
+        list.absorb(2, page(&["c", "d"], 2, 4, false));
+        list.reload();
+        assert_eq!(list.items, ["a", "b", "c", "d"], "nothing vanishes");
+        assert!(list.can_load_more() && !list.loaded_once);
+
+        list.absorb(0, page(&["x", "a"], 0, 5, true));
+        assert_eq!(list.items, ["x", "a", "c", "d"], "the tail waits its turn");
+        assert_eq!(list.next_offset, Some(2));
+        list.absorb(2, page(&["b", "c", "d"], 2, 5, false));
+        assert_eq!(list.items, ["x", "a", "b", "c", "d"]);
+        assert!(!list.refreshing);
+
+        // Done refreshing, the first page starts the list over as before.
+        list.absorb(0, page(&["only"], 0, 1, false));
+        assert_eq!(list.items, ["only"]);
+    }
+
+    /// A reload that finds fewer rows than are shown drops the extra ones.
+    #[test]
+    fn a_reload_that_finds_fewer_rows_drops_the_rest() {
+        let mut list = PagedList::default();
+        list.absorb(0, page(&["a", "b", "c"], 0, 3, false));
+        list.reload();
+        list.absorb(0, page(&["a", "c"], 0, 2, false));
+        assert_eq!(list.items, ["a", "c"]);
+        assert_eq!(list.total, Some(2));
+    }
 }
