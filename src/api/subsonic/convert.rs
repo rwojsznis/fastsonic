@@ -276,8 +276,8 @@ pub fn album(album: &AlbumId3) -> Album {
     }
 }
 
-/// `Album::kind_label` reads this, and understands "single", "compilation"
-/// and "appears_on". OpenSubsonic's `releaseTypes` uses the same words with
+/// `Album::kind_label` reads this, and understands "single", "ep",
+/// "compilation" and "appears_on". OpenSubsonic's `releaseTypes` uses the same words with
 /// different capitalisation; `isCompilation` is the older signal.
 fn album_kind(album: &AlbumId3) -> Option<String> {
     if let Some(kind) = album.release_types.first() {
@@ -573,6 +573,11 @@ mod tests {
             ..AlbumId3::default()
         });
         assert_eq!(compilation.kind_label(), "Compilation");
+        let ep = album(&AlbumId3 {
+            release_types: vec!["EP".into()],
+            ..AlbumId3::default()
+        });
+        assert_eq!(ep.kind_label(), "EP", "not an Album, and not a Single");
         assert_eq!(compilation.year(), Some("2024"));
         assert_eq!(compilation.genres, vec!["Test Tones".to_string()]);
         assert_eq!(compilation.total_tracks, Some(4));

@@ -225,6 +225,7 @@ impl Album {
             .unwrap_or("album")
         {
             "single" => "Single",
+            "ep" => "EP",
             "compilation" => "Compilation",
             "appears_on" => "Appears On",
             _ => "Album",
