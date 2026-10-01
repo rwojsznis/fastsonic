@@ -202,14 +202,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     )
                 };
                 let rect = response.rect;
-                if lyrics.synced {
-                    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-                    if response.clicked()
-                        && let Some(at_ms) = line.at_ms
-                    {
-                        app.actions.push(Action::Seek(at_ms));
-                        app.lyrics_following = true;
-                    }
+                if lyrics.synced
+                    && response.clicked()
+                    && let Some(at_ms) = line.at_ms
+                {
+                    app.actions.push(Action::Seek(at_ms));
+                    app.lyrics_following = true;
                 }
                 if is_active && follow {
                     show_sung_line(ui, rect, None);
@@ -666,14 +664,12 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                     })
                     .inner;
                 let rect = response.rect;
-                if lyrics.synced {
-                    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-                    if response.clicked()
-                        && let Some(at_ms) = line.at_ms
-                    {
-                        app.actions.push(Action::Seek(at_ms));
-                        app.actions.push(Action::FollowLyrics);
-                    }
+                if lyrics.synced
+                    && response.clicked()
+                    && let Some(at_ms) = line.at_ms
+                {
+                    app.actions.push(Action::Seek(at_ms));
+                    app.actions.push(Action::FollowLyrics);
                 }
                 if is_active && follow {
                     show_sung_line(ui, rect, Some(animation));

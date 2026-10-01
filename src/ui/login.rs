@@ -205,8 +205,5 @@ fn big_button(ui: &mut egui::Ui, app: &App, label: &str, enabled: bool) -> bool 
     ui.painter().rect_filled(rect, 23.0, fill);
     ui.painter()
         .galley(rect.center() - galley.size() / 2.0, galley, text_color);
-    enabled
-        && response
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
+    enabled && response.clicked()
 }

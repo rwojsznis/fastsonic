@@ -287,11 +287,6 @@ fn menu_item_response(
     if clicked {
         ui.close();
     }
-    let response = if enabled {
-        response.on_hover_cursor(egui::CursorIcon::PointingHand)
-    } else {
-        response
-    };
     (response, clicked)
 }
 
@@ -1458,10 +1453,7 @@ pub fn table_header(
                 egui::Stroke::NONE,
             ));
         }
-        if response
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
-        {
+        if response.clicked() {
             clicked = Some(column);
         }
     };
@@ -1512,11 +1504,7 @@ pub fn table_header(
                 egui::Stroke::NONE,
             ));
         }
-        if response
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text("Original order, reversed")
-            .clicked()
-        {
+        if response.on_hover_text("Original order, reversed").clicked() {
             number_clicked = true;
         }
     }
@@ -1598,11 +1586,7 @@ pub fn table_header(
             egui::Stroke::NONE,
         ));
     }
-    if response
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("Sort by duration")
-        .clicked()
-    {
+    if response.on_hover_text("Sort by duration").clicked() {
         clicked = Some(SortColumn::Duration);
     }
     ui.painter().hline(
@@ -1780,7 +1764,6 @@ pub fn card(
             .clicked();
         }
     }
-    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     theme::focus_ring(ui, &response);
     CardResponse {
         clicked: response.clicked() && !play,
@@ -1905,7 +1888,6 @@ pub fn thin_slider(
 ) -> SliderEvent {
     let (_, rect) = ui.allocate_space(vec2(width, 16.0));
     let response = ui.interact(rect, id, Sense::click_and_drag());
-    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     let dragging_value = ui.data(|data| data.get_temp::<f32>(id));
     let pointer_value = response
         .interact_pointer_pos()
@@ -2148,7 +2130,7 @@ pub fn switch(ui: &mut Ui, palette: &Palette, label: &str, on: &mut bool) -> egu
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label)
     });
     theme::focus_ring(ui, &response);
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    response
 }
 
 /// The width a settings row keeps for its control: switches, fields and

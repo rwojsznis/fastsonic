@@ -244,9 +244,7 @@ impl View<'_> {
 
     /// A button drawn pressed while the pointer holds it down.
     fn button(&mut self, area: Area, normal: Sprite, pressed: Sprite, id: &str) -> Response {
-        let response = self
-            .interact(area, id, Sense::click())
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let response = self.interact(area, id, Sense::click());
         let sprite = if response.is_pointer_button_down_on() {
             pressed
         } else {
@@ -259,9 +257,7 @@ impl View<'_> {
     /// A button whose only sprite is its lit state, drawn over the
     /// background while it is on or held.
     fn lamp_button(&mut self, area: Area, lit: Sprite, on: bool, id: &str) -> Response {
-        let response = self
-            .interact(area, id, Sense::click())
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let response = self.interact(area, id, Sense::click());
         if on || response.is_pointer_button_down_on() {
             self.sprite(lit, area);
         }
@@ -271,9 +267,7 @@ impl View<'_> {
     /// A slider along an area, its thumb `thumb` pixels wide: the pointer's
     /// position as a fraction of the thumb's travel.
     fn slider(&mut self, area: Area, id: &str, thumb: u32) -> (Response, SliderEvent) {
-        let response = self
-            .interact(area, id, Sense::click_and_drag())
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let response = self.interact(area, id, Sense::click_and_drag());
         let memory = Id::new(("winamp-slider", id));
         let dragging = self.ui.data(|data| data.get_temp::<f32>(memory));
         let travel = (area.width - thumb) as f32;
@@ -420,7 +414,6 @@ fn full_window(
     shuffle_repeat(app, view, now);
     if view
         .interact(layout::ABOUT, "about", Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(super::keys::platform_shortcut(
             "Back to the big window (Ctrl+M)",
             "Back to the big window (Cmd+Shift+M)",
@@ -521,7 +514,6 @@ fn shade_bar(
     // The time, in the small font; a click counts down instead.
     if view
         .interact(layout::SHADE_TIME, "shade-time", Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
     {
         app.winamp.time_remaining = !app.winamp.time_remaining;
@@ -556,9 +548,7 @@ fn shade_bar(
         ("eject", layout::SHADE_EJECT),
     ];
     for (name, area) in mini {
-        let response = view
-            .interact(area, &format!("shade-{name}"), Sense::click())
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let response = view.interact(area, &format!("shade-{name}"), Sense::click());
         if !response.clicked() {
             continue;
         }
@@ -913,11 +903,7 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
 /// leaves the bars flat. Returns whether anything is still moving.
 fn visualiser(app: &mut App, view: &mut View, now: Option<&NowPlaying>) -> bool {
     let area = layout::VISUALIZER;
-    if view
-        .interact(area, "visualiser", Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-    {
+    if view.interact(area, "visualiser", Sense::click()).clicked() {
         app.actions.push(Action::CycleVisualiser);
     }
     let mode = app.settings.vis;
@@ -1021,7 +1007,6 @@ fn status(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     view.sprite(mono_lamp, layout::MONO);
     if view
         .interact(layout::MONO, "mono", Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text("Play in mono")
         .clicked()
         && !mono
@@ -1030,7 +1015,6 @@ fn status(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     }
     if view
         .interact(layout::STEREO, "stereo", Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text("Play in stereo")
         .clicked()
         && mono
@@ -1048,11 +1032,7 @@ fn time_display(app: &mut App, view: &mut View, now: Option<&NowPlaying>, time: 
         layout::SECOND_ONES.x + layout::SECOND_ONES.width - layout::MINUS_EX.x,
         layout::MINUS_EX.height,
     );
-    if view
-        .interact(whole, "time", Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-    {
+    if view.interact(whole, "time", Sense::click()).clicked() {
         app.winamp.time_remaining = !app.winamp.time_remaining;
     }
     let extended = view.skin.has_extended_digits();

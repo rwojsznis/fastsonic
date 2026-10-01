@@ -39,9 +39,7 @@ fn nav_button(
         theme::paint_icon(ui, icon, rect, 20.0, color);
     }
     if enabled {
-        response
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text(tooltip)
+        response.on_hover_text(tooltip)
     } else {
         response
     }
@@ -200,9 +198,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         }
                     }
                 }
-                let response = response
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text(&name);
+                let response = response.on_hover_text(&name);
                 egui::Popup::menu(&response)
                     .frame(super::widgets::menu_frame(&palette))
                     .align(egui::RectAlign::BOTTOM_END)
@@ -316,7 +312,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         palette.accent,
                     );
                     if response
-                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .on_hover_text(format!(
                             "Version {} is available. Open its GitHub release.",
                             update.version

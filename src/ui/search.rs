@@ -362,7 +362,6 @@ fn top_result(
             }
         }
     }
-    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.clicked() && !subtitle_clicked && page != Page::Search {
         app.actions.push(Action::Open(page));
     }

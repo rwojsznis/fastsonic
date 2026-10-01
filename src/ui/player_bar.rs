@@ -418,13 +418,11 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         Icon::Music,
         Some(app.backend.art()),
     );
-    let cover_response = ui
-        .interact(
-            cover_rect,
-            egui::Id::new("now-playing-cover"),
-            Sense::click(),
-        )
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let cover_response = ui.interact(
+        cover_rect,
+        egui::Id::new("now-playing-cover"),
+        Sense::click(),
+    );
     // Hovering the cover offers to dock the art large at the sidebar's
     // bottom, the way the original interface expands it. (#92)
     let art_available = now.art_url.is_some() || now.art_small.is_some();
@@ -441,13 +439,11 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         app.actions.push(Action::Open(Page::Album(id.clone())));
     }
     if offer_expand && (cover_response.hovered() || over_expand) {
-        let expand = ui
-            .interact(
-                expand_rect,
-                egui::Id::new("now-playing-art-expand"),
-                Sense::click(),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let expand = ui.interact(
+            expand_rect,
+            egui::Id::new("now-playing-art-expand"),
+            Sense::click(),
+        );
         ui.painter()
             .circle_filled(expand_rect.center(), 9.0, palette.panel.gamma_multiply(0.9));
         Icon::ChevronUp.image(palette.text, 12.0).paint_at(

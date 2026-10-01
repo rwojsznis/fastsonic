@@ -95,9 +95,7 @@ fn mini_transport(app: &mut App, view: &mut View, now: Option<&NowPlaying>, heig
         .enumerate()
     {
         let cell = Area::new(x + 10 * index as u32, y, 10, 10);
-        let response = view
-            .interact(cell, &format!("playlist-{name}"), Sense::click())
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let response = view.interact(cell, &format!("playlist-{name}"), Sense::click());
         if !response.clicked() {
             continue;
         }
@@ -610,9 +608,7 @@ fn menus(app: &mut App, view: &mut View, rows: &[Row], queue_uris: &[String], he
     let unit = view.unit;
     for (name, x) in layout::PLAYLIST_MENUS {
         let area = Area::new(x, bottom + 8, 22, 18);
-        let button = view
-            .interact(area, &format!("playlist-menu-{name}"), Sense::click())
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let button = view.interact(area, &format!("playlist-menu-{name}"), Sense::click());
         super::menu(
             egui::Popup::menu(&button),
             view.skin,

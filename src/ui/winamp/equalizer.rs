@@ -264,9 +264,7 @@ fn decibels(fraction: f32) -> f32 {
 /// A vertical slider drawn from the skin's frames, with the pointer's new
 /// value while it is held.
 fn slider(view: &mut View, area: Area, id: &str, value: f32) -> Option<f32> {
-    let response = view
-        .interact(area, id, Sense::click_and_drag())
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let response = view.interact(area, id, Sense::click_and_drag());
     let frame = (value * (sprites::EQ_SLIDER_FRAMES - 1) as f32).round() as u32;
     view.sprite(sprites::eq_slider_frame(frame), area);
     let held = response.dragged() || response.is_pointer_button_down_on();

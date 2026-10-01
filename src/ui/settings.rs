@@ -1017,7 +1017,6 @@ fn eq_slider(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut f32,
     ui.vertical(|ui| {
         let (rect, response) =
             ui.allocate_exact_size(vec2(30.0, 118.0), egui::Sense::click_and_drag());
-        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         let track = Rect::from_center_size(rect.center(), vec2(4.0, rect.height() - 20.0));
         let y_of = |db: f32| track.bottom() - (db + range) / (2.0 * range) * track.height();
         let mut changed = false;

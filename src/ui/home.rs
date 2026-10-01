@@ -241,7 +241,6 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         }
                     }
                 }
-                let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
                 if response.clicked() {
                     app.actions.push(Action::Open(page.clone()));
                 }
