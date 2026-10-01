@@ -155,6 +155,98 @@ fn read_theme(directory: &Path, filename: &str) -> Result<CustomTheme, String> {
     })
 }
 
+/// The palettes put in the themes folder on the first start, from
+/// fastframe-theme (see `assets/themes/README.md`).
+const BUNDLED: [(&str, &str); 8] = [
+    (
+        "Catppuccin Latte.json",
+        include_str!("../../assets/themes/Catppuccin Latte.json"),
+    ),
+    (
+        "Catppuccin.json",
+        include_str!("../../assets/themes/Catppuccin.json"),
+    ),
+    ("Nord.json", include_str!("../../assets/themes/Nord.json")),
+    (
+        "Ristretto.json",
+        include_str!("../../assets/themes/Ristretto.json"),
+    ),
+    (
+        "Rose Pine Dawn.json",
+        include_str!("../../assets/themes/Rose Pine Dawn.json"),
+    ),
+    (
+        "Rose Pine Moon.json",
+        include_str!("../../assets/themes/Rose Pine Moon.json"),
+    ),
+    (
+        "Rose Pine.json",
+        include_str!("../../assets/themes/Rose Pine.json"),
+    ),
+    (
+        "Tokyo Night.json",
+        include_str!("../../assets/themes/Tokyo Night.json"),
+    ),
+];
+
+/// The file in the themes folder naming the bundled palettes already put
+/// there, one per line.
+const INSTALLED: &str = ".installed-palettes";
+
+/// Puts each bundled palette not yet named in [`INSTALLED`] into
+/// `directory`, unless something there already has its name, and records
+/// it. From then on the file is the user's: an edit lasts, a deleted one
+/// stays deleted, and a palette added in a later version arrives once.
+fn install_bundled(directory: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(directory)?;
+    let record = directory.join(INSTALLED);
+    // A record that cannot be read installs nothing, rather than bring back
+    // what was deleted.
+    let mut installed: std::collections::BTreeSet<String> = match std::fs::read_to_string(&record) {
+        Ok(text) => text.lines().map(str::to_owned).collect(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(error) => return Err(error),
+    };
+    let before = installed.len();
+    for (name, contents) in BUNDLED {
+        if installed.contains(name) {
+            continue;
+        }
+        // Anything already there, even a broken link, is the user's.
+        match std::fs::symlink_metadata(directory.join(name)) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                write_new(directory, name, contents)?;
+            }
+            Err(error) => return Err(error),
+        }
+        installed.insert(name.to_owned());
+    }
+    if installed.len() != before {
+        let list: String = installed.iter().map(|name| format!("{name}\n")).collect();
+        write_new(directory, INSTALLED, &list)?;
+    }
+    Ok(())
+}
+
+/// Writes `name` in `directory` whole or not at all, through a temporary
+/// file that is never a link.
+fn write_new(directory: &Path, name: &str, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let temporary = directory.join(format!(".{name}.tmp"));
+    let _ = std::fs::remove_file(&temporary);
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .and_then(|mut file| file.write_all(contents.as_bytes()))
+        .and_then(|()| crate::util::replace_file(&temporary, &directory.join(name)));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written
+}
+
 #[derive(Default)]
 struct Loaded {
     themes: Vec<CustomTheme>,
@@ -259,11 +351,20 @@ pub struct Catalog {
     skipped: Vec<(String, String)>,
     /// A scan has finished at least once.
     listed: bool,
+    /// The next scan first puts the bundled palettes in the folder.
+    install_bundled: bool,
     receiver: Option<mpsc::Receiver<Loaded>>,
     pending: Option<Scan>,
 }
 
 impl Catalog {
+    /// Has the next scan put the bundled palettes in the folder first, each
+    /// only if it was never put there before. Launches ask for it; demo
+    /// launches too, in their own profile. Tests do not.
+    pub fn install_bundled_palettes(&mut self) {
+        self.install_bundled = true;
+    }
+
     pub fn start(
         &mut self,
         directory: PathBuf,
@@ -283,7 +384,14 @@ impl Catalog {
     }
 
     fn scan(&mut self, scan: Scan) {
+        let install = std::mem::take(&mut self.install_bundled);
         self.spawn(&scan.waker, move || {
+            if install && let Err(error) = install_bundled(&scan.directory) {
+                log::warn!(
+                    "unable to put the bundled palettes in {}: {error}",
+                    scan.directory.display()
+                );
+            }
             discover(&scan.directory, scan.selected.as_deref())
         });
     }
@@ -701,6 +809,119 @@ mod tests {
         assert_eq!(filenames(catalog.themes()), ["latest.json"]);
         assert_eq!(catalog.themes()[0].palette, Palette::light());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn every_bundled_palette_reads_with_its_base() {
+        for (filename, text) in BUNDLED {
+            let palette = parse_palette(text).unwrap_or_else(|error| panic!("{filename}: {error}"));
+            let light = matches!(filename, "Catppuccin Latte.json" | "Rose Pine Dawn.json");
+            assert_eq!(palette.dark, !light, "{filename}");
+            assert_ne!(palette.window, Palette::dark().window, "{filename}");
+            assert_ne!(palette.window, Palette::light().window, "{filename}");
+            assert!(filename_is_local(filename), "{filename}");
+        }
+    }
+
+    #[test]
+    fn the_bundled_palettes_arrive_once_and_then_belong_to_the_user() {
+        let themes = scratch("bundled").join("themes");
+        install_bundled(&themes).unwrap();
+        for (name, contents) in BUNDLED {
+            assert_eq!(
+                std::fs::read_to_string(themes.join(name)).unwrap(),
+                contents
+            );
+        }
+        // An edit lasts, and a deleted palette stays deleted.
+        std::fs::write(themes.join("Nord.json"), "mine").unwrap();
+        std::fs::remove_file(themes.join("Tokyo Night.json")).unwrap();
+        install_bundled(&themes).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(themes.join("Nord.json")).unwrap(),
+            "mine"
+        );
+        assert!(!themes.join("Tokyo Night.json").exists());
+        let leftovers: Vec<String> = std::fs::read_dir(&themes)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+        std::fs::remove_dir_all(themes.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_palette_new_to_the_record_arrives_but_never_over_a_users_file() {
+        let themes = scratch("bundled-record");
+        // A record from a version that shipped only Nord, since deleted.
+        std::fs::write(themes.join(INSTALLED), "Nord.json\n").unwrap();
+        std::fs::write(themes.join("Catppuccin.json"), "mine").unwrap();
+        install_bundled(&themes).unwrap();
+        assert!(!themes.join("Nord.json").exists(), "deleted before");
+        assert_eq!(
+            std::fs::read_to_string(themes.join("Catppuccin.json")).unwrap(),
+            "mine"
+        );
+        assert!(themes.join("Rose Pine.json").is_file());
+        let record = std::fs::read_to_string(themes.join(INSTALLED)).unwrap();
+        assert_eq!(record.lines().count(), BUNDLED.len());
+        std::fs::remove_dir_all(themes).unwrap();
+    }
+
+    /// A record that cannot be read could be hiding deletions, so nothing
+    /// is put back.
+    #[test]
+    fn an_unreadable_record_installs_nothing() {
+        let themes = scratch("bundled-unreadable");
+        std::fs::write(themes.join(INSTALLED), [0xff, 0xfe]).unwrap();
+        assert!(install_bundled(&themes).is_err());
+        assert!(!themes.join("Nord.json").exists());
+        std::fs::remove_dir_all(themes).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn nothing_is_written_through_a_link() {
+        let themes = scratch("bundled-link");
+        let elsewhere = scratch("bundled-elsewhere");
+        let target = elsewhere.join("target.json");
+        std::os::unix::fs::symlink(&target, themes.join("Nord.json")).unwrap();
+        std::os::unix::fs::symlink(&target, themes.join(".Rose Pine.json.tmp")).unwrap();
+        install_bundled(&themes).unwrap();
+        assert!(!target.exists());
+        assert!(themes.join("Rose Pine.json").is_file());
+        std::fs::remove_dir_all(themes).unwrap();
+        std::fs::remove_dir_all(elsewhere).unwrap();
+    }
+
+    /// The launch's listing already shows the bundled palettes; a later
+    /// listing does not put a deleted one back.
+    #[test]
+    fn the_first_listing_puts_the_bundled_palettes_in_the_picker() {
+        let root = scratch("bundled-catalog");
+        let themes = root.join("themes");
+        let mut catalog = Catalog::default();
+        catalog.install_bundled_palettes();
+        catalog.start(themes.clone(), None, &Default::default());
+        wait(&mut catalog);
+        assert_eq!(catalog.themes().len(), BUNDLED.len());
+        assert_eq!(catalog.detail(None), "", "the record is not a palette");
+        std::fs::remove_file(themes.join("Nord.json")).unwrap();
+        catalog.start(themes.clone(), None, &Default::default());
+        wait(&mut catalog);
+        assert_eq!(catalog.themes().len(), BUNDLED.len() - 1);
+        assert!(catalog.find("Nord.json").is_none());
+
+        let mut relaunched = Catalog::default();
+        relaunched.install_bundled_palettes();
+        relaunched.start(themes, None, &Default::default());
+        wait(&mut relaunched);
+        assert!(
+            relaunched.find("Nord.json").is_none(),
+            "a deleted one stays deleted"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

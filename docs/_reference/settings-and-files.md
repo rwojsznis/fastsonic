@@ -8,7 +8,7 @@ Linux the default locations are:
 | What | Where | Safe to delete? |
 | --- | --- | --- |
 | Settings | `~/.config/fastsonic/settings.json` | Yes; preferences reset |
-| Custom themes | `~/.config/fastsonic/themes/` | Yes; the built-in themes remain |
+| Custom themes | `~/.config/fastsonic/themes/` | Yes; the bundled palettes come back |
 | Winamp skins | `~/.config/fastsonic/skins/` | Yes; add them again |
 | MilkDrop presets | `~/.config/fastsonic/milkdrop/` | Yes; fetch them again |
 | Server credential | `~/.local/state/fastsonic/credentials.json` | Yes; sign in again |
@@ -91,9 +91,18 @@ macOS, and `%APPDATA%\\github.rwojsznis\\fastsonic\\config\\themes\\` on
 Windows. **Open themes folder** beside the picker creates the folder if needed
 and opens it in your file manager, and **How to make a theme** opens this
 section. A palette is listed by its filename without `.json` (`Gruvbox.json`
-is **Gruvbox**), and picking it applies it at once. Choosing Follow system, Light or Dark sets the
-palette aside again. A theme changes colours only; fonts and layout stay as
-they are, and Winamp skins keep their own look.
+is **Gruvbox**), and picking it applies it at once. Choosing Follow system,
+Light or Dark sets the palette aside again. A theme changes colours only;
+fonts and layout stay as they are, and Winamp skins keep their own look.
+
+The first time Fastsonic starts, it puts eight palettes in the folder:
+Catppuccin, Catppuccin Latte, Nord, Ristretto, Rose Pine, Rose Pine Dawn,
+Rose Pine Moon and Tokyo Night. They are ordinary palette files: read them to
+see how a theme is written, change them, or delete the ones you do not want.
+Fastsonic never rewrites them, and a deleted one stays deleted;
+`.installed-palettes` in the folder records which it has already put there. A
+palette added in a later version arrives once, and never over a file of yours
+with the same name.
 
 A palette file is a UTF-8 JSON file ending in `.json`. It names a `base`,
 `dark` (the default) or `light`, and the `colors` it changes from that base;
