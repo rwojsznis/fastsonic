@@ -142,6 +142,9 @@ pub struct App {
     /// Sample data is loaded; server requests are disabled.
     pub offline: bool,
     pub palette: Palette,
+    /// Whether this window's native backend can leave the mini player out of
+    /// the taskbar.
+    pub taskbar_hiding_supported: bool,
     applied_dark: Option<bool>,
 
     pub auth: AuthStatus,
@@ -465,6 +468,7 @@ impl App {
             control_now_playing: None,
             offline: false,
             palette: Palette::dark(),
+            taskbar_hiding_supported: cfg!(windows),
             applied_dark: None,
             auth: AuthStatus::Starting,
             user: None,
@@ -4377,6 +4381,20 @@ impl App {
                 // the live window.
                 self.push_winamp_level(ctx);
             }
+            Action::SetWinampTaskbar(visible) => {
+                if self.settings.winamp_show_taskbar != visible {
+                    self.settings.winamp_show_taskbar = visible;
+                    self.settings_dirty = true;
+                    if self.settings.winamp_window {
+                        // This window attribute is fixed at creation. Keep
+                        // the visible mini player, its position, and playback
+                        // while replacing only its native window.
+                        self.winamp.remember_position();
+                        self.switch_intent = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
             Action::ToggleWinampPlaylist => {
                 self.settings.playlist_open = !self.settings.playlist_open;
                 self.settings_dirty = true;
@@ -6297,6 +6315,51 @@ mod tests {
         }
         app.handle_queue(snapshot(Some("sonic:track:a"), &["sonic:track:b"], &[]));
         assert!(app.queue_names.is_empty());
+    }
+
+    #[test]
+    fn changing_mini_taskbar_visibility_recreates_only_an_open_mini_window() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.apply(Action::SetWinampTaskbar(false), &ctx);
+        assert!(!app.settings.winamp_show_taskbar);
+        assert!(!app.switch_intent, "settings do not close the main window");
+        app.settings.winamp_window = true;
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:continues".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let closes = |output: &egui::FullOutput| {
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Close))
+        };
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_ui| {
+            app.apply(Action::SetWinampTaskbar(true), &ctx);
+        });
+        output.textures_delta.clear();
+        assert!(app.settings.winamp_window && app.switch_intent);
+        assert!(!app.hide_intent && !app.quit_requested);
+        assert!(closes(&output));
+        assert_eq!(app.local.playback, Playback::Playing);
+        assert_eq!(
+            app.local.track.as_ref().unwrap().uri,
+            "sonic:track:continues"
+        );
+        app.switch_intent = false;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_ui| {
+            app.apply(Action::SetWinampTaskbar(true), &ctx);
+        });
+        output.textures_delta.clear();
+        assert!(!app.switch_intent);
+        assert!(!closes(&output));
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        assert!(
+            !app.settings.winamp_window,
+            "returning to the main interface remains available"
+        );
     }
 
     #[test]

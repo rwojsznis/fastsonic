@@ -29,6 +29,13 @@ the title bar, or click **O**, to choose 1x to 4x and set always-on-top. **D**
 toggles double size and **A** toggles always-on-top. Fastsonic remembers the
 window position.
 
+On Windows, turn off **Show in taskbar** under **Settings > Winamp skins**, or
+in the **O** menu, to drop the mini player's taskbar button. The choice
+survives restarts. The mini player stays visible; the tray icon, Ctrl+M, the
+skin logo, and launching Fastsonic again still reach the app, and returning to
+the main window always brings its taskbar button back. Changing the option
+while the mini player is open replaces that window while playback continues.
+
 Non-rectangular skins use `region.txt` for transparent areas. Winamp 3 and 5
 skins use a different format and are not supported.
 

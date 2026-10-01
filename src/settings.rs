@@ -118,6 +118,8 @@ pub struct Settings {
     pub custom_titlebar: bool,
     /// The Winamp window is open.
     pub winamp_window: bool,
+    /// Windows: keep a taskbar button while the Winamp window is visible.
+    pub winamp_show_taskbar: bool,
     /// Skin file or folder name. `None` selects the built-in skin.
     pub skin: Option<String>,
     /// Choose another installed skin whenever the mini player opens.
@@ -198,6 +200,7 @@ impl Default for Settings {
             zoom: 1.0,
             custom_titlebar: false,
             winamp_window: false,
+            winamp_show_taskbar: true,
             skin: None,
             random_skin: false,
             skin_scale: None,
@@ -380,6 +383,7 @@ mod tests {
     fn older_settings_keep_the_winamp_window_closed_and_the_built_in_skin() {
         let settings: Settings = serde_json::from_str(r#"{"zoom": 1.2}"#).unwrap();
         assert!(!settings.winamp_window);
+        assert!(settings.winamp_show_taskbar);
         assert_eq!(settings.skin, None);
         assert_eq!(settings.skin_scale, None);
         assert!(!settings.winamp_on_top);

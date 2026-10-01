@@ -905,6 +905,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "presets" => app.winamp.open_presets = true,
             "art" => app.settings.art_expanded = true,
             "small" => app.settings.skin_scale = Some(1),
+            "taskbar" => app.taskbar_hiding_supported = true,
             "compact" => {
                 app.settings.sidebar_compact = true;
                 app.settings.tracklist_compact = true;
@@ -1090,6 +1091,45 @@ mod tests {
     use crate::paths::AppDirs;
     use crate::settings::Settings;
     use std::sync::Arc;
+
+    /// Only a window backend that can leave the mini player out of the
+    /// taskbar offers the switch, and flipping it keeps Settings open.
+    #[test]
+    fn the_taskbar_setting_keeps_its_choice_without_closing_settings() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("winamp-taskbar-setting");
+        app.taskbar_hiding_supported = false;
+        app.open(Page::Settings);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Show Winamp in taskbar"))
+        );
+        app.taskbar_hiding_supported = true;
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let control = accessible_node(&tree, "Show Winamp in taskbar", Role::CheckBox);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(
+                control,
+                egui::accesskit::Action::Click,
+                None,
+            )],
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!app.settings.winamp_show_taskbar);
+        assert!(!app.settings.winamp_window && !app.switch_intent);
+        assert_eq!(app.page(), &Page::Settings);
+        let path = app.dirs.config.join("winamp-taskbar-choice.json");
+        app.settings.save(&path);
+        assert!(!Settings::load(&path).winamp_show_taskbar);
+        app.backend.shutdown();
+    }
 
     fn accessible_app(name: &str) -> (egui::Context, App) {
         let root =

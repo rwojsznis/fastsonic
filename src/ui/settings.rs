@@ -674,6 +674,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        if app.taskbar_hiding_supported {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Show in taskbar",
+                "Keep a taskbar button for the mini player. The tray icon stays available when hidden.",
+                |ui| {
+                    let mut visible = app.settings.winamp_show_taskbar;
+                    if widgets::switch(ui, &palette, "Show Winamp in taskbar", &mut visible)
+                        .changed()
+                    {
+                        app.actions.push(Action::SetWinampTaskbar(visible));
+                    }
+                },
+            );
+        }
     });
 
     section(ui, &palette, "MilkDrop", |ui| {

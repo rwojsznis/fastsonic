@@ -552,6 +552,7 @@ struct MiniWindow {
     size: egui::Vec2,
     position: Option<[f32; 2]>,
     on_top: bool,
+    taskbar: bool,
     storage_path: std::path::PathBuf,
 }
 
@@ -561,6 +562,7 @@ impl MiniWindow {
             size: fastsonic::ui::winamp::initial_size(&app.settings),
             position: app.winamp.restore_pos,
             on_top: app.settings.winamp_on_top,
+            taskbar: app.settings.winamp_show_taskbar,
             storage_path: app.dirs.cache.join("winamp.ron"),
         })
     }
@@ -633,6 +635,7 @@ fn native_options(
     let viewport = egui::ViewportBuilder::default()
         .with_title("Fastsonic")
         .with_app_id("fastsonic")
+        .with_taskbar(true)
         .with_icon(icon);
     let viewport = match mini {
         Some(mini) => {
@@ -648,7 +651,9 @@ fn native_options(
                 .with_inner_size(mini.size)
                 .with_min_inner_size(mini.size)
                 .with_max_inner_size(mini.size)
-                .with_window_level(level);
+                .with_window_level(level)
+                // egui applies this native attribute on Windows only.
+                .with_taskbar(mini.taskbar);
             match mini_creation_position(mini.position, cfg!(windows)) {
                 Some([x, y]) => viewport.with_position([x, y]),
                 None => viewport,
@@ -914,6 +919,7 @@ mod native_window_tests {
                     size,
                     position: Some([300.0, 200.0]),
                     on_top: false,
+                    taskbar: true,
                     storage_path: std::path::PathBuf::from("cache/winamp.ron"),
                 }),
                 None,
@@ -940,6 +946,7 @@ mod native_window_tests {
                 size: egui::vec2(550.0, 232.0),
                 position: None,
                 on_top: false,
+                taskbar: true,
                 storage_path: cache.join("winamp.ron"),
             }),
         ] {
@@ -985,12 +992,37 @@ mod native_window_tests {
             size: egui::vec2(550.0, 232.0),
             position: None,
             on_top: false,
+            taskbar: true,
             storage_path: "cache/winamp.ron".into(),
         };
         assert_eq!(
             native_options(false, Some(mini), None).glow_options.vsync,
             fastsonic::window::vsync()
         );
+    }
+
+    #[test]
+    fn hiding_the_mini_taskbar_button_never_hides_the_main_window_button() {
+        for taskbar in [false, true] {
+            let mini = MiniWindow {
+                size: egui::vec2(550.0, 232.0),
+                position: Some([123.0, 456.0]),
+                on_top: true,
+                taskbar,
+                storage_path: "cache/winamp.ron".into(),
+            };
+            let options = native_options(false, Some(mini), None);
+            assert_eq!(options.viewport.taskbar, Some(taskbar));
+            assert_eq!(options.viewport.inner_size, Some(egui::vec2(550.0, 232.0)));
+            assert_eq!(
+                options.viewport.window_level,
+                Some(egui::WindowLevel::AlwaysOnTop)
+            );
+            assert_eq!(
+                native_options(false, None, None).viewport.taskbar,
+                Some(true)
+            );
+        }
     }
 
     #[test]

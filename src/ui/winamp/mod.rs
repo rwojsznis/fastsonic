@@ -699,6 +699,12 @@ fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
     if ui.checkbox(&mut on_top, "Always on top").clicked() {
         app.actions.push(Action::ToggleWinampOnTop);
     }
+    if app.taskbar_hiding_supported {
+        let mut visible = app.settings.winamp_show_taskbar;
+        if ui.checkbox(&mut visible, "Show in taskbar").changed() {
+            app.actions.push(Action::SetWinampTaskbar(visible));
+        }
+    }
     let mut milkdrop = app.settings.milkdrop_open;
     if ui
         .checkbox(&mut milkdrop, "MilkDrop")

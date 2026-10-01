@@ -30,7 +30,7 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - A player-bar spectrum or waveform that follows post-EQ sound and stays
   lively at zero volume, off by default. Click empty bar space to cycle modes.
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
-  oscilloscope, equalizer, and playlist.
+  oscilloscope, equalizer, and playlist; on Windows it can leave the taskbar.
 - A projectM-powered MilkDrop window with optional preset packs.
 - Native window behaviour: on macOS, double-clicking the top bar does what
   Desktop & Dock asks (Fill, Zoom, Minimize or nothing); on Windows, the
