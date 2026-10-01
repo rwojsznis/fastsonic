@@ -18,12 +18,14 @@ pub mod topbar;
 pub mod widgets;
 pub mod winamp;
 
-use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, Stroke, vec2};
+use std::sync::Arc;
+
+use egui::{Align2, Color32, Context, CornerRadius, Frame, Id, Margin, Rect, Stroke, vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::backend::AuthStatus;
-use crate::model::{Action, Page, ToastKind};
+use crate::model::{Action, Loadable, Page, ToastKind};
 use crate::theme::{self, Icon};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -78,11 +80,57 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     window_resize(ui);
 }
 
-/// The cover size a library grid card asks the server for. Cards and page
-/// headers use the same one, so a card's cover is already cached when its
-/// page opens.
+/// The cover size a library grid card asks the server for: the card size, so
+/// a page opened from the grid has its card's cover to show while the
+/// header's larger one arrives.
 const GRID_ART_TARGET_WIDTH: u32 = 300;
 
+/// Keeps the most recent loading preview of each metadata type available to
+/// the loaded hero as an artwork fallback. The fixed typed slot bounds this to
+/// one playlist, album, and artist instead of scanning known metadata on
+/// every loaded frame.
+fn loading_preview<T>(
+    ctx: &Context,
+    key: &str,
+    details: &Loadable<T>,
+    known: impl FnOnce() -> Option<T>,
+) -> Option<Arc<T>>
+where
+    T: Send + Sync + 'static,
+{
+    let memory_id = Id::new("collection-loading-preview");
+    let key = Id::new(key);
+    if details.get().is_some() {
+        ctx.data(|data| data.get_temp::<(Id, Arc<T>)>(memory_id))
+            .filter(|(stored_key, _)| *stored_key == key)
+            .map(|(_, preview)| preview)
+    } else {
+        let preview = known().map(Arc::new);
+        ctx.data_mut(|data| match &preview {
+            Some(preview) => {
+                data.insert_temp(memory_id, (key, Arc::clone(preview)));
+            }
+            None => data.remove::<(Id, Arc<T>)>(memory_id),
+        });
+        preview
+    }
+}
+
+/// Readies what the page a library row opens starts with: its softened cover
+/// now, and its tint while the row is hovered.
+fn prepare_page_art(app: &mut App, ui: &egui::Ui, row: &egui::Response, image: Option<&str>) {
+    let Some(image) = image else {
+        return;
+    };
+    let art = app.backend.art().clone();
+    app.softened_covers.texture(ui.ctx(), &art, image);
+    if row.hovered() {
+        app.actions.push(Action::PrepareTint(image.to_string()));
+    }
+}
+
+/// The page's tint comes from its 64-pixel thumbnail, which the sidebar row
+/// or card that opened it has usually fetched already.
 fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {
@@ -90,21 +138,24 @@ fn page_tint(app: &mut App) -> Option<Color32> {
             .playlist_pages
             .get(id)
             .and_then(|page| page.playlist.get())
-            .and_then(|playlist| pick_image(&playlist.images, 300))
+            .or_else(|| app.known_playlist(id))
+            .and_then(|playlist| pick_image(&playlist.images, 64))
             .map(str::to_string),
         Page::Album(id) => app
             .album_pages
             .get(id)
             .and_then(|page| page.album.get())
-            .and_then(|album| pick_image(&album.images, 300))
+            .or_else(|| app.known_album(id))
+            .and_then(|album| pick_image(&album.images, 64))
             .map(str::to_string),
         Page::Artist(id) => app
             .artist_pages
             .get(id)
             .and_then(|page| page.artist.get())
-            .and_then(|artist| pick_image(&artist.images, 300))
+            .or_else(|| app.known_artist(id))
+            .and_then(|artist| pick_image(&artist.images, 64))
             .map(str::to_string),
-        Page::Radio(seed) => pick_image(&app.radio_images(seed), 300).map(str::to_string),
+        Page::Radio(seed) => pick_image(&app.radio_images(seed), 64).map(str::to_string),
         Page::LikedSongs => return Some(Color32::from_rgb(0x50, 0x38, 0xc8)),
         _ => None,
     };
@@ -112,7 +163,7 @@ fn page_tint(app: &mut App) -> Option<Color32> {
         return None;
     }
     match image {
-        Some(url) => app.tint_for(Some(&url)),
+        Some(url) => app.tint_for(Some(&url)).or_else(|| app.now_playing_tint()),
         None => app.now_playing_tint(),
     }
 }

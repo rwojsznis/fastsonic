@@ -996,6 +996,26 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     },
                 );
             }
+            // The open page as it is while its details load: what the list
+            // that opened it already knew, over a loading row.
+            "collection-loading" => match app.page().clone() {
+                Page::Playlist(id) => {
+                    if let Some(page) = app.playlist_pages.get_mut(&id) {
+                        page.playlist = Loadable::Loading;
+                    }
+                }
+                Page::Album(id) => {
+                    if let Some(page) = app.album_pages.get_mut(&id) {
+                        page.album = Loadable::Loading;
+                    }
+                }
+                Page::Artist(id) => {
+                    if let Some(page) = app.artist_pages.get_mut(&id) {
+                        page.artist = Loadable::Loading;
+                    }
+                }
+                _ => {}
+            },
             "lyrics" | "lyrics-fullscreen" => {
                 app.lyrics_uri = app.now_playing().map(|now| now.uri);
                 app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
@@ -2015,6 +2035,147 @@ mod tests {
                 view,
             );
         }
+        app.backend.shutdown();
+    }
+
+    fn loading_playlist(app: &mut App, ui: &mut egui::Ui) {
+        crate::ui::collection::playlist(app, ui, "pl1");
+    }
+
+    fn loading_album(app: &mut App, ui: &mut egui::Ui) {
+        crate::ui::collection::album(app, ui, "alb0");
+    }
+
+    fn loading_artist(app: &mut App, ui: &mut egui::Ui) {
+        crate::ui::artist::show(app, ui, "art0");
+    }
+
+    type LoadingCase = (&'static str, &'static str, fn(&mut App, &mut egui::Ui));
+
+    /// Each page's title, a line of its header, and its view.
+    const LOADING_CASES: [LoadingCase; 3] = [
+        (PLAYLISTS[1].0, USER, loading_playlist),
+        (RECORDS[0].title, ARTISTS[0], loading_album),
+        (ARTISTS[0], "Artist", loading_artist),
+    ];
+
+    /// A page opened from a list shows what that list already knew, from
+    /// the first frame, above the row saying the rest is loading. The album
+    /// here is known only from one of its songs, which does not say how
+    /// many songs it has.
+    #[test]
+    fn loading_collections_keep_what_their_lists_knew() {
+        let (ctx, mut app) = accessible_app("loading-collections");
+        app.playlist_pages.remove("pl1");
+        app.album_pages.remove("alb0");
+        app.artist_pages.clear();
+        app.library.albums.items.clear();
+        app.home.newest_albums = Loadable::Loaded(Vec::new());
+        app.home.frequent_albums = Loadable::Loaded(Vec::new());
+        app.home.random_albums = Loadable::Loaded(Vec::new());
+        app.search.results.get_mut().unwrap().albums = None;
+        for (title, detail, view) in LOADING_CASES {
+            let painted = view_frame(&ctx, &mut app, vec![], view);
+            let at = |wanted: &str| {
+                painted
+                    .iter()
+                    .find(|(text, _)| text == wanted)
+                    .unwrap_or_else(|| panic!("{title}: {wanted} is not drawn"))
+                    .1
+            };
+            let loading = at("Loading…");
+            assert!(at(title).bottom() < loading.top(), "{title}");
+            assert!(at(detail).bottom() < loading.top(), "{title}");
+            assert!(
+                !painted.iter().any(|(text, _)| text.starts_with("0 songs")),
+                "{title}: an unknown count is left out"
+            );
+        }
+        assert!(app.album_pages["alb0"].album.get().is_none());
+        app.backend.shutdown();
+    }
+
+    /// While the details load, the header's controls are there but cannot
+    /// act on what is not known yet; once the details land they can.
+    #[test]
+    fn loading_collections_disable_their_controls() {
+        let (ctx, mut app) = accessible_app("loading-collection-controls");
+        let playlist = app.playlist_pages["pl1"].playlist.get().unwrap().clone();
+        app.playlist_pages.get_mut("pl1").unwrap().playlist = Loadable::Loading;
+        app.open(Page::Playlist("pl1".into()));
+        let disabled_play = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.label() == Some("Play")
+                    && node.role() == egui::accesskit::Role::Button
+                    && node.is_disabled()
+            })
+        };
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(disabled_play(&tree), "Play waits for the playlist");
+
+        app.playlist_pages.get_mut("pl1").unwrap().playlist = Loadable::Loaded(playlist);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!disabled_play(&tree), "the loaded playlist can be played");
+        app.backend.shutdown();
+    }
+
+    /// A failed page keeps what was known above its Retry button; a link
+    /// to something no list has shown has nothing to keep.
+    #[test]
+    fn failed_collections_keep_known_details_above_retry() {
+        let (ctx, mut app) = accessible_app("failed-collections");
+        fn failed<T>() -> Loadable<T> {
+            Loadable::Failed("Connection interrupted".into())
+        }
+        app.playlist_pages.get_mut("pl1").unwrap().playlist = failed();
+        app.album_pages.get_mut("alb0").unwrap().album = failed();
+        app.artist_pages.get_mut("art0").unwrap().artist = failed();
+        for (title, detail, view) in LOADING_CASES {
+            let painted = view_frame(&ctx, &mut app, vec![], view);
+            let at = |wanted: &str| {
+                painted
+                    .iter()
+                    .find(|(text, _)| text == wanted)
+                    .unwrap_or_else(|| panic!("{title}: {wanted} is not drawn"))
+                    .1
+            };
+            let retry = at("Retry");
+            assert!(at(title).bottom() < retry.top(), "{title}");
+            assert!(at(detail).bottom() < retry.top(), "{title}");
+            at("Connection interrupted");
+        }
+
+        fn unknown(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::collection::album(app, ui, "alb-nowhere");
+        }
+        app.album_pages.insert(
+            "alb-nowhere".into(),
+            AlbumPage {
+                album: failed(),
+                ..AlbumPage::default()
+            },
+        );
+        let painted = view_frame(&ctx, &mut app, vec![], unknown);
+        assert!(painted.iter().any(|(text, _)| text == "Retry"));
+        assert!(
+            !painted.iter().any(|(text, _)| text == "Album"),
+            "no header for an album nothing has described"
+        );
+        app.backend.shutdown();
+    }
+
+    /// `--demo-show collection-loading` puts the open page back to loading.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_collection_loading_demo_keeps_the_header() {
+        let (ctx, mut app) = accessible_app("collection-loading-demo");
+        apply_flags(&mut app, Some("album:alb0"), Some("collection-loading"));
+        assert!(matches!(app.album_pages["alb0"].album, Loadable::Loading));
+        let painted = view_frame(&ctx, &mut app, vec![], loading_album);
+        assert!(painted.iter().any(|(text, _)| text == RECORDS[0].title));
+        assert!(painted.iter().any(|(text, _)| text == "Loading…"));
         app.backend.shutdown();
     }
 

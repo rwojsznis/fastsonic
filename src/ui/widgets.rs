@@ -28,6 +28,18 @@ pub fn cover(
     rect
 }
 
+/// Where a cover can come from, best first. A page header names the cover
+/// it wants, and what to show while that is on its way.
+#[derive(Default)]
+pub(super) struct CoverSources<'a> {
+    pub requested: Option<&'a str>,
+    /// A cover already on screen for the same item, drawn only while ready.
+    pub previous: Option<&'a str>,
+    pub softened: Option<&'a egui::TextureHandle>,
+    /// A small rendition, drawn as it is until the softened one is ready.
+    pub thumbnail: Option<&'a str>,
+}
+
 pub fn paint_cover(
     ui: &Ui,
     palette: &Palette,
@@ -37,48 +49,55 @@ pub fn paint_cover(
     fallback: Icon,
     art: Option<&crate::images::ArtLoader>,
 ) {
+    paint_cover_with_thumbnail(
+        ui,
+        palette,
+        CoverSources {
+            requested: url,
+            ..Default::default()
+        },
+        rect,
+        radius,
+        fallback,
+        art,
+    );
+}
+
+/// Paints the requested cover, keeping whatever stands in for it visible
+/// until it is ready.
+pub(super) fn paint_cover_with_thumbnail(
+    ui: &Ui,
+    palette: &Palette,
+    sources: CoverSources<'_>,
+    rect: Rect,
+    radius: f32,
+    fallback: Icon,
+    art: Option<&crate::images::ArtLoader>,
+) {
     if !ui.is_rect_visible(rect) {
         return;
     }
-    if let (Some(url), Some(art)) = (url, art) {
-        art.touch(url);
-    }
     let corner = CornerRadius::same(radius.min(127.0) as u8);
-    let painter = ui.painter();
-    let loaded = url.is_some_and(|url| {
-        let image = egui::Image::new(url).show_loading_spinner(false);
-        let Ok(egui::load::TexturePoll::Ready { texture }) =
-            image.load_for_size(ui.ctx(), rect.size())
-        else {
-            return false;
-        };
-        if let Some(art) = art {
-            art.release_bytes(url);
-            art.note_decoded(
-                url,
-                texture.size.x.round() as usize,
-                texture.size.y.round() as usize,
+    let loaded = sources
+        .requested
+        .is_some_and(|url| paint_cover_url(ui, url, rect, corner, art))
+        || sources
+            .previous
+            .is_some_and(|url| paint_ready_cover_url(ui, url, rect, corner, art))
+        || sources.softened.is_some_and(|texture| {
+            paint_cover_texture(
+                ui,
+                egui::load::SizedTexture::from_handle(texture),
+                rect,
+                corner,
             );
-        }
-
-        let image_aspect = texture.size.x / texture.size.y;
-        let rect_aspect = rect.width() / rect.height();
-        let uv = if image_aspect > rect_aspect {
-            let visible_width = rect_aspect / image_aspect;
-            let inset = (1.0 - visible_width) / 2.0;
-            Rect::from_min_max(pos2(inset, 0.0), pos2(1.0 - inset, 1.0))
-        } else {
-            let visible_height = image_aspect / rect_aspect;
-            let inset = (1.0 - visible_height) / 2.0;
-            Rect::from_min_max(pos2(0.0, inset), pos2(1.0, 1.0 - inset))
-        };
-        egui::Image::new(texture)
-            .uv(uv)
-            .corner_radius(corner)
-            .paint_at(ui, rect);
-        true
-    });
+            true
+        })
+        || sources
+            .thumbnail
+            .is_some_and(|url| paint_cover_url(ui, url, rect, corner, art));
     if !loaded {
+        let painter = ui.painter();
         let fill = if palette.dark {
             palette.surface_hover
         } else {
@@ -92,6 +111,68 @@ pub fn paint_cover(
         let icon_size = (rect.width() * 0.42).clamp(12.0, 64.0);
         theme::paint_icon(ui, fallback, rect, icon_size, palette.dim);
     }
+}
+
+/// Paints `url` only if it is already loaded, without asking for it.
+fn paint_ready_cover_url(
+    ui: &Ui,
+    url: &str,
+    rect: Rect,
+    corner: CornerRadius,
+    art: Option<&crate::images::ArtLoader>,
+) -> bool {
+    art.is_some_and(|art| art.is_ready(url)) && paint_cover_url(ui, url, rect, corner, art)
+}
+
+fn paint_cover_url(
+    ui: &Ui,
+    url: &str,
+    rect: Rect,
+    corner: CornerRadius,
+    art: Option<&crate::images::ArtLoader>,
+) -> bool {
+    if let Some(art) = art {
+        art.touch(url);
+    }
+    let image = egui::Image::new(url).show_loading_spinner(false);
+    let Ok(egui::load::TexturePoll::Ready { texture }) = image.load_for_size(ui.ctx(), rect.size())
+    else {
+        return false;
+    };
+    if let Some(art) = art {
+        art.release_bytes(url);
+        art.note_decoded(
+            url,
+            texture.size.x.round() as usize,
+            texture.size.y.round() as usize,
+        );
+    }
+    paint_cover_texture(ui, texture, rect, corner);
+    true
+}
+
+/// Fills `rect` with `texture`, cropped to its centre.
+fn paint_cover_texture(
+    ui: &Ui,
+    texture: egui::load::SizedTexture,
+    rect: Rect,
+    corner: CornerRadius,
+) {
+    let image_aspect = texture.size.x / texture.size.y;
+    let rect_aspect = rect.width() / rect.height();
+    let uv = if image_aspect > rect_aspect {
+        let visible_width = rect_aspect / image_aspect;
+        let inset = (1.0 - visible_width) / 2.0;
+        Rect::from_min_max(pos2(inset, 0.0), pos2(1.0 - inset, 1.0))
+    } else {
+        let visible_height = image_aspect / rect_aspect;
+        let inset = (1.0 - visible_height) / 2.0;
+        Rect::from_min_max(pos2(0.0, inset), pos2(1.0, 1.0 - inset))
+    };
+    egui::Image::new(texture)
+        .uv(uv)
+        .corner_radius(corner)
+        .paint_at(ui, rect);
 }
 
 /// A soft drop shadow under a cover or card.

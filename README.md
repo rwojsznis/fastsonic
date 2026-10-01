@@ -12,7 +12,9 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 ## Features
 
 - Songs, albums, artists, starred music, playlists, search, and a self-hosted
-  library-focused Home page.
+  library-focused Home page. A page opened from a list shows the title, byline
+  and cover that list already had while the rest loads, and page headers use
+  640-pixel covers, sharp on HiDPI screens.
 - A Library sidebar of Liked Songs, playlists, starred albums and artists to
   filter, pin, and drag into a custom order, or sort by name, creator, recent
   plays, or star date where the server records it; each section remembers its

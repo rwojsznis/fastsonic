@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::api::models::{PlayableItem, Track, pick_image};
+use crate::api::models::{PlayableItem, Track};
 use crate::api::subsonic::convert::{self, Kind};
 use crate::app::App;
 use crate::model::{Loadable, Page, RowContext};
@@ -12,7 +12,8 @@ use crate::theme::Icon;
 use crate::util;
 
 use super::collection::{
-    Actions, Hero, Table, actions_row, hero, remember_table_items, table, table_items_hit,
+    Actions, Hero, Table, actions_row, hero, hero_images, remember_table_items, table,
+    table_items_hit,
 };
 use super::widgets;
 
@@ -59,7 +60,7 @@ pub fn radio(app: &mut App, ui: &mut egui::Ui, seed: &str) {
         app,
         ui,
         Hero {
-            image: pick_image(&images, 300),
+            images: hero_images(&images, None),
             liked: false,
             kind: "Radio",
             title: &name,

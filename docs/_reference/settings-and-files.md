@@ -38,7 +38,9 @@ In memory, Fastsonic keeps the 12 playlists, 16 albums and 10 artists you
 opened last, and the details of 800 songs, so a long session does not grow
 without bound; the open page, what is playing, and playlists with an edit on
 its way are always kept. A page dropped from memory is read again when you
-open it.
+open it. Besides the artwork itself, up to 64 softened 256-pixel covers, made
+from sidebar thumbnails to stand in for a page's cover while it loads, are kept
+in memory; nothing about them is written to disk.
 
 A playlist read in full is kept in the playlist cache under the server's
 `changed` time. Opening it again shows the cached songs at once only if that
@@ -241,10 +243,11 @@ Builds made with `--features demo` accept `--demo` for deterministic sample
 data and no server connection. `--demo-page` opens a named page;
 `--demo-show` adds comma-separated panels or states (among them `rtl`, for
 right-to-left titles, `signed-out` and `connecting`, for the sign-in card,
-and `library-list`, `library-list-narrow`, `library-list-wide`,
-`library-grid`, `library-grid-narrow` and `library-grid-wide`, for the Library
-as rows or cards in a 380, 230 or 440 pixel sidebar with the artwork
-collapsed); and `--demo-shot <PATH>`
+`library-list`, `library-list-narrow`, `library-list-wide`, `library-grid`,
+`library-grid-narrow` and `library-grid-wide`, for the Library as rows or
+cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed, and
+`collection-loading`, for a playlist, album or artist page still waiting for
+its details); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a
 profile of its own under the system temporary directory, so it never reads the
 saved sign-in, never contacts your server, and leaves your settings, session,

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::{Align, Layout, Rect, Sense, Vec2, pos2, vec2};
 
-use crate::api::models::{Album, PlayableItem, Playlist, pick_image};
+use crate::api::models::{Album, Image, PlayableItem, Playlist, pick_image};
 use crate::api::subsonic::convert;
 use crate::app::App;
 use crate::model::{
@@ -17,7 +17,7 @@ use crate::util;
 use super::widgets::{self, TrackRow};
 
 pub struct Hero<'a> {
-    pub image: Option<&'a str>,
+    pub images: HeroImages<'a>,
     pub liked: bool,
     pub kind: &'a str,
     pub title: &'a str,
@@ -26,8 +26,50 @@ pub struct Hero<'a> {
     pub round: bool,
 }
 
+/// The header's cover, and what stands in for it until it is ready.
+#[derive(Default)]
+pub struct HeroImages<'a> {
+    pub image: Option<&'a str>,
+    /// A cover of the same item already loaded, kept until `image` is ready.
+    pub previous: Option<&'a str>,
+    /// A small rendition, softened and enlarged while nothing better is ready.
+    pub thumbnail: Option<&'a str>,
+}
+
+/// The header's cover is up to 212 points square, sharp on a HiDPI screen.
+const HERO_ART: u32 = 640;
+/// What cards ask for; one already drawn previews the header for free.
+const CARD_ART: u32 = 300;
+/// What sidebar rows ask for.
+const THUMBNAIL_ART: u32 = 64;
+
+/// The header's covers for `images`, given the `preview` the page showed
+/// while its details loaded.
+pub fn hero_images<'a>(images: &'a [Image], preview: Option<&'a [Image]>) -> HeroImages<'a> {
+    let image = pick_image(images, HERO_ART);
+    HeroImages {
+        image,
+        previous: image.and_then(|image| {
+            preview
+                .and_then(|images| pick_image(images, HERO_ART))
+                .filter(|previous| *previous != image)
+                .or_else(|| pick_image(images, CARD_ART).filter(|smaller| *smaller != image))
+        }),
+        thumbnail: image
+            .and_then(|_| preview.and_then(|images| pick_image(images, THUMBNAIL_ART)))
+            .or_else(|| pick_image(images, THUMBNAIL_ART))
+            // An image offered in one size only stands in for nothing.
+            .filter(|thumbnail| Some(*thumbnail) != image),
+    }
+}
+
 pub fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
     let palette = app.palette;
+    let art = app.backend.art().clone();
+    let softened = hero
+        .images
+        .thumbnail
+        .and_then(|uri| app.softened_covers.texture(ui.ctx(), &art, uri));
     ui.add_space(12.0);
     let cover_size = if ui.available_width() > 720.0 {
         212.0
@@ -42,14 +84,19 @@ pub fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
         if hero.liked {
             super::sidebar::liked_cover(ui, rect, radius);
         } else {
-            widgets::paint_cover(
+            widgets::paint_cover_with_thumbnail(
                 ui,
                 &palette,
-                hero.image,
+                widgets::CoverSources {
+                    requested: hero.images.image,
+                    previous: hero.images.previous,
+                    softened: softened.as_ref(),
+                    thumbnail: hero.images.thumbnail,
+                },
                 rect,
                 radius,
                 if hero.round { Icon::User } else { Icon::Music },
-                Some(app.backend.art()),
+                Some(&art),
             );
         }
         ui.vertical(|ui| {
@@ -1049,10 +1096,15 @@ pub fn top_songs(app: &mut App, ui: &mut egui::Ui) {
 }
 
 pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
-    let Some(mut page) = app.playlist_pages.remove(id) else {
+    if !app.playlist_pages.contains_key(id) {
         app.ensure_loaded(Page::Playlist(id.to_string()));
+    }
+    let Some(mut page) = app.playlist_pages.remove(id) else {
         return;
     };
+    let preview = super::loading_preview(ui.ctx(), id, &page.playlist, || {
+        app.known_playlist(id).cloned()
+    });
     let palette = app.palette;
     let user_id = app.user_id().unwrap_or("").to_string();
     match &page.playlist {
@@ -1110,25 +1162,13 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 format!("{} songs", util::format_count(count as u64))
             };
             byline.push((count_text, None));
-            hero(
-                app,
-                ui,
-                Hero {
-                    image: pick_image(&playlist.images, 300),
-                    liked: false,
-                    kind: if made_together {
-                        "Collaborative Playlist"
-                    } else if playlist.public == Some(true) {
-                        "Public Playlist"
-                    } else {
-                        "Playlist"
-                    },
-                    title: &playlist.name,
-                    description: playlist.description.as_deref().map(util::strip_html),
-                    byline,
-                    round: false,
-                },
+            let images = hero_images(
+                &playlist.images,
+                preview
+                    .as_deref()
+                    .map(|playlist| playlist.images.as_slice()),
             );
+            playlist_hero(app, ui, playlist, images, byline, made_together);
             let owned = playlist.owned_by(&user_id);
             let needle = page.filter.trim().to_lowercase();
             let sort = app
@@ -1145,22 +1185,15 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 page.items.revision,
             );
             let view_play = table_view.view_uris.as_ref().map(Arc::clone);
-            let playlist_clone = playlist.clone();
             actions_row(
                 app,
                 ui,
-                Actions {
-                    play_uri: Some(playlist.uri.clone()),
-                    view: view_play,
-                    // A playlist is yours or it is public; there is no
-                    // following it and nothing to star (`01-api-mapping.md`).
-                    saved: None,
-                    saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
-                    saved_tooltips: ("Add to Your Library", "Remove from Your Library"),
-                    owned_playlist: owned.then_some(playlist_clone),
-                    reload: Some((Page::Playlist(id.to_string()), page.items.loading)),
-                    name: &playlist.name,
-                },
+                playlist_actions(
+                    playlist,
+                    owned,
+                    view_play,
+                    Some((Page::Playlist(id.to_string()), page.items.loading)),
+                ),
                 Some(&mut page.filter),
             );
             let editable = (owned || playlist.collaborative)
@@ -1188,27 +1221,125 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             );
         }
         Loadable::Loading | Loadable::NotLoaded => {
-            ui.add_space(40.0);
+            playlist_preview(app, ui, preview.as_deref(), &mut page.filter);
             widgets::loading_row(ui, &palette);
         }
         Loadable::Failed(error) => {
             let error = error.clone();
-            ui.add_space(40.0);
+            playlist_preview(app, ui, preview.as_deref(), &mut page.filter);
             widgets::error_row(ui, app, &error, Some(Page::Playlist(id.to_string())));
         }
     }
     app.playlist_pages.insert(id.to_string(), page);
 }
 
-pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
-    let Some(page) = app.album_pages.remove(id) else {
-        app.ensure_loaded(Page::Album(id.to_string()));
+/// What a list already said about a playlist whose details are not here,
+/// with controls that need those details disabled.
+fn playlist_preview(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    playlist: Option<&Playlist>,
+    filter: &mut String,
+) {
+    let Some(playlist) = playlist else {
+        ui.add_space(40.0);
         return;
     };
+    let mut byline = vec![(playlist.owner_name().to_string(), None)];
+    let count = playlist.track_total();
+    if count > 0 {
+        byline.push((format!("{} songs", util::format_count(count as u64)), None));
+    }
+    let images = hero_images(&playlist.images, None);
+    playlist_hero(app, ui, playlist, images, byline, playlist.collaborative);
+    let owned = app
+        .user_id()
+        .is_some_and(|user_id| playlist.owned_by(user_id));
+    ui.add_enabled_ui(false, |ui| {
+        actions_row(
+            app,
+            ui,
+            playlist_actions(playlist, owned, None, None),
+            Some(filter),
+        )
+    });
+}
+
+fn playlist_hero<'a>(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    playlist: &'a Playlist,
+    images: HeroImages<'a>,
+    byline: Vec<(String, Option<Page>)>,
+    collaborative: bool,
+) {
+    hero(
+        app,
+        ui,
+        Hero {
+            images,
+            liked: false,
+            kind: if collaborative {
+                "Collaborative Playlist"
+            } else if playlist.public == Some(true) {
+                "Public Playlist"
+            } else {
+                "Playlist"
+            },
+            title: &playlist.name,
+            description: playlist.description.as_deref().map(util::strip_html),
+            byline,
+            round: false,
+        },
+    );
+}
+
+fn playlist_actions<'a>(
+    playlist: &'a Playlist,
+    owned: bool,
+    view: Option<Arc<[String]>>,
+    reload: Option<(Page, bool)>,
+) -> Actions<'a> {
+    Actions {
+        play_uri: Some(playlist.uri.clone()),
+        view,
+        // A playlist is yours or it is public; there is no following it
+        // and nothing to star (`01-api-mapping.md`).
+        saved: None,
+        saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
+        saved_tooltips: ("Add to Your Library", "Remove from Your Library"),
+        owned_playlist: owned.then(|| playlist.clone()),
+        reload,
+        name: &playlist.name,
+    }
+}
+
+fn album_actions<'a>(album: &'a Album, saved: bool, view: Option<Arc<[String]>>) -> Actions<'a> {
+    Actions {
+        play_uri: Some(album.uri.clone()),
+        view,
+        saved: Some((album.uri.clone(), saved)),
+        saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
+        saved_tooltips: ("Save to Your Library", "Remove from Your Library"),
+        owned_playlist: None,
+        reload: None,
+        name: &album.name,
+    }
+}
+
+pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
+    if !app.album_pages.contains_key(id) {
+        app.ensure_loaded(Page::Album(id.to_string()));
+    }
+    let Some(page) = app.album_pages.remove(id) else {
+        return;
+    };
+    let preview =
+        super::loading_preview(ui.ctx(), id, &page.album, || app.known_album(id).cloned());
     let palette = app.palette;
     match &page.album {
         Loadable::Loaded(album) => {
-            album_hero(app, ui, album, &page.tracks);
+            album_hero(app, ui, album, &page.tracks, preview.as_deref());
             let generation = page.generation;
             let revision = page.tracks.revision;
             let names = app.user_names_revision;
@@ -1249,21 +1380,7 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 page.tracks.revision,
             );
             let album_view = table_view.view_uris.as_ref().map(Arc::clone);
-            actions_row(
-                app,
-                ui,
-                Actions {
-                    play_uri: Some(album.uri.clone()),
-                    view: album_view,
-                    saved: Some((album.uri.clone(), saved)),
-                    saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
-                    saved_tooltips: ("Save to Your Library", "Remove from Your Library"),
-                    owned_playlist: None,
-                    reload: None,
-                    name: &album.name,
-                },
-                None,
-            );
+            actions_row(app, ui, album_actions(album, saved, album_view), None);
             table(
                 app,
                 ui,
@@ -1325,16 +1442,35 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
             }
         }
         Loadable::Loading | Loadable::NotLoaded => {
-            ui.add_space(40.0);
+            album_preview(app, ui, preview.as_deref(), &page.tracks);
             widgets::loading_row(ui, &palette);
         }
         Loadable::Failed(error) => {
             let error = error.clone();
-            ui.add_space(40.0);
+            album_preview(app, ui, preview.as_deref(), &page.tracks);
             widgets::error_row(ui, app, &error, Some(Page::Album(id.to_string())));
         }
     }
     app.album_pages.insert(id.to_string(), page);
+}
+
+/// What a list already said about an album whose details are not here, with
+/// controls that need those details disabled.
+fn album_preview(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    album: Option<&Album>,
+    tracks: &PagedList<crate::api::models::Track>,
+) {
+    let Some(album) = album else {
+        ui.add_space(40.0);
+        return;
+    };
+    album_hero(app, ui, album, tracks, None);
+    let saved = app.is_saved(&album.uri).unwrap_or(false);
+    ui.add_enabled_ui(false, |ui| {
+        actions_row(app, ui, album_actions(album, saved, None), None)
+    });
 }
 
 fn album_hero(
@@ -1342,6 +1478,7 @@ fn album_hero(
     ui: &mut egui::Ui,
     album: &Album,
     tracks: &PagedList<crate::api::models::Track>,
+    preview: Option<&Album>,
 ) {
     let mut byline: Vec<(String, Option<Page>)> = album
         .artists
@@ -1362,12 +1499,17 @@ fn album_hero(
     } else {
         format!("{count} songs")
     };
-    byline.push((count_text, None));
+    // An album known only from one of its songs has not said how many
+    // there are yet.
+    if count > 0 || tracks.is_complete() {
+        byline.push((count_text, None));
+    }
+    let images = hero_images(&album.images, preview.map(|album| album.images.as_slice()));
     hero(
         app,
         ui,
         Hero {
-            image: pick_image(&album.images, 300),
+            images,
             liked: false,
             kind: album.kind_label(),
             title: &album.name,
@@ -1420,7 +1562,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         app,
         ui,
         Hero {
-            image: None,
+            images: HeroImages::default(),
             liked: true,
             kind: "Playlist",
             title: "Liked Songs",
@@ -1527,6 +1669,78 @@ fn palette_of(app: &App) -> Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hero_images_keep_the_previous_art_until_the_new_cover_is_ready() {
+        let image = |url: &str, width| Image {
+            url: url.into(),
+            width: Some(width),
+            height: Some(width),
+        };
+        let current = vec![image("current-large", 640), image("current-small", 64)];
+        let preview = vec![image("preview-large", 640), image("preview-small", 64)];
+        let ctx = egui::Context::default();
+        let loading = Loadable::Loading;
+        let loading_preview =
+            super::super::loading_preview(&ctx, "collection", &loading, || Some(preview.clone()));
+        assert_eq!(
+            loading_preview.as_deref().map(Vec::as_slice),
+            Some(preview.as_slice())
+        );
+
+        let loaded = Loadable::Loaded(current.clone());
+        let retained = super::super::loading_preview(&ctx, "collection", &loaded, || {
+            panic!("loaded pages must not scan known metadata")
+        });
+        assert!(Arc::ptr_eq(
+            loading_preview.as_ref().unwrap(),
+            retained.as_ref().unwrap()
+        ));
+        let images = hero_images(
+            loaded.get().unwrap(),
+            retained.as_deref().map(Vec::as_slice),
+        );
+        assert_eq!(images.image, Some("current-large"));
+        assert_eq!(images.previous, Some("preview-large"));
+        assert_eq!(images.thumbnail, Some("preview-small"));
+        assert!(
+            super::super::loading_preview(&ctx, "other", &loaded, || None).is_none(),
+            "another page must not inherit the retained cover"
+        );
+
+        let images = hero_images(&current, Some(&current));
+        assert_eq!(images.previous, None, "the same cover is not loaded twice");
+
+        // A card's cover of the same item stands in without a download.
+        let all_sizes = vec![
+            image("all-large", 640),
+            image("all-card", 300),
+            image("all-small", 64),
+        ];
+        let images = hero_images(&all_sizes, None);
+        assert_eq!(images.image, Some("all-large"));
+        assert_eq!(images.previous, Some("all-card"));
+        assert_eq!(images.thumbnail, Some("all-small"));
+
+        // An artist picture comes in one size, which stands in for nothing.
+        let single = vec![Image {
+            url: "picture".into(),
+            width: None,
+            height: None,
+        }];
+        let images = hero_images(&single, Some(&single));
+        assert_eq!(images.image, Some("picture"));
+        assert_eq!(images.previous, None);
+        assert_eq!(images.thumbnail, None);
+
+        let images = hero_images(&[], Some(&preview));
+        assert_eq!(images.image, None);
+        assert_eq!(
+            images.previous, None,
+            "missing artwork keeps its placeholder"
+        );
+        assert_eq!(images.thumbnail, None);
+    }
 
     #[test]
     fn a_filter_alone_is_a_view_that_plays_only_its_matches() {

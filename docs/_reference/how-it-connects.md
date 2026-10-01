@@ -56,11 +56,23 @@ the same requests. The server answers from its own agents, such as Last.fm,
 which it may contact itself; Fastsonic talks only to the server, and without
 an agent the answers are empty.
 
-Cover art comes from `getCoverArt` at one of three sizes: 64 pixels for song
-rows and the Library list, 300 pixels for cards, page headers and the Library
-grid, and 640 pixels for the playing song's large artwork. Each size is
-downloaded once and cached, so a Library grid card and the page it opens share
-one cover. An artist image the server offers as its own URL is fetched as is.
+Opening a playlist, album or artist keeps the title, byline and cover that the
+sidebar, Home, Search or another page already holds for it while `getPlaylist`,
+`getAlbum` or `getArtist` answers; this adds no request. Controls that need the
+answer stay disabled under a loading row, and if the request fails the known
+header stays above **Retry**. A link to something no list has shown has only
+the loading or error row.
+
+Artwork is requested from `getCoverArt` in three sizes: 64 pixels for song
+rows, the Library list, compact lists and the colour a page is tinted with,
+300 for cards and the Library grid, and 640 for a page's header cover and the
+playing song's large artwork. Each size is downloaded once and cached. While
+the header's cover is on its way, the card cover of the same item stands in if
+it is already loaded, and otherwise the 64-pixel thumbnail, enlarged and
+softened. A ready cover stays until its replacement is ready, and a page whose
+answer has no cover shows its placeholder rather than an old image. Hovering a
+sidebar row works out the page's tint from the thumbnail the row already
+shows. An artist image the server offers as its own URL is fetched as is.
 
 Sorting the Library's albums or artists by anything but the server's own
 order loads the rest of that section, one page after another through the same

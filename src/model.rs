@@ -771,6 +771,8 @@ pub struct PlayingFrom {
 #[derive(Clone, Debug)]
 pub enum Action {
     Open(Page),
+    /// Extracts a page's tint while its library row is hovered.
+    PrepareTint(String),
     OpenUri(String),
     Back,
     Forward,

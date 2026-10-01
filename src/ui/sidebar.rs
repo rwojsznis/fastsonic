@@ -1154,6 +1154,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                                 if entry.round { Icon::User } else { Icon::Music },
                                 Some(app.backend.art()),
                             );
+                            super::prepare_page_art(app, ui, &response, entry.image.as_deref());
                         }
                         let text_left = cover_rect.right() + 12.0;
                         let text_right = rect.right() - if playing || pinned { 28.0 } else { 8.0 };
@@ -1406,6 +1407,12 @@ fn library_grid(
                                 if entry.round { Icon::User } else { Icon::Music },
                                 Some(app.backend.art()),
                             );
+                            // The card's own cover already stands in for the
+                            // page's header; the thumbnail is fetched only
+                            // when a card is hovered, for the page's tint.
+                            if response.hovered() {
+                                super::prepare_page_art(app, ui, &response, entry.image.as_deref());
+                            }
                         }
 
                         cover_took_click =
@@ -1813,10 +1820,11 @@ mod ordering_tests {
             .collect()
     }
 
-    /// A grid card asks for the 300-pixel cover a page header uses rather
-    /// than the 640-pixel one, and a list row keeps its 64-pixel thumbnail.
+    /// A grid card asks for the 300-pixel card cover, which a page header
+    /// shows while its own 640-pixel one arrives, and a list row keeps its
+    /// 64-pixel thumbnail.
     #[test]
-    fn grid_cards_use_the_page_header_art_size() {
+    fn grid_cards_use_the_card_art_size() {
         let playlist = Playlist {
             images: crate::api::subsonic::convert::art_images_for("pl-1"),
             ..Default::default()
@@ -1827,7 +1835,7 @@ mod ordering_tests {
         assert_eq!(
             entry.grid_image.as_deref(),
             pick_image(&playlist.images, 300),
-            "the header's cover"
+            "the card cover"
         );
     }
 
