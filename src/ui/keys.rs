@@ -192,6 +192,18 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Q", "Show the queue"),
     ("L", "Show the lyrics"),
     ("Esc", "Lyrics: leave full screen"),
+    (
+        platform_shortcut("Ctrl+A", "Cmd+A"),
+        "Song list: select all",
+    ),
+    (
+        platform_shortcut("Ctrl+C", "Cmd+C"),
+        "Song list: copy the selected songs' links",
+    ),
+    (
+        platform_shortcut("Ctrl+V", "Cmd+V"),
+        "Playlist: add the pasted song links",
+    ),
     (platform_shortcut("Ctrl+F  or  /", "Cmd+F  or  /"), "Search"),
     (SIDEBAR_SHORTCUT, "Show or hide the sidebar"),
     ("Alt+←  /  Alt+→", "Back or forward"),

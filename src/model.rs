@@ -711,6 +711,13 @@ pub enum Action {
         playlist_name: String,
         uris: Vec<String>,
     },
+    /// Put these songs on the clipboard, one `sonic:track:` link a line.
+    CopySongs(Vec<String>),
+    /// Add the songs on a pasted clipboard to a playlist.
+    PasteSongs {
+        playlist_id: String,
+        text: String,
+    },
     RemoveFromPlaylist {
         playlist_id: String,
         uris: Vec<String>,

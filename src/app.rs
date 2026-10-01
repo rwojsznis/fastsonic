@@ -3994,6 +3994,18 @@ impl App {
                 ctx.copy_text(uri);
                 self.toast("Link copied");
             }
+            Action::CopySongs(uris) => {
+                if !uris.is_empty() {
+                    // One link a line, in the platform's own line breaks.
+                    let newline = if cfg!(windows) { "\r\n" } else { "\n" };
+                    ctx.copy_text(uris.join(newline));
+                    self.toast(match uris.len() {
+                        1 => "Link copied".to_string(),
+                        count => format!("{count} links copied"),
+                    });
+                }
+            }
+            Action::PasteSongs { playlist_id, text } => self.paste_songs(playlist_id, &text),
             Action::Search(query) => {
                 self.search.query = query.clone();
                 self.search.typed_at = None;
@@ -4486,6 +4498,46 @@ impl App {
         } else {
             self.selection = Some((page.clone(), view.to_string(), selection));
         }
+    }
+
+    /// Replaces the selection with `rows`, anchored at the first.
+    pub fn pick_rows(&mut self, page: &Page, view: &str, rows: std::collections::BTreeSet<usize>) {
+        let Some(&first) = rows.first() else {
+            self.selection = None;
+            return;
+        };
+        self.selection = Some((
+            page.clone(),
+            view.to_string(),
+            RowSelection {
+                rows,
+                anchor: Some(first),
+            },
+        ));
+    }
+
+    /// Adds the songs on a pasted clipboard to a playlist: the links Copy
+    /// puts there, one a line. Anything that is not a song of this server's
+    /// is left out.
+    fn paste_songs(&mut self, playlist_id: String, text: &str) {
+        let uris = pasted_songs(text);
+        if uris.is_empty() {
+            self.toast_error("There are no song links to paste. Copy songs from a list first.");
+            return;
+        }
+        let playlist_name = self
+            .library
+            .playlists
+            .get()
+            .and_then(|list| list.iter().find(|playlist| playlist.id == playlist_id))
+            .or_else(|| self.playlist_pages.get(&playlist_id)?.playlist.get())
+            .map(|playlist| playlist.name.clone())
+            .unwrap_or_default();
+        self.actions.push(Action::AddToPlaylist {
+            playlist_id,
+            playlist_name,
+            uris,
+        });
     }
 
     /// Clears the current row selection.
@@ -5142,6 +5194,15 @@ fn playlist_changes(
     )
 }
 
+/// The songs in pasted text: one `sonic:track:` link a line, whatever the
+/// line breaks.
+fn pasted_songs(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| convert::id_of(line.trim(), Kind::Track))
+        .map(convert::track_uri)
+        .collect()
+}
+
 /// Where in `uris` a clicked row's song is. A row that plays a list of its
 /// own, as each Recent row does, still hands over its place in the list on
 /// screen; when that place holds another song, the song wins. A song that
@@ -5195,6 +5256,59 @@ mod tests {
             playlist_changes(None, "Mix".into(), String::new(), false),
             (Some("Mix".into()), Some(String::new()), Some(false))
         );
+    }
+
+    /// Copied songs go to the clipboard one link a line, and pasting them
+    /// into a playlist adds the songs whatever the line breaks, leaving out
+    /// what is not a song.
+    #[test]
+    fn copied_songs_paste_into_a_playlist() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(
+                Action::CopySongs(vec!["sonic:track:a".into(), "sonic:track:b".into()]),
+                ui.ctx(),
+            );
+        });
+        output.textures_delta.clear();
+        let newline = if cfg!(windows) { "\r\n" } else { "\n" };
+        assert!(
+            output
+                .platform_output
+                .commands
+                .contains(&egui::OutputCommand::CopyText(format!(
+                    "sonic:track:a{newline}sonic:track:b"
+                )))
+        );
+        assert_eq!(
+            pasted_songs("sonic:track:a\r\n  sonic:track:b \nhttps://example.com\nsonic:album:x\n"),
+            ["sonic:track:a", "sonic:track:b"]
+        );
+
+        app.actions.clear();
+        app.apply(
+            Action::PasteSongs {
+                playlist_id: "target".into(),
+                text: "sonic:track:a\nsonic:track:a".into(),
+            },
+            &ctx,
+        );
+        assert!(matches!(app.actions.as_slice(),
+            [Action::AddToPlaylist { playlist_id, uris, .. }]
+                if playlist_id == "target" && uris == &["sonic:track:a", "sonic:track:a"]));
+        app.actions.clear();
+        let toasts = app.toasts.len();
+        app.apply(
+            Action::PasteSongs {
+                playlist_id: "target".into(),
+                text: "nothing useful".into(),
+            },
+            &ctx,
+        );
+        assert!(app.actions.is_empty());
+        assert_eq!(app.toasts.len(), toasts + 1, "says why nothing was added");
+        app.backend.shutdown();
     }
 
     /// A Recent row plays a list holding only its song but hands over its
