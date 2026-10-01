@@ -7419,6 +7419,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
     }
 
+    /// A Windows tray double click arrives as two show requests; neither may
+    /// close or hide the window the first one raised.
+    #[test]
+    fn repeated_show_requests_never_close_or_hide_the_window() {
+        for hidden in [false, true] {
+            let mut app = headless_app();
+            app.window_hidden = hidden;
+            let ctx = egui::Context::default();
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                app.apply(Action::ShowWindow, ui.ctx());
+                app.apply(Action::ShowWindow, ui.ctx());
+            });
+            output.textures_delta.clear();
+            assert!(!app.hide_intent);
+            assert_eq!(app.wants_show, hidden);
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            assert!(!commands.contains(&egui::ViewportCommand::Close));
+            if !hidden {
+                assert!(commands.contains(&egui::ViewportCommand::Focus));
+            }
+            app.backend.shutdown();
+        }
+    }
+
     fn headless_app() -> App {
         static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let count = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
