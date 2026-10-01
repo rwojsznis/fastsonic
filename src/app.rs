@@ -3956,12 +3956,28 @@ impl App {
                 public,
             } => {
                 self.dialog = None;
+                let original = self
+                    .playlist_pages
+                    .get(&id)
+                    .and_then(|page| page.playlist.get())
+                    .or_else(|| {
+                        self.library
+                            .playlists
+                            .get()?
+                            .iter()
+                            .find(|playlist| playlist.id == id)
+                    });
+                let (name, description, public) =
+                    playlist_changes(original, name, description, public);
+                if name.is_none() && description.is_none() && public.is_none() {
+                    return;
+                }
                 self.playlist_busy = true;
                 self.backend.api(ApiRequest::UpdatePlaylist {
                     id,
-                    name: Some(name),
-                    description: Some(description),
-                    public: Some(public),
+                    name,
+                    description,
+                    public,
                 });
             }
             Action::DeletePlaylist(id) => {
@@ -5101,6 +5117,31 @@ fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
 }
 
 /// Caps large track lists at 500 items starting from the selected row.
+/// What a playlist edit changes, against the playlist the dialog was opened
+/// from. Only those fields are sent: a description the dialog showed without
+/// its markup is not written back stripped, and an edit that changed nothing
+/// sends nothing. With the original unknown, everything is sent.
+fn playlist_changes(
+    original: Option<&crate::api::models::Playlist>,
+    name: String,
+    description: String,
+    public: bool,
+) -> (Option<String>, Option<String>, Option<bool>) {
+    let Some(original) = original else {
+        return (Some(name), Some(description), Some(public));
+    };
+    let shown = original
+        .description
+        .as_deref()
+        .map(util::strip_html)
+        .unwrap_or_default();
+    (
+        (name != original.name).then_some(name),
+        (description != shown).then_some(description),
+        (Some(public) != original.public).then_some(public),
+    )
+}
+
 /// Where in `uris` a clicked row's song is. A row that plays a list of its
 /// own, as each Recent row does, still hands over its place in the list on
 /// screen; when that place holds another song, the song wins. A song that
@@ -5127,6 +5168,34 @@ fn cap_uris(uris: &[String], index: u32) -> (Vec<String>, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_playlist_edit_sends_only_what_changed() {
+        let original = crate::api::models::Playlist {
+            name: "Mix".into(),
+            description: Some("<b>Loud</b> things".into()),
+            public: Some(false),
+            ..crate::api::models::Playlist::default()
+        };
+        let edit = |name: &str, description: &str, public| {
+            playlist_changes(Some(&original), name.into(), description.into(), public)
+        };
+        assert_eq!(edit("Mix", "Loud things", false), (None, None, None));
+        assert_eq!(
+            edit("Mix 2", "Loud things", false),
+            (Some("Mix 2".into()), None, None),
+            "the description shown without markup is not written back"
+        );
+        assert_eq!(
+            edit("Mix", "", true),
+            (None, Some(String::new()), Some(true)),
+            "clearing a description sends it, empty"
+        );
+        assert_eq!(
+            playlist_changes(None, "Mix".into(), String::new(), false),
+            (Some("Mix".into()), Some(String::new()), Some(false))
+        );
+    }
 
     /// A Recent row plays a list holding only its song but hands over its
     /// place in the whole tab, past the end of that list for every row but
