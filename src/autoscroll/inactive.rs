@@ -1,4 +1,4 @@
-//! No input interception or frame state on Linux and macOS.
+//! No input interception or frame state on macOS.
 
 use egui::{Context, Id, Rect, Response, ScrollArea, Ui};
 

@@ -2493,6 +2493,69 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// Linux offers middle-click autoscroll as a switch that starts off and
+    /// is saved; Windows always autoscrolls and macOS never does, so neither
+    /// shows the row.
+    #[test]
+    fn the_linux_autoscroll_switch_starts_off_and_is_saved() {
+        use egui::accesskit::{Role, Toggled};
+        let (ctx, mut app) = accessible_app("autoscroll-setting");
+        app.open(Page::Settings);
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    // Tall enough to lay out the whole Appearance section.
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 4000.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+                .platform_output
+                .accesskit_update
+                .expect("screen-reader tree")
+        };
+        let switch = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            tree.nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label) && node.role() == Role::CheckBox)
+                .map(|(id, node)| (*id, node.toggled()))
+        };
+        draw(&mut app, vec![]);
+        let tree = draw(&mut app, vec![]);
+        assert!(
+            switch(&tree, "Compact track list").is_some(),
+            "the Appearance section is drawn"
+        );
+        let control = switch(&tree, "Middle-click autoscroll");
+        assert_eq!(control.is_some(), cfg!(target_os = "linux"));
+        let Some((control, toggled)) = control else {
+            app.backend.shutdown();
+            return;
+        };
+        assert_eq!(toggled, Some(Toggled::False));
+        assert!(!app.settings.middle_click_autoscroll);
+        draw(
+            &mut app,
+            vec![accessible_action(
+                control,
+                egui::accesskit::Action::Click,
+                None,
+            )],
+        );
+        assert!(app.settings.middle_click_autoscroll);
+        let path = app.dirs.config.join("autoscroll-choice.json");
+        app.settings.save(&path);
+        app.settings = Settings::load(&path);
+        assert!(app.settings.middle_click_autoscroll);
+        app.backend.shutdown();
+    }
+
     /// The frame rate is a dial with detents: it stops at the rates
     /// worth having, names the one it is on, and moving it one notch
     /// lands on the next of them rather than somewhere in between.

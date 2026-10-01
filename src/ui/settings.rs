@@ -530,6 +530,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 });
             },
         );
+        if cfg!(target_os = "linux") {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Middle-click autoscroll",
+                "Middle-click a list, then move the pointer to scroll it. Off by default, because a middle click usually pastes on Linux.",
+                |ui| {
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        "Middle-click autoscroll",
+                        &mut app.settings.middle_click_autoscroll,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                    }
+                },
+            );
+        }
         if cfg!(windows) {
             widgets::setting_row(
                 ui,

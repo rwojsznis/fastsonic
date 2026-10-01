@@ -97,6 +97,10 @@ pub struct Settings {
     pub queue_width: f32,
     /// Use compact single-line rows without cover art in track lists.
     pub tracklist_compact: bool,
+    /// Linux: middle-click a list to autoscroll it. Off by default, because
+    /// Linux desktops usually paste the primary selection on middle click.
+    /// Windows always autoscrolls and macOS never does.
+    pub middle_click_autoscroll: bool,
     pub search_history: Vec<String>,
     pub show_shortcut_hints: bool,
     /// Local playback has been authorized at least once on this machine, so
@@ -190,6 +194,7 @@ impl Default for Settings {
             lyrics_width: 360.0,
             queue_width: 360.0,
             tracklist_compact: false,
+            middle_click_autoscroll: false,
             search_history: Vec::new(),
             show_shortcut_hints: true,
             playback_authorized: false,
@@ -465,6 +470,24 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
         assert!(restored.tracklist_compact);
+    }
+
+    #[test]
+    fn older_settings_leave_middle_click_autoscroll_off() {
+        let settings: Settings = serde_json::from_str(r#"{"tracklist_compact":true}"#).unwrap();
+        assert!(settings.tracklist_compact);
+        assert!(!settings.middle_click_autoscroll);
+    }
+
+    #[test]
+    fn middle_click_autoscroll_round_trips() {
+        let settings = Settings {
+            middle_click_autoscroll: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(restored.middle_click_autoscroll);
     }
 }
 

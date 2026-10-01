@@ -67,6 +67,11 @@ and changing it replaces only the native window. On Windows, **Show in
 taskbar** under Winamp skins (`winamp_show_taskbar`, on by default) decides
 whether the mini player keeps a taskbar button; the main window always keeps
 its own. Linux X11 sessions offer the same switch; Wayland and macOS do not.
+On Linux, **Middle-click autoscroll** (`middle_click_autoscroll`, off by
+default) lets a middle click on a list scroll it as the pointer moves; it
+starts off because Linux desktops usually paste the primary selection on
+middle click, and older settings files read it as off. Windows always
+autoscrolls and macOS never does, so neither shows the switch.
 Close
 to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer

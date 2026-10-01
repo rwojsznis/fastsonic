@@ -4839,7 +4839,8 @@ impl App {
         let ctx = &ctx;
         self.refresh_frame_now();
         self.apply_theme(ctx);
-        self.autoscroll.begin(ctx, true);
+        let autoscroll_on = crate::autoscroll::enabled(self.settings.middle_click_autoscroll);
+        self.autoscroll.begin(ctx, autoscroll_on);
         if self.autoscroll.active() {
             self.glide = None;
             self.scroll_lock = None;
@@ -4875,7 +4876,10 @@ impl App {
             crate::ui::show(self, ui);
         }
         self.apply_actions(ctx);
-        let autoscroll = self.autoscroll.finish(ctx, true);
+        let autoscroll = self.autoscroll.finish(
+            ctx,
+            crate::autoscroll::enabled(self.settings.middle_click_autoscroll),
+        );
         if autoscroll.scrolling {
             self.glide = None;
             self.scroll_lock = None;
@@ -5504,8 +5508,22 @@ mod tests {
     }
 
     #[test]
-    fn middle_clicking_a_playlist_row_autoscrolls_only_on_windows_without_playing_it() {
+    fn middle_clicking_a_playlist_row_autoscrolls_only_on_windows_by_default() {
+        middle_click_a_playlist_row(false);
+    }
+
+    /// Linux autoscrolls once the listener turns it on; macOS never does.
+    #[test]
+    fn middle_clicking_a_playlist_row_autoscrolls_on_linux_when_chosen() {
+        middle_click_a_playlist_row(true);
+    }
+
+    /// Middle-clicks a real playlist row, moves over the queue, and checks
+    /// that the list scrolls exactly where autoscroll is on, and that the
+    /// click never plays the row.
+    fn middle_click_a_playlist_row(chosen: bool) {
         use egui::accesskit::Role;
+        let on = crate::autoscroll::enabled(chosen);
         fn draw(
             ctx: &egui::Context,
             app: &mut App,
@@ -5529,9 +5547,14 @@ mod tests {
         }
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let mut app = test_app("autoscroll-playlist-row");
+        let mut app = test_app(if chosen {
+            "autoscroll-playlist-row-chosen"
+        } else {
+            "autoscroll-playlist-row"
+        });
         app.attach(&ctx);
         crate::demo::populate(&mut app);
+        app.settings.middle_click_autoscroll = chosen;
         app.open(Page::Playlist("pl1".into()));
         app.show_queue_panel = true;
         let playing = app.now_playing().unwrap().uri.clone();
@@ -5573,8 +5596,8 @@ mod tests {
         );
         assert_eq!(
             app.autoscroll.active(),
-            cfg!(windows),
-            "only Windows arms the real row's scroll area"
+            on,
+            "only an enabled autoscroll arms the real row's scroll area"
         );
         draw(
             &ctx,
@@ -5604,7 +5627,7 @@ mod tests {
             .1
             .bounds()
             .unwrap();
-        if cfg!(windows) {
+        if on {
             assert!(
                 after.y0 < before.y0,
                 "the playlist must scroll while the pointer is over Queue"
@@ -5613,21 +5636,24 @@ mod tests {
             assert_eq!(after.y0, before.y0, "middle-click must not move the list");
         }
         assert_eq!(app.now_playing().unwrap().uri, playing);
-        assert_eq!(app.autoscroll.active(), cfg!(windows));
+        assert_eq!(app.autoscroll.active(), on);
         app.backend.shutdown();
     }
 
     #[test]
     fn autoscroll_updates_the_real_lyrics_and_skinned_playlist_without_changing_playback() {
-        for skinned in [false, true] {
+        for (skinned, chosen) in [(false, false), (true, false), (false, true), (true, true)] {
+            let on = crate::autoscroll::enabled(chosen);
             let ctx = egui::Context::default();
-            let mut app = test_app(if skinned {
-                "autoscroll-skin"
-            } else {
-                "autoscroll-lyrics"
+            let mut app = test_app(match (skinned, chosen) {
+                (false, false) => "autoscroll-lyrics",
+                (true, false) => "autoscroll-skin",
+                (false, true) => "autoscroll-lyrics-chosen",
+                (true, true) => "autoscroll-skin-chosen",
             });
             app.attach(&ctx);
             crate::demo::populate(&mut app);
+            app.settings.middle_click_autoscroll = chosen;
             app.show_queue_panel = false;
             app.show_lyrics_panel = !skinned;
             app.settings.winamp_window = skinned;
@@ -5697,11 +5723,11 @@ mod tests {
             );
             assert_eq!(
                 app.autoscroll.active(),
-                cfg!(windows),
+                on,
                 "real surface, skinned={skinned}"
             );
             if !skinned {
-                assert_eq!(app.lyrics_following, !cfg!(windows));
+                assert_eq!(app.lyrics_following, !on);
             }
             draw(&mut app, vec![press(egui::PointerButton::Middle, false)]);
             for _ in 0..5 {
@@ -5711,7 +5737,7 @@ mod tests {
                 );
             }
             if skinned {
-                if cfg!(windows) {
+                if on {
                     assert!(app.winamp.playlist_scroll > 0);
                 } else {
                     assert_eq!(app.winamp.playlist_scroll, 0);
@@ -5721,7 +5747,7 @@ mod tests {
                     "middle-click must not select a row"
                 );
             } else {
-                assert_eq!(app.lyrics_following, !cfg!(windows));
+                assert_eq!(app.lyrics_following, !on);
             }
             assert_eq!(app.now_playing().unwrap().uri, playing);
             draw(&mut app, vec![press(egui::PointerButton::Primary, true)]);
