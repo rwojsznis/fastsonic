@@ -3102,6 +3102,76 @@ mod tests {
         }
     }
 
+    /// The Library heading never runs under the header's buttons. It gives
+    /// way in the narrowest sidebar, where the icon still names the section,
+    /// and stays wherever there is room for it.
+    #[test]
+    fn the_library_heading_never_overlaps_its_buttons() {
+        fn texts(shape: &egui::epaint::Shape, out: &mut Vec<(String, egui::Rect)>) {
+            match shape {
+                egui::epaint::Shape::Text(text) => out.push((
+                    text.galley.job.text.clone(),
+                    text.galley.rect.translate(text.pos.to_vec2()),
+                )),
+                egui::epaint::Shape::Vec(shapes) => {
+                    shapes.iter().for_each(|shape| texts(shape, out));
+                }
+                _ => {}
+            }
+        }
+        for width in [210.0, 230.0, 250.0, 380.0, 440.0] {
+            let (ctx, mut app) = accessible_app(&format!("library-heading-{width}"));
+            app.settings.sidebar_width = width;
+            let mut last = None;
+            for _ in 0..2 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1280.0, 800.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                output.textures_delta.clear();
+                last = Some(output);
+            }
+            let output = last.unwrap();
+            let mut drawn = Vec::new();
+            output
+                .shapes
+                .iter()
+                .for_each(|shape| texts(&shape.shape, &mut drawn));
+            let tree = output.platform_output.accesskit_update.unwrap();
+            let button = |label: &str| {
+                tree.nodes
+                    .iter()
+                    .find(|(_, node)| node.label() == Some(label))
+                    .and_then(|(_, node)| node.bounds())
+                    .unwrap_or_else(|| panic!("the {label} button"))
+            };
+            let search = button("Search Your Library");
+            let label = drawn
+                .iter()
+                .find(|(text, rect)| text == "Library" && f64::from(rect.bottom()) > search.y0)
+                .map(|(_, rect)| *rect)
+                .filter(|rect| f64::from(rect.top()) < search.y1);
+            if let Some(label) = label {
+                assert!(
+                    f64::from(label.right()) <= search.x0,
+                    "at {width}: the heading ends at {} but the button starts at {}",
+                    label.right(),
+                    search.x0
+                );
+            }
+            if width >= 250.0 {
+                assert!(label.is_some(), "at {width}: the heading has room");
+            }
+            app.backend.shutdown();
+        }
+    }
+
     /// The list/grid switch is a labelled button, and the choice survives a
     /// restart through the settings file.
     #[test]

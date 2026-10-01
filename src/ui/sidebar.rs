@@ -680,7 +680,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         ui.add_space(6.0);
         theme::icon(ui, Icon::Library, 22.0, palette.secondary);
         ui.add_space(2.0);
-        theme::text(ui, "Library", theme::bold(15.0), palette.text);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             if theme::icon_button(
@@ -739,6 +738,23 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     app.library.filter.clear();
                 }
             }
+            // The buttons come first; the heading takes the space left, a
+            // little smaller where it is tight, and gives way to them in the
+            // narrowest sidebar, where the icon still names the section.
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                let heading = "Library";
+                let room = ui.available_width() - 6.0;
+                let fits = [15.0, 14.0, 13.0].into_iter().find(|&size| {
+                    ui.painter()
+                        .layout_no_wrap(heading.into(), theme::bold(size), palette.text)
+                        .size()
+                        .x
+                        <= room
+                });
+                if let Some(size) = fits {
+                    theme::text(ui, heading, theme::bold(size), palette.text);
+                }
+            });
         });
     });
     ui.add_space(6.0);
