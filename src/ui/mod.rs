@@ -210,7 +210,10 @@ mod header_shadow_tests {
 /// Makes `rect` drag the borderless window. Register it before child widgets so
 /// they keep their clicks.
 pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
-    if theme::titlebar_inset(ui.ctx()) == 0.0 {
+    let fullscreen = ui
+        .ctx()
+        .input(|input| input.viewport().fullscreen.unwrap_or(false));
+    if !titlebar_drags(cfg!(target_os = "macos"), cfg!(windows), fullscreen) {
         return;
     }
     let response = ui.interact(
@@ -233,6 +236,13 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
         // macOS needs the live mouse-down event rather than egui's drag threshold.
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
+}
+
+/// Whether the window has a top edge of its own to drag by: macOS hides its
+/// title bar and Windows draws none, so the interface stands in for it.
+/// Elsewhere the desktop's title bar does, and full screen has none.
+const fn titlebar_drags(on_macos: bool, on_windows: bool, fullscreen: bool) -> bool {
+    (on_macos || on_windows) && !fullscreen
 }
 
 const WINDOW_RESIZE_BORDER: f32 = 5.0;
@@ -471,6 +481,18 @@ fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
 #[cfg(test)]
 mod window_chrome_tests {
     use super::*;
+
+    /// The Windows window has no frame, so its top bar is the only thing to
+    /// drag it by. Keying this on the macOS title-bar inset, which is zero on
+    /// Windows, left it immovable.
+    #[test]
+    fn the_borderless_windows_window_drags_by_its_top_bar() {
+        assert!(titlebar_drags(false, true, false));
+        assert!(titlebar_drags(true, false, false));
+        assert!(!titlebar_drags(false, true, true));
+        assert!(!titlebar_drags(true, false, true));
+        assert!(!titlebar_drags(false, false, false));
+    }
 
     #[test]
     fn chrome_visibility_matches_window_state() {
