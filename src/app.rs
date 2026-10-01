@@ -2052,16 +2052,25 @@ impl App {
     ///
     /// The media controls are handed a file rather than the URL, so the disk
     /// is asked until the download lands and the answer remembered after
-    /// that; see `media_native::file_url` for why a URL will not do.
-    fn media_art_file(&mut self, url: &str) -> Option<PathBuf> {
+    /// that; see `media_native::file_url` for why a URL will not do. The
+    /// player bar only ever draws the small cover, so on a miss the full-size
+    /// artwork is fetched here -- the one request the controls add.
+    fn media_art_file(&mut self, ctx: &egui::Context, url: &str) -> Option<PathBuf> {
         if let Some((known, file)) = &self.media_art
             && known == url
         {
             return Some(file.clone());
         }
-        let file = self.backend.art().cached_file(url)?;
-        self.media_art = Some((url.to_owned(), file.clone()));
-        Some(file)
+        match self.backend.art().cached_file(url) {
+            Some(file) => {
+                self.media_art = Some((url.to_owned(), file.clone()));
+                Some(file)
+            }
+            None => {
+                self.backend.art().prefetch(ctx, url);
+                None
+            }
+        }
     }
 
     pub fn thumb_state(&self, dark: bool) -> crate::thumbbar::ThumbState {
@@ -2074,11 +2083,11 @@ impl App {
         }
     }
 
-    fn sync_media_controls(&mut self) {
+    fn sync_media_controls(&mut self, ctx: &egui::Context) {
         let art_file = self
             .now_playing()
             .and_then(|now| now.art_url)
-            .and_then(|url| self.media_art_file(&url));
+            .and_then(|url| self.media_art_file(ctx, &url));
         let state = match self.now_playing() {
             Some(now) => MediaState {
                 playback: if now.playing {
@@ -4831,7 +4840,7 @@ impl App {
         #[cfg(feature = "milkdrop")]
         self.sync_milkdrop(ctx);
         self.apply_actions(ctx);
-        self.sync_media_controls();
+        self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
         self.schedule_next_pass(ctx);
     }
@@ -4989,7 +4998,7 @@ impl App {
             self.winamp.playlist_scroll = offset;
         }
         self.refresh_frame_now();
-        self.sync_media_controls();
+        self.sync_media_controls(ctx);
 
         if !self.settings.winamp_window
             && !self.switch_intent
@@ -7826,15 +7835,20 @@ mod tests {
         std::fs::create_dir_all(file.parent().expect("a parent")).expect("the art cache");
         std::fs::write(&file, b"jpeg-ish").expect("a cached file");
 
-        // #then nothing has been downloaded for this song yet
-        assert_eq!(app.media_art_file(url), None);
+        // #then nothing has been downloaded for this song yet, and the miss
+        // starts the download
+        assert_eq!(app.media_art_file(&ctx, url), None);
+        assert!(
+            !app.backend.art().prefetch(&ctx, url),
+            "the miss should have started the download"
+        );
 
         // #when the cache holds it, that file is what the controls are told
         app.media_art = Some((url.to_owned(), file.clone()));
-        assert_eq!(app.media_art_file(url), Some(file.clone()));
+        assert_eq!(app.media_art_file(&ctx, url), Some(file.clone()));
 
         // #then another song is not covered by what is remembered
-        assert_eq!(app.media_art_file("sonic:art:640:album-2"), None);
+        assert_eq!(app.media_art_file(&ctx, "sonic:art:640:album-2"), None);
 
         // #when the artwork cache is emptied, the remembered path goes too
         app.actions.push(Action::ClearArtCache);
@@ -7842,6 +7856,24 @@ mod tests {
         assert_eq!(app.media_art, None, "a path into a deleted cache");
 
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// Emptying the artwork cache has to let the cover come back: what the
+    /// loader remembers of deleted files goes too, or the playing song stays
+    /// coverless in the media controls until the track changes.
+    #[test]
+    fn clearing_the_artwork_cache_lets_the_cover_come_back() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let url = "sonic:art:640:album-cleared";
+        assert!(app.backend.art().prefetch(&ctx, url), "the first request");
+        app.actions.push(Action::ClearArtCache);
+        app.apply_actions(&ctx);
+        assert!(
+            app.backend.art().prefetch(&ctx, url),
+            "the loader still remembers artwork that has been deleted"
+        );
     }
 
     #[test]

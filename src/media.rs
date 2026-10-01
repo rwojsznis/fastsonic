@@ -32,10 +32,10 @@ pub struct MediaTrack {
     pub artists: Vec<String>,
     pub album: String,
     pub art_url: Option<String>,
-    /// The same artwork on disk, once the art cache holds it. Windows and
-    /// macOS take this rather than `art_url`, because they load the image
-    /// themselves; MPRIS only passes the URL along, so Linux keeps using
-    /// `art_url`.
+    /// The same artwork on disk, once the art cache holds it. Every platform
+    /// takes this rather than `art_url`: Windows and macOS load the image
+    /// themselves, and the desktop behind MPRIS cannot open a `sonic:art:`
+    /// key, whose real URL carries the account's credentials.
     pub art_file: Option<PathBuf>,
     pub duration_ms: u32,
 }

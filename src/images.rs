@@ -160,6 +160,26 @@ impl ArtLoader {
             .then_some(path)
     }
 
+    /// Starts the download for `url` while nothing is drawing it, so the
+    /// media controls have a file to hand the platform, and answers whether
+    /// this call is what started it.
+    ///
+    /// Artwork already held, already on its way, or addressed by a scheme
+    /// this loader does not answer for is left alone.
+    pub fn prefetch(&self, ctx: &egui::Context, url: &str) -> bool {
+        if !handled(url) {
+            return false;
+        }
+        let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
+        if entries.contains_key(url) {
+            return false;
+        }
+        entries.insert(url.to_string(), Entry::Pending);
+        drop(entries);
+        self.inner.start(ctx, url.to_string());
+        true
+    }
+
     /// Drops held JPEG bytes once egui has made a texture. The disk cache
     /// remains for later reloads.
     pub fn release_bytes(&self, url: &str) {
@@ -642,6 +662,32 @@ mod tests {
             .write_to(&mut encoded, image::ImageFormat::Png)
             .unwrap();
         std::fs::write(loader.inner.cache_path(uri), encoded.into_inner()).unwrap();
+    }
+
+    #[test]
+    fn prefetching_starts_one_download_and_not_another() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a runtime to hand the loader");
+        let dir = std::env::temp_dir().join(format!("fastsonic-prefetch-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        let url = "sonic:art:640:never-drawn";
+        assert!(loader.prefetch(&ctx, url), "nobody has asked for it yet");
+        assert!(!loader.prefetch(&ctx, url), "it is already on its way");
+        // A scheme the loader does not answer for is refused, as in `load`,
+        // and nothing is remembered about it.
+        let local = "file:///tmp/cover.jpg";
+        assert!(!loader.prefetch(&ctx, local));
+        assert!(
+            !loader
+                .inner
+                .entries
+                .lock()
+                .expect("the entries")
+                .contains_key(local)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn backdrop_loader(runtime: &tokio::runtime::Runtime, dir: PathBuf) -> ArtLoader {

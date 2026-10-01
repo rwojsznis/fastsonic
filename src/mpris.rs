@@ -320,8 +320,12 @@ fn metadata(track: Option<&MediaTrack>) -> Metadata {
     if !track.album.is_empty() {
         builder = builder.album(track.album.clone());
     }
-    if let Some(art) = &track.art_url {
-        builder = builder.art_url(art.clone());
+    if let Some(art) = track
+        .art_file
+        .as_deref()
+        .and_then(|file| reqwest::Url::from_file_path(file).ok())
+    {
+        builder = builder.art_url(art.to_string());
     }
     builder.build()
 }
@@ -365,6 +369,23 @@ fn desktop_entry() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The desktop is given the cached file, never the `sonic:art:` key it
+    /// cannot open, and no artwork until the file is there.
+    #[test]
+    fn the_desktop_is_given_the_cached_cover_file() {
+        let mut track = MediaTrack {
+            uri: "sonic:track:a".into(),
+            art_url: Some("sonic:art:640:album-1".into()),
+            ..MediaTrack::default()
+        };
+        assert_eq!(metadata(Some(&track)).art_url(), None);
+        track.art_file = Some("/home/me/.cache/fastsonic/art/0badc0de".into());
+        assert_eq!(
+            metadata(Some(&track)).art_url().as_deref(),
+            Some("file:///home/me/.cache/fastsonic/art/0badc0de")
+        );
+    }
 
     #[test]
     fn a_volume_request_republishes_the_level_even_when_unchanged() {

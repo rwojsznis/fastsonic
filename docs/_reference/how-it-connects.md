@@ -29,6 +29,10 @@ Every Subsonic request carries the username, salt, and token. Fastsonic strips
 credential query parameters and authorization headers from logs, from the
 network errors it logs and shows, and from the panic log. Artwork is
 cached under an opaque `sonic:art:` key rather than a credential-bearing URL.
+The desktop's media controls get the playing song's cover as a file from that
+cache, never a URL: when a song starts, its full-size cover is downloaded once
+if nothing on screen has fetched it yet, and Linux MPRIS hands the desktop a
+`file://` path.
 
 ## Server requests
 
