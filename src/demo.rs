@@ -3083,6 +3083,55 @@ mod tests {
         }
     }
 
+    /// Liked Songs has no URI of its own, so its row lights from the context
+    /// it plays, the starred songs, as a playlist's row does from its own.
+    #[test]
+    fn the_liked_songs_row_lights_while_its_songs_play() {
+        let (ctx, mut app) = accessible_app("liked-songs-playing");
+        let lit = |ctx: &egui::Context, app: &mut App, name: &str| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| crate::ui::sidebar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            fn walk(shape: &egui::epaint::Shape, name: &str, found: &mut Vec<egui::Color32>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) if text.galley.job.text == name => {
+                        found.extend(text.galley.job.sections.iter().map(|s| s.format.color));
+                    }
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| walk(shape, name, found));
+                    }
+                    _ => {}
+                }
+            }
+            let mut colors = Vec::new();
+            for clipped in &output.shapes {
+                walk(&clipped.shape, name, &mut colors);
+            }
+            assert!(!colors.is_empty(), "{name:?} is not in the sidebar");
+            colors.iter().all(|color| *color == app.palette.accent)
+        };
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!lit(&ctx, &mut app, "Liked Songs"));
+        app.actions.push(Action::PlayContext {
+            uri: crate::api::subsonic::convert::COLLECTION_URI.into(),
+            offset_uri: None,
+            offset_index: None,
+        });
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(app.believed_playing());
+        assert!(lit(&ctx, &mut app, "Liked Songs"));
+        assert!(!lit(&ctx, &mut app, "Sunday morning"));
+        app.backend.shutdown();
+    }
+
     /// The Library's order menu works from the keyboard and a screen reader,
     /// offers only the orders the section has data for, and switching away
     /// from the custom order and back finds the arrangement where it was.

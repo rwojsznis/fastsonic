@@ -200,6 +200,12 @@ fn entry_play_uri(entry: &Entry) -> Option<String> {
     }
 }
 
+/// Whether `context`, the one playing, is the one this row plays. Liked
+/// Songs has no URI of its own, so it lights from the starred songs.
+fn entry_is_playing_context(entry: &Entry, context: Option<&str>) -> bool {
+    context.is_some() && entry_play_uri(entry).as_deref() == context
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     // The traffic lights float over the top-left of the sidebar now, so the
@@ -666,9 +672,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 let droppable = entry.liked || entry.owned;
                 let drop_hover = drop_target == Some(index);
                 let active = entry.folder.is_none() && entry.page == current_page;
-                let playing = context_playing
-                    && !entry.uri.is_empty()
-                    && playing_context.as_deref() == Some(entry.uri.as_str());
+                let playing =
+                    context_playing && entry_is_playing_context(entry, playing_context.as_deref());
                 let pinned =
                     !entry.uri.is_empty() && app.settings.pinned_contexts.contains(&entry.uri);
                 let (_, rect) = ui.allocate_space(vec2(ui.available_width(), row_height));
