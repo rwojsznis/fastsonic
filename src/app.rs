@@ -3663,23 +3663,27 @@ impl App {
     }
 
     /// Adopt a playlist's disk cache once both it and the live playlist
-    /// are here and the backend snapshot still matches; a stale cache is
-    /// discarded, never shown.
+    /// are here, the backend snapshot still matches and the cache holds as
+    /// many songs as the server counts; anything else is discarded, never
+    /// shown.
     fn try_adopt_playlist_cache(&mut self, id: &str) {
         let mut flags = Vec::new();
         let mut adders: Vec<String> = Vec::new();
         if let Some(page) = self.playlist_pages.get_mut(id) {
-            let Some(snapshot_now) = page
+            let Some((snapshot_now, total)) = page
                 .playlist
                 .get()
-                .and_then(|playlist| playlist.snapshot_id.clone())
+                .and_then(|playlist| Some((playlist.snapshot_id.clone()?, playlist.track_total())))
             else {
                 return;
             };
             match &page.pending_cache {
-                Some((held, _)) if *held == snapshot_now => {}
+                // `changed` moves with every edit, but only to the second; a
+                // cache with the wrong number of songs cannot be the list.
+                Some((held, items)) if *held == snapshot_now && items.len() == total as usize => {}
                 Some(_) => {
-                    // The playlist changed since; the cache is history.
+                    // The playlist changed since; the cache is history, and
+                    // the live request establishes the rows and their order.
                     page.pending_cache = None;
                     return;
                 }
@@ -8661,6 +8665,45 @@ mod tests {
 
     /// Page caches stay bounded: the least recently used go first, while
     /// the open page and the playing context stay whatever their age.
+    /// A playlist cache whose snapshot matches but whose song count does not
+    /// is not the list, so it is dropped and the live rows decide; one that
+    /// agrees on both is adopted whole.
+    #[test]
+    fn a_playlist_cache_must_match_the_server_song_count() {
+        use crate::api::models::{PlaylistItem, TrackCount};
+        let row = |uri: &str| PlaylistItem {
+            item: Some(PlayableItem::Track(Track {
+                uri: uri.into(),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        for (cached, adopted) in [(4, false), (3, true)] {
+            let mut app = headless_app();
+            app.playlist_pages.insert(
+                "mix".into(),
+                PlaylistPage {
+                    playlist: Loadable::Loaded(crate::api::models::Playlist {
+                        id: "mix".into(),
+                        snapshot_id: Some("same-revision".into()),
+                        items_count: Some(TrackCount { total: 3 }),
+                        ..Default::default()
+                    }),
+                    pending_cache: Some((
+                        "same-revision".into(),
+                        vec![row("sonic:track:cached"); cached],
+                    )),
+                    ..Default::default()
+                },
+            );
+            app.try_adopt_playlist_cache("mix");
+            let page = &app.playlist_pages["mix"];
+            assert_eq!(page.cache_complete, adopted, "{cached} cached songs");
+            assert_eq!(page.items.items.len(), if adopted { 3 } else { 0 });
+            assert!(page.pending_cache.is_none());
+        }
+    }
+
     #[test]
     fn page_caches_keep_the_open_page_and_the_playing_context() {
         let mut app = headless_app();

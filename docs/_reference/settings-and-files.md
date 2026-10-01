@@ -40,6 +40,11 @@ without bound; the open page, what is playing, and playlists with an edit on
 its way are always kept. A page dropped from memory is read again when you
 open it.
 
+A playlist read in full is kept in the playlist cache under the server's
+`changed` time. Opening it again shows the cached songs at once only if that
+time still matches and the cache holds as many songs as the server counts;
+otherwise the cache is dropped and the songs load from the server.
+
 Clearing caches never signs you out. `credentials.json` contains a salted
 Subsonic token, not the password, plus a short-lived Navidrome session when
 available. Treat it like a password and do not share it. Settings → Storage
