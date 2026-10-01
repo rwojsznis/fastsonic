@@ -1855,6 +1855,20 @@ impl App {
         }
     }
 
+    /// The Dock menu's playback items, read with or without a window.
+    #[cfg(target_os = "macos")]
+    fn handle_dock_menu(&mut self) {
+        use crate::mac_menu::MenuCommand;
+        for command in crate::mac_menu::drain_dock_commands() {
+            match command {
+                MenuCommand::PlayPause => self.actions.push(Action::TogglePlay),
+                MenuCommand::Next => self.actions.push(Action::Next),
+                MenuCommand::Previous => self.actions.push(Action::Previous),
+                _ => {}
+            }
+        }
+    }
+
     fn handle_tray(&mut self) {
         let Some(commands) = self.tray.as_ref().map(TrayService::drain_commands) else {
             return;
@@ -2017,6 +2031,8 @@ impl App {
         if let Some(tray) = &mut self.tray {
             tray.set_playing(playing);
         }
+        #[cfg(target_os = "macos")]
+        crate::mac_menu::set_playing(playing);
         if let Some(slot) = &self.control_now_playing {
             let snapshot = self.control_snapshot();
             *slot.lock().unwrap_or_else(|p| p.into_inner()) = snapshot;
@@ -4398,6 +4414,8 @@ impl App {
         self.handle_events();
         self.handle_media_commands();
         self.handle_tray();
+        #[cfg(target_os = "macos")]
+        self.handle_dock_menu();
         self.tick(ctx);
         self.note_listening();
         // MilkDrop runs in a child process and can outlive the main window.
@@ -6768,6 +6786,29 @@ mod tests {
                 .commands
                 .contains(&egui::ViewportCommand::Fullscreen(false))
         );
+        app.backend.shutdown();
+    }
+
+    /// Dock menu picks wait in their own queue, which the application reads
+    /// with or without a window, and never in the menu bar's, which only a
+    /// window reads. A pick in the tray would otherwise wait for a window.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn dock_menu_picks_become_playback_actions_without_a_window() {
+        use crate::mac_menu::{self, MenuCommand};
+        let mut app = headless_app();
+        let _ = mac_menu::drain_dock_commands();
+        mac_menu::push_dock_command(MenuCommand::PlayPause);
+        mac_menu::push_dock_command(MenuCommand::Next);
+        mac_menu::push_dock_command(MenuCommand::Previous);
+        assert!(mac_menu::drain_commands().is_empty());
+        app.actions.clear();
+        app.handle_dock_menu();
+        assert!(matches!(
+            app.actions.as_slice(),
+            [Action::TogglePlay, Action::Next, Action::Previous]
+        ));
+        assert!(mac_menu::drain_dock_commands().is_empty());
         app.backend.shutdown();
     }
 

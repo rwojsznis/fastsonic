@@ -1,4 +1,5 @@
-//! Native macOS application menu bar (File, Edit, View, Playback, Window, Help).
+//! Native macOS application menu bar (File, Edit, View, Playback, Window, Help)
+//! and the Dock menu's playback items.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCommand {
@@ -29,6 +30,11 @@ pub enum MenuCommand {
     SelectAll,
 }
 
+/// The Dock menu's first item, which names what a click will do.
+pub fn dock_play_pause_label(playing: bool) -> &'static str {
+    if playing { "Pause" } else { "Play" }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn init() {}
 
@@ -40,22 +46,43 @@ pub fn drain_commands() -> Vec<MenuCommand> {
     Vec::new()
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn drain_dock_commands() -> Vec<MenuCommand> {
+    Vec::new()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_playing(_playing: bool) {}
+
 #[cfg(target_os = "macos")]
 pub use mac_impl::*;
 
 #[cfg(target_os = "macos")]
 mod mac_impl {
     use objc2::rc::Retained;
-    use objc2::runtime::Sel;
+    use objc2::runtime::{AnyClass, AnyObject, MethodImplementation, Sel};
     use objc2::{MainThreadOnly, define_class, sel};
     use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
     use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
+    use std::cell::OnceCell;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
-    use super::MenuCommand;
+    use super::{MenuCommand, dock_play_pause_label};
 
     static COMMANDS: Mutex<Vec<MenuCommand>> = Mutex::new(Vec::new());
     static WAKER: Mutex<Option<Box<dyn Fn() + Send + Sync>>> = Mutex::new(None);
+    /// Dock menu picks. They have their own queue because the Dock answers
+    /// while the app lives in the tray without a window, when only the
+    /// application's background frame is running to read them.
+    static DOCK_COMMANDS: Mutex<Vec<MenuCommand>> = Mutex::new(Vec::new());
+    /// Whether music is playing, so the Dock menu offers Play or Pause.
+    static PLAYING: AtomicBool = AtomicBool::new(false);
+
+    thread_local! {
+        /// The object the menu items call. Only the main thread touches it.
+        static HANDLER: OnceCell<Retained<FastsonicMenuHandler>> = const { OnceCell::new() };
+    }
 
     pub fn set_waker(wake: impl Fn() + Send + Sync + 'static) {
         if let Ok(mut w) = WAKER.lock() {
@@ -80,6 +107,33 @@ mod mac_impl {
         } else {
             Vec::new()
         }
+    }
+
+    pub(crate) fn push_dock_command(cmd: MenuCommand) {
+        if let Ok(mut list) = DOCK_COMMANDS.lock() {
+            list.push(cmd);
+        }
+        if let Ok(w) = WAKER.lock()
+            && let Some(wake) = w.as_ref()
+        {
+            wake();
+        }
+    }
+
+    /// The Dock menu's picks since the last call: Play/Pause, Next and
+    /// Previous only.
+    pub fn drain_dock_commands() -> Vec<MenuCommand> {
+        if let Ok(mut list) = DOCK_COMMANDS.lock() {
+            std::mem::take(&mut *list)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Keeps the Dock menu's Play/Pause label matching reality. AppKit asks
+    /// for the menu each time it opens, so the next one reads this.
+    pub fn set_playing(playing: bool) {
+        PLAYING.store(playing, Ordering::Relaxed);
     }
 
     define_class!(
@@ -218,8 +272,107 @@ mod mac_impl {
             fn edit_select_all(&self, _sender: &NSObject) {
                 push_command(MenuCommand::SelectAll);
             }
+
+            #[unsafe(method(dockPlayPause:))]
+            fn dock_play_pause(&self, _sender: &NSObject) {
+                push_dock_command(MenuCommand::PlayPause);
+            }
+
+            #[unsafe(method(dockNextTrack:))]
+            fn dock_next_track(&self, _sender: &NSObject) {
+                push_dock_command(MenuCommand::Next);
+            }
+
+            #[unsafe(method(dockPreviousTrack:))]
+            fn dock_previous_track(&self, _sender: &NSObject) {
+                push_dock_command(MenuCommand::Previous);
+            }
         }
     );
+
+    /// Builds the Dock menu afresh, so Play/Pause names the current state.
+    /// AppKit appends its own items (Options, Show All Windows, Hide, Quit)
+    /// below a separator.
+    fn dock_menu(mtm: MainThreadMarker) -> Option<Retained<NSMenu>> {
+        let handler = HANDLER.with(|slot| slot.get().cloned())?;
+        let target: &NSObject = &handler;
+        let menu = NSMenu::initWithTitle(mtm.alloc(), ns_string!(""));
+        menu.setAutoenablesItems(false);
+        let playing = PLAYING.load(Ordering::Relaxed);
+        menu.addItem(&create_item(
+            mtm,
+            &NSString::from_str(dock_play_pause_label(playing)),
+            Some(sel!(dockPlayPause:)),
+            ns_string!(""),
+            None,
+            Some(target),
+        ));
+        menu.addItem(&create_item(
+            mtm,
+            ns_string!("Next"),
+            Some(sel!(dockNextTrack:)),
+            ns_string!(""),
+            None,
+            Some(target),
+        ));
+        menu.addItem(&create_item(
+            mtm,
+            ns_string!("Previous"),
+            Some(sel!(dockPreviousTrack:)),
+            ns_string!(""),
+            None,
+            Some(target),
+        ));
+        Some(menu)
+    }
+
+    extern "C-unwind" fn application_dock_menu(
+        _delegate: *mut AnyObject,
+        _selector: Sel,
+        _application: *mut NSApplication,
+    ) -> *mut NSMenu {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return std::ptr::null_mut();
+        };
+        match dock_menu(mtm) {
+            Some(menu) => Retained::autorelease_return(menu),
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    /// Answers `applicationDockMenu:` on winit's application delegate, which
+    /// is where AppKit asks for a Dock menu each time it opens.
+    fn install_dock_menu(app: &NSApplication) {
+        let Some(delegate) = app.delegate() else {
+            log::warn!("the macOS application delegate is unavailable");
+            return;
+        };
+        let delegate: &AnyObject = AsRef::<AnyObject>::as_ref(&*delegate);
+        let class = delegate.class();
+        let selector = sel!(applicationDockMenu:);
+        if class.responds_to(selector) {
+            return;
+        }
+        let implementation: extern "C-unwind" fn(
+            *mut AnyObject,
+            Sel,
+            *mut NSApplication,
+        ) -> *mut NSMenu = application_dock_menu;
+        // Safety: the class is winit's delegate, which lives for the whole
+        // process, and the encoding matches the function: an object returned
+        // from self, _cmd and one object argument.
+        let installed = unsafe {
+            objc2::ffi::class_addMethod(
+                class as *const AnyClass as *mut AnyClass,
+                selector,
+                implementation.__imp(),
+                c"@@:@".as_ptr(),
+            )
+        };
+        if !installed.as_bool() {
+            log::warn!("the macOS Dock menu could not be installed");
+        }
+    }
 
     fn create_item(
         mtm: MainThreadMarker,
@@ -560,8 +713,22 @@ mod mac_impl {
         menubar.addItem(&help_item);
 
         // NSMenuItem does not retain its target, and this one has to answer
-        // for as long as the menu bar exists. It is a single process-wide
-        // object, so leaking it is the whole lifetime story.
-        std::mem::forget(handler);
+        // for as long as the menu bar and the Dock menu exist. It is a single
+        // object kept for the life of the main thread.
+        HANDLER.with(|slot| {
+            let _ = slot.set(handler);
+        });
+        install_dock_menu(&app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_dock_menu_offers_what_a_click_will_do() {
+        assert_eq!(dock_play_pause_label(true), "Pause");
+        assert_eq!(dock_play_pause_label(false), "Play");
     }
 }

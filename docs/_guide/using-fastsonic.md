@@ -41,6 +41,12 @@ Settings → Appearance → **Player bar visualizer** offers a spectrum or wavef
 behind the controls. It is off by default. Click empty space on the player bar
 to cycle through spectrum, waveform, and off.
 
+## macOS Dock menu
+
+Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
+while music plays), **Next**, and **Previous**, above the standard Dock items.
+They keep working while the window is closed to the menu bar.
+
 ## Recent plays
 
 The queue panel's second tab combines the server's recent songs with tracks

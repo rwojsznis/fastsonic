@@ -30,7 +30,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   oscilloscope, equalizer, and playlist.
 - A projectM-powered MilkDrop window with optional preset packs.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
-  shortcuts, tray/Dock reopening, and single-instance behavior.
+  shortcuts, tray/Dock reopening, a Play/Pause, Next and Previous Dock menu
+  on macOS, and single-instance behavior.
 - Smooth local Play and Pause transitions, plus searchable playlist choices
   when adding one song or a selection.
 - Synced lyrics in a side panel or full-screen view, with line seeking and
