@@ -490,10 +490,11 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     // The playing thing answers the same right-click menu as a table row,
     // from the cover, the empty space around the words, or the words.
     if let Some(item) = app.now_playing_item() {
+        let context = app.editable_context_playlist();
         for response in [&cover_response, &info_response, &title_response] {
             egui::Popup::context_menu(response)
                 .frame(super::widgets::menu_frame(&palette))
-                .show(|ui| super::widgets::item_menu(ui, app, &item, None, None));
+                .show(|ui| super::widgets::item_menu(ui, app, &item, context.as_ref(), None));
         }
     }
 

@@ -10,6 +10,8 @@ affecting browsing or playback.
 Search covers the songs, albums, artists, and playlists indexed by your
 server. Right-click rows and cards to star music, add songs to a playlist, or
 put a song in the queue. The playlist submenu filters as you type.
+Right-clicking the playing song in the player bar offers **Remove from this
+playlist** while it plays from a playlist you can edit.
 
 ## Keyboard input
 

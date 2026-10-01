@@ -4389,6 +4389,29 @@ impl App {
         self.selection = None;
     }
 
+    /// The playing playlist as a row context, when the now-playing track
+    /// comes from a playlist the account may edit. The player bar menu
+    /// uses this so removal matches a row's URI-based entry; moves need
+    /// a row index and stay in the playlist view.
+    pub fn editable_context_playlist(&self) -> Option<RowContext> {
+        let user_id = self.user_id()?;
+        let uri = self.playing_context_uri()?;
+        let id = convert::id_of(&uri, Kind::Playlist)?.to_string();
+        let playlist = self
+            .library
+            .playlists
+            .get()
+            .and_then(|list| list.iter().find(|playlist| playlist.id == id))
+            .or_else(|| self.playlist_pages.get(&id)?.playlist.get())?;
+        if !(playlist.owned_by(user_id) || playlist.collaborative) {
+            return None;
+        }
+        Some(RowContext::Context {
+            editable_playlist: Some((id, playlist.snapshot_id.clone())),
+            uri,
+        })
+    }
+
     pub fn editable_playlists(&self) -> Vec<(String, String)> {
         let Some(user_id) = self.user_id() else {
             return Vec::new();
@@ -6809,6 +6832,79 @@ mod tests {
             [Action::TogglePlay, Action::Next, Action::Previous]
         ));
         assert!(mac_menu::drain_dock_commands().is_empty());
+        app.backend.shutdown();
+    }
+
+    /// The player bar menu offers removal only while the playing track
+    /// comes from a playlist the account may edit.
+    #[test]
+    fn player_bar_menu_knows_its_editable_playlist() {
+        let mut app = headless_app();
+        app.user = Some(User {
+            id: "me".into(),
+            ..User::default()
+        });
+        let playlist =
+            |id: &str, owner: &str, snapshot: Option<&str>| crate::api::models::Playlist {
+                id: id.into(),
+                name: id.into(),
+                uri: format!("sonic:playlist:{id}"),
+                owner: crate::api::models::Owner {
+                    id: Some(owner.into()),
+                    ..Default::default()
+                },
+                snapshot_id: snapshot.map(Into::into),
+                ..crate::api::models::Playlist::default()
+            };
+        app.library.playlists = Loadable::Loaded(vec![
+            playlist("mine", "me", Some("snap1")),
+            playlist("theirs", "friend", None),
+        ]);
+        app.playlist_pages.insert(
+            "paged".into(),
+            PlaylistPage {
+                playlist: Loadable::Loaded(playlist("paged", "me", Some("snap9"))),
+                ..Default::default()
+            },
+        );
+        let assume = |app: &mut App, uri: &str| {
+            app.assumed_context = Some(AssumedContext {
+                uri: uri.into(),
+                shuffle: None,
+                at: Instant::now(),
+            });
+        };
+
+        assume(&mut app, "sonic:playlist:mine");
+        assert_eq!(
+            app.editable_context_playlist(),
+            Some(RowContext::Context {
+                uri: "sonic:playlist:mine".into(),
+                editable_playlist: Some(("mine".into(), Some("snap1".into()))),
+            })
+        );
+
+        // A playlist known only by its open page still counts.
+        assume(&mut app, "sonic:playlist:paged");
+        assert_eq!(
+            app.editable_context_playlist(),
+            Some(RowContext::Context {
+                uri: "sonic:playlist:paged".into(),
+                editable_playlist: Some(("paged".into(), Some("snap9".into()))),
+            })
+        );
+
+        for uri in [
+            "sonic:playlist:theirs",
+            "sonic:album:alb1",
+            COLLECTION_URI,
+            "sonic:playlist:unloaded",
+        ] {
+            assume(&mut app, uri);
+            assert_eq!(app.editable_context_playlist(), None, "{uri}");
+        }
+        app.assumed_context = None;
+        assert_eq!(app.editable_context_playlist(), None, "no context");
         app.backend.shutdown();
     }
 
