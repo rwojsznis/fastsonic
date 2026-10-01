@@ -158,12 +158,38 @@ pub fn minimize_window(ctx: &egui::Context) {
     let _ = ctx;
 }
 
-/// Whether windows wait for the display before swapping buffers. AppKit's
-/// resize and zoom animations need swaps paced with the display. Elsewhere it
-/// stays off: a hidden Wayland window receives no frame callbacks and a
-/// vsync wait there would block the event loop.
+/// Whether windows wait for the display before swapping buffers. Without it
+/// every input event draws a frame at once: moving the pointer over the
+/// window cost about 1.6 cores on Windows, against 0.35 with it (upstream
+/// 80c4fe6), and AppKit's resize and zoom animations need swaps paced with
+/// the display. eframe paints nothing for a minimized or occluded window, so
+/// a hidden window never waits on macOS, Windows or X11.
+///
+/// Wayland is the exception: winit 0.30 reports neither state there, and a
+/// compositor sends no frame callbacks to a window it is not showing, so a
+/// vsync wait would block the whole app. A Wayland session is the one winit
+/// itself chooses, from `WAYLAND_DISPLAY` or `WAYLAND_SOCKET`.
 pub fn vsync() -> bool {
-    cfg!(target_os = "macos")
+    static VSYNC: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *VSYNC.get_or_init(|| {
+        let wayland = ["WAYLAND_DISPLAY", "WAYLAND_SOCKET"]
+            .iter()
+            .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+        let vsync = vsync_for(cfg!(all(unix, not(target_os = "macos"))), wayland);
+        log::info!(
+            "vsync {}",
+            if vsync {
+                "on"
+            } else {
+                "off: a hidden Wayland window would block on it"
+            }
+        );
+        vsync
+    })
+}
+
+const fn vsync_for(free_unix: bool, wayland: bool) -> bool {
+    !(free_unix && wayland)
 }
 
 /// How long to ask egui to wait for the next frame of an animation that
@@ -206,6 +232,14 @@ const fn custom_titlebar_for(on_windows: bool, chosen: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_wayland_session_goes_without_vsync() {
+        assert!(vsync_for(false, false), "macOS and Windows");
+        assert!(vsync_for(false, true), "a stray WAYLAND_DISPLAY off Linux");
+        assert!(vsync_for(true, false), "X11");
+        assert!(!vsync_for(true, true), "Wayland");
+    }
 
     #[test]
     fn an_animation_waits_one_frame_with_or_without_vsync() {
