@@ -1083,10 +1083,7 @@ impl Worker {
             .account_playlist_cache_dir(&account)
             .join(format!("{id}.json"));
         tokio::spawn(async move {
-            let Ok(text) = tokio::fs::read_to_string(&path).await else {
-                return;
-            };
-            let Ok(cached) = serde_json::from_str::<CachedPlaylist>(&text) else {
+            let Ok(cached) = read_cached_playlist(path).await else {
                 return;
             };
             let _ = events.send(Event::PlaylistCache {
@@ -1108,14 +1105,9 @@ impl Worker {
             .account_playlist_cache_dir(&account)
             .join(format!("{id}.json"));
         tokio::spawn(async move {
-            if let Some(parent) = path.parent() {
-                let _ = tokio::fs::create_dir_all(parent).await;
-            }
-            if let Ok(text) = serde_json::to_string(&CachedPlaylist { snapshot, items }) {
-                let temporary = path.with_extension("json.tmp");
-                if tokio::fs::write(&temporary, text).await.is_ok() {
-                    let _ = tokio::fs::rename(temporary, path).await;
-                }
+            let cached = CachedPlaylist { snapshot, items };
+            if let Err(error) = write_cached_playlist(path.clone(), cached).await {
+                log::warn!("unable to store playlist cache {}: {error}", path.display());
             }
         });
     }
@@ -1567,10 +1559,112 @@ struct CachedPlaylist {
     items: Vec<PlaylistItem>,
 }
 
+/// Writes a playlist's cache through a small buffer on the file worker, so
+/// a long playlist is never held as one JSON string beside its rows, and
+/// replaces the old file only once the new one is complete.
+async fn write_cached_playlist(
+    path: std::path::PathBuf,
+    cached: CachedPlaylist,
+) -> std::io::Result<()> {
+    tokio::task::spawn_blocking(move || write_cached_playlist_file(&path, &cached))
+        .await
+        .map_err(std::io::Error::other)?
+}
+
+fn write_cached_playlist_file(
+    path: &std::path::Path,
+    cached: &CachedPlaylist,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    let file = std::fs::File::create(&temporary)?;
+    let result = (|| {
+        let mut writer = std::io::BufWriter::new(file);
+        serde_json::to_writer(&mut writer, cached).map_err(std::io::Error::other)?;
+        writer.flush()?;
+        // Windows requires the temporary file to be closed before replacement.
+        drop(writer);
+        crate::util::replace_file(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+/// Reads a playlist's cache through a buffer on the file worker, without
+/// holding the whole file as text beside the rows parsed from it.
+async fn read_cached_playlist(path: std::path::PathBuf) -> std::io::Result<CachedPlaylist> {
+    tokio::task::spawn_blocking(move || {
+        let file = std::io::BufReader::new(std::fs::File::open(path)?);
+        serde_json::from_reader(file).map_err(std::io::Error::other)
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engine::{LocalTrack, Playback};
+
+    /// A playlist's cache comes back as it went in, repeated rows included,
+    /// and a failed replacement keeps the old file and leaves no temporary.
+    #[test]
+    fn a_playlist_cache_round_trips_through_its_file() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-pl-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pl1.json");
+        let row = |id: &str| PlaylistItem {
+            item: Some(crate::api::models::PlayableItem::Track(Track {
+                id: Some(id.into()),
+                name: format!("Song {id}"),
+                uri: format!("sonic:track:{id}"),
+                ..Track::default()
+            })),
+            ..PlaylistItem::default()
+        };
+        let items: Vec<PlaylistItem> = ["a", "b", "a"].map(row).to_vec();
+        runtime
+            .block_on(write_cached_playlist(
+                path.clone(),
+                CachedPlaylist {
+                    snapshot: "s1".into(),
+                    items: items.clone(),
+                },
+            ))
+            .unwrap();
+        let read = runtime
+            .block_on(read_cached_playlist(path.clone()))
+            .unwrap();
+        assert_eq!(read.snapshot, "s1");
+        assert_eq!(read.items, items);
+        assert!(!path.with_extension("json.tmp").exists());
+
+        // A directory where the file should go cannot be replaced.
+        let blocked = dir.join("blocked.json");
+        std::fs::create_dir_all(blocked.join("inside")).unwrap();
+        let failed = runtime.block_on(write_cached_playlist(
+            blocked.clone(),
+            CachedPlaylist {
+                snapshot: "s2".into(),
+                items,
+            },
+        ));
+        assert!(failed.is_err());
+        assert!(!blocked.with_extension("json.tmp").exists());
+        assert!(
+            runtime
+                .block_on(read_cached_playlist(dir.join("missing.json")))
+                .is_err()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn playing(uri: &str, position_ms: u32) -> LocalState {
         LocalState {
