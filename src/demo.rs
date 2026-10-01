@@ -2654,6 +2654,85 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn compact_track_rows_leave_a_gap_before_the_added_date_separator() {
+        fn rows(app: &mut App, ui: &mut egui::Ui) {
+            use crate::model::RowContext;
+            use crate::ui::widgets::{TrackRow, track_row};
+            ui.set_max_width(520.0);
+            for count in 1..=2 {
+                let song = Track {
+                    id: Some(format!("t{count}")),
+                    name: format!("Song {count}"),
+                    uri: format!("sonic:track:t{count}"),
+                    duration_ms: 200_000,
+                    artists: (0..count)
+                        .map(|index| ArtistRef {
+                            id: Some(format!("artist-{index}")),
+                            name: format!("Artist {index}"),
+                            uri: Some(format!("sonic:artist:artist-{index}")),
+                        })
+                        .collect(),
+                    ..Track::default()
+                };
+                let item = PlayableItem::Track(song);
+                let context = RowContext::Uris(std::sync::Arc::from([item.uri().to_owned()]));
+                track_row(
+                    ui,
+                    app,
+                    TrackRow {
+                        index: count,
+                        number: Some(count),
+                        item: &item,
+                        context: &context,
+                        show_cover: false,
+                        show_album: false,
+                        added_at: Some("2026-01-01T00:00:00Z"),
+                        added_by: None,
+                        show_added_by: false,
+                        compact: false,
+                        thin: true,
+                        shift: 0.0,
+                        picked: false,
+                        picked_songs: &[],
+                    },
+                );
+            }
+        }
+        let (ctx, mut app) = accessible_app("compact-artist-date-gap");
+        for palette in [
+            crate::theme::Palette::dark(),
+            crate::theme::Palette::light(),
+        ] {
+            app.palette = palette;
+            crate::theme::apply(&ctx, &palette);
+            view_frame(&ctx, &mut app, vec![], rows);
+            let text = view_frame(&ctx, &mut app, vec![], rows);
+            let mut separated = 0;
+            for (label, artist) in text
+                .iter()
+                .filter(|(label, _)| label.starts_with("Artist "))
+            {
+                let separator = text.iter().find(|(label, rect)| {
+                    label == "•"
+                        && (rect.center().y - artist.center().y).abs() < 3.0
+                        && rect.left() >= artist.right() - 0.1
+                });
+                // Only the last artist in each row borders the date separator.
+                if let Some((_, separator)) = separator {
+                    separated += 1;
+                    let gap = separator.left() - artist.right();
+                    assert!(
+                        gap >= 5.9,
+                        "{label} needs a gap before the date bullet, got {gap}"
+                    );
+                }
+            }
+            assert!(separated >= 2, "each row's last artist borders the date");
+        }
+        app.backend.shutdown();
+    }
+
     /// `--demo-show rtl` fills the playlist with right-to-left titles.
     #[cfg(feature = "demo")]
     #[test]
