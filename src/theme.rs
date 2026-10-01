@@ -333,6 +333,9 @@ fn install_fonts(ctx: &egui::Context) {
         // epaint rebuilds the glyph atlas.
         let mut data = FontData::from_static(&font.bytes);
         data.index = font.index;
+        if font.name == "fallback-arabic" {
+            data.tweak.scale = crate::system_fonts::arabic_scale(inter, &font.bytes, font.index);
+        }
         fonts.font_data.insert(font.name.clone(), Arc::new(data));
         for family in fonts.families.values_mut() {
             family.push(font.name.clone());

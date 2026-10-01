@@ -56,8 +56,47 @@ pub(crate) const FALLBACK_SCRIPTS: &[(&str, char, &str)] = &[
     ("ethiopic", '\u{1200}', "ethiopic"),
     ("cherokee", '\u{13a0}', "cherokee"),
     ("yi", '\u{a248}', "yi"),
+    // Ornamental and styled characters people put in names.
+    ("javanese", '\u{a9c1}', "javanese"),
+    ("math", '\u{1d4d0}', "math"),
+    ("enclosed", '\u{24b6}', "symbol"),
     ("symbols", '\u{2605}', "symbol"),
+    ("suits", '\u{2661}', "symbol"),
 ];
+
+/// How much to enlarge an Arabic face so it reads as large as `inter`.
+///
+/// Arabic letters sit lower than Latin ones, and many system faces draw them
+/// small beside Inter. The body of heh (ه), a letter without ascenders or
+/// descenders, plays the part of the x-height. Faces already drawn to match
+/// Latin text are left alone.
+pub fn arabic_scale(inter: &[u8], bytes: &[u8], index: u32) -> f32 {
+    let height = |bytes: &[u8], index: u32, probe: char| -> Option<f32> {
+        let font = skrifa::FontRef::from_index(bytes, index).ok()?;
+        let glyph = font.charmap().map(probe)?;
+        let size = skrifa::instance::Size::unscaled();
+        let location = skrifa::instance::LocationRef::default();
+        let bounds = font.glyph_metrics(size, location).bounds(glyph)?;
+        let units = f32::from(font.metrics(size, location).units_per_em);
+        Some((bounds.y_max - bounds.y_min.max(0.0)) / units)
+    };
+    match (height(inter, 0, 'x'), height(bytes, index, '\u{0647}')) {
+        (Some(latin), Some(arabic)) if arabic > 0.0 => scale_for(latin, arabic),
+        _ => 1.0,
+    }
+}
+
+/// The scale that brings `arabic` to `latin`: never smaller, at most 25%
+/// larger so Arabic stays in proportion, and 1 for differences too small to
+/// see.
+fn scale_for(latin: f32, arabic: f32) -> f32 {
+    let scale = (latin / arabic).clamp(1.0, 1.25);
+    if scale < 1.04 {
+        1.0
+    } else {
+        (scale * 100.0).round() / 100.0
+    }
+}
 
 /// The regional cut of a pan-CJK font a locale should be shown, longest
 /// prefix first.
@@ -728,6 +767,24 @@ fn fontconfig_path(value: &str, base: &Path, home: Option<&Path>) -> Option<Path
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arabic_is_enlarged_to_latin_size_within_limits() {
+        assert!((scale_for(0.55, 0.50) - 1.1).abs() < 1e-6);
+        assert!((scale_for(0.55, 0.54) - 1.0).abs() < 1e-6, "close enough");
+        assert!((scale_for(0.55, 0.70) - 1.0).abs() < 1e-6, "never shrunk");
+        assert!((scale_for(0.55, 0.30) - 1.25).abs() < 1e-6, "at most 25%");
+        let inter = include_bytes!("../assets/fonts/InterVariable.ttf");
+        let yi = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yi/YiTest.ttf"),
+        )
+        .unwrap();
+        assert!(
+            (arabic_scale(inter, &yi, 0) - 1.0).abs() < f32::EPSILON,
+            "a face without heh is left alone"
+        );
+        assert!((arabic_scale(inter, b"not a font", 0) - 1.0).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn only_font_files_are_probed() {

@@ -22,8 +22,10 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - Restores the last track, position, context, and manually queued songs.
 - Light, dark, and system themes with optional album-art colour that fades
   between songs. On Linux, the system theme follows the desktop portal.
-- System font fallbacks for titles in scripts Inter does not cover; Windows
-  prefers its interface fonts for Arabic, Hebrew, Thai, and Indic scripts.
+- System font fallbacks for titles in scripts Inter does not cover, and for
+  the styled, circled and Javanese letters people put in names; Arabic is
+  enlarged to read as large as the Latin text around it, and Windows prefers
+  its interface fonts for Arabic, Hebrew, Thai, and Indic scripts.
 - A player-bar spectrum or waveform that follows post-EQ sound and stays
   lively at zero volume, off by default. Click empty bar space to cycle modes.
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
