@@ -193,6 +193,14 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("L", "Show the lyrics"),
     ("Esc", "Lyrics: leave full screen"),
     (
+        "Shift+↑  /  Shift+↓",
+        "Song list: extend or shrink the selection",
+    ),
+    (
+        platform_shortcut("Delete", "Delete  or  Backspace"),
+        "Remove from this playlist",
+    ),
+    (
         platform_shortcut("Ctrl+A", "Cmd+A"),
         "Song list: select all",
     ),

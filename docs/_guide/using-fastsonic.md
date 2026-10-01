@@ -26,8 +26,11 @@ playlist you can edit.
 ## Keyboard input
 
 In a playlist, album or Liked Songs, Up and Down move between songs in the
-order shown, Enter plays the focused one, and Tab reaches the controls inside
-a row. Clicking a song's row selects it and gives it the keyboard.
+order shown and select the song they land on, Shift with Up or Down extends
+or shrinks the selection, Enter plays the focused song, and Tab reaches the
+controls inside a row. Clicking a song's row selects it and gives it the
+keyboard. In a playlist you can edit, Delete (or Backspace on macOS) removes
+the selected songs.
 
 Ctrl+A (Cmd+A on macOS) selects every song the list shows, following its
 filter. Ctrl+C copies the selected songs' links, one a line, and Ctrl+V in a
