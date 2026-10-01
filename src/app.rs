@@ -3692,7 +3692,9 @@ impl App {
                     self.play_request(request, false);
                 }
                 RowContext::Queue => self.play_queue_item(index as usize, uri),
-                RowContext::View { uris, context_uri } => {
+                RowContext::View {
+                    uris, context_uri, ..
+                } => {
                     let (uris, index) = cap_uris(uris.as_ref(), index);
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
                     self.play_request(request, false);

@@ -580,6 +580,10 @@ pub enum RowContext {
     View {
         uris: Arc<[String]>,
         context_uri: String,
+        /// The playlist id when the user can edit it, enabling removal.
+        /// Screen positions no longer match server positions, so moves
+        /// stay disabled; removal is URI-based and safe.
+        editable_playlist: Option<(String, Option<String>)>,
     },
 }
 

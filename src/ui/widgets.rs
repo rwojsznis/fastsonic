@@ -322,7 +322,12 @@ pub fn menu_frame(palette: &Palette) -> egui::Frame {
 /// Context menu for actions on selected tracks.
 ///
 /// Tracks stay in table order rather than selection order.
-pub fn picked_menu(ui: &mut Ui, app: &mut App, songs: &[(String, String)]) {
+pub fn picked_menu(
+    ui: &mut Ui,
+    app: &mut App,
+    songs: &[(String, String)],
+    editable_playlist: Option<&(String, Option<String>)>,
+) {
     let palette = app.palette;
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
@@ -355,6 +360,17 @@ pub fn picked_menu(ui: &mut Ui, app: &mut App, songs: &[(String, String)]) {
         app.actions.push(Action::SetSavedMany {
             uris: uris.clone(),
             saved: !all_saved,
+        });
+    }
+    // Removal is URI-based, so one entry covers the whole selection on
+    // both the unsorted context and a sorted or filtered view. The caller
+    // only passes a playlist when every picked row shares it.
+    if let Some((playlist_id, _)) = editable_playlist
+        && menu_item(ui, &palette, Some(Icon::Minus), "Remove from this playlist")
+    {
+        app.actions.push(Action::RemoveFromPlaylist {
+            playlist_id: playlist_id.clone(),
+            uris: uris.clone(),
         });
     }
     add_to_playlist_menu(ui, app, songs);
@@ -528,12 +544,22 @@ pub fn item_menu(
         }
         add_to_playlist_menu(ui, app, &[(uri.clone(), label)]);
     }
-    if let Some(RowContext::Context {
-        editable_playlist: Some((playlist_id, _)),
-        ..
-    }) = context
-    {
-        if let Some(index) = index {
+    // Removal is URI-based, so it stays available on a sorted or
+    // filtered view. Moves are positional, so they stay on the unsorted
+    // context only, where screen positions match server positions.
+    let editable = match context {
+        Some(RowContext::Context {
+            editable_playlist: Some((playlist_id, _)),
+            ..
+        }) => Some((playlist_id, true)),
+        Some(RowContext::View {
+            editable_playlist: Some((playlist_id, _)),
+            ..
+        }) => Some((playlist_id, false)),
+        _ => None,
+    };
+    if let Some((playlist_id, can_move)) = editable {
+        if can_move && let Some(index) = index {
             if index > 0 && menu_item(ui, &palette, Some(Icon::ChevronUp), "Move up") {
                 app.actions.push(Action::MoveInPlaylist {
                     playlist_id: playlist_id.clone(),
@@ -1258,7 +1284,21 @@ fn track_row_contents(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<R
             // them; on anything else it is the ordinary single-song menu,
             // including a picked row that is the only one picked.
             if row.picked && row.picked_songs.len() > 1 {
-                picked_menu(ui, app, row.picked_songs);
+                // Every picked row shares this table's context, so one
+                // editable playlist covers the whole selection, including
+                // a sorted or filtered view where removal stays URI-based.
+                let editable = match row.context {
+                    RowContext::Context {
+                        editable_playlist: Some(playlist),
+                        ..
+                    }
+                    | RowContext::View {
+                        editable_playlist: Some(playlist),
+                        ..
+                    } => Some(playlist),
+                    _ => None,
+                };
+                picked_menu(ui, app, row.picked_songs, editable);
             } else {
                 item_menu(ui, app, row.item, Some(row.context), Some(row.index));
             }
