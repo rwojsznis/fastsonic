@@ -248,6 +248,9 @@ pub struct App {
     pub volume_preview: Option<f32>,
     /// Window geometry to restore on next attach, from the session file.
     session_window_size: Option<[f32; 2]>,
+    /// The mode to return the window to when the app closed in
+    /// fullscreen lyrics.
+    session_lyrics_fullscreen_from: Option<crate::settings::WindowMode>,
     session_window_pos: Option<[f32; 2]>,
     /// Last observed window geometry, updated each frame for saving.
     last_window_size: Option<[f32; 2]>,
@@ -522,6 +525,7 @@ impl App {
             seek_preview: None,
             volume_preview: None,
             session_window_size: session.window_size,
+            session_lyrics_fullscreen_from: session.lyrics_fullscreen_from,
             session_window_pos: session.window_pos,
             last_window_size: None,
             dialog_rect: None,
@@ -619,6 +623,12 @@ impl App {
         if let Some(tray) = &mut self.tray {
             tray.attach();
         }
+        // eframe restores the full screen fullscreen lyrics left behind when
+        // the app closed in them, without the lyrics. The mode they came
+        // from is known, or on Windows, where only fullscreen lyrics make
+        // the main window full screen and nothing else could leave it, it
+        // was an ordinary window.
+        let lyrics_left = self.session_lyrics_fullscreen_from.take();
         if self.settings.winamp_window {
             // The mini player sizes itself; the big window's geometry
             // waits here for its return. eframe may have restored the big
@@ -640,10 +650,24 @@ impl App {
             }
             return;
         }
+        let restored_full_screen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
+        let lyrics_left = lyrics_left.or_else(|| {
+            (cfg!(windows) && restored_full_screen).then(crate::settings::WindowMode::default)
+        });
+        if let Some(mode) = lyrics_left
+            && restored_full_screen
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(mode.fullscreen));
+            if mode.maximized {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            }
+        }
         // The session's geometry describes an ordinary window; applying it to
         // one eframe restored maximized or full screen would restore it down.
-        let filling_the_screen =
-            ctx.input(|input| crate::window::fills_the_screen(input.viewport()));
+        let filling_the_screen = match lyrics_left {
+            Some(mode) if restored_full_screen => mode.fullscreen || mode.maximized,
+            _ => ctx.input(|input| crate::window::fills_the_screen(input.viewport())),
+        };
         if let Some(size) = self.session_window_size.take()
             && !filling_the_screen
         {
@@ -4865,6 +4889,12 @@ impl App {
                 queue_tab: Some(self.queue_tab.encode().to_string()),
                 winamp_pos: self.winamp.last_pos.or(self.winamp.restore_pos),
                 milkdrop_pos: self.milkdrop_pos,
+                lyrics_fullscreen_from: self.lyrics_fullscreen.map(|fullscreen| {
+                    crate::settings::WindowMode {
+                        fullscreen,
+                        maximized: self.lyrics_restore_maximized,
+                    }
+                }),
             }
             .save(&self.dirs.session_file());
         }
@@ -7180,10 +7210,18 @@ mod tests {
     /// being restored down by the session's size and position.
     #[test]
     fn a_window_that_fills_the_screen_keeps_its_state_over_the_session_geometry() {
-        for (name, maximized, fullscreen) in [
-            ("maximized", Some(true), None),
-            ("full screen", None, Some(true)),
-        ] {
+        // On Windows only fullscreen lyrics make the main window full screen,
+        // so a restored full screen is left instead; see
+        // a_window_closed_in_fullscreen_lyrics_returns_to_its_previous_mode.
+        let cases: &[(&str, Option<bool>, Option<bool>)] = if cfg!(windows) {
+            &[("maximized", Some(true), None)]
+        } else {
+            &[
+                ("maximized", Some(true), None),
+                ("full screen", None, Some(true)),
+            ]
+        };
+        for &(name, maximized, fullscreen) in cases {
             let mut app = headless_app();
             app.session_window_size = Some([1024.0, 768.0]);
             app.session_window_pos = Some([100.0, 150.0]);
@@ -7213,6 +7251,103 @@ mod tests {
             );
             app.backend.shutdown();
         }
+    }
+
+    /// Closing the app in fullscreen lyrics leaves eframe to restore the
+    /// window full screen without them, and on Windows nothing else could
+    /// leave it. The next start returns it to the mode the lyrics came from.
+    #[test]
+    fn a_window_closed_in_fullscreen_lyrics_returns_to_its_previous_mode() {
+        use crate::settings::WindowMode;
+        use egui::ViewportCommand::{Fullscreen, InnerSize, Maximized};
+        let ordinary = WindowMode::default();
+        let maximized = WindowMode {
+            maximized: true,
+            ..WindowMode::default()
+        };
+        let full_screen = WindowMode {
+            fullscreen: true,
+            ..WindowMode::default()
+        };
+        for (left, expected, resized) in [
+            (Some(ordinary), vec![Fullscreen(false)], true),
+            (
+                Some(maximized),
+                vec![Fullscreen(false), Maximized(true)],
+                false,
+            ),
+            (Some(full_screen), vec![Fullscreen(true)], false),
+            // A session from before this was remembered: Windows can only
+            // have been in fullscreen lyrics, other desktops keep the state.
+            (
+                None,
+                if cfg!(windows) {
+                    vec![Fullscreen(false)]
+                } else {
+                    vec![]
+                },
+                cfg!(windows),
+            ),
+        ] {
+            let mut app = headless_app();
+            app.session_window_size = Some([1024.0, 768.0]);
+            app.session_lyrics_fullscreen_from = left;
+
+            let ctx = egui::Context::default();
+            let mut raw_input = egui::RawInput::default();
+            raw_input
+                .viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default()
+                .fullscreen = Some(true);
+            let mut output = ctx.run_ui(raw_input, |_ui| app.attach(&ctx));
+            output.textures_delta.clear();
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            let modes: Vec<_> = commands
+                .iter()
+                .filter(|command| matches!(command, Fullscreen(_) | Maximized(_)))
+                .cloned()
+                .collect();
+            assert_eq!(modes, expected, "{left:?}");
+            assert_eq!(
+                commands
+                    .iter()
+                    .any(|command| matches!(command, InnerSize(_))),
+                resized,
+                "{left:?}: an ordinary window takes the session's size back"
+            );
+            assert_eq!(app.session_lyrics_fullscreen_from, None);
+            app.backend.shutdown();
+        }
+    }
+
+    /// The session remembers fullscreen lyrics and the mode they left, and a
+    /// session file from before the field existed still loads.
+    #[test]
+    fn the_session_remembers_the_mode_fullscreen_lyrics_left() {
+        let mut app = test_app("lyrics-fullscreen-session");
+        app.lyrics_fullscreen = Some(false);
+        app.lyrics_restore_maximized = true;
+        app.save_session();
+        let session = SessionState::load(&app.dirs.session_file());
+        assert_eq!(
+            session.lyrics_fullscreen_from,
+            Some(crate::settings::WindowMode {
+                fullscreen: false,
+                maximized: true,
+            })
+        );
+
+        app.lyrics_fullscreen = None;
+        app.save_session();
+        let text = std::fs::read_to_string(app.dirs.session_file()).unwrap();
+        assert!(!text.contains("lyrics_fullscreen_from"));
+        assert_eq!(
+            SessionState::load(&app.dirs.session_file()).lyrics_fullscreen_from,
+            None
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
     }
 
     fn headless_app() -> App {

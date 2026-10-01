@@ -29,7 +29,9 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 `session.json` also keeps the window's size and position. A window left
 maximized or full screen reopens that way; the remembered size and position
 describe an ordinary window and are not applied to one that already fills the
-screen, because sizing or moving it would restore it down.
+screen, because sizing or moving it would restore it down. Quitting while
+lyrics are full screen returns the next window to the mode it had before
+them, rather than starting full screen without the lyrics.
 
 Clearing caches never signs you out. `credentials.json` contains a salted
 Subsonic token, not the password, plus a short-lived Navidrome session when
