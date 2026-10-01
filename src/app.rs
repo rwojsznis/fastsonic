@@ -2288,7 +2288,8 @@ impl App {
                         generation,
                     });
                 }
-                if !page.items.loaded_once && page.items.can_load_more() {
+                if !page.items.loaded_once && page.items.can_load_more() && page.pending_writes == 0
+                {
                     page.items.loading = true;
                     self.backend.api(ApiRequest::PlaylistItems {
                         id: id.clone(),
@@ -2484,7 +2485,11 @@ impl App {
                 }
             }
             Page::Playlist(id) => {
-                if let Some(page) = self.playlist_pages.get_mut(&id) {
+                if let Some(page) = self
+                    .playlist_pages
+                    .get_mut(&id)
+                    .filter(|page| page.pending_writes == 0)
+                {
                     let list = &mut page.items;
                     if let Some(offset) = list.next_offset.filter(|_| list.can_load_more()) {
                         list.loading = true;
@@ -2526,6 +2531,11 @@ impl App {
             Page::Artists => self.library.artists.reset(),
             Page::Playlist(id) => {
                 if let Some(playlist) = self.playlist_pages.get_mut(id) {
+                    // The last edit's answer reloads the rows; a read sent
+                    // now could undo the edits on screen.
+                    if playlist.pending_writes > 0 {
+                        return;
+                    }
                     self.load_generation += 1;
                     playlist.generation = self.load_generation;
                     playlist.items.loading = true;
@@ -2928,6 +2938,16 @@ impl App {
                 {
                     return;
                 }
+                // Read before an edit that is still on its way: the rows on
+                // screen are newer, and the edit's answer reloads them.
+                if let Some(page) = self
+                    .playlist_pages
+                    .get_mut(&id)
+                    .filter(|page| page.pending_writes > 0)
+                {
+                    page.items.loading = false;
+                    return;
+                }
                 let mut flags = Vec::new();
                 let mut adders: Vec<String> = Vec::new();
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
@@ -2995,7 +3015,7 @@ impl App {
                 if self
                     .playlist_pages
                     .get(&id)
-                    .is_none_or(|page| page.generation != generation)
+                    .is_none_or(|page| page.generation != generation || page.pending_writes > 0)
                 {
                     return;
                 }
@@ -3025,7 +3045,7 @@ impl App {
                         if let Some(Dialog::CreatePlaylist { add_uris, .. }) = self.dialog.take()
                             && !add_uris.is_empty()
                         {
-                            self.backend.api(ApiRequest::AddToPlaylist {
+                            self.send_playlist_write(ApiRequest::AddToPlaylist {
                                 playlist_id: playlist.id.clone(),
                                 playlist_name: playlist.name.clone(),
                                 uris: add_uris,
@@ -3061,17 +3081,24 @@ impl App {
                 result,
             } => {
                 self.playlist_busy = false;
+                // Rows are read again only once every edit has its answer;
+                // until then a read could come from between them.
+                let settled = self.playlist_pages.get_mut(&id).is_none_or(|page| {
+                    page.pending_writes = page.pending_writes.saturating_sub(1);
+                    page.pending_writes == 0
+                });
                 match result {
                     Ok(snapshot) => {
                         if !message.is_empty() {
                             self.toast(message);
                         }
-                        if let Some(page) = self.playlist_pages.get_mut(&id) {
-                            if let Some(playlist) = page.playlist.get_mut()
-                                && let Some(snapshot) = &snapshot
-                            {
-                                playlist.snapshot_id = Some(snapshot.clone());
-                            }
+                        if let Some(page) = self.playlist_pages.get_mut(&id)
+                            && let Some(playlist) = page.playlist.get_mut()
+                            && let Some(snapshot) = &snapshot
+                        {
+                            playlist.snapshot_id = Some(snapshot.clone());
+                        }
+                        if let Some(page) = self.playlist_pages.get_mut(&id).filter(|_| settled) {
                             // The rows on screen already show the edit; they
                             // stay until the server's copy replaces them.
                             page.items.reload();
@@ -3090,14 +3117,16 @@ impl App {
                     }
                     Err(error) => {
                         self.toast_error(format!("Playlist change failed: {error}"));
-                        if let Some(page) = self.playlist_pages.get_mut(&id) {
+                        if let Some(page) = self.playlist_pages.get_mut(&id).filter(|_| settled) {
                             page.items.reload();
                             page.contributors.clear();
                             page.tail_checked = false;
                             page.cache_complete = false;
                             page.pending_cache = None;
                         }
-                        self.ensure_loaded(Page::Playlist(id));
+                        if settled {
+                            self.ensure_loaded(Page::Playlist(id));
+                        }
                     }
                 }
             }
@@ -3670,6 +3699,12 @@ impl App {
         let mut flags = Vec::new();
         let mut adders: Vec<String> = Vec::new();
         if let Some(page) = self.playlist_pages.get_mut(id) {
+            // A cache read before an edit still on its way is older than
+            // the rows on screen.
+            if page.pending_writes > 0 {
+                page.pending_cache = None;
+                return;
+            }
             let Some((snapshot_now, total)) = page
                 .playlist
                 .get()
@@ -4146,7 +4181,7 @@ impl App {
                 uris,
             } => {
                 self.playlist_busy = true;
-                self.backend.api(ApiRequest::AddToPlaylist {
+                self.send_playlist_write(ApiRequest::AddToPlaylist {
                     playlist_id,
                     playlist_name,
                     uris,
@@ -4166,7 +4201,7 @@ impl App {
                     });
                 }
                 self.playlist_busy = true;
-                self.backend.api(ApiRequest::RemoveFromPlaylist {
+                self.send_playlist_write(ApiRequest::RemoveFromPlaylist {
                     playlist_id,
                     uris,
                     snapshot_id,
@@ -4186,7 +4221,7 @@ impl App {
                     page.items.reorder(from as usize, to as usize);
                 }
                 self.playlist_busy = true;
-                self.backend.api(ApiRequest::ReorderPlaylist {
+                self.send_playlist_write(ApiRequest::ReorderPlaylist {
                     playlist_id,
                     range_start: from,
                     insert_before: to,
@@ -4223,7 +4258,7 @@ impl App {
                     );
                 }
                 self.playlist_busy = true;
-                self.backend.api(ApiRequest::AddToPlaylist {
+                self.send_playlist_write(ApiRequest::AddToPlaylist {
                     playlist_id,
                     playlist_name: name,
                     uris,
@@ -4922,6 +4957,19 @@ impl App {
     /// comes from a playlist the account may edit. The player bar menu
     /// uses this so removal matches a row's URI-based entry; moves need
     /// a row index and stay in the playlist view.
+    /// Sends an edit of a playlist's songs, counting it against the page so
+    /// that no read of the rows is asked for or taken until it is answered.
+    fn send_playlist_write(&mut self, request: ApiRequest) {
+        if let ApiRequest::AddToPlaylist { playlist_id, .. }
+        | ApiRequest::RemoveFromPlaylist { playlist_id, .. }
+        | ApiRequest::ReorderPlaylist { playlist_id, .. } = &request
+            && let Some(page) = self.playlist_pages.get_mut(playlist_id)
+        {
+            page.pending_writes += 1;
+        }
+        self.backend.api(request);
+    }
+
     /// Whether this account may change the playlist's songs.
     pub fn can_edit_playlist(&self, playlist: &crate::api::models::Playlist) -> bool {
         self.user_id()
@@ -8665,6 +8713,114 @@ mod tests {
 
     /// Page caches stay bounded: the least recently used go first, while
     /// the open page and the playing context stay whatever their age.
+    /// Two edits on their way: a read of the rows that left before them is
+    /// not taken, Refresh waits, and only the last answer reloads the rows,
+    /// which stay on screen meanwhile.
+    #[test]
+    fn playlist_reads_wait_for_every_pending_edit() {
+        use crate::api::models::{PlaylistItem, TrackCount};
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.user = Some(User {
+            id: "me".into(),
+            ..Default::default()
+        });
+        let row = |uri: &str| PlaylistItem {
+            item: Some(PlayableItem::Track(Track {
+                uri: uri.into(),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let mut page = PlaylistPage {
+            generation: 7,
+            playlist: Loadable::Loaded(crate::api::models::Playlist {
+                id: "p".into(),
+                name: "Mine".into(),
+                owner: crate::api::models::Owner {
+                    id: Some("me".into()),
+                    ..Default::default()
+                },
+                tracks: Some(TrackCount { total: 3 }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        page.items.set_cached(vec![
+            row("sonic:track:a"),
+            row("sonic:track:b"),
+            row("sonic:track:c"),
+        ]);
+        app.playlist_pages.insert("p".into(), page);
+        let uris = |app: &App| -> Vec<String> {
+            app.playlist_pages["p"]
+                .items
+                .items
+                .iter()
+                .filter_map(|row| row.playable().map(|item| item.uri().to_string()))
+                .collect()
+        };
+        for (from, to) in [(0, 3), (0, 2)] {
+            app.apply(
+                Action::MoveInPlaylist {
+                    playlist_id: "p".into(),
+                    from,
+                    to,
+                },
+                &ctx,
+            );
+        }
+        let edited = uris(&app);
+        assert_eq!(edited, ["sonic:track:c", "sonic:track:b", "sonic:track:a"]);
+        assert_eq!(app.playlist_pages["p"].pending_writes, 2);
+        app.backend.asked_api();
+
+        // A read that left before the edits answers with the old order.
+        app.handle_api(ApiResponse::PlaylistItems {
+            id: "p".into(),
+            offset: 0,
+            generation: 7,
+            result: Ok(crate::api::models::Page {
+                items: vec![
+                    row("sonic:track:a"),
+                    row("sonic:track:b"),
+                    row("sonic:track:c"),
+                ],
+                total: 3,
+                ..Default::default()
+            }),
+        });
+        assert_eq!(
+            uris(&app),
+            edited,
+            "a read from before the edits undid them"
+        );
+        app.apply(Action::Reload(Page::Playlist("p".into())), &ctx);
+        assert!(
+            app.backend.asked_api().is_empty(),
+            "Refresh waits for the edits"
+        );
+
+        app.handle_api(ApiResponse::PlaylistItemsChanged {
+            id: "p".into(),
+            message: String::new(),
+            result: Ok(Some("first".into())),
+        });
+        assert!(
+            !app.playlist_pages["p"].items.refreshing,
+            "one edit is still out"
+        );
+        app.handle_api(ApiResponse::PlaylistItemsChanged {
+            id: "p".into(),
+            message: String::new(),
+            result: Ok(Some("second".into())),
+        });
+        let page = &app.playlist_pages["p"];
+        assert_eq!(page.pending_writes, 0);
+        assert!(page.items.refreshing, "the last answer reloads the rows");
+        assert_eq!(uris(&app), edited, "and they stay on screen meanwhile");
+    }
+
     /// A playlist cache whose snapshot matches but whose song count does not
     /// is not the list, so it is dropped and the live rows decide; one that
     /// agrees on both is adopted whole.

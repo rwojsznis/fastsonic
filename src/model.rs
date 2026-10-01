@@ -574,6 +574,9 @@ pub struct PlaylistPage {
     pub cache_complete: bool,
     /// Items read from disk, waiting for the live snapshot to confirm.
     pub pending_cache: Option<(String, Vec<PlaylistItem>)>,
+    /// Edits sent and not yet answered. Until the last answer, a read of
+    /// the rows could come from before them, so none is asked for or taken.
+    pub pending_writes: usize,
 }
 
 #[derive(Default)]

@@ -40,7 +40,10 @@ Library, search, playlists, stars, artwork, lyrics supplied by the server,
 streams, and scrobbles use Subsonic/OpenSubsonic. Playlist edits use form POST
 when necessary. Subsonic can only append to a playlist or remove rows from it,
 so a move, or a song dropped between rows, reads the playlist again and
-rewrites it whole in the new order under the same id and name. Playback requests the original file, without transcoding, so
+rewrites it whole in the new order under the same id and name. While an
+edit is on its way, Fastsonic asks for none of the playlist's rows and ignores
+any that arrive, so a read from before the edit cannot undo it on screen;
+**Refresh** waits too, and the last edit's answer reloads the rows in place. Playback requests the original file, without transcoding, so
 HTTP byte ranges remain available for seeking and the in-process decoder sees
 the library's real format.
 
