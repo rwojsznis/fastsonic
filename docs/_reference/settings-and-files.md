@@ -90,7 +90,10 @@ Close
 to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer
 either way, including when the version installed is the current one; on macOS
-the application menu asks the same question.
+the application menu asks the same question. When a newer release
+exists, a badge beside Search names it and opens its GitHub release; in a
+narrow window it shows only its icon, and hovering it gives the version, so
+Search keeps its room.
 
 ## Custom themes
 

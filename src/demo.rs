@@ -4913,6 +4913,68 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The update badge stays clear of Search: spelled out in a wide
+    /// window, an icon chip with the same accessible name once the queue
+    /// panel leaves the bar short of room.
+    #[test]
+    fn the_update_badge_stays_clear_of_search_in_a_narrow_bar() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("topbar-fit");
+        app.update = Some(crate::updates::Release {
+            version: "9.9.9".into(),
+            url: "https://github.com/rwojsznis/fastsonic/releases".into(),
+        });
+        let bounds = |tree: &egui::accesskit::TreeUpdate, label: &str, role: Role| {
+            let id = accessible_node(tree, label, role);
+            tree.nodes
+                .iter()
+                .find(|(node, _)| *node == id)
+                .and_then(|(_, node)| node.bounds())
+                .expect("a laid out control")
+        };
+        let search_field = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .filter(|(_, node)| node.role() == Role::TextInput)
+                .filter_map(|(_, node)| node.bounds())
+                .min_by(|a, b| a.y0.total_cmp(&b.y0))
+                .expect("the search field")
+        };
+        for (width, queue) in [(1600.0, false), (1000.0, true)] {
+            app.show_queue_panel = queue;
+            let draw = |app: &mut App| {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 800.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                output.textures_delta.clear();
+                output.platform_output.accesskit_update.expect("a tree")
+            };
+            draw(&mut app);
+            let tree = draw(&mut app);
+            let badge = bounds(&tree, "Update to 9.9.9", Role::Button);
+            let search = search_field(&tree);
+            assert!(
+                search.x1 <= badge.x0,
+                "at {width} px the badge starts at {} inside a field ending at {}",
+                badge.x0,
+                search.x1
+            );
+            let chip = (badge.width() - badge.height()).abs() < 1.0;
+            assert_eq!(
+                chip, queue,
+                "at {width} px the badge should be a chip: {queue}"
+            );
+        }
+        app.backend.shutdown();
+    }
+
     /// The custom order is a setting like any other: it survives the trip
     /// through the settings file, and older files without it stay in the
     /// automatic order.
