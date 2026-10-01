@@ -15,6 +15,9 @@ without a graphics driver, such as Windows on the Microsoft Basic Display
 Adapter, may not offer it, and Fastsonic then exits at startup; install the
 machine's graphics driver or enable GPU acceleration for the virtual machine.
 There is no separate software-rendering mode. MilkDrop needs OpenGL 3.3.
+The log records the OpenGL renderer each window got, and the error when one
+could not open, so a launch that shows nothing still leaves something to
+report.
 
 To build instead, with [Rust](https://rustup.rs) 1.95 or newer:
 

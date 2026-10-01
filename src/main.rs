@@ -270,6 +270,12 @@ fn main() -> eframe::Result<()> {
         Err(error) => eprintln!("not keeping a log file: {error}"),
     }
     logger.init();
+    log::info!(
+        "Starting Fastsonic {} on {} ({})",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     if let Err(error) = dirs_ready {
         log::warn!("unable to create the application directories: {error}");
     }
@@ -362,6 +368,20 @@ fn main() -> eframe::Result<()> {
             "Fastsonic",
             options,
             Box::new(move |cc| {
+                if let Some(gl) = &cc.gl {
+                    use eframe::glow::HasContext;
+                    // eframe has made this window's GL context current before
+                    // calling the app creator. These name the renderer
+                    // actually chosen, which may not be the GPU listed.
+                    unsafe {
+                        log::info!(
+                            "OpenGL renderer: {}; vendor: {}; version: {}",
+                            gl.get_parameter_string(eframe::glow::RENDERER),
+                            gl.get_parameter_string(eframe::glow::VENDOR),
+                            gl.get_parameter_string(eframe::glow::VERSION)
+                        );
+                    }
+                }
                 creator_waker.attach(&cc.egui_ctx);
                 let mut app = creator_slot
                     .lock()
@@ -387,7 +407,10 @@ fn main() -> eframe::Result<()> {
                     shot: creator_shot.clone(),
                 }))
             }),
-        )?;
+        )
+        // Launched from a desktop there is no console to see this on; the
+        // log file is where a report of a window that never opened starts.
+        .inspect_err(|error| log::error!("Native window failed: {error}"))?;
         waker.detach();
 
         let (switch, hide) = {
