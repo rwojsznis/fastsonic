@@ -14,6 +14,12 @@ the shortcut again, to return to the main window.
 Drop a `.wsz` file on either window to install and use it. Settings lists the
 installed skins and can open the skins folder.
 
+Unpacked skins can keep their files inside nested folders, up to eight levels
+below the skin's own folder, as Windows' Extract All leaves them. File names
+are matched without regard to case. If a name appears more than once, the copy
+closest to the skin's folder wins; ties use folder and file name order.
+Symbolic links are skipped.
+
 Choose **Random** in Winamp skins to pick a different installed skin each time
 the mini player opens. The built-in skin is part of the selection. Choosing a
 specific skin turns Random off.

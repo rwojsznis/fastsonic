@@ -11,7 +11,7 @@ pub mod layout;
 pub mod sprites;
 pub mod zip;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
@@ -134,13 +134,24 @@ impl Skin {
     }
 
     /// Reads an unpacked skin: a folder with the bitmaps in it.
+    /// Nested folders are searched breadth first, without following links.
+    /// The nearest copy wins; equal-depth paths are read in name order.
     pub fn from_dir(name: impl Into<String>, dir: &Path) -> Result<Self, SkinError> {
         let mut files = Files::new();
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let file_name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            if wanted(&file_name) && entry.file_type()?.is_file() {
-                files.insert(file_name, std::fs::read(entry.path())?);
+        let mut folders = VecDeque::from([(dir.to_path_buf(), 0)]);
+        while let Some((folder, depth)) = folders.pop_front() {
+            let mut entries = std::fs::read_dir(folder)?.collect::<Result<Vec<_>, _>>()?;
+            entries.sort_by_key(|entry| entry.file_name());
+            for entry in entries {
+                let kind = entry.file_type()?;
+                if kind.is_dir() && depth < MAX_SKIN_DEPTH {
+                    folders.push_back((entry.path(), depth + 1));
+                } else if kind.is_file() {
+                    let file_name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                    if wanted(&file_name) && !files.contains_key(&file_name) {
+                        files.insert(file_name, std::fs::read(entry.path())?);
+                    }
+                }
             }
         }
         Self::from_files(name.into(), files)
@@ -245,6 +256,9 @@ impl Skin {
         Some((bitmap, clipped))
     }
 }
+
+/// Bound traversal of a selected unpacked skin folder.
+pub(crate) const MAX_SKIN_DEPTH: usize = 8;
 
 /// Whether a file inside a skin is one this reader looks at, so cursors,
 /// readmes, and the equalizer's bitmaps are never inflated.
@@ -457,6 +471,71 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(skin.name, dir.file_name().unwrap().to_string_lossy());
         assert_eq!(skin.sheet(Sheet::Main).pixel(1, 1), Some([7, 7, 7, 255]));
+    }
+
+    #[test]
+    fn a_folder_skin_is_read_from_the_folder_it_was_unpacked_into() {
+        let dir = std::env::temp_dir().join(format!("fastsonic-nested-{}", std::process::id()));
+        let inner = dir.join("Some Skin");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("MAIN.BMP"), png(275, 116, [9, 9, 9])).unwrap();
+        std::fs::write(inner.join("pledit.txt"), b"[Text]\nNormal=#010203\n").unwrap();
+        let skin = Skin::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(skin.sheet(Sheet::Main).pixel(1, 1), Some([9, 9, 9, 255]));
+        assert_eq!(skin.playlist.normal, [1, 2, 3]);
+    }
+
+    #[test]
+    fn shallower_skin_files_win_across_sibling_subtrees() {
+        let dir = std::env::temp_dir().join(format!("fastsonic-skin-depth-{}", std::process::id()));
+        for folder in ["a/nested", "b", "c"] {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+        }
+        std::fs::write(dir.join("a/nested/main.bmp"), png(275, 116, [1, 0, 0])).unwrap();
+        std::fs::write(dir.join("b/MAIN.BMP"), png(275, 116, [0, 2, 0])).unwrap();
+        std::fs::write(dir.join("c/main.bmp"), png(275, 116, [0, 0, 3])).unwrap();
+        let skin = Skin::load(&dir).unwrap();
+        assert_eq!(skin.sheet(Sheet::Main).pixel(1, 1), Some([0, 2, 0, 255]));
+        std::fs::write(dir.join("main.bmp"), png(275, 116, [4, 4, 4])).unwrap();
+        let skin = Skin::load(&dir).unwrap();
+        assert_eq!(skin.sheet(Sheet::Main).pixel(1, 1), Some([4, 4, 4, 255]));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unpacked_skin_search_stops_at_its_depth_limit() {
+        let dir = std::env::temp_dir().join(format!("fastsonic-skin-limit-{}", std::process::id()));
+        let mut inner = dir.clone();
+        for _ in 0..=MAX_SKIN_DEPTH {
+            inner = inner.join("nested");
+        }
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("main.bmp"), png(275, 116, [1, 2, 3])).unwrap();
+        assert!(matches!(Skin::load(&dir), Err(SkinError::Empty)));
+        std::fs::write(
+            inner.parent().unwrap().join("main.bmp"),
+            png(275, 116, [4, 5, 6]),
+        )
+        .unwrap();
+        let skin = Skin::load(&dir).unwrap();
+        assert_eq!(skin.sheet(Sheet::Main).pixel(1, 1), Some([4, 5, 6, 255]));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unpacked_skin_search_does_not_follow_file_or_directory_links() {
+        let dir = std::env::temp_dir().join(format!("fastsonic-skin-links-{}", std::process::id()));
+        let chosen = dir.join("chosen");
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&chosen).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("main.bmp"), png(275, 116, [1, 2, 3])).unwrap();
+        std::os::unix::fs::symlink(&outside, chosen.join("linked-folder")).unwrap();
+        std::os::unix::fs::symlink(outside.join("main.bmp"), chosen.join("main.bmp")).unwrap();
+        assert!(matches!(Skin::load(&chosen), Err(SkinError::Empty)));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
