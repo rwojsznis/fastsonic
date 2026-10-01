@@ -502,6 +502,13 @@ impl MiniWindow {
     }
 }
 
+// Windows can stop drawing a window created outside the current monitors.
+// App::attach restores the saved position only once the native scale is known
+// and window::can_restore has checked its title bar against a live work area.
+fn mini_creation_position(position: Option<[f32; 2]>, on_windows: bool) -> Option<[f32; 2]> {
+    if on_windows { None } else { position }
+}
+
 const fn main_window_decorated(custom_titlebar: bool) -> bool {
     !custom_titlebar
 }
@@ -564,7 +571,7 @@ fn native_options(
                 .with_min_inner_size(mini.size)
                 .with_max_inner_size(mini.size)
                 .with_window_level(level);
-            match mini.position {
+            match mini_creation_position(mini.position, cfg!(windows)) {
                 Some([x, y]) => viewport.with_position([x, y]),
                 None => viewport,
             }
@@ -820,8 +827,19 @@ mod native_window_tests {
                 "mini geometry must not overwrite main"
             );
             assert_eq!(options.viewport.inner_size, Some(size));
-            assert_eq!(options.viewport.position, Some(egui::pos2(300.0, 200.0)));
+            assert_eq!(
+                options.viewport.position,
+                mini_creation_position(Some([300.0, 200.0]), cfg!(windows)).map(egui::Pos2::from)
+            );
             assert!(options.persistence_path.is_some());
+        }
+    }
+
+    #[test]
+    fn windows_never_creates_the_mini_player_at_an_unchecked_saved_position() {
+        for position in [Some([3560.0, 908.0]), Some([-1920.0, 100.0]), None] {
+            assert_eq!(mini_creation_position(position, true), None);
+            assert_eq!(mini_creation_position(position, false), position);
         }
     }
 
