@@ -66,8 +66,11 @@ selection/windows/equalizer, and MilkDrop. The sidebar's Library keeps
 `recently_added` or `local` where the section supports it; a section missing
 from it keeps the order it had before sorts could be chosen, and an entry this
 version does not know is ignored. `sidebar_order` is the dragged playlist
-arrangement, kept while another order is chosen, and `pinned_contexts` the
-pins, in order. On
+arrangement, an unpinned Liked Songs included, kept while another order is
+chosen, and `pinned_contexts` the pins, in order. Both name Liked Songs by
+its context URI, `sonic:collection:songs`. `liked_songs_pinned` (on by
+default) keeps Liked Songs among the pins; an older file places it first
+until it is moved. On
 Linux, Follow system reads the light or dark preference from the desktop portal.
 The theme can also be a palette file of your own; see
 [Custom themes](#custom-themes).

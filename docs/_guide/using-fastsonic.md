@@ -126,6 +126,15 @@ playlist's context menu. Any order but **Library order** loads the rest of the
 section in the background; a page that fails stops that, and choosing the
 order again retries it.
 
+Liked Songs starts pinned at the top. Drag it between pins to choose its
+place, or below them to unpin it and put it in **Custom order**; other pins
+can sit above it. Its right-click menu also offers **Unpin** and **Pin to
+top**, which adds it after your other pins. Unpinned, it follows **Name**,
+**Creator** and **Recently played** like the playlists, and returning to
+**Custom order** puts it back where you left it. The arrangement survives a
+restart, and dropping a song on Liked Songs still stars it wherever the row
+sits.
+
 ## Queue
 
 Songs added with **Add to queue** appear after songs already queued and before

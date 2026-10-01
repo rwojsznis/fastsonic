@@ -920,6 +920,12 @@ pub enum Action {
         shelf: crate::settings::LibraryShelf,
         sort: crate::settings::LibrarySort,
     },
+    /// Rearrange the Library's pins, Liked Songs' key among them.
+    ArrangeLibrary {
+        pinned: Vec<String>,
+        /// A drag outside the pin block chooses this custom playlist order.
+        playlist_order: Option<Vec<String>>,
+    },
     RestartEngine,
     ShowWindow,
     HideWindow,

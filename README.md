@@ -16,7 +16,7 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - A Library sidebar of Liked Songs, playlists, starred albums and artists to
   filter, pin, and drag into a custom order, or sort by name, creator, recent
   plays, or star date where the server records it; each section remembers its
-  order.
+  order. Liked Songs moves among the pins, or out of them, like any playlist.
 - In-process playback of the formats in your library, including FLAC, MP3,
   AAC/ALAC, Vorbis, Opus, WAV, and AIFF; gapless transitions and byte-range
   seeking.

@@ -5,7 +5,7 @@ use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Vec2, pos2, 
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::model::{Action, Dialog, DragEntry, DragTrack, Loadable, Page};
-use crate::settings::{LibraryShelf as Filter, LibrarySort};
+use crate::settings::{LIKED_SONGS_KEY, LibraryShelf as Filter, LibrarySort};
 use crate::theme::{self, Icon, Palette};
 
 const DEFAULT_ROW_HEIGHT: f32 = 60.0;
@@ -31,6 +31,39 @@ struct Entry {
     depth: u8,
     /// When it was starred, in milliseconds, for the Recently added sort.
     added_at: Option<i64>,
+}
+
+impl Entry {
+    /// The row's key among the pins and in the custom order. Liked Songs
+    /// has no URI of its own, so it goes by the starred songs' context.
+    fn ordering_key(&self) -> &str {
+        if self.liked {
+            LIKED_SONGS_KEY
+        } else {
+            &self.uri
+        }
+    }
+}
+
+fn liked_entry(app: &App) -> Entry {
+    Entry {
+        image: None,
+        name: "Liked Songs".into(),
+        subtitle: match app.library.liked.total {
+            Some(total) => format!("Playlist • {total} songs"),
+            None => "Playlist".into(),
+        },
+        creator: String::new(),
+        page: Page::LikedSongs,
+        uri: String::new(),
+        round: false,
+        liked: true,
+        owned: false,
+        playlist_index: None,
+        folder: None,
+        depth: 0,
+        added_at: None,
+    }
 }
 
 /// The order a section shows: the one chosen for it, or what it showed
@@ -117,8 +150,9 @@ fn saved_time(value: Option<&str>) -> Option<i64> {
         .map(|time| time.as_millisecond())
 }
 
-/// Orders the entries by `sort`, then lifts Liked Songs and the pins
-/// above the rest. Sorts are stable, so ties keep the server's order.
+/// Orders the entries by `sort`, then lifts the pins, Liked Songs among
+/// them while it is pinned, above the rest. Sorts are stable, so ties keep
+/// the server's order.
 fn order_entries(app: &App, sort: LibrarySort, entries: &mut [Entry]) {
     match sort {
         LibrarySort::Name => {
@@ -135,7 +169,7 @@ fn order_entries(app: &App, sort: LibrarySort, entries: &mut [Entry]) {
         LibrarySort::RecentlyPlayed => entries.sort_by_key(|entry| {
             app.recent_contexts
                 .iter()
-                .position(|held| held == &entry.uri)
+                .position(|held| held == entry.ordering_key())
                 .unwrap_or(usize::MAX)
         }),
         LibrarySort::RecentlyAdded => entries
@@ -146,7 +180,7 @@ fn order_entries(app: &App, sort: LibrarySort, entries: &mut [Entry]) {
                 .settings
                 .sidebar_order
                 .iter()
-                .position(|held| held == &entry.uri)
+                .position(|held| held == entry.ordering_key())
             {
                 Some(rank) => (1, rank),
                 None => (0, entry.playlist_index.unwrap_or(0)),
@@ -154,19 +188,11 @@ fn order_entries(app: &App, sort: LibrarySort, entries: &mut [Entry]) {
         }),
         LibrarySort::Library => {}
     }
+    let pins = app.settings.library_pins();
     entries.sort_by_key(|entry| {
-        if entry.liked {
-            (0, 0)
-        } else if let Some(rank) = app
-            .settings
-            .pinned_contexts
-            .iter()
-            .position(|held| held == &entry.uri)
-        {
-            (1, rank)
-        } else {
-            (2, 0)
-        }
+        pins.iter()
+            .position(|held| held == entry.ordering_key())
+            .unwrap_or(usize::MAX)
     });
 }
 
@@ -490,25 +516,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     let mut more_page: Option<Page> = None;
     match filter {
         Filter::Playlists => {
-            if needle.is_empty() || "liked songs".contains(&needle) {
-                entries.push(Entry {
-                    image: None,
-                    name: "Liked Songs".into(),
-                    subtitle: match app.library.liked.total {
-                        Some(total) => format!("Playlist • {total} songs"),
-                        None => "Playlist".into(),
-                    },
-                    creator: String::new(),
-                    page: Page::LikedSongs,
-                    uri: String::new(),
-                    round: false,
-                    liked: true,
-                    owned: false,
-                    playlist_index: None,
-                    folder: None,
-                    depth: 0,
-                    added_at: None,
-                });
+            let liked = liked_entry(app);
+            if needle.is_empty() || liked.name.to_lowercase().contains(&needle) {
+                entries.push(liked);
             }
             match &app.library.playlists {
                 Loadable::Loaded(playlists) => {
@@ -591,19 +601,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
 
     order_entries(app, sort, &mut entries);
     let custom_order = filter == Filter::Playlists && sort == LibrarySort::Local;
-    let pin_rank = |uri: &str| {
-        app.settings
-            .pinned_contexts
-            .iter()
-            .position(|held| held == uri)
-            .unwrap_or(usize::MAX)
-    };
-    // The zones a dragged row can land in: everything sits below Liked
-    // Songs, and the pinned entries form one block right after it.
-    let liked_rows = entries.iter().take_while(|entry| entry.liked).count();
+    // The pins form one block at the top; a dragged row lands in it or
+    // below it.
+    let pins = app.settings.library_pins();
     let pinned_rows = entries
         .iter()
-        .filter(|entry| !entry.liked && pin_rank(&entry.uri) != usize::MAX)
+        .take_while(|entry| pins.iter().any(|key| key == entry.ordering_key()))
         .count();
     let playing_context = app.playing_context_uri();
     let context_playing = app.believed_playing();
@@ -648,10 +651,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             // Calculate drop positions from fixed row height because rows shift
             // before drawing.
             let list_top = ui.cursor().top();
-            let pointer = ui
-                .ctx()
-                .pointer_latest_pos()
-                .filter(|pos| ui.clip_rect().contains(*pos));
+            let pointer = ui.ctx().pointer_latest_pos().filter(|pos| {
+                ui.clip_rect().contains(*pos) && ui.rect_contains_pointer(ui.clip_rect())
+            });
             // Tracks may drop on Liked Songs or owned playlists.
             let dragging_song = egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx());
             let drop_target = dragging_song
@@ -661,11 +663,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 .filter(|row| *row >= 0.0 && *row < entries.len() as f32)
                 .map(|row| row as usize)
                 .filter(|row| entries[*row].liked || entries[*row].owned);
-            // Sidebar entries drop between rows, never above Liked Songs.
+            // Sidebar entries, Liked Songs among them, drop between rows.
             let reordering = egui::DragAndDrop::has_payload_of_type::<DragEntry>(ui.ctx());
             let reorder_slot = reordering.then_some(pointer).flatten().map(|pos| {
-                (((pos.y - list_top) / row_height).round().max(0.0) as usize)
-                    .clamp(liked_rows, entries.len())
+                (((pos.y - list_top) / row_height).round().max(0.0) as usize).min(entries.len())
             });
             super::widgets::virtual_rows(ui, entries.len(), row_height, |ui, index| {
                 let entry = &entries[index];
@@ -674,8 +675,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 let active = entry.folder.is_none() && entry.page == current_page;
                 let playing =
                     context_playing && entry_is_playing_context(entry, playing_context.as_deref());
-                let pinned =
-                    !entry.uri.is_empty() && app.settings.pinned_contexts.contains(&entry.uri);
+                let pinned = pins.iter().any(|key| key == entry.ordering_key());
                 let (_, rect) = ui.allocate_space(vec2(ui.available_width(), row_height));
                 let id = ui.id().with((
                     "library-row",
@@ -700,15 +700,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         },
                     )
                 });
-                // Start reordering after the drag threshold. Liked Songs is fixed.
-                if !entry.liked
-                    && !entry.uri.is_empty()
+                // Start reordering after the drag threshold.
+                if !entry.ordering_key().is_empty()
                     && response.drag_started_by(egui::PointerButton::Primary)
                 {
                     egui::DragAndDrop::set_payload(
                         ui.ctx(),
                         DragEntry {
-                            uri: entry.uri.clone(),
+                            uri: entry.ordering_key().to_string(),
                             title: entry.name.clone(),
                             image: entry.image.clone(),
                         },
@@ -1001,23 +1000,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                                 &entry.name,
                                 owned_playlist.as_ref(),
                             );
-                            let pinned = app.settings.pinned_contexts.contains(&entry.uri);
-                            if super::widgets::menu_item(
-                                ui,
-                                &palette,
-                                Some(if pinned { Icon::PinOff } else { Icon::Pin }),
-                                if pinned { "Unpin" } else { "Pin to top" },
-                            ) {
-                                if pinned {
-                                    app.settings
-                                        .pinned_contexts
-                                        .retain(|held| held != &entry.uri);
-                                } else {
-                                    app.settings.pinned_contexts.push(entry.uri.clone());
-                                    app.settings.sidebar_order.retain(|held| held != &entry.uri);
-                                }
-                                app.mark_settings_dirty();
-                            }
+                            pin_menu(app, ui, entry.ordering_key());
                             if custom_order
                                 && super::widgets::menu_item(
                                     ui,
@@ -1048,6 +1031,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                                     offset_index: None,
                                 });
                             }
+                            pin_menu(app, ui, entry.ordering_key());
                         });
                 }
                 crate::autoscroll::row(ui, &response);
@@ -1061,13 +1045,13 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     y,
                     egui::Stroke::new(2.0, palette.accent),
                 );
-                if ui.input(|input| input.pointer.any_released())
+                if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
                     && let Some(drag) = egui::DragAndDrop::take_payload::<DragEntry>(ui.ctx())
                 {
                     if filter == Filter::Playlists {
-                        drop_playlist_row(app, &entries, liked_rows, pinned_rows, slot, &drag.uri);
+                        drop_playlist_row(app, &entries, pinned_rows, slot, &drag.uri);
                     } else {
-                        drop_row(app, &entries, liked_rows, pinned_rows, slot, &drag.uri);
+                        drop_row(app, &entries, pinned_rows, slot, &drag.uri);
                     }
                 }
             }
@@ -1078,77 +1062,70 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     );
 }
 
-/// A dropped playlist row lands in one of two worlds. Inside the pinned
-/// block it pins, or reorders the pins, exactly where it fell. Below the
-/// block it orders the rest: the first such drop snapshots the order on
-/// screen so nothing jumps, and rows then sit where they are put. A
-/// pinned row dropped below the block is unpinned.
-fn drop_playlist_row(
-    app: &mut App,
-    entries: &[Entry],
-    liked_rows: usize,
-    pinned_rows: usize,
-    slot: usize,
-    uri: &str,
-) {
-    let section_end = liked_rows + pinned_rows;
-    let was_pinned = app.settings.pinned_contexts.iter().any(|held| held == uri);
-    if pinned_rows > 0 && slot < section_end {
-        // Into the pinned block: the pinned entry the drop lands in front
-        // of anchors the new pin position.
-        let anchor = entries[liked_rows..section_end]
-            .iter()
-            .skip(slot.saturating_sub(liked_rows))
-            .map(|entry| entry.uri.as_str())
-            .find(|held| *held != uri)
-            .map(str::to_string);
-        let mut pinned = app.settings.pinned_contexts.clone();
-        pinned.retain(|held| held != uri);
-        let at = anchor
-            .and_then(|anchor| pinned.iter().position(|held| *held == anchor))
-            .unwrap_or(pinned.len());
-        pinned.insert(at, uri.to_string());
-        if pinned != app.settings.pinned_contexts {
-            app.settings.pinned_contexts = pinned;
-            app.settings.sidebar_order.retain(|held| held != uri);
-            app.mark_settings_dirty();
+fn pin_menu(app: &mut App, ui: &mut egui::Ui, key: &str) {
+    let mut pins = app.settings.library_pins();
+    let pinned = pins.iter().any(|held| held == key);
+    if super::widgets::menu_item(
+        ui,
+        &app.palette,
+        Some(if pinned { Icon::PinOff } else { Icon::Pin }),
+        if pinned { "Unpin" } else { "Pin to top" },
+    ) {
+        if pinned {
+            pins.retain(|held| held != key);
+        } else {
+            pins.push(key.to_string());
         }
+        app.actions.push(Action::ArrangeLibrary {
+            pinned: pins,
+            playlist_order: None,
+        });
+    }
+}
+
+/// A dropped playlist row lands in one of two worlds. Inside the pin
+/// block it pins, or reorders the pins, exactly where it fell. Below the
+/// block it unpins and orders the rest: the drop snapshots the whole
+/// order on screen so nothing jumps, and rows then sit where they are put.
+fn drop_playlist_row(app: &mut App, entries: &[Entry], pinned_rows: usize, slot: usize, key: &str) {
+    if key != LIKED_SONGS_KEY
+        && !app
+            .library
+            .playlists
+            .get()
+            .is_some_and(|playlists| playlists.iter().any(|playlist| playlist.uri == key))
+    {
         return;
     }
-    // Below the pinned block, a drop chooses the custom order and unpins
-    // the moved row.
-    if was_pinned {
-        app.settings.pinned_contexts.retain(|held| held != uri);
-        app.mark_settings_dirty();
+    if slot < pinned_rows {
+        drop_row(app, entries, pinned_rows, slot, key);
+        return;
     }
+    let mut pins = app.settings.library_pins();
+    pins.retain(|held| held != key);
     let mut order = full_playlist_order(app);
     let anchor = entries
         .iter()
         .skip(slot)
-        .filter(|entry| !entry.liked)
-        .map(|entry| entry.uri.as_str())
-        .find(|held| *held != uri)
+        .map(Entry::ordering_key)
+        .find(|held| !held.is_empty() && *held != key)
         .map(str::to_string);
-    order.retain(|held| held != uri);
+    order.retain(|held| held != key);
     let at = anchor
         .and_then(|anchor| order.iter().position(|held| *held == anchor))
         .unwrap_or(order.len());
-    order.insert(at, uri.to_string());
-    if order != app.settings.sidebar_order
-        || selected_sort(app, Filter::Playlists) != LibrarySort::Local
-    {
-        app.settings.sidebar_order = order;
-        app.settings
-            .library_sort
-            .insert(Filter::Playlists, LibrarySort::Local);
-        app.mark_settings_dirty();
-    }
+    order.insert(at, key.to_string());
+    app.actions.push(Action::ArrangeLibrary {
+        pinned: pins,
+        playlist_order: Some(order),
+    });
 }
 
-/// Every unpinned loaded playlist in the order the shelf shows them,
-/// including rows a search hides. The first drag snapshots this whole
-/// arrangement, so nothing on screen jumps and the saved order covers the
-/// library rather than the rows that happened to be visible.
+/// Every unpinned playlist, and Liked Songs while it is unpinned, in the
+/// order the shelf shows them, including rows a search hides. The first
+/// drag snapshots this whole arrangement, so nothing on screen jumps and
+/// the saved order covers the library rather than the rows that happened
+/// to be visible.
 fn full_playlist_order(app: &App) -> Vec<String> {
     let Some(playlists) = app.library.playlists.get() else {
         return Vec::new();
@@ -1159,48 +1136,39 @@ fn full_playlist_order(app: &App) -> Vec<String> {
         .enumerate()
         .map(|(index, playlist)| playlist_entry(playlist, index, user_id))
         .collect();
+    entries.push(liked_entry(app));
     order_entries(app, selected_sort(app, Filter::Playlists), &mut entries);
+    let pins = app.settings.library_pins();
     entries
-        .into_iter()
-        .map(|entry| entry.uri)
+        .iter()
+        .map(|entry| entry.ordering_key().to_string())
         // Pins live in their own list; the saved order holds the rest.
-        .filter(|uri| !app.settings.pinned_contexts.contains(uri))
+        .filter(|key| !pins.contains(key))
         .collect()
 }
 
-/// Reorders pinned albums and artists. Dropping below the pinned
-/// block unpins the row. Liked Songs never moves.
-fn drop_row(
-    app: &mut App,
-    entries: &[Entry],
-    liked_rows: usize,
-    pinned_rows: usize,
-    slot: usize,
-    uri: &str,
-) {
-    let mut pinned = app.settings.pinned_contexts.clone();
-    let section_end = liked_rows + pinned_rows;
-    if slot <= section_end {
+/// Arranges the pin block, or unpins a row dropped below it, without
+/// disturbing the pins of another shelf.
+fn drop_row(app: &mut App, entries: &[Entry], pinned_rows: usize, slot: usize, key: &str) {
+    let mut pins = app.settings.library_pins();
+    pins.retain(|held| held != key);
+    if slot <= pinned_rows {
         // The pinned entry the drop lands in front of anchors the new
         // position, so entries pinned from another shelf keep theirs.
-        let anchor = entries[liked_rows..section_end]
+        let anchor = entries[..pinned_rows]
             .iter()
-            .skip(slot - liked_rows)
-            .map(|entry| entry.uri.as_str())
-            .find(|held| *held != uri)
-            .map(str::to_string);
-        pinned.retain(|held| held != uri);
+            .skip(slot)
+            .map(Entry::ordering_key)
+            .find(|held| *held != key);
         let at = anchor
-            .and_then(|anchor| pinned.iter().position(|held| *held == anchor))
-            .unwrap_or(pinned.len());
-        pinned.insert(at, uri.to_string());
-    } else {
-        pinned.retain(|held| held != uri);
+            .and_then(|anchor| pins.iter().position(|held| held == anchor))
+            .unwrap_or(pins.len());
+        pins.insert(at, key.to_string());
     }
-    if pinned != app.settings.pinned_contexts {
-        app.settings.pinned_contexts = pinned;
-        app.mark_settings_dirty();
-    }
+    app.actions.push(Action::ArrangeLibrary {
+        pinned: pins,
+        playlist_order: None,
+    });
 }
 
 /// The purple-to-blue Liked Songs tile.
@@ -1309,6 +1277,12 @@ mod ordering_tests {
         format!("sonic:playlist:{id}")
     }
 
+    fn apply_actions(app: &mut App) {
+        for action in std::mem::take(&mut app.actions) {
+            app.apply(action, &egui::Context::default());
+        }
+    }
+
     fn rows(app: &App) -> Vec<Entry> {
         app.library
             .playlists
@@ -1362,13 +1336,15 @@ mod ordering_tests {
             .filter(|row| row.uri == uri("c") || row.uri == uri("a"))
             .rev()
             .collect();
-        drop_playlist_row(&mut app, &filtered, 0, 0, 0, &uri("a"));
+        drop_playlist_row(&mut app, &filtered, 0, 0, &uri("a"));
+        apply_actions(&mut app);
         assert_eq!(app.settings.sidebar_order, ["b", "a", "c", "d"].map(uri));
         assert_eq!(selected_sort(&app, Filter::Playlists), LibrarySort::Local);
         app.settings
             .library_sort
             .insert(Filter::Playlists, LibrarySort::Name);
-        drop_playlist_row(&mut app, &filtered, 0, 0, 0, &uri("a"));
+        drop_playlist_row(&mut app, &filtered, 0, 0, &uri("a"));
+        apply_actions(&mut app);
         assert_eq!(app.settings.sidebar_order, ["b", "a", "c", "d"].map(uri));
         assert_eq!(
             selected_sort(&app, Filter::Playlists),
@@ -1388,10 +1364,121 @@ mod ordering_tests {
         let mut entries = rows(&app);
         order_entries(&app, LibrarySort::Name, &mut entries);
         assert_eq!(ids(&entries), ["a", "b", "c", "d"]);
-        drop_playlist_row(&mut app, &entries, 0, 1, 2, &uri("a"));
-        assert!(app.settings.pinned_contexts.is_empty());
+        drop_playlist_row(&mut app, &entries, 1, 2, &uri("a"));
+        apply_actions(&mut app);
+        assert_eq!(app.settings.library_pins(), [LIKED_SONGS_KEY]);
         assert_eq!(app.settings.sidebar_order, ["b", "a", "c", "d"].map(uri));
         assert_eq!(selected_sort(&app, Filter::Playlists), LibrarySort::Local);
+        app.backend.shutdown();
+    }
+
+    fn ordered(app: &App) -> Vec<Entry> {
+        let mut entries = rows(app);
+        entries.push(liked_entry(app));
+        order_entries(app, selected_sort(app, Filter::Playlists), &mut entries);
+        entries
+    }
+
+    #[test]
+    fn liked_songs_moves_among_pins_and_keeps_its_place_once_unpinned() {
+        let mut app = app("liked-position");
+        app.settings.pinned_contexts = [uri("d"), uri("a")].to_vec();
+        let entries = ordered(&app);
+        assert_eq!(entries[0].ordering_key(), LIKED_SONGS_KEY);
+        drop_playlist_row(&mut app, &entries, 3, 2, LIKED_SONGS_KEY);
+        assert_eq!(
+            app.settings.library_pins()[0],
+            LIKED_SONGS_KEY,
+            "the view only asks; the change waits for the action"
+        );
+        apply_actions(&mut app);
+        assert_eq!(
+            app.settings.library_pins(),
+            [uri("d"), LIKED_SONGS_KEY.into(), uri("a")]
+        );
+        assert!(app.settings.sidebar_order.is_empty());
+
+        // Below the pins it unpins, and takes its place in the custom order.
+        let entries = ordered(&app);
+        drop_playlist_row(&mut app, &entries, 3, 4, LIKED_SONGS_KEY);
+        apply_actions(&mut app);
+        assert!(!app.settings.liked_songs_pinned);
+        let saved = [uri("b"), LIKED_SONGS_KEY.into(), uri("c")];
+        assert_eq!(full_playlist_order(&app), saved);
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Name);
+        assert_eq!(
+            full_playlist_order(&app),
+            [uri("b"), uri("c"), LIKED_SONGS_KEY.into()],
+            "unpinned, it sorts by name like any playlist"
+        );
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Local);
+        app.settings =
+            serde_json::from_str(&serde_json::to_string(&app.settings).unwrap()).unwrap();
+        assert_eq!(full_playlist_order(&app), saved, "a restart keeps it");
+
+        // A search hides it; dragging what is shown keeps it where it was.
+        let filtered: Vec<_> = ordered(&app)
+            .into_iter()
+            .filter(|entry| entry.uri == uri("c") || entry.uri == uri("b"))
+            .collect();
+        drop_playlist_row(&mut app, &filtered, 0, 0, &uri("c"));
+        apply_actions(&mut app);
+        assert_eq!(
+            full_playlist_order(&app),
+            [uri("c"), uri("b"), LIKED_SONGS_KEY.into()]
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn unpinned_liked_songs_follows_recent_plays_and_the_drop_position() {
+        let mut app = app("liked-sorts");
+        app.settings.liked_songs_pinned = false;
+        app.recent_contexts = vec![uri("a"), LIKED_SONGS_KEY.into(), uri("c")];
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::RecentlyPlayed);
+        assert_eq!(
+            full_playlist_order(&app),
+            [
+                uri("a"),
+                LIKED_SONGS_KEY.into(),
+                uri("c"),
+                uri("b"),
+                uri("d")
+            ]
+        );
+        // By creator it has none, so it goes last.
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Creator);
+        assert_eq!(full_playlist_order(&app).last().unwrap(), LIKED_SONGS_KEY);
+        let entries = ordered(&app);
+        drop_playlist_row(&mut app, &entries, 0, 0, LIKED_SONGS_KEY);
+        apply_actions(&mut app);
+        assert_eq!(full_playlist_order(&app)[0], LIKED_SONGS_KEY);
+        let entries = ordered(&app);
+        let end = entries.len();
+        drop_playlist_row(&mut app, &entries, 0, end, LIKED_SONGS_KEY);
+        apply_actions(&mut app);
+        assert_eq!(full_playlist_order(&app).last().unwrap(), LIKED_SONGS_KEY);
+        assert!(!app.settings.liked_songs_pinned);
+        app.backend.shutdown();
+    }
+
+    /// Only Liked Songs and playlists the Library lists can join the
+    /// playlists' order; a stale drag of something else changes nothing.
+    #[test]
+    fn a_drop_of_an_unknown_row_leaves_the_arrangement_alone() {
+        let mut app = app("unknown-drop");
+        let entries = ordered(&app);
+        app.actions.clear();
+        drop_playlist_row(&mut app, &entries, 1, 2, "sonic:album:elsewhere");
+        assert!(app.actions.is_empty());
         app.backend.shutdown();
     }
 

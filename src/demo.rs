@@ -3839,7 +3839,7 @@ mod tests {
         }
 
         // Sweep from the top: the first slot inside the list drops the
-        // dragged row right under Liked Songs. Where the list begins
+        // dragged row above Liked Songs, itself a pin. Where the list begins
         // depends on the loaded fonts, so the sweep does not hardcode it.
         let mut dropped = false;
         for step in 0..40 {
@@ -3874,7 +3874,11 @@ mod tests {
         assert!(dropped, "no sweep position landed in the pinned block");
         assert_eq!(
             app.settings.pinned_contexts,
-            vec![playlist_uri("pl4"), playlist_uri("pl2")],
+            vec![
+                playlist_uri("pl4"),
+                crate::settings::LIKED_SONGS_KEY.to_string(),
+                playlist_uri("pl2")
+            ],
         );
         assert!(app.settings.sidebar_order.is_empty());
         app.backend.shutdown();
@@ -3911,9 +3915,9 @@ mod tests {
             frame(&ctx, &mut app);
         }
 
-        // Sweep from the top; the first slot inside the list is the one
-        // right under Liked Songs, between what were the first two
-        // unpinned playlists.
+        // Sweep from the top. The first slots pin the row around Liked
+        // Songs; the first below the pins is the one between what were the
+        // first two unpinned playlists.
         let mut dropped = false;
         for step in 0..40 {
             let pos = egui::pos2(120.0, 100.0 + step as f32 * 10.0);
@@ -3942,15 +3946,184 @@ mod tests {
                 break;
             }
         }
-        assert!(dropped, "no sweep position landed below Liked Songs");
+        assert!(dropped, "no sweep position landed below the pins");
         let expected: Vec<String> = std::iter::once(4)
             .chain((0..PLAYLISTS.len()).filter(|index| *index != 4))
             .map(|index| playlist_uri(&format!("pl{index}")))
             .collect();
         assert_eq!(app.settings.sidebar_order, expected);
-        assert!(app.settings.pinned_contexts.is_empty());
+        assert_eq!(
+            app.settings.library_pins(),
+            [crate::settings::LIKED_SONGS_KEY]
+        );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The bounds of a Library row, by its screen-reader label. Only the
+    /// sidebar is searched: the same name can be a card on the page.
+    fn sidebar_row(tree: &egui::accesskit::TreeUpdate, label: &str) -> egui::Rect {
+        let bounds = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == egui::accesskit::Role::Button
+                    && node.label() == Some(label)
+                    && node.bounds().is_some_and(|bounds| bounds.x0 < 250.0)
+            })
+            .unwrap_or_else(|| panic!("missing sidebar row {label}"))
+            .1
+            .bounds()
+            .unwrap();
+        egui::Rect::from_min_max(
+            egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+            egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+        )
+    }
+
+    /// Liked Songs drags like a playlist: below the pins it unpins and takes
+    /// its place in the custom order, which a restart keeps. Its menu pins
+    /// it again after the other pins, and a song dropped on it is starred
+    /// wherever it sits.
+    #[test]
+    fn dragging_liked_songs_moves_it_and_its_menu_can_pin_it_again() {
+        use crate::settings::LIKED_SONGS_KEY;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        for compact in [false, true] {
+            let (ctx, mut app) = accessible_app(&format!("liked-drag-{compact}"));
+            app.settings.sidebar_compact = compact;
+            app.settings.pinned_contexts = vec![playlist_uri("pl2")];
+            app.settings.sidebar_order = (0..PLAYLISTS.len())
+                .filter(|index| *index != 2)
+                .map(|index| playlist_uri(&format!("pl{index}")))
+                .collect();
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let source = sidebar_row(&tree, "Liked Songs").center();
+            let target = sidebar_row(&tree, "Late night focus");
+            let target = egui::pos2(source.x, target.top() + 1.0);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(source),
+                    egui::Event::PointerButton {
+                        pos: source,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerMoved(source + egui::vec2(12.0, 0.0))],
+            );
+            assert_eq!(
+                egui::DragAndDrop::payload::<DragEntry>(&ctx).unwrap().uri,
+                LIKED_SONGS_KEY
+            );
+            accessible_frame(&ctx, &mut app, vec![egui::Event::PointerMoved(target)]);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerButton {
+                    pos: target,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            assert!(!app.settings.liked_songs_pinned);
+            assert_eq!(
+                app.settings.sidebar_order[..3],
+                [
+                    playlist_uri("pl0"),
+                    LIKED_SONGS_KEY.to_string(),
+                    playlist_uri("pl1")
+                ]
+            );
+            let expected = app.settings.sidebar_order.clone();
+            let path = app.dirs.config.join("liked-placement.json");
+            app.settings.save(&path);
+            app.settings = Settings::load(&path);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            assert_eq!(app.settings.sidebar_order, expected);
+            let top = |label| sidebar_row(&tree, label).top();
+            assert!(top("Everything ambient") < top("Liked Songs"));
+            assert!(top("Liked Songs") < top("Late night focus"));
+
+            let source = sidebar_row(&tree, "Liked Songs").center();
+            accessible_frame(
+                &ctx,
+                &mut app,
+                pointer_click(source, egui::PointerButton::Secondary),
+            );
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let pin = accessible_node(&tree, "Pin to top", Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(pin, AccessibleAction::Click, None)],
+            );
+            assert_eq!(
+                app.settings.library_pins(),
+                [playlist_uri("pl2"), LIKED_SONGS_KEY.to_string()]
+            );
+            assert!(
+                !app.settings
+                    .sidebar_order
+                    .iter()
+                    .any(|key| key == LIKED_SONGS_KEY)
+            );
+
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let source = sidebar_row(&tree, "Liked Songs").center();
+            accessible_frame(
+                &ctx,
+                &mut app,
+                pointer_click(source, egui::PointerButton::Secondary),
+            );
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let unpin = accessible_node(&tree, "Unpin", Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(unpin, AccessibleAction::Click, None)],
+            );
+            assert!(!app.settings.liked_songs_pinned);
+
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let liked = sidebar_row(&tree, "Liked Songs").center();
+            app.saved.insert(track_uri("trk0"), false);
+            egui::DragAndDrop::set_payload(
+                &ctx,
+                DragTrack {
+                    uri: track_uri("trk0"),
+                    title: "Rosewood".into(),
+                    image: None,
+                    from: None,
+                },
+            );
+            accessible_frame(&ctx, &mut app, vec![egui::Event::PointerMoved(liked)]);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerButton {
+                    pos: liked,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            assert_eq!(
+                app.is_saved(&track_uri("trk0")),
+                Some(true),
+                "a song dropped on the moved row is still starred"
+            );
+            app.backend.shutdown();
+        }
     }
 
     /// Dragging a row within an owned playlist's table moves it through

@@ -4,6 +4,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// Liked Songs' key among the Library's pins and in its custom order: the
+/// starred songs' context URI, which names the same list on every server.
+pub const LIKED_SONGS_KEY: &str = crate::api::subsonic::convert::COLLECTION_URI;
+
 /// A section of the sidebar's Library, each with its own sort.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -180,8 +184,12 @@ pub struct Settings {
     pub keep_playing_in_background: bool,
     /// Ask GitHub once a day whether a newer release exists.
     pub check_for_updates: bool,
-    /// Context URIs pinned to the top of the sidebar, in pin order.
+    /// Context URIs pinned to the top of the sidebar, Liked Songs' among
+    /// them, in pin order.
     pub pinned_contexts: Vec<String>,
+    /// Liked Songs sits in the pin block. Older settings keep it first
+    /// until it is moved or unpinned.
+    pub liked_songs_pinned: bool,
     /// The sidebar's own playlist order, set by dragging rows. Kept while
     /// another sort is selected; empty means no saved local arrangement.
     pub sidebar_order: Vec<String>,
@@ -278,6 +286,7 @@ impl Default for Settings {
             keep_playing_in_background: true,
             check_for_updates: true,
             pinned_contexts: Vec::new(),
+            liked_songs_pinned: true,
             sidebar_order: Vec::new(),
             library_sort: std::collections::BTreeMap::new(),
             zoom: 1.0,
@@ -316,6 +325,18 @@ fn default_buffer_ms() -> u32 {
 }
 
 impl Settings {
+    /// The Library's pins in order, Liked Songs' key included while it is
+    /// pinned: where it was put, or first when it was never moved.
+    pub fn library_pins(&self) -> Vec<String> {
+        let mut pins = self.pinned_contexts.clone();
+        if !self.liked_songs_pinned {
+            pins.retain(|key| key != LIKED_SONGS_KEY);
+        } else if !pins.iter().any(|key| key == LIKED_SONGS_KEY) {
+            pins.insert(0, LIKED_SONGS_KEY.into());
+        }
+        pins
+    }
+
     pub fn load(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(text) => {
@@ -610,6 +631,37 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
         assert!(restored.sidebar_compact);
+    }
+
+    #[test]
+    fn older_library_settings_keep_liked_songs_ahead_of_existing_pins() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"pinned_contexts":["sonic:playlist:one"],"sidebar_order":["sonic:playlist:two"]}"#,
+        )
+        .unwrap();
+        assert!(settings.liked_songs_pinned);
+        assert_eq!(
+            settings.library_pins(),
+            [super::LIKED_SONGS_KEY, "sonic:playlist:one"]
+        );
+        assert_eq!(settings.sidebar_order, ["sonic:playlist:two"]);
+
+        let moved = Settings {
+            pinned_contexts: vec!["sonic:playlist:one".into(), super::LIKED_SONGS_KEY.into()],
+            ..Settings::default()
+        };
+        let restored: Settings =
+            serde_json::from_str(&serde_json::to_string(&moved).unwrap()).unwrap();
+        assert_eq!(
+            restored.library_pins(),
+            ["sonic:playlist:one", super::LIKED_SONGS_KEY]
+        );
+        let unpinned = Settings {
+            liked_songs_pinned: false,
+            pinned_contexts: vec![super::LIKED_SONGS_KEY.into()],
+            ..Settings::default()
+        };
+        assert!(unpinned.library_pins().is_empty());
     }
 
     #[test]
