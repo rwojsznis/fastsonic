@@ -2773,6 +2773,147 @@ mod tests {
         }
     }
 
+    /// Holding a dragged song at the edge of a playlist scrolls it, so a song
+    /// can be moved to a row beyond the viewport; leaving the edge stops.
+    #[test]
+    fn dragging_at_playlist_edges_reaches_rows_beyond_the_viewport() {
+        for upwards in [false, true] {
+            let (ctx, mut app) = accessible_app(&format!("drag-scroll-{upwards}"));
+            app.open(Page::Playlist("pl1".into()));
+            let list = &mut app.playlist_pages.get_mut("pl1").unwrap().items;
+            // Long enough to scroll.
+            let songs = list.items.len();
+            while list.items.len() < 40 {
+                let again = list.items[list.items.len() % songs].clone();
+                list.items.push(again);
+            }
+            list.revision += 1;
+            let items = &mut list.items;
+            let count = items.len();
+            for (index, name) in [(0, "First song"), (count - 1, "Last song")] {
+                if let Some(PlayableItem::Track(track)) = &mut items[index].item {
+                    track.name = name.into();
+                }
+            }
+            let mut time = 0.0;
+            let mut draw = |app: &mut App, events, offset: Option<f32>| {
+                time += 1.0 / 60.0;
+                let mut result = None;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(760.0, 620.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let mut scroll = egui::ScrollArea::vertical()
+                            .id_salt("drag-scroll-playlist")
+                            .auto_shrink([false, false]);
+                        if let Some(offset) = offset {
+                            scroll = scroll.vertical_scroll_offset(offset);
+                        }
+                        let shown =
+                            scroll.show(ui, |ui| crate::ui::collection::playlist(app, ui, "pl1"));
+                        result = Some((shown.state.offset.y, shown.inner_rect));
+                    },
+                );
+                output.textures_delta.clear();
+                let (offset, viewport) = result.unwrap();
+                (
+                    offset,
+                    viewport,
+                    output.platform_output.accesskit_update.unwrap(),
+                )
+            };
+            let row = |tree: &egui::accesskit::TreeUpdate, name: &str| {
+                let prefix = format!("Play {name},");
+                let bounds = tree
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| {
+                        node.role() == egui::accesskit::Role::Button
+                            && node.label().is_some_and(|label| label.starts_with(&prefix))
+                    })
+                    .unwrap_or_else(|| panic!("missing {name}"))
+                    .1
+                    .bounds()
+                    .unwrap();
+                egui::Rect::from_min_max(
+                    egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                    egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+                )
+            };
+            draw(
+                &mut app,
+                vec![],
+                Some(if upwards { 100_000.0 } else { 0.0 }),
+            );
+            let (start, viewport, tree) = draw(&mut app, vec![], None);
+            let source = row(&tree, if upwards { "Last song" } else { "First song" });
+            let pos = egui::pos2(source.left() + 160.0, source.top() + 18.0);
+            assert!(viewport.contains(pos));
+            draw(
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                None,
+            );
+            draw(
+                &mut app,
+                vec![egui::Event::PointerMoved(pos + egui::vec2(12.0, 0.0))],
+                None,
+            );
+            assert!(
+                egui::DragAndDrop::has_payload_of_type::<DragTrack>(&ctx),
+                "the row must start a real drag"
+            );
+            let edge = egui::pos2(
+                pos.x,
+                if upwards {
+                    viewport.top() + 2.0
+                } else {
+                    viewport.bottom() - 2.0
+                },
+            );
+            draw(&mut app, vec![egui::Event::PointerMoved(edge)], None);
+            for _ in 0..30 {
+                draw(&mut app, vec![], None);
+            }
+            let (moved, _, _) = draw(&mut app, vec![], None);
+            assert!(
+                if upwards {
+                    start - moved > 200.0
+                } else {
+                    moved - start > 200.0
+                },
+                "holding a stationary pointer at an edge must scroll ({start} to {moved})"
+            );
+            draw(
+                &mut app,
+                vec![egui::Event::PointerMoved(viewport.center())],
+                None,
+            );
+            let (paused, _, _) = draw(&mut app, vec![], None);
+            for _ in 0..10 {
+                draw(&mut app, vec![], None);
+            }
+            let (still, _, _) = draw(&mut app, vec![], None);
+            assert_eq!(paused, still, "leaving the edge stops scrolling");
+            app.backend.shutdown();
+        }
+    }
+
     #[test]
     fn compact_track_rows_leave_a_gap_before_the_added_date_separator() {
         fn rows(app: &mut App, ui: &mut egui::Ui) {

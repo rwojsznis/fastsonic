@@ -656,6 +656,13 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             _ => None,
         })
         .flatten();
+    if move_playlist.as_ref().is_some_and(|playlist_id| {
+        egui::DragAndDrop::payload::<DragTrack>(ui.ctx())
+            .and_then(|track| track.from.as_ref().map(|(origin, _)| origin == playlist_id))
+            .unwrap_or(false)
+    }) {
+        widgets::scroll_during_drag(ui);
+    }
     // Calculate the nearest drop slot from fixed row height because virtualized
     // rows are not all available during drawing.
     let list_top = ui.cursor().top();

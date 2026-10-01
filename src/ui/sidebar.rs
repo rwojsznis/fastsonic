@@ -483,6 +483,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         .id_salt("sidebar-list")
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            if egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx())
+                || egui::DragAndDrop::has_payload_of_type::<DragEntry>(ui.ctx())
+            {
+                super::widgets::scroll_during_drag(ui);
+            }
             if loading {
                 super::widgets::loading_row(ui, &palette);
             }

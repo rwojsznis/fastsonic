@@ -1340,6 +1340,37 @@ fn track_row_fill(palette: &Palette, picked: bool, hovered: bool) -> Option<Colo
     }
 }
 
+/// Scroll the enclosing list while a held drag approaches its visible edges.
+/// Call only from a list that accepts the current payload.
+pub(crate) fn scroll_during_drag(ui: &Ui) {
+    let viewport = ui.clip_rect();
+    let Some(pos) = ui.ctx().pointer_hover_pos() else {
+        return;
+    };
+    if !ui.is_enabled()
+        || !ui.rect_contains_pointer(viewport)
+        || !ui.input(|input| input.focused && input.pointer.primary_down())
+    {
+        return;
+    }
+    let edge = 48.0_f32.min(viewport.height() / 2.0);
+    if edge <= 0.0 {
+        return;
+    }
+    let strength = if pos.y < viewport.top() + edge {
+        (viewport.top() + edge - pos.y) / edge
+    } else if pos.y > viewport.bottom() - edge {
+        -(pos.y - viewport.bottom() + edge) / edge
+    } else {
+        return;
+    };
+    // Logical pixels per second, independent of display scale and frame rate.
+    // No animation tail: moving away from the edge or dropping stops at once.
+    let delta = strength * 900.0 * ui.input(|input| input.stable_dt.min(0.05));
+    ui.scroll_with_delta_animation(vec2(0.0, delta), egui::style::ScrollAnimation::none());
+    ui.ctx().request_repaint();
+}
+
 /// The chip that rides the pointer while a song is being dragged.
 pub fn drag_ghost(ctx: &egui::Context, palette: &Palette) {
     // A song and a sidebar row ride the pointer the same way.

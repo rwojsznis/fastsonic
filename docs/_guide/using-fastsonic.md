@@ -17,7 +17,9 @@ the whole list. Clearing the filter restores the original order.
 
 Right-clicking a song in a playlist you can edit offers **Remove from this
 playlist** even when the list is sorted or filtered, since removal does not
-depend on position; with several songs picked, it removes them all. **Move
+depend on position; with several songs picked, it removes them all. Drag a
+song to the top or bottom edge of the list, or of the sidebar, to scroll it
+while you hold the song. **Move
 up**, **Move down**, and drag-reorder stay on the default order, where the
 rows on screen match the order saved on the server. Right-clicking the
 playing song in the player bar offers the same removal while it plays from a
