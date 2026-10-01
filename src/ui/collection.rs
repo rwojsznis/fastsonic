@@ -116,6 +116,9 @@ pub struct Actions<'a> {
     pub saved_icons: (Icon, Icon),
     pub saved_tooltips: (&'a str, &'a str),
     pub owned_playlist: Option<Playlist>,
+    /// A playlist page can be refreshed from its More menu, and says
+    /// whether it is loading.
+    pub reload: Option<(Page, bool)>,
     pub name: &'a str,
 }
 
@@ -240,7 +243,23 @@ pub fn actions_row(
                         uri,
                         actions.name,
                         actions.owned_playlist.as_ref(),
-                    )
+                    );
+                    if let Some((page, loading)) = &actions.reload {
+                        widgets::menu_separator(ui, &palette);
+                        let clicked = ui
+                            .add_enabled_ui(!loading, |ui| {
+                                widgets::menu_item(
+                                    ui,
+                                    &palette,
+                                    Some(Icon::Refresh),
+                                    if *loading { "Refreshing…" } else { "Refresh" },
+                                )
+                            })
+                            .inner;
+                        if clicked {
+                            app.actions.push(Action::Reload(page.clone()));
+                        }
+                    }
                 });
         }
         if let Some(filter) = filter {
@@ -929,6 +948,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
                     saved_tooltips: ("Add to Your Library", "Remove from Your Library"),
                     owned_playlist: owned.then_some(playlist_clone),
+                    reload: Some((Page::Playlist(id.to_string()), page.items.loading)),
                     name: &playlist.name,
                 },
                 Some(&mut page.filter),
@@ -1029,6 +1049,7 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
                     saved_tooltips: ("Save to Your Library", "Remove from Your Library"),
                     owned_playlist: None,
+                    reload: None,
                     name: &album.name,
                 },
                 None,
@@ -1225,6 +1246,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             saved_icons: (Icon::Heart, Icon::HeartFilled),
             saved_tooltips: ("", ""),
             owned_playlist: None,
+            reload: None,
             name: "Liked Songs",
         },
         Some(&mut filter),
@@ -1362,6 +1384,83 @@ mod tests {
         assert_eq!(view_context(&base, None), base);
     }
 
+    /// Refresh lives in a playlist's More menu, and is disabled while the
+    /// playlist is loading.
+    #[test]
+    fn playlist_refresh_lives_in_the_more_menu() {
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, Role, TreeId};
+        for loading in [false, true] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            theme::install(&ctx);
+            let mut app = test_app();
+            let mut frame = |events| {
+                app.actions.clear();
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(800.0, 520.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        actions_row(
+                            &mut app,
+                            ui,
+                            Actions {
+                                play_uri: Some("sonic:playlist:test".into()),
+                                view: None,
+                                saved: None,
+                                saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
+                                saved_tooltips: ("", ""),
+                                owned_playlist: None,
+                                reload: Some((Page::Playlist("test".into()), loading)),
+                                name: "Test",
+                            },
+                            None,
+                        )
+                    },
+                );
+                output.textures_delta.clear();
+                (
+                    output.platform_output.accesskit_update.unwrap(),
+                    std::mem::take(&mut app.actions),
+                )
+            };
+            let click = |node| {
+                egui::Event::AccessKitActionRequest(ActionRequest {
+                    target_tree: TreeId::ROOT,
+                    target_node: node,
+                    action: AccessibleAction::Click,
+                    data: None,
+                })
+            };
+            let find = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+                tree.nodes
+                    .iter()
+                    .find(|(_, node)| node.label() == Some(label) && node.role() == Role::Button)
+                    .map(|(id, node)| (*id, node.is_disabled()))
+            };
+            frame(vec![]);
+            let (tree, _) = frame(vec![]);
+            let (more, _) = find(&tree, "More").expect("the More button");
+            frame(vec![click(more)]);
+            let (tree, _) = frame(vec![]);
+            let label = if loading { "Refreshing…" } else { "Refresh" };
+            let (refresh, disabled) = find(&tree, label).expect("Refresh in the More menu");
+            assert_eq!(disabled, loading);
+            let (_, actions) = frame(vec![click(refresh)]);
+            assert_eq!(
+                matches!(actions.as_slice(), [Action::Reload(Page::Playlist(id))] if id == "test"),
+                !loading,
+                "{actions:?}"
+            );
+            app.backend.shutdown();
+        }
+    }
+
     #[test]
     fn collection_shuffle_button_changes_mode_without_starting_playback() {
         let ctx = egui::Context::default();
@@ -1386,6 +1485,7 @@ mod tests {
                         saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
                         saved_tooltips: ("", ""),
                         owned_playlist: None,
+                        reload: None,
                         name: "Test",
                     },
                     None,

@@ -29,6 +29,9 @@ Ctrl, Cmd and Alt arrow keys move the caret while a text field has focus.
 Playback and navigation shortcuts on those keys remain available from song
 rows and other controls.
 
+Choose **Refresh** in a playlist's **…** menu to read it from the server
+again, for instance after another app changed it.
+
 ## Sidebar order
 
 Click a playlist, album or artist in the sidebar to open it; double-click it
