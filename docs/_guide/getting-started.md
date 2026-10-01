@@ -9,6 +9,13 @@ signed, so Gatekeeper and SmartScreen will both object on first open; the
 release notes say what to do about it. There is no Homebrew tap and no AUR
 package.
 
+Fastsonic draws its window with OpenGL 2.0 or newer, which the graphics
+driver of any current PC or Mac provides. A virtual machine or remote session
+without a graphics driver, such as Windows on the Microsoft Basic Display
+Adapter, may not offer it, and Fastsonic then exits at startup; install the
+machine's graphics driver or enable GPU acceleration for the virtual machine.
+There is no separate software-rendering mode. MilkDrop needs OpenGL 3.3.
+
 To build instead, with [Rust](https://rustup.rs) 1.95 or newer:
 
 ```sh
