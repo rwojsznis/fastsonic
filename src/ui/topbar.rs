@@ -292,7 +292,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     let galley =
                         ui.painter()
                             .layout_no_wrap(label, theme::medium(12.5), palette.accent);
-                    let size = galley.size() + vec2(28.0, 12.0);
+                    // The text starts 24 px in; leave 8 px after it to match
+                    // the space before the icon.
+                    let size = galley.size() + vec2(32.0, 12.0);
                     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
                     ui.painter().rect_filled(
                         rect,
