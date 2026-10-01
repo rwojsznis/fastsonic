@@ -229,7 +229,35 @@ fn format_now_playing(snapshot: &str) -> String {
     }
 }
 
+#[cfg(target_os = "linux")]
+const PULSEAUDIO_PROPERTIES: [(&str, &str); 2] = [
+    ("PULSE_PROP_application.name", "Fastsonic"),
+    ("PULSE_PROP_stream.description", "Music playback"),
+];
+
+#[cfg(target_os = "linux")]
+fn missing_pulseaudio_properties(
+    mut is_set: impl FnMut(&str) -> bool,
+) -> impl Iterator<Item = (&'static str, &'static str)> {
+    PULSEAUDIO_PROPERTIES
+        .into_iter()
+        .filter(move |(key, _)| !is_set(key))
+}
+
+/// Names the stream for mixers when ALSA plays through PulseAudio's plugin,
+/// which otherwise leaves both names to guess. Values set by the launcher or
+/// the user are kept.
+#[cfg(target_os = "linux")]
+fn configure_pulseaudio_properties() {
+    for (key, value) in missing_pulseaudio_properties(|key| std::env::var_os(key).is_some()) {
+        // SAFETY: main calls this first, before any thread exists.
+        unsafe { std::env::set_var(key, value) };
+    }
+}
+
 fn main() -> eframe::Result<()> {
+    #[cfg(target_os = "linux")]
+    configure_pulseaudio_properties();
     // A MilkDrop child launch is a bare visualiser window, not the app: it has
     // its own event loop and OpenGL context, reads the sound from a shared
     // buffer, and never touches the app's state. Handle it before anything
@@ -927,6 +955,20 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod native_window_tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_metadata_defaults_preserve_existing_properties() {
+        let defaults = missing_pulseaudio_properties(|_| false).collect::<Vec<_>>();
+        assert_eq!(defaults, PULSEAUDIO_PROPERTIES);
+        let defaults = missing_pulseaudio_properties(|key| key == "PULSE_PROP_application.name")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            defaults,
+            [("PULSE_PROP_stream.description", "Music playback")]
+        );
+        assert_eq!(missing_pulseaudio_properties(|_| true).count(), 0);
+    }
 
     #[test]
     fn only_the_main_window_persists_framework_geometry() {

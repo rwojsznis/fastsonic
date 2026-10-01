@@ -57,7 +57,12 @@ The audio engine runs outside the UI thread. It reads the HTTP stream through
 a bounded on-disk block cache, decodes and resamples it, applies ReplayGain and
 the equalizer, sends post-EQ/pre-volume samples to the visualisers, then sends
 the volume-adjusted signal to the selected local output device. The queue is
-owned by this engine and does not exist on the server.
+owned by this engine and does not exist on the server. On Linux, when ALSA
+plays through PulseAudio's plugin, including PipeWire's PulseAudio server, the
+stream is named **Fastsonic** with **Music playback** as its description, so
+mixers and audio processors can identify and route it; explicit
+`PULSE_PROP_application.name` and `PULSE_PROP_stream.description` values take
+precedence. PipeWire's own ALSA plugin names the stream after the program.
 
 ## Other outbound traffic
 
