@@ -49,6 +49,16 @@ git config --add remote.upstream.fetch "+refs/tags/*:refs/tags/upstream/*"
 entries in `.gitattributes` are inert and you resolve prose and packaging by
 hand.
 
+The driver applies to every three-way merge, not only to upstream syncs. A
+`cherry-pick` or `rebase` of this fork's own commits that touch README.md or
+`docs/**` keeps `main`'s copy of those files without a conflict, silently
+dropping the commit's documentation. Move the fork's own commits with a real
+text merge instead, and compare `git show --stat` before and after:
+
+```sh
+git -c merge.ours.driver="git merge-file --marker-size=%L %A %O %B" cherry-pick <commit>
+```
+
 ## Tags
 
 Upstream's release points arrive as `upstream/v0.6.0`, not `v0.6.0`. Without
@@ -200,3 +210,97 @@ integration, and version metadata remain excluded. Larger portable features
 whose implementations are coupled to upstream's rewritten Spotify app state
 (finite collection scrolling, settings search, window restoration, and
 Windows middle-button autoscroll) need separate Fastsonic-native ports.
+
+## Sync through upstream 0.11.2
+
+`upstream/v0.11.2` is recorded as the second parent of the Fastsonic sync
+commit. The 0.9.0 merge, and the fork's 0.10 and 0.11 releases after it, had
+left no record here, and this sync also audited what earlier merges marked as
+merged: the 0.8.0 and 0.9.0 merges had recorded about fifty portable upstream
+commits without taking them, and the 0.6.0 merge one. Those are taken now and
+listed first. The early syncs (0.5.0 to 0.7.1) were checked commit by commit
+and had dropped nothing else.
+
+Recovered from the 0.6.0, 0.8.0 and 0.9.0 ranges:
+
+- Library: persistent sort choices (`475a2d1`), Liked Songs that moves among
+  the pins (`426ed0c`), a lit row for what is playing (`40e9ca6`),
+  double-click to play a row (`27c6fab`), missing card menus (`78de9a8`),
+  Refresh in a playlist's More menu (`6f1c4ea`), edge scrolling while dragging
+  (`c374028`) and loading transitions with softened covers (`9f5a273`,
+  `d1f093a`).
+- Playlists: dragging the playing song (`8049ccc`), dropping songs between an
+  open playlist's rows (`bac3fcd`), dragging a whole selection (`87d29eb`),
+  arrow keys that stay on song rows (`f2a591d`), refreshes that wait for
+  pending edits (`1e7beb8`), caches checked against the song count
+  (`05473ec`), and cache files streamed through a buffer (`a07a8a5`,
+  `b4de066`) sharing downloaded artwork (`edef8f0`).
+- Queue and playback: albums queued as their songs and repeated songs kept
+  in a batch (`5b8c1a4`, `8ea2b99`), filtered collections that play as their
+  matching songs (`6ede8af`), Recent rows that play their named song and keep
+  repeated short plays (`d0f8c4d`, `1c1586b`), and `fastsonic like` on Linux
+  (`8eab887`).
+- Windows and macOS windows: taskbar transport buttons (`fab4aa1`), a mini
+  player without a taskbar button (`23bbb78`), middle-click autoscroll
+  (`2ecbb4d`), the tray raising the window (`5eb054e`), maximized windows and
+  the mini player's position restored safely (`119e7a5`, `09d7f17`,
+  `a2c541f`) and a demo kept out of real window state (`20b7619`).
+- Linux: always-on-top explained on Wayland (`2e9cc74`) and a named audio
+  stream (`116105f`).
+- Interface: Search kept clear of the update badge (`0bea123`, `1831928`, net),
+  hideable Home shelves (`23c3a20`), local theme palettes without Omarchy
+  (`ee16697`, `3e0f66d`, `125f052`), the system theme in new profiles
+  (`b50be6e`), text-field editing menus (`1be1d77`), aligned submenus
+  (`4294e55`), fallback baselines and graphics diagnostics (`46dc449`,
+  `518f138`), EP labels and malformed dates (`01beed5`, `7b0a6ff`), compact
+  artist credits (`75d98ac`), the update badge padding (`b6fe7c7`), stale
+  library pages ignored (`b243f89`), bounded page caches (`b8250c7`), and the
+  native media controls' artwork downloaded when no view has it (`0800158`,
+  which the 0.7.1 section above had taken as already satisfied).
+
+Taken from 0.9.0 to 0.11.2: the rest of the work since the last record,
+among it radio pages through `getSimilarSongs` (`057cbbe`, `7ea2b29`), X11
+taskbar hiding (`2cc5e43`), Linux middle-click autoscroll as an option
+(`80b2e0b`), reordering Playing next and dropping on the Queue button
+(`28384eb`, as engine commands and queue rule 10), the Library grid with its
+300-pixel covers and narrow-heading fix (`73463cf`, `5e7f96b`, `c9f60e1`),
+palette names and the bundled palettes (`e1ee031`, `2e7c150`, `929a213`), the
+desktop's text rendering (`84a295f`, ported from fastframe-text rather than
+taken as a dependency), nested skin folders, the macOS Dock menu and
+title-bar double-click, MPRIS volume, credential redaction in errors, the
+optional custom Windows title bar, vsync where a hidden window cannot block,
+and the fixes listed in each commit's own message, which names its upstream
+commit.
+
+Declined:
+
+- The fastframe crates and the egui and winit forks they ride on (`2ffa478`,
+  `9a9c2c6`, `3bdc4ee`, `8840cbe`, `cd0bf03`, `fe8e0d3`, `a792a5b`,
+  `aca81b8`, `8646630`, `554a313`, `e3251d7`), and what only they make
+  possible: colour emoji (`3458210`, `f92da57`) and the Hyprland paste fix
+  (`9f294ad`), which repairs the winit fork's Wayland file drops that stock
+  winit does not have.
+- Translations and the language setting (`880f3dd`, `872f426`, `b8ea5ad`,
+  `fd49fe0`, `21f94c2`, `eee78da`), Omarchy (`14ae8e2` and the Omarchy halves
+  of `ee16697` and `b50be6e`) and proxy settings (`a50347b`, apart from its
+  accessible sign-in button, and `7ec0f17`).
+- Spotify: remote devices (`7d07fe9`), access points (`caef305`), podcasts
+  and episodes (`add8df6`, `cffda94`, `03ea765`), the personal app
+  (`040c6e6`), Google Cast (`5bb82bd`), and Spotify-order and play-count
+  prose (`9a906a7`, `e3a615a`).
+- Branding and distribution: the icon refresh (`a0f4403`, `4666bcb`,
+  `f01ce11`), AppImage (`41f8699`, `85b01ea`), the Spotifast rename and
+  repository policy (`06bc3cf`, `dbde4f4`), website, launch film, release
+  notes and versions, packaging, Homebrew, AUR, Nix and CI changes, and the
+  author credit and sibling-app mentions (`910bc50`, `7e2d6c5`, `028036d`).
+- Already true here, or not applicable: running without an audio output
+  (`99ce5b4`), incremental playlist checkpoints and row appends (`ecab818`,
+  `4d73105`; Subsonic sends a playlist whole), cached sort keys (`c6e6e13`),
+  the Date added column (`befa5e3`), the Go to song control (`d58fc2a`),
+  naming the next song on Next (`eaabab4`), glyph-level right-to-left
+  reordering fixes (`7c3031a`, `74a4bae`; the fork reorders text before
+  shaping), whole-pixel Inter (`092a9a7`, which `84a295f` replaced), the
+  tinted-page fade (`a8c70b4`; the fade is off on every page), the shelf
+  scroll-bar pair that reverted itself (`9754bd3`, `d4c3f56`), and the
+  fallback-font log (`0ce65a1`).
+
