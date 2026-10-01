@@ -214,7 +214,7 @@ impl Album {
     pub fn year(&self) -> Option<&str> {
         self.release_date
             .as_deref()
-            .map(|date| &date[..date.len().min(4)])
+            .map(|date| date.get(..4).unwrap_or(date))
     }
 
     pub fn kind_label(&self) -> &'static str {
@@ -680,6 +680,22 @@ impl PlayRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_albums_year_reads_any_date_without_panicking() {
+        let dated = |date: &str| Album {
+            release_date: Some(date.into()),
+            ..Album::default()
+        };
+        assert_eq!(dated("2024-03-15").year(), Some("2024"));
+        assert_eq!(dated("2024").year(), Some("2024"));
+        // Shorter than a year, which `min` was there to hold.
+        assert_eq!(dated("20").year(), Some("20"));
+        // A date whose fourth byte is inside a character. `min` clamps the
+        // length and says nothing about boundaries, so this used to panic.
+        assert_eq!(dated("\u{c791}\u{b144}").year(), Some("\u{c791}\u{b144}"));
+        assert_eq!(Album::default().year(), None);
+    }
 
     #[test]
     fn playlist_items_accept_both_item_and_track_keys() {
