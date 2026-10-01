@@ -25,7 +25,7 @@ use fastsonic::backend::{
     AlbumShelf, ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback,
     RecentsFor, SignInRequest, Waker,
 };
-use fastsonic::engine::{LoadSpec, LocalState, Playback, PlayerCommand, QueueSnapshot};
+use fastsonic::engine::{LoadSpec, LocalState, Playback, PlayerCommand, QueueSnapshot, RepeatMode};
 use fastsonic::paths::AppDirs;
 
 /// How long any one answer is waited for. Everything here is one request to
@@ -502,6 +502,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     println!("\n-- sign out");
+    // A level set in this session is the one the next sign-in plays at.
+    let level = u16::MAX / 20;
+    probe.backend.player(PlayerCommand::Volume(level));
+    probe.until_local(move |state| state.volume == level)?;
     probe.backend.send(Command::SignOut);
     let signed_out = loop {
         match probe.next_auth()? {
@@ -525,6 +529,29 @@ fn main() -> anyhow::Result<()> {
         "signing out forgets the credential",
         !dirs.credentials_file().exists(),
     );
+
+    println!("\n-- sign in again");
+    probe.backend.send(Command::SignIn(Box::new(SignInRequest {
+        server: server.clone(),
+        username: username.clone(),
+        password: Some(password.clone()),
+    })));
+    loop {
+        if matches!(probe.next_playback()?, LocalPlayback::Ready) {
+            break;
+        }
+    }
+    // Earlier sessions' states are still in hand; only the new engine has
+    // been told to repeat.
+    probe
+        .backend
+        .player(PlayerCommand::Repeat(RepeatMode::Track));
+    let again = probe.until_local(|state| state.repeat == RepeatMode::Track)?;
+    probe.check(
+        "the new session plays at the level the last one was left at",
+        again.volume == level,
+    );
+    probe.backend.send(Command::SignOut);
 
     probe.backend.shutdown();
     let _ = std::fs::remove_dir_all(&scratch);

@@ -887,7 +887,7 @@ impl Worker {
     }
 
     fn sign_out(&mut self) {
-        if let Some(engine) = self.engine.take() {
+        if let Some(engine) = self.take_engine() {
             engine.shutdown();
         }
         self.signing_in = false;
@@ -924,6 +924,15 @@ impl Worker {
                 waker.wake();
             }
         })
+    }
+
+    /// Takes the engine down, keeping the level it plays at for the next
+    /// one: `engine_config` alone knows only the level from launch or the
+    /// last restart, so signing out and in again at 5% came back at 80%.
+    fn take_engine(&mut self) -> Option<Arc<Engine>> {
+        let engine = self.engine.take()?;
+        self.engine_config.initial_volume = engine.state().volume;
+        Some(engine)
     }
 
     /// Brings the engine up against the credential the client is holding.
@@ -968,7 +977,7 @@ impl Worker {
             .as_ref()
             .zip(before.as_ref())
             .and_then(|(engine, state)| crate::engine::state::carry_over(state, &engine.queue()));
-        if let Some(engine) = self.engine.take() {
+        if let Some(engine) = self.take_engine() {
             engine.shutdown();
         }
         self.start_engine();
