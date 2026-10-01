@@ -348,7 +348,9 @@ fn install_fonts(ctx: &egui::Context) {
 ///
 /// epaint places a fallback glyph by centring the two faces' line boxes:
 ///
-///     glyph.pos.y = fallback.ascent + 0.5 * (primary.row_height - fallback.row_height)
+/// ```text
+/// glyph.pos.y = fallback.ascent + 0.5 * (primary.row_height - fallback.row_height)
+/// ```
 ///
 /// A face with other vertical metrics, such as Hiragino Sans on macOS with
 /// its 0.5 em line gap, then sits above or below the Latin text beside it.
