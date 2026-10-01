@@ -103,7 +103,10 @@ fn main() -> anyhow::Result<()> {
     probe.check("the account answered", me.is_ok());
 
     println!("\n-- the pages ask, the way app.rs asks");
-    probe.backend.api(ApiRequest::MyPlaylists { offset: 0 });
+    probe.backend.api(ApiRequest::MyPlaylists {
+        offset: 0,
+        generation: 1,
+    });
     let playlists = probe.next_api(|response| match response {
         ApiResponse::MyPlaylists { result, .. } => Some(result),
         _ => None,
@@ -112,7 +115,10 @@ fn main() -> anyhow::Result<()> {
     // is the sidebar loading, and an empty sidebar is a legitimate answer.
     probe.check("the playlist sidebar loads", playlists.is_ok());
 
-    probe.backend.api(ApiRequest::SavedTracks { offset: 0 });
+    probe.backend.api(ApiRequest::SavedTracks {
+        offset: 0,
+        generation: 1,
+    });
     let saved = probe.next_api(|response| match response {
         ApiResponse::SavedTracks { result, .. } => Some(result),
         _ => None,

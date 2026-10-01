@@ -380,6 +380,14 @@ impl<T> CursorList<T> {
 pub struct Library {
     pub playlists: Loadable<Vec<Playlist>>,
     pub playlists_next: Option<u32>,
+    /// Which load of the playlists an answer belongs to. Following,
+    /// creating or editing a playlist reloads them from the top, and an
+    /// answer to an earlier load must not replace the newer list.
+    pub playlists_generation: u64,
+    /// Which account the starred songs, albums and artists were asked for.
+    /// Kept across sign-out, so a late page cannot land in the next
+    /// account's lists.
+    pub generation: u64,
     pub liked: PagedList<SavedTrack>,
     pub albums: PagedList<SavedAlbum>,
     pub artists: CursorList<Artist>,

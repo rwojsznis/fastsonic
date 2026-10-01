@@ -1131,7 +1131,11 @@ impl App {
     }
 
     fn reset_data(&mut self) {
-        self.library = Library::default();
+        self.library = Library {
+            generation: self.library.generation + 1,
+            playlists_generation: self.library.playlists_generation + 1,
+            ..Library::default()
+        };
         self.home = HomeData::default();
         self.playlist_pages.clear();
         self.album_pages.clear();
@@ -2094,7 +2098,11 @@ impl App {
         }
         self.library.playlists = Loadable::Loading;
         self.library.playlists_next = None;
-        self.backend.api(ApiRequest::MyPlaylists { offset: 0 });
+        self.library.playlists_generation += 1;
+        self.backend.api(ApiRequest::MyPlaylists {
+            offset: 0,
+            generation: self.library.playlists_generation,
+        });
     }
 
     pub fn ensure_loaded(&mut self, page: Page) {
@@ -2309,14 +2317,20 @@ impl App {
                 let list = &mut self.library.liked;
                 if let Some(offset) = list.next_offset.filter(|_| list.can_load_more()) {
                     list.loading = true;
-                    self.backend.api(ApiRequest::SavedTracks { offset });
+                    self.backend.api(ApiRequest::SavedTracks {
+                        offset,
+                        generation: self.library.generation,
+                    });
                 }
             }
             Page::Albums => {
                 let list = &mut self.library.albums;
                 if let Some(offset) = list.next_offset.filter(|_| list.can_load_more()) {
                     list.loading = true;
-                    self.backend.api(ApiRequest::SavedAlbums { offset });
+                    self.backend.api(ApiRequest::SavedAlbums {
+                        offset,
+                        generation: self.library.generation,
+                    });
                 }
             }
             Page::Artists => {
@@ -2325,6 +2339,7 @@ impl App {
                     list.loading = true;
                     self.backend.api(ApiRequest::FollowedArtists {
                         after: list.after.clone(),
+                        generation: self.library.generation,
                     });
                 }
             }
@@ -2352,7 +2367,10 @@ impl App {
             }
             Page::Home => {
                 if let Some(offset) = self.library.playlists_next.take() {
-                    self.backend.api(ApiRequest::MyPlaylists { offset });
+                    self.backend.api(ApiRequest::MyPlaylists {
+                        offset,
+                        generation: self.library.playlists_generation,
+                    });
                 }
             }
             _ => {}
@@ -2691,7 +2709,13 @@ impl App {
                 }
                 self.home.shelf_mut(shelf).refresh(result);
             }
-            ApiResponse::MyPlaylists { offset, result } => match result {
+            ApiResponse::MyPlaylists { generation, .. }
+                if generation != self.library.playlists_generation => {}
+            ApiResponse::SavedTracks { generation, .. }
+            | ApiResponse::SavedAlbums { generation, .. }
+            | ApiResponse::FollowedArtists { generation, .. }
+                if generation != self.library.generation => {}
+            ApiResponse::MyPlaylists { offset, result, .. } => match result {
                 Ok(page) => {
                     let next_offset = page.next_offset();
                     match &mut self.library.playlists {
@@ -2936,7 +2960,7 @@ impl App {
                     self.load_playlists();
                 }
             },
-            ApiResponse::SavedTracks { offset, result } => {
+            ApiResponse::SavedTracks { offset, result, .. } => {
                 match result {
                     Ok(page) => {
                         for item in &page.items {
@@ -2951,7 +2975,7 @@ impl App {
                     self.load_more(Page::LikedSongs);
                 }
             }
-            ApiResponse::SavedAlbums { offset, result } => match result {
+            ApiResponse::SavedAlbums { offset, result, .. } => match result {
                 Ok(page) => {
                     for item in &page.items {
                         self.saved.insert(item.album.uri.clone(), true);
@@ -2960,7 +2984,7 @@ impl App {
                 }
                 Err(error) => self.library.albums.fail(error.to_string()),
             },
-            ApiResponse::FollowedArtists { after, result } => {
+            ApiResponse::FollowedArtists { after, result, .. } => {
                 let list = &mut self.library.artists;
                 list.loading = false;
                 list.loaded_once = true;
@@ -7080,6 +7104,67 @@ mod tests {
                     | egui::ViewportCommand::Maximized(_)
             )),
             "the retiring main window must keep its geometry: {commands:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A reload of the playlists, after following or editing one, asks
+    /// from the top; an answer to the load before it must not replace the
+    /// newer list. Signing out keeps the count going, so a page the old
+    /// account asked for stays out of the next account's lists.
+    #[test]
+    fn library_answers_to_an_earlier_load_or_account_are_ignored() {
+        use crate::api::models::Page as ApiPage;
+        let mut app = headless_app();
+        let playlist = |id: &str| crate::api::models::Playlist {
+            id: id.into(),
+            uri: format!("sonic:playlist:{id}"),
+            ..crate::api::models::Playlist::default()
+        };
+        fn page<T>(items: Vec<T>) -> ApiPage<T> {
+            ApiPage {
+                total: items.len() as u32,
+                items,
+                limit: 0,
+                offset: 0,
+                next: None,
+            }
+        }
+        app.load_playlists();
+        let earlier = app.library.playlists_generation;
+        app.library.playlists = Loadable::NotLoaded;
+        app.load_playlists();
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: app.library.playlists_generation,
+            result: Ok(page(vec![playlist("new")])),
+        });
+        app.handle_api(ApiResponse::MyPlaylists {
+            offset: 0,
+            generation: earlier,
+            result: Ok(page(vec![playlist("old")])),
+        });
+        let ids: Vec<&str> = app
+            .library
+            .playlists
+            .get()
+            .unwrap()
+            .iter()
+            .map(|playlist| playlist.id.as_str())
+            .collect();
+        assert_eq!(ids, ["new"], "the earlier load's answer is stale");
+
+        let account = app.library.generation;
+        app.reset_data();
+        assert!(app.library.generation > account);
+        app.handle_api(ApiResponse::SavedAlbums {
+            offset: 0,
+            generation: account,
+            result: Ok(page(vec![crate::api::models::SavedAlbum::default()])),
+        });
+        assert!(
+            app.library.albums.items.is_empty(),
+            "the old account's page"
         );
         app.backend.shutdown();
     }

@@ -128,8 +128,13 @@ pub enum ApiRequest {
         shelf: AlbumShelf,
         generation: u64,
     },
+    /// The whole list in one answer: `getPlaylists` has no paging, so a
+    /// slice of it would cost the whole request each time.
     MyPlaylists {
         offset: u32,
+        /// `Library::playlists_generation` when asked; a reload or a
+        /// sign-out makes an answer to an older one stale.
+        generation: u64,
     },
     Playlist {
         id: String,
@@ -177,14 +182,19 @@ pub enum ApiRequest {
     DeletePlaylist {
         id: String,
     },
+    // These three carry `Library::generation`, so a page asked for by an
+    // account that has since signed out stays out of the next one's lists.
     SavedTracks {
         offset: u32,
+        generation: u64,
     },
     SavedAlbums {
         offset: u32,
+        generation: u64,
     },
     FollowedArtists {
         after: Option<String>,
+        generation: u64,
     },
     SetSaved {
         uris: Vec<String>,
@@ -260,6 +270,7 @@ pub enum ApiResponse {
     },
     MyPlaylists {
         offset: u32,
+        generation: u64,
         result: ApiResult<Page<Playlist>>,
     },
     Playlist {
@@ -294,14 +305,17 @@ pub enum ApiResponse {
     },
     SavedTracks {
         offset: u32,
+        generation: u64,
         result: ApiResult<Page<SavedTrack>>,
     },
     SavedAlbums {
         offset: u32,
+        generation: u64,
         result: ApiResult<Page<SavedAlbum>>,
     },
     FollowedArtists {
         after: Option<String>,
+        generation: u64,
         result: ApiResult<CursorPage<Artist>>,
     },
     SavedChanged {
@@ -1244,9 +1258,10 @@ async fn handle(
             shelf,
             generation,
         },
-        ApiRequest::MyPlaylists { offset } => ApiResponse::MyPlaylists {
+        ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
             offset,
-            result: client.my_playlists(offset, PLAYLIST_PAGE_SIZE).await,
+            generation,
+            result: client.my_playlists(offset, 0).await,
         },
         ApiRequest::Playlist { id, generation } => ApiResponse::Playlist {
             result: client.playlist(&id).await,
@@ -1330,12 +1345,14 @@ async fn handle(
             message: String::new(),
         },
 
-        ApiRequest::SavedTracks { offset } => ApiResponse::SavedTracks {
+        ApiRequest::SavedTracks { offset, generation } => ApiResponse::SavedTracks {
             offset,
+            generation,
             result: client.saved_tracks(offset, PLAYLIST_PAGE_SIZE).await,
         },
-        ApiRequest::SavedAlbums { offset } => ApiResponse::SavedAlbums {
+        ApiRequest::SavedAlbums { offset, generation } => ApiResponse::SavedAlbums {
             offset,
+            generation,
             result: client
                 .saved_albums(offset, PLAYLIST_PAGE_SIZE)
                 .await
@@ -1346,7 +1363,7 @@ async fn handle(
                     })
                 }),
         },
-        ApiRequest::FollowedArtists { after } => {
+        ApiRequest::FollowedArtists { after, generation } => {
             let offset = after.as_deref().and_then(|at| at.parse().ok()).unwrap_or(0);
             ApiResponse::FollowedArtists {
                 result: client
@@ -1362,6 +1379,7 @@ async fn handle(
                         items: page.items,
                     }),
                 after,
+                generation,
             }
         }
         ApiRequest::SetSaved { uris, saved } => ApiResponse::SavedChanged {
