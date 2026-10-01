@@ -25,7 +25,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::load::{Bytes, BytesLoadResult, BytesLoader, BytesPoll, LoadError};
 use sha1::{Digest, Sha1};
@@ -536,11 +536,23 @@ pub fn accent_color(bytes: &[u8]) -> Option<[u8; 3]> {
 pub struct LyricsBackdrop {
     uri: Option<String>,
     requested: bool,
-    pending: Option<std::sync::mpsc::Receiver<Option<egui::ColorImage>>>,
+    retry_at: Option<Instant>,
+    pending: Option<std::sync::mpsc::Receiver<Result<Option<egui::ColorImage>, String>>>,
     texture: Option<egui::TextureHandle>,
 }
 
+/// How long a backdrop whose artwork failed to download waits to ask again.
+const BACKDROP_RETRY: Duration = Duration::from_secs(3);
+
 impl LyricsBackdrop {
+    /// The blurred backdrop for `uri`.
+    ///
+    /// The artwork is fetched here, from the disk cache or the network,
+    /// rather than read from the bytes the image loader holds: a cover
+    /// painted on the same screen releases those bytes as soon as its
+    /// texture exists, and a backdrop waiting on them could wait forever.
+    /// Until the new song's backdrop is ready the previous one stays, so a
+    /// change of song never flashes black.
     pub fn texture(
         &mut self,
         ctx: &egui::Context,
@@ -550,44 +562,52 @@ impl LyricsBackdrop {
         if self.uri.as_deref() != uri {
             *self = Self {
                 uri: uri.map(str::to_owned),
+                texture: self.texture.take().filter(|_| uri.is_some()),
                 ..Default::default()
             };
         }
         let uri = uri?;
-        if !self.requested {
-            match ctx.try_load_bytes(uri) {
-                Ok(BytesPoll::Ready { bytes, .. }) => {
-                    self.requested = true;
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    self.pending = Some(rx);
-                    let ctx = ctx.clone();
-                    loader.inner.runtime.spawn_blocking(move || {
-                        let _ = tx.send(lyrics_background(&bytes));
-                        ctx.request_repaint();
-                    });
-                }
-                Err(error) => self.requested = terminal_lyrics_backdrop_error(&error),
-                Ok(BytesPoll::Pending { .. }) => {}
-            }
+        let due = self.retry_at.is_none_or(|at| Instant::now() >= at);
+        if !self.requested && due && handled(uri) {
+            self.requested = true;
+            self.retry_at = None;
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.pending = Some(rx);
+            let ctx = ctx.clone();
+            let inner = Arc::clone(&loader.inner);
+            let uri = uri.to_string();
+            loader.inner.runtime.spawn(async move {
+                let result = match inner.fetch(&uri).await {
+                    Ok(bytes) => inner
+                        .runtime
+                        .spawn_blocking(move || lyrics_background(&bytes))
+                        .await
+                        .map_err(|error| error.to_string()),
+                    Err(error) => Err(error),
+                };
+                let _ = tx.send(result);
+                ctx.request_repaint();
+            });
         }
         if let Some(receiver) = &self.pending {
             match receiver.try_recv() {
-                Ok(image) => {
+                Ok(Ok(image)) => {
                     self.texture = image.map(|image| {
                         ctx.load_texture("lyrics-backdrop", image, egui::TextureOptions::LINEAR)
                     });
                     self.pending = None;
                 }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.pending = None,
+                Ok(Err(_)) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.pending = None;
+                    self.requested = false;
+                    self.retry_at = Some(Instant::now() + BACKDROP_RETRY);
+                    ctx.request_repaint_after(BACKDROP_RETRY);
+                }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         self.texture.as_ref()
     }
-}
-
-fn terminal_lyrics_backdrop_error(error: &LoadError) -> bool {
-    matches!(error, LoadError::NotSupported)
 }
 
 fn lyrics_background(bytes: &[u8]) -> Option<egui::ColorImage> {
@@ -615,15 +635,143 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    fn cached_png(loader: &ArtLoader, uri: &str, rgb: [u8; 3]) {
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(64, 64, image::Rgb(rgb))
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        std::fs::write(loader.inner.cache_path(uri), encoded.into_inner()).unwrap();
+    }
+
+    fn backdrop_loader(runtime: &tokio::runtime::Runtime, dir: PathBuf) -> ArtLoader {
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        ArtLoader::new(
+            crate::http_client_builder().build().unwrap(),
+            runtime.handle().clone(),
+            dir,
+        )
+    }
+
+    /// Calls `texture` until `ready` accepts its answer, as frames would.
+    fn backdrop_frames(
+        runtime: &tokio::runtime::Runtime,
+        backdrop: &mut LyricsBackdrop,
+        ctx: &egui::Context,
+        loader: &ArtLoader,
+        uri: Option<&str>,
+        mut each_frame: impl FnMut(),
+        ready: impl Fn(Option<&egui::TextureHandle>) -> bool,
+    ) {
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    each_frame();
+                    if ready(backdrop.texture(ctx, loader, uri)) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("the backdrop settles");
+        });
+    }
+
+    /// A cover painted beside the backdrop releases the loader's bytes every
+    /// frame once its texture exists. The backdrop must still appear.
     #[test]
-    fn transient_backdrop_load_errors_remain_retryable() {
-        assert!(!terminal_lyrics_backdrop_error(&LoadError::Loading(
-            "temporary network failure".into()
-        )));
-        assert!(!terminal_lyrics_backdrop_error(
-            &LoadError::NoMatchingBytesLoader
-        ));
-        assert!(terminal_lyrics_backdrop_error(&LoadError::NotSupported));
+    fn lyrics_backdrop_appears_while_a_cover_releases_the_same_artwork() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-backdrop-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        let uri = "https://music.example/share/img/backdrop";
+        cached_png(&loader, uri, [200, 40, 40]);
+        loader.inner.entries.lock().unwrap().insert(
+            uri.into(),
+            Entry::Ready {
+                retained: 0,
+                bytes: None,
+                last_used: Instant::now(),
+            },
+        );
+        let mut backdrop = LyricsBackdrop::default();
+        backdrop_frames(
+            &runtime,
+            &mut backdrop,
+            &ctx,
+            &loader,
+            Some(uri),
+            || loader.release_bytes(uri),
+            |texture| texture.is_some(),
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A new song keeps the old backdrop until its own is ready, a failed
+    /// download is asked for again, and no song clears the backdrop.
+    #[test]
+    fn lyrics_backdrop_holds_the_previous_song_and_retries_failures() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("fastsonic-backdrop-retry-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        let first = "https://music.example/share/img/first";
+        // Nothing listens here, so the first attempt at this song fails.
+        let second = "http://127.0.0.1:9/second";
+        cached_png(&loader, first, [200, 40, 40]);
+        let mut backdrop = LyricsBackdrop::default();
+        backdrop_frames(
+            &runtime,
+            &mut backdrop,
+            &ctx,
+            &loader,
+            Some(first),
+            || {},
+            |t| t.is_some(),
+        );
+        let shown = backdrop.texture.as_ref().unwrap().id();
+
+        backdrop_frames(
+            &runtime,
+            &mut backdrop,
+            &ctx,
+            &loader,
+            Some(second),
+            || {},
+            |t| {
+                assert_eq!(t.map(|t| t.id()), Some(shown), "the old backdrop stays");
+                true
+            },
+        );
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while backdrop.retry_at.is_none() {
+                    backdrop.texture(&ctx, &loader, Some(second));
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("the failed download is noticed");
+        });
+        assert_eq!(backdrop.texture.as_ref().map(|t| t.id()), Some(shown));
+
+        cached_png(&loader, second, [40, 40, 200]);
+        backdrop.retry_at = Some(Instant::now());
+        backdrop_frames(
+            &runtime,
+            &mut backdrop,
+            &ctx,
+            &loader,
+            Some(second),
+            || {},
+            |t| t.is_some_and(|t| t.id() != shown),
+        );
+
+        assert!(backdrop.texture(&ctx, &loader, None).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
