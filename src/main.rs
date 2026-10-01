@@ -327,6 +327,8 @@ fn main() -> eframe::Result<()> {
     });
     #[cfg(feature = "demo")]
     let demo_inner = cli.demo_size;
+    #[cfg(feature = "demo")]
+    let demo_storage = app.dirs.cache.join("demo-window.ron");
     let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(app)));
 
     loop {
@@ -338,15 +340,22 @@ fn main() -> eframe::Result<()> {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
             MiniWindow::wanted(guard.as_ref().expect("application state present"))
         };
-        let mini_window = mini.is_some();
         #[cfg(feature = "demo")]
-        let options = native_options(
-            shot.is_some() && mini.is_none() && demo_inner.is_none(),
-            mini,
-            demo_inner,
-        );
+        let options = {
+            let options = native_options(
+                shot.is_some() && mini.is_none() && demo_inner.is_none(),
+                mini,
+                demo_inner,
+            );
+            if demo {
+                demo_native_options(options, demo_storage.clone())
+            } else {
+                options
+            }
+        };
         #[cfg(not(feature = "demo"))]
         let options = native_options(false, mini, None);
+        let persist_memory = options.persist_window;
         eframe::run_native(
             "Fastsonic",
             options,
@@ -371,7 +380,7 @@ fn main() -> eframe::Result<()> {
                 Ok(Box::new(Shell {
                     app: Some(app),
                     slot: std::sync::Arc::clone(&creator_slot),
-                    mini_window,
+                    persist_memory,
                     #[cfg(feature = "demo")]
                     shot: creator_shot.clone(),
                 }))
@@ -509,6 +518,20 @@ fn mini_creation_position(position: Option<[f32; 2]>, on_windows: bool) -> Optio
     if on_windows { None } else { position }
 }
 
+/// eframe keeps the main window's geometry and zoom in a file of its own,
+/// outside the profile, and loads it whether or not saving is on. A path
+/// nothing else uses, and saving off, keep the real window's geometry out
+/// of a demo and the demo's out of it.
+#[cfg(any(test, feature = "demo"))]
+fn demo_native_options(
+    mut options: eframe::NativeOptions,
+    storage: std::path::PathBuf,
+) -> eframe::NativeOptions {
+    options.persistence_path = Some(storage);
+    options.persist_window = false;
+    options
+}
+
 const fn main_window_decorated(custom_titlebar: bool) -> bool {
     !custom_titlebar
 }
@@ -618,8 +641,10 @@ fn native_options(
 struct Shell {
     app: Option<app::App>,
     slot: std::sync::Arc<std::sync::Mutex<Option<app::App>>>,
-    /// The mode this window opened in, even after an action switches modes.
-    mini_window: bool,
+    /// Whether eframe keeps this window's memory: the main window's only,
+    /// and never a demo's. Fixed when the window opens, even after an
+    /// action switches modes.
+    persist_memory: bool,
     /// A pending `--demo-shot` capture, if this is a screenshot run.
     #[cfg(feature = "demo")]
     shot: Option<Shot>,
@@ -684,7 +709,7 @@ impl Shell {
 
 impl eframe::App for Shell {
     fn persist_egui_memory(&self) -> bool {
-        !self.mini_window
+        self.persist_memory
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -832,6 +857,30 @@ mod native_window_tests {
                 mini_creation_position(Some([300.0, 200.0]), cfg!(windows)).map(egui::Pos2::from)
             );
             assert!(options.persistence_path.is_some());
+        }
+    }
+
+    #[test]
+    fn demo_window_storage_is_separate_and_never_saved() {
+        let cache = std::path::PathBuf::from("isolated-demo/cache");
+        for mini in [
+            None,
+            Some(MiniWindow {
+                size: egui::vec2(550.0, 232.0),
+                position: None,
+                on_top: false,
+                storage_path: cache.join("winamp.ron"),
+            }),
+        ] {
+            let options = demo_native_options(
+                native_options(false, mini, Some([760.0, 520.0])),
+                cache.join("demo-window.ron"),
+            );
+            assert_eq!(
+                options.persistence_path,
+                Some(cache.join("demo-window.ron"))
+            );
+            assert!(!options.persist_window);
         }
     }
 
