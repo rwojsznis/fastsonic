@@ -25,6 +25,10 @@ playlist you can edit.
 
 ## Keyboard input
 
+In a playlist, album or Liked Songs, Up and Down move between songs in the
+order shown, Enter plays the focused one, and Tab reaches the controls inside
+a row. Clicking a song's row selects it and gives it the keyboard.
+
 Ctrl, Cmd and Alt arrow keys move the caret while a text field has focus.
 Playback and navigation shortcuts on those keys remain available from song
 rows and other controls.

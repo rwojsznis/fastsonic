@@ -433,6 +433,33 @@ fn view_uris(
     })
 }
 
+/// Arrow keys follow display order, independent of the positions of the
+/// artist links, heart buttons and other controls inside each song row.
+fn navigate_song_rows(ui: &egui::Ui, rows: &[egui::Response]) {
+    if egui::Popup::is_any_open(ui.ctx()) {
+        return;
+    }
+    let Some(current) = rows.iter().position(egui::Response::has_focus) else {
+        return;
+    };
+    let (down, up) = ui.input_mut(|input| {
+        (
+            input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+            input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+        )
+    });
+    if down + up > 0 {
+        let movement = down as isize - up as isize;
+        let next = current.saturating_add_signed(movement).min(rows.len() - 1);
+        // Cancel egui's spatial search at the end of this pass, including on
+        // the first key after gaining focus. Tab still reaches child controls.
+        ui.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));
+        rows[next].request_focus();
+        rows[next].scroll_to_me(None);
+        ui.ctx().request_repaint();
+    }
+}
+
 fn view_context(base: &RowContext, view_uris: Option<&Arc<[String]>>) -> RowContext {
     if let Some(uris) = view_uris {
         match base {
@@ -560,6 +587,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         .collect();
     let rows = entry.visible.len();
     let mut pick = None;
+    let mut row_responses = Vec::new();
     widgets::virtual_rows(ui, entry.visible.len(), row_height, |ui, row| {
         let index = entry.visible[row];
         let (item, added_at, added_by) = &table.items[index];
@@ -573,7 +601,7 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             },
             0.12,
         );
-        if let Some(asked) = widgets::track_row(
+        let (response, asked) = widgets::track_row_response(
             ui,
             app,
             TrackRow {
@@ -596,10 +624,13 @@ pub fn table(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 picked: picked.contains(&row),
                 picked_songs: &picked_songs,
             },
-        ) {
+        );
+        row_responses.push(response);
+        if let Some(asked) = asked {
             pick = Some((row, asked));
         }
     });
+    navigate_song_rows(ui, &row_responses);
     if let Some((row, asked)) = pick {
         app.pick_row(&table.page, &view, row, asked, rows);
     }
@@ -1341,6 +1372,272 @@ mod tests {
             view_uris(&items, &[], "nothing matches", None).as_deref(),
             Some(&[][..]),
             "an empty view is still a view, so Play does not fall back"
+        );
+    }
+
+    struct KeyboardTable {
+        ctx: egui::Context,
+        app: App,
+        items: Vec<TableItem>,
+        filter: String,
+        height: f32,
+    }
+
+    impl KeyboardTable {
+        fn new() -> Self {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            theme::install(&ctx);
+            Self {
+                ctx,
+                app: test_app(),
+                items: make_test_tracks(),
+                filter: String::new(),
+                height: 600.0,
+            }
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) -> egui::accesskit::TreeUpdate {
+            let mut output = self.ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        pos2(0.0, 0.0),
+                        vec2(1000.0, self.height),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    widgets::search_field(
+                        ui,
+                        &self.app.palette,
+                        egui::Id::new("keyboard-filter"),
+                        &mut self.filter,
+                        "Filter",
+                        220.0,
+                    );
+                    egui::ScrollArea::vertical().animated(false).show(ui, |ui| {
+                        table(
+                            &mut self.app,
+                            ui,
+                            Table {
+                                items: &self.items,
+                                context: RowContext::Context {
+                                    uri: "sonic:playlist:test".into(),
+                                    editable_playlist: None,
+                                },
+                                show_album: true,
+                                show_cover: true,
+                                show_added: false,
+                                show_added_by: false,
+                                page: Page::Playlist("test".into()),
+                                loading: false,
+                                error: None,
+                                can_load_more: false,
+                                filter: &self.filter,
+                                items_revision: 0,
+                            },
+                        );
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        }
+
+        fn focus_song(&mut self, name: &str) -> egui::accesskit::NodeId {
+            let tree = self.frame(vec![]);
+            // The topmost, when a song is in the list more than once.
+            let id = tree
+                .nodes
+                .iter()
+                .filter(|(_, node)| {
+                    node.label()
+                        .is_some_and(|label| label.starts_with(&format!("Play {name},")))
+                })
+                .min_by(|(_, a), (_, b)| {
+                    let top = |node: &egui::accesskit::Node| node.bounds().map_or(0.0, |b| b.y0);
+                    top(a).total_cmp(&top(b))
+                })
+                .expect("song row")
+                .0;
+            self.frame(vec![egui::Event::AccessKitActionRequest(
+                egui::accesskit::ActionRequest {
+                    action: egui::accesskit::Action::Focus,
+                    target_tree: egui::accesskit::TreeId::ROOT,
+                    target_node: id,
+                    data: None,
+                },
+            )]);
+            id
+        }
+
+        fn key(&mut self, key: egui::Key) -> egui::accesskit::TreeUpdate {
+            self.frame(vec![egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }])
+        }
+
+        fn focused_label(&mut self) -> String {
+            let tree = self.frame(vec![]);
+            tree.nodes
+                .iter()
+                .find(|(id, _)| *id == tree.focus)
+                .unwrap()
+                .1
+                .label()
+                .unwrap()
+                .to_string()
+        }
+    }
+
+    #[test]
+    fn keyboard_arrows_follow_song_rows_and_enter_plays_the_focused_song() {
+        let mut table = KeyboardTable::new();
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowUp);
+        assert!(table.focused_label().starts_with("Play Bohemian Rhapsody,"));
+        // Consecutive key frames cover repeat without relying on an idle pass
+        // to establish a focus lock on each new row.
+        table.key(egui::Key::ArrowDown);
+        table.key(egui::Key::ArrowDown);
+        assert!(table.focused_label().starts_with("Play Despacito,"));
+        table.key(egui::Key::ArrowDown);
+        table.key(egui::Key::ArrowDown);
+        assert!(table.focused_label().starts_with("Play Ubermensch,"));
+        table.key(egui::Key::ArrowUp);
+        table.app.actions.clear();
+        table.key(egui::Key::Enter);
+        assert!(
+            matches!(table.app.actions.as_slice(), [Action::PlayFromRow { uri, index: 2, .. }] if uri == "sonic:track:t_2")
+        );
+    }
+
+    #[test]
+    fn keyboard_arrows_follow_the_filtered_sorted_view() {
+        let mut table = KeyboardTable::new();
+        for index in [1, 3] {
+            let PlayableItem::Track(track) = &mut table.items[index].0;
+            track.artists[0].name = "Shared artist".into();
+        }
+        table.filter = "Shared artist".into();
+        table.app.table_sorts.insert(
+            Page::Playlist("test".into()),
+            TableSort {
+                column: SortColumn::Title,
+                ascending: false,
+            },
+        );
+        table.focus_song("Ubermensch");
+        table.key(egui::Key::ArrowDown);
+        assert!(table.focused_label().starts_with("Play Cancion Animal,"));
+        table.app.actions.clear();
+        table.key(egui::Key::Enter);
+        assert!(
+            matches!(table.app.actions.as_slice(), [Action::PlayFromRow { context: RowContext::View { uris, .. }, uri, index: 1 }] if uri == "sonic:track:t_1" && uris.as_ref() == ["sonic:track:t_3", "sonic:track:t_1"])
+        );
+        table.filter = "Queen".into();
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+        assert!(table.focused_label().starts_with("Play Bohemian Rhapsody,"));
+    }
+
+    #[test]
+    fn keyboard_arrows_work_after_clicking_a_song_body() {
+        let mut table = KeyboardTable::new();
+        let tree = table.frame(vec![]);
+        let bounds = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.label()
+                    .is_some_and(|label| label.starts_with("Play Bohemian Rhapsody,"))
+            })
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        let pos = pos2(bounds.x0 as f32 + 180.0, bounds.y0 as f32 + 8.0);
+        for pressed in [true, false] {
+            table.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(table.app.actions.is_empty(), "a body click only selects");
+        table.key(egui::Key::ArrowDown);
+        assert!(table.focused_label().starts_with("Play Cancion Animal,"));
+        table.key(egui::Key::Enter);
+        assert!(matches!(
+            table.app.actions.as_slice(),
+            [Action::PlayFromRow { index: 1, .. }]
+        ));
+    }
+
+    #[test]
+    fn keyboard_tab_reaches_row_controls_and_arrows_leave_the_filter_alone() {
+        let mut table = KeyboardTable::new();
+        let row = table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::Tab);
+        let tree = table.frame(vec![]);
+        assert_ne!(tree.focus, row);
+        assert_eq!(table.focused_label(), "Queen");
+        table
+            .ctx
+            .memory_mut(|memory| memory.request_focus(egui::Id::new("keyboard-filter")));
+        table.frame(vec![]);
+        table.key(egui::Key::ArrowDown);
+        assert!(
+            table
+                .ctx
+                .memory(|memory| memory.has_focus(egui::Id::new("keyboard-filter")))
+        );
+        assert!(table.app.actions.is_empty());
+    }
+
+    #[test]
+    fn keyboard_arrows_scroll_through_virtual_rows_including_duplicate_songs() {
+        let mut table = KeyboardTable::new();
+        table.height = 240.0;
+        table.items = vec![table.items[0].clone(); 40];
+        let first = table.focus_song("Bohemian Rhapsody");
+        for _ in 0..25 {
+            table.key(egui::Key::ArrowDown);
+        }
+        let tree = table.frame(vec![]);
+        assert_ne!(
+            tree.focus, first,
+            "duplicate songs must have distinct row focus"
+        );
+        let node = &tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == tree.focus)
+            .unwrap()
+            .1;
+        let bounds = node.bounds().unwrap();
+        assert!(
+            bounds.y0 >= 0.0 && bounds.y1 <= f64::from(table.height),
+            "focused row must scroll into view: {bounds:?}"
+        );
+        table.app.actions.clear();
+        table.key(egui::Key::Enter);
+        assert!(
+            matches!(
+                table.app.actions.as_slice(),
+                [Action::PlayFromRow { index: 25, .. }]
+            ),
+            "{:?}",
+            table.app.actions
         );
     }
 
