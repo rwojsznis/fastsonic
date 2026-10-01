@@ -336,6 +336,10 @@ fn install_fonts(ctx: &egui::Context) {
         if font.name == "fallback-arabic" {
             data.tweak.scale = crate::system_fonts::arabic_scale(inter, &font.bytes, font.index);
         }
+        let offset = fallback_baseline_y_offset(&font.bytes, font.index);
+        if offset.abs() > 0.001 {
+            data.tweak.y_offset_factor = offset;
+        }
         fonts.font_data.insert(font.name.clone(), Arc::new(data));
         for family in fonts.families.values_mut() {
             family.push(font.name.clone());
@@ -343,6 +347,38 @@ fn install_fonts(ctx: &egui::Context) {
     }
 
     ctx.set_fonts(fonts);
+}
+
+/// The shift, in ems, that puts a fallback face's baseline on Inter's.
+///
+/// epaint places a fallback glyph by centring the two faces' line boxes:
+///
+///     glyph.pos.y = fallback.ascent + 0.5 * (primary.row_height - fallback.row_height)
+///
+/// A face with other vertical metrics, such as Hiragino Sans on macOS with
+/// its 0.5 em line gap, then sits above or below the Latin text beside it.
+/// Offsetting by the difference in baseline-to-centre distances undoes the
+/// centring at every size.
+fn fallback_baseline_y_offset(bytes: &[u8], index: u32) -> f32 {
+    use skrifa::MetadataProvider as _;
+
+    // Inter's metrics, from assets/fonts/InterVariable.ttf: 2048 units per
+    // em, ascender 1984, descender -494, no line gap.
+    const INTER_BASELINE_CENTER: f32 = (1984.0 / 2048.0) - 0.5 * ((1984.0 + 494.0) / 2048.0);
+
+    let Ok(font) = skrifa::FontRef::from_index(bytes, index) else {
+        return 0.0;
+    };
+    let metrics = font.metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
+    let units = f32::from(metrics.units_per_em);
+    let height = metrics.ascent - metrics.descent + metrics.leading;
+    if units <= 0.0 || height <= 0.0 {
+        return 0.0;
+    }
+    INTER_BASELINE_CENTER - (metrics.ascent - 0.5 * height) / units
 }
 
 macro_rules! icons {
@@ -964,6 +1000,42 @@ pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_baseline_offset_is_zero_for_inter() {
+        let inter = include_bytes!("../assets/fonts/InterVariable.ttf");
+        let offset = fallback_baseline_y_offset(inter, 0);
+        assert!(offset.abs() < 1e-4, "Inter against itself: {offset}");
+        assert!(fallback_baseline_y_offset(b"not a font", 0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn fallback_baseline_offset_is_bounded_for_installed_fonts() {
+        for font in crate::system_fonts::fallbacks() {
+            let offset = fallback_baseline_y_offset(&font.bytes, font.index);
+            assert!(
+                offset.is_finite() && (-1.0..=1.0).contains(&offset),
+                "{} offset {offset}",
+                font.name
+            );
+        }
+    }
+
+    #[test]
+    fn fonts_install_and_layout_mixed_cjk() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let galley = ui.painter().layout_no_wrap(
+                "Track 87: 恋におちて -Fall in love- (Live)".to_string(),
+                regular(14.0),
+                Color32::WHITE,
+            );
+            assert!(!galley.rows.is_empty());
+            assert!(galley.rows[0].glyphs.len() >= 10);
+        });
+        output.textures_delta.clear();
+    }
 
     /// Native desktop apps keep the arrow over buttons and switch to the
     /// hand only over links (#508).
