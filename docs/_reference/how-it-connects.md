@@ -26,7 +26,8 @@ useful after a server was temporarily unreachable. Signing out removes both
 stored credentials.
 
 Every Subsonic request carries the username, salt, and token. Fastsonic strips
-credential query parameters and authorization headers from logs. Artwork is
+credential query parameters and authorization headers from logs, from the
+network errors it logs and shows, and from the panic log. Artwork is
 cached under an opaque `sonic:art:` key rather than a credential-bearing URL.
 
 ## Server requests

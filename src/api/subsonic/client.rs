@@ -120,6 +120,9 @@ impl ApiError {
 
 impl From<reqwest::Error> for ApiError {
     fn from(error: reqwest::Error) -> Self {
+        // The message quotes the URL, which carries the credential, and
+        // these errors are logged and shown.
+        let error = super::auth::without_credentials(error);
         if error.is_decode() {
             Self::Decode(error.to_string())
         } else {

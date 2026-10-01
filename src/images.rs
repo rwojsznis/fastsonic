@@ -31,6 +31,7 @@ use egui::load::{Bytes, BytesLoadResult, BytesLoader, BytesPoll, LoadError};
 use sha1::{Digest, Sha1};
 
 use crate::api::subsonic::Credentials;
+use crate::api::subsonic::auth::without_credentials;
 use crate::api::subsonic::convert::parse_art_url;
 
 /// Maximum artwork bytes held in memory.
@@ -297,7 +298,7 @@ impl Inner {
                     .get(&url)
                     .send()
                     .await
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| without_credentials(error).to_string())?;
                 if !response.status().is_success() {
                     return Err(format!("artwork request failed: {}", response.status()));
                 }
@@ -307,7 +308,10 @@ impl Inner {
                     .and_then(|value| value.to_str().ok())
                     .unwrap_or_default()
                     .to_string();
-                let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+                let bytes = response
+                    .bytes()
+                    .await
+                    .map_err(|error| without_credentials(error).to_string())?;
                 if bytes.len() > MAX_ART_BYTES {
                     return Err("artwork is too large".to_string());
                 }

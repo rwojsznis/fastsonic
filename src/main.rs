@@ -438,10 +438,18 @@ impl std::io::Write for Tee {
 fn log_panics(path: std::path::PathBuf) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        previous(info);
+        // A panic message can quote a request URL, which carries the
+        // credential, so neither stderr nor the file gets it unredacted.
+        let message = info.to_string();
+        let message = fastsonic::api::subsonic::auth::redacted_text(&message);
+        if message == info.to_string() {
+            previous(info);
+        } else {
+            eprintln!("{message}");
+        }
         let thread = std::thread::current();
         let entry = format!(
-            "{} fastsonic {} on thread {:?}: {info}\n",
+            "{} fastsonic {} on thread {:?}: {message}\n",
             jiff::Timestamp::now(),
             env!("CARGO_PKG_VERSION"),
             thread.name().unwrap_or("unnamed"),

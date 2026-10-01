@@ -24,6 +24,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, ETAG, LAST_MODIFIED, RANGE};
 use symphonia::core::io::MediaSource;
 
+use crate::api::subsonic::auth;
+
 /// How much of a range-ignoring server's answer is skipped over before
 /// giving up on the seek. A tenth of a typical album track.
 const MAX_SKIPPED: u64 = 4 * 1024 * 1024;
@@ -133,7 +135,7 @@ impl HttpSource {
         let response = request
             .send()
             .and_then(reqwest::blocking::Response::error_for_status)
-            .map_err(io::Error::other)?;
+            .map_err(|error| io::Error::other(auth::without_credentials(error)))?;
         self.stats.gets.fetch_add(1, Ordering::Relaxed);
 
         let headers = response.headers();

@@ -110,6 +110,61 @@ pub fn redacted(url: &str) -> String {
     out
 }
 
+/// Free text with every credential query value in it replaced: a panic
+/// message or an error's debug form can quote a request URL anywhere in a
+/// sentence, so this looks for `?name=` and `&name=` wherever they occur.
+pub fn redacted_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(['?', '&']) {
+        out.push_str(&rest[..=at]);
+        rest = &rest[at + 1..];
+        let Some(name) = SECRET_PARAMS.iter().find(|name| {
+            rest.strip_prefix(**name)
+                .is_some_and(|after| after.starts_with('='))
+        }) else {
+            continue;
+        };
+        let value = name.len() + 1;
+        let end = rest[value..]
+            .find(|c: char| {
+                c.is_whitespace() || matches!(c, '&' | '#' | ')' | '"' | '\'' | '<' | '>')
+            })
+            .map_or(rest.len(), |len| value + len);
+        out.push_str(&rest[..value]);
+        out.push_str("<redacted>");
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A request error that is safe to log or show. reqwest's message quotes
+/// the URL it failed on ("error sending request for url (…)"), and with
+/// token auth that URL carries the credential; the path stays, so the
+/// message still says which call failed.
+pub fn without_credentials(mut error: reqwest::Error) -> reqwest::Error {
+    if let Some(url) = error.url_mut()
+        && url
+            .query_pairs()
+            .any(|(name, _)| SECRET_PARAMS.contains(&name.as_ref()))
+    {
+        let pairs: Vec<(String, String)> = url
+            .query_pairs()
+            .map(|(name, value)| {
+                let value = if SECRET_PARAMS.contains(&name.as_ref()) {
+                    "redacted".to_string()
+                } else {
+                    value.into_owned()
+                };
+                (name.into_owned(), value)
+            })
+            .collect();
+        url.query_pairs_mut().clear().extend_pairs(pairs);
+    }
+    error
+}
+
 /// `http://` is assumed for a bare host, because a self-hosted server on a
 /// LAN commonly has no certificate. A trailing slash is dropped so that
 /// paths can be appended without doubling it.
@@ -208,6 +263,51 @@ mod tests {
         assert_eq!(
             redacted("http://host/x?p=enc:6162&apiKey=zzz"),
             "http://host/x?p=<redacted>&apiKey=<redacted>"
+        );
+    }
+
+    #[test]
+    fn a_panic_message_quoting_a_url_loses_the_credential() {
+        let message = "called `Result::unwrap()` on an `Err` value: reqwest::Error { kind: \
+                       Request, url: \"http://host/rest/stream.view?u=admin&t=deadbeef&s=abc123&id=7\" }";
+        let clean = redacted_text(message);
+        assert!(
+            !clean.contains("deadbeef") && !clean.contains("abc123"),
+            "{clean}"
+        );
+        assert!(
+            clean.contains("u=admin&t=<redacted>&s=<redacted>&id=7\""),
+            "{clean}"
+        );
+        assert_eq!(
+            redacted_text("error sending request for url (http://h/x?apiKey=k1)"),
+            "error sending request for url (http://h/x?apiKey=<redacted>)"
+        );
+        // Names that merely start like a secret are left alone, as is prose.
+        assert_eq!(redacted_text("a?st=1&size=300 & s"), "a?st=1&size=300 & s");
+    }
+
+    #[test]
+    fn a_request_error_names_its_call_without_the_credential() {
+        let http = crate::blocking_http_client_builder().build().unwrap();
+        // Nothing listens on port 1, so the request fails before any byte
+        // reaches a server, with the URL in its message.
+        let error = http
+            .get("http://127.0.0.1:1/rest/stream.view?u=admin&t=deadbeef&s=abc123&id=7")
+            .send()
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("deadbeef"),
+            "the leak this guards"
+        );
+        let message = without_credentials(error).to_string();
+        assert!(
+            !message.contains("deadbeef") && !message.contains("abc123"),
+            "{message}"
+        );
+        assert!(
+            message.contains("/rest/stream.view?u=admin&t=redacted&s=redacted&id=7"),
+            "{message}"
         );
     }
 }
