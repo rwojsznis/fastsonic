@@ -33,6 +33,12 @@ screen, because sizing or moving it would restore it down. Quitting while
 lyrics are full screen returns the next window to the mode it had before
 them, rather than starting full screen without the lyrics.
 
+In memory, Fastsonic keeps the 12 playlists, 16 albums and 10 artists you
+opened last, and the details of 800 songs, so a long session does not grow
+without bound; the open page, what is playing, and playlists with an edit on
+its way are always kept. A page dropped from memory is read again when you
+open it.
+
 Clearing caches never signs you out. `credentials.json` contains a salted
 Subsonic token, not the password, plus a short-lived Navidrome session when
 available. Treat it like a password and do not share it. Settings → Storage
