@@ -19,8 +19,9 @@ collection shuffled.
 These are the rules the app follows. The queue lives in the player, so
 every one of them is about this computer: there is no other device with a
 queue of its own to disagree with. The tests in `src/engine/queue.rs` hold
-up the ones about what plays next; the ones in `src/app.rs` hold up what
-the panel draws and what a click asks for.
+up the ones about what plays next; the ones in `src/app.rs` and
+`src/demo.rs` hold up what the panel draws and what a click or a drop asks
+for.
 
 1. **The list shows the play order.** The top row plays next, followed by the
    rows below it.
@@ -65,3 +66,15 @@ the panel draws and what a click asks for.
    named as the radio's. Changing the output device or the normalisation
    switch replaces the player; the queue comes across with it, a radio's
    songs included.
+
+10. **Dragging into *Playing next* puts the song where you drop it.** A
+    row of *Playing next* dragged to another place in it moves there; a
+    song or selection dragged from a list, the player bar or the sidebar
+    goes in at the line between rows, or at the end below the last one.
+    Your other songs keep their order. *Next up* is never a drop target: it
+    plays from the album or playlist, not from a list you wrote. While
+    *Playing next* is empty, drop on the player bar's Queue button, which
+    queues at the end like **Add to queue**. If a song starts while you
+    hold a row, the move still takes the song you picked up to the place
+    you dropped it. The queue a closed session left behind is not the
+    player's yet, so before anything plays a drop there just queues.

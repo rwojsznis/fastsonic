@@ -728,6 +728,24 @@ impl Worker {
                 self.publish_queue();
             }
             PlayerCommand::AddToQueue(uri) => self.add_to_queue(&uri),
+            PlayerCommand::MoveQueued { from, to, uri } => {
+                if let Some(id) = convert::id_of(&uri, convert::Kind::Track)
+                    && self.queue.move_queued(from, to, id)
+                {
+                    self.publish_queue();
+                }
+            }
+            PlayerCommand::InsertQueued { uris, at } => {
+                let entries: Vec<Entry> = uris
+                    .iter()
+                    .filter_map(|uri| convert::id_of(uri, convert::Kind::Track))
+                    .map(Entry::new)
+                    .collect();
+                if !entries.is_empty() {
+                    self.queue.insert_queued(at, entries);
+                    self.publish_queue();
+                }
+            }
             PlayerCommand::PlayQueued(row) => self.play_queued(row),
             PlayerCommand::Seek(position_ms) => self.seek(position_ms),
             // Local playback makes these the same thing: there is no

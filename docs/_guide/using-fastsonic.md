@@ -124,6 +124,13 @@ only those manually queued songs. The player owns the queue, so every change is
 visible on the next frame and needs no server round-trip. The complete contract is in
 [The Queue's Rules](../_reference/queue.md).
 
+Drag a row of **Playing next** to reorder it, or drop a song, a selection or
+the playing song between its rows to queue it at that place; the line between
+rows shows where it goes, and the list scrolls while you hold a song near its
+edge. **Next up** plays from the album or playlist and takes no drops. Drop on
+the player bar's Queue button to queue at the end, which is the place to drop
+while **Playing next** is empty.
+
 Local Play and Pause fade smoothly. The visualizers still follow the
 post-equalizer, pre-volume signal, so transport and volume changes do not move
 the picture.

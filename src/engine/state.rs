@@ -246,6 +246,18 @@ pub enum PlayerCommand {
     ClearQueue,
     /// Queue a track after the ones already queued.
     AddToQueue(String),
+    /// Rule 10: move the "Playing next" row the panel showed at `from`,
+    /// which held the track `uri`, to the slot before row `to`.
+    MoveQueued {
+        from: usize,
+        to: usize,
+        uri: String,
+    },
+    /// Rule 10: put these tracks into "Playing next" before row `at`.
+    InsertQueued {
+        uris: Vec<String>,
+        at: usize,
+    },
     /// Play the row at this position in the queue, counting the rows as
     /// `QueueSnapshot` draws them: "Playing next" first, then "Next up".
     /// The rows above it are skipped, which is rule 5 of

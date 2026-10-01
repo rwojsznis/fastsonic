@@ -2586,6 +2586,12 @@ impl App {
         self.queue_is_live && self.queued_rows_len() > 0
     }
 
+    /// Whether "Playing next" takes drops at a position (rule 10): only a
+    /// queue the engine is holding can be rewritten.
+    pub fn queue_takes_positions(&self) -> bool {
+        self.queue_is_live
+    }
+
     /// Rule 7: Clear empties the songs queued by hand and leaves the
     /// context's own rows alone. The engine does the emptying; the panel
     /// redraws from the queue it publishes for it.
@@ -4036,6 +4042,30 @@ impl App {
                     self.toast(match count {
                         1 => "1 song added to queue".to_string(),
                         count => format!("{count} songs added to queue"),
+                    });
+                }
+            }
+            Action::MoveInQueue { from, to, uri } => {
+                self.backend
+                    .player(PlayerCommand::MoveQueued { from, to, uri });
+            }
+            Action::InsertInQueue { items, at } => {
+                let songs: Vec<&PlayableItem> = items
+                    .iter()
+                    .filter(|item| convert::id_of(item.uri(), Kind::Track).is_some())
+                    .collect();
+                for item in &songs {
+                    self.queue_names
+                        .insert(item.uri().to_string(), item.name().to_string());
+                }
+                if !songs.is_empty() {
+                    self.toast(match songs.len() {
+                        1 => format!("{} added to queue", songs[0].name()),
+                        count => format!("{count} songs added to queue"),
+                    });
+                    self.backend.player(PlayerCommand::InsertQueued {
+                        uris: songs.iter().map(|item| item.uri().to_string()).collect(),
+                        at,
                     });
                 }
             }

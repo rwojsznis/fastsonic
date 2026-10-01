@@ -251,6 +251,34 @@ fn main() -> anyhow::Result<()> {
         queue.queued.iter().all(|row| row.track.is_some()),
     );
 
+    // Rule 10: a dragged row moves within Playing next, and a dropped song
+    // goes in at its slot, described like any queued song.
+    engine.command(PlayerCommand::MoveQueued {
+        from: 1,
+        to: 0,
+        uri: to_queue[1].clone(),
+    })?;
+    std::thread::sleep(Duration::from_millis(300));
+    check(
+        "a dragged Playing next row moves to its slot",
+        uris(&engine.queue().queued) == [to_queue[1].clone(), to_queue[0].clone()],
+    );
+    let dropped = queue.upcoming[0].uri.clone();
+    engine.command(PlayerCommand::InsertQueued {
+        uris: vec![dropped.clone()],
+        at: 1,
+    })?;
+    std::thread::sleep(Duration::from_millis(600));
+    let queue = engine.queue();
+    check(
+        "a dropped song goes in at its slot",
+        uris(&queue.queued) == [to_queue[1].clone(), dropped, to_queue[0].clone()],
+    );
+    check(
+        "and is described without being played",
+        queue.queued.iter().all(|row| row.track.is_some()),
+    );
+
     // Rule 7: Clear empties your part of the queue and nothing else.
     let album_rows = uris(&queue.upcoming);
     engine.command(PlayerCommand::ClearQueue)?;

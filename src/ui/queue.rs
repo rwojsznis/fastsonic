@@ -6,7 +6,7 @@ use egui::{Align, Frame, Layout, Margin};
 
 use crate::api::models::PlayableItem;
 use crate::app::App;
-use crate::model::{Action, QueueTab, RowContext};
+use crate::model::{Action, DragTrack, QueueTab, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
@@ -147,8 +147,39 @@ fn clear_button(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// A song dropped on the queue this frame: the primary button was released
+/// while a drag was over `rect`.
+fn queue_drop(ui: &egui::Ui, rect: egui::Rect) -> Option<Arc<DragTrack>> {
+    if ui.rect_contains_pointer(rect)
+        && ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
+    {
+        egui::DragAndDrop::take_payload::<DragTrack>(ui.ctx())
+    } else {
+        None
+    }
+}
+
+/// Queues dragged songs at the end, the way Add to queue does.
+fn append(app: &mut App, track: &DragTrack) {
+    app.actions.push(Action::QueueMany {
+        songs: track
+            .items
+            .iter()
+            .map(|item| (item.uri().to_string(), item.name().to_string()))
+            .collect(),
+    });
+}
+
+/// Space below the now-playing row and below Playing next, before the next
+/// section's heading.
+const SECTION_GAP: f32 = 14.0;
+
 fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     let palette = app.palette;
+    // The remembered queue of a closed session is not the engine's, so it
+    // takes no position; a drop there just queues, like Add to queue.
+    let positions = app.queue_takes_positions();
+    let panel = ui.clip_rect();
     // The queue is never loading and never fails: it is whatever the
     // engine last said it was, and before anything plays it is empty or
     // the remembered one.
@@ -198,7 +229,13 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 picked_songs: &[],
             },
         );
-        ui.add_space(14.0);
+        ui.add_space(SECTION_GAP);
+    }
+    // Without a "Playing next" to aim at, the whole panel takes the drop.
+    if (queue_is_empty(app) || !positions)
+        && let Some(track) = queue_drop(ui, panel)
+    {
+        append(app, &track);
     }
     if queue_is_empty(app) {
         widgets::empty_state(
@@ -231,18 +268,72 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         });
         ui.add_space(4.0);
         let gap = ui.spacing().item_spacing.y;
+        let dragging = positions && egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx());
+        if dragging {
+            widgets::scroll_during_drag(ui);
+        }
+        // The nearest slot comes from the fixed row height, because the
+        // virtual rows are not all drawn. Only this section and the space
+        // under it take a drop: Next up plays from the album, not a list
+        // the panel can rewrite.
+        let list_top = ui.cursor().top();
+        let section = egui::Rect::from_min_max(
+            egui::pos2(panel.left(), list_top),
+            egui::pos2(
+                panel.right(),
+                list_top + queued_len as f32 * (row_height + gap) + SECTION_GAP,
+            ),
+        )
+        .intersect(panel);
+        let slot = dragging
+            .then(|| ui.ctx().pointer_latest_pos())
+            .flatten()
+            .filter(|pos| section.contains(*pos))
+            .map(|pos| {
+                let row = ((pos.y - list_top) / (row_height + gap)).max(0.0);
+                (row.round() as usize).min(queued_len)
+            });
         widgets::virtual_rows(ui, queued_len, row_height + gap, |ui, index| {
             let width = ui.available_width();
-            queue_row(app, ui, index, compact);
+            let shift = ui.ctx().animate_value_with_time(
+                ui.id().with(("queue-move-shift", index)),
+                match slot {
+                    Some(slot) if index < slot => -4.0,
+                    Some(_) => 4.0,
+                    None => 0.0,
+                },
+                0.12,
+            );
+            queue_row(app, ui, index, compact, shift);
             ui.allocate_space(egui::vec2(width, gap));
         });
-        ui.add_space(14.0);
+        if let Some(slot) = slot {
+            ui.painter().hline(
+                ui.max_rect().x_range().shrink(8.0),
+                list_top + slot as f32 * (row_height + gap),
+                egui::Stroke::new(2.0, palette.accent),
+            );
+            if let Some(track) = queue_drop(ui, section) {
+                match (track.queued, track.items.as_slice()) {
+                    (Some(from), [item]) => app.actions.push(Action::MoveInQueue {
+                        from,
+                        to: slot,
+                        uri: item.uri().to_string(),
+                    }),
+                    _ => app.actions.push(Action::InsertInQueue {
+                        items: track.items.clone(),
+                        at: slot,
+                    }),
+                }
+            }
+        }
+        ui.add_space(SECTION_GAP);
     }
     if queue_len > queued_len {
         theme::text(ui, "Next up", theme::semibold(14.0), palette.text);
         ui.add_space(4.0);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
-            queue_row(app, ui, queued_len + index, compact);
+            queue_row(app, ui, queued_len + index, compact, 0.0);
         });
     }
 }
@@ -353,8 +444,9 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// One row of the queue, numbered and indexed by its place in the whole
-/// queue, whichever section it sits in.
-fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool) {
+/// queue, whichever section it sits in. `shift` parts the "Playing next"
+/// rows around the slot a held song would land in.
+fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shift: f32) {
     let Some(item) = app.queue.queue.get(index).cloned() else {
         return;
     };
@@ -373,7 +465,7 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool) {
             show_added_by: false,
             compact,
             thin: false,
-            shift: 0.0,
+            shift,
             picked: false,
             picked_songs: &[],
         },

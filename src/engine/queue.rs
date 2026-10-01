@@ -2,12 +2,13 @@
 //! left.
 //!
 //! Spirc owned this on the other side of a network. It is ours now, and
-//! `docs/_reference/queue.md` is what it has to do — nine rules, written
-//! for the person using the app. Rules 1 to 7 are held up by the tests in
-//! this file; 8 and 9 are the app's, in `src/app.rs`. (There was a tenth,
-//! about ignoring stale remote answers, and P4.3 retired it: there
-//! is no second copy of the queue to be stale.) The numbered comments
-//! through this file point back at those rules.
+//! `docs/_reference/queue.md` is what it has to do — ten rules, written
+//! for the person using the app. Rules 1 to 7 and 10 are held up by the
+//! tests in this file; 8 and 9 are the app's, in `src/app.rs`. (An older
+//! tenth, about ignoring stale remote answers, was retired by P4.3: there
+//! is no second copy of the queue to be stale. Today's is about dragging
+//! into the queue.) The numbered comments through this file point back at
+//! those rules.
 //!
 //! The shape is the one the interface draws:
 //!
@@ -273,6 +274,44 @@ impl Queue {
     /// being advanced onto, which is where it also leaves the queue.
     pub(super) fn play_queued_now(&mut self, entry: Entry) {
         self.playing = Some(Playing::Queued(Box::new(entry)));
+    }
+
+    /// Rule 10: a row of "Playing next" dragged to the slot before row `to`.
+    ///
+    /// `seen` is where the panel showed the song when it was picked up.
+    /// Songs that started while it was held have left the top since, so a
+    /// row that no longer names the song is looked for by id, and the slot
+    /// moves with it. A song no longer queued has nothing to move.
+    pub(super) fn move_queued(&mut self, seen: usize, to: usize, id: &str) -> bool {
+        let from = if self.queued.get(seen).is_some_and(|entry| entry.id == id) {
+            seen
+        } else {
+            match self.queued.iter().position(|entry| entry.id == id) {
+                Some(from) => from,
+                None => return false,
+            }
+        };
+        let to = (to as isize + from as isize - seen as isize).clamp(0, self.queued.len() as isize)
+            as usize;
+        // A row dropped back on its own edges moves nothing.
+        if to == from || to == from + 1 {
+            return false;
+        }
+        let Some(entry) = self.queued.remove(from) else {
+            return false;
+        };
+        self.queued
+            .insert(if to > from { to - 1 } else { to }, entry);
+        true
+    }
+
+    /// Rule 10: songs dropped into "Playing next" go in before the row at
+    /// `at`, or at its end.
+    pub(super) fn insert_queued(&mut self, at: usize, entries: Vec<Entry>) {
+        let at = at.min(self.queued.len());
+        for (offset, entry) in entries.into_iter().enumerate() {
+            self.queued.insert(at + offset, entry);
+        }
     }
 
     /// Rule 7: Clear empties "Playing next" and leaves the album alone.
@@ -698,6 +737,57 @@ mod tests {
         assert_eq!(next(&mut queue), Some("q1"));
         assert_eq!(next(&mut queue), Some("q2"));
         assert_eq!(next(&mut queue), Some("b"));
+    }
+
+    /// Rule 10: a dragged row of "Playing next" lands before the row it
+    /// was dropped on; its own edges move nothing, and the album's rows
+    /// below are never touched.
+    #[test]
+    fn a_dragged_queued_row_moves_to_its_slot() {
+        let mut queue = album(&["a", "b"]);
+        for id in ["q1", "q2", "q3"] {
+            queue.add(Entry::new(id));
+        }
+        assert!(queue.move_queued(0, 2, "q1"));
+        assert_eq!(rows(&queue), ["q2", "q1", "q3", "b"]);
+        assert!(queue.move_queued(2, 0, "q3"));
+        assert_eq!(rows(&queue), ["q3", "q2", "q1", "b"]);
+        assert!(queue.move_queued(0, 3, "q3"), "the slot after the last row");
+        assert_eq!(rows(&queue), ["q2", "q1", "q3", "b"]);
+        assert!(!queue.move_queued(1, 1, "q1"));
+        assert!(!queue.move_queued(1, 2, "q1"));
+        assert!(!queue.move_queued(0, 1, "gone"), "a song no longer queued");
+        assert_eq!(rows(&queue), ["q2", "q1", "q3", "b"]);
+    }
+
+    /// Rule 10: a song that starts while a row is held takes the top row
+    /// away; the move still takes the song it picked up to the slot it was
+    /// dropped on.
+    #[test]
+    fn a_move_follows_its_song_when_the_rows_above_it_have_played() {
+        let mut queue = album(&["a", "b"]);
+        for id in ["q1", "q2", "q3", "q4"] {
+            queue.add(Entry::new(id));
+        }
+        // Picked up q4 at row 3 to drop before q2 (slot 1); q1 then started.
+        assert_eq!(next(&mut queue), Some("q1"));
+        assert!(queue.move_queued(3, 1, "q4"));
+        assert_eq!(rows(&queue), ["q4", "q2", "q3", "b"]);
+    }
+
+    /// Rule 10: dropped songs go in at the slot, in their order, and a slot
+    /// past the end appends.
+    #[test]
+    fn dropped_songs_go_in_at_their_slot() {
+        let mut queue = album(&["a", "b"]);
+        queue.add(Entry::new("q1"));
+        queue.add(Entry::new("q2"));
+        queue.insert_queued(1, entries(&["x", "y"]));
+        assert_eq!(rows(&queue), ["q1", "x", "y", "q2", "b"]);
+        queue.insert_queued(99, entries(&["z"]));
+        assert_eq!(rows(&queue), ["q1", "x", "y", "q2", "z", "b"]);
+        assert_eq!(next(&mut queue), Some("q1"));
+        assert_eq!(next(&mut queue), Some("x"));
     }
 
     /// Rules 3 and 4: a song that starts is not also a row waiting to

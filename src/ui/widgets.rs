@@ -1004,8 +1004,14 @@ fn track_row_contents(
                 _ => None,
             })
             .flatten();
+        // A lone "Playing next" row can move within that section too.
+        let queued = (items.len() == 1
+            && matches!(row.context, RowContext::Queue)
+            && row.index < app.queued_rows_len())
+        .then_some(row.index);
         let mut track = DragTrack::song(items.first().unwrap_or(row.item), from);
         track.items = items;
+        track.queued = queued;
         egui::DragAndDrop::set_payload(ui.ctx(), track);
     }
     // A queue row is a position, not the song itself: the same song can

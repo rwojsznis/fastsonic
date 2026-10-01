@@ -692,6 +692,8 @@ pub struct DragTrack {
     pub items: Vec<PlayableItem>,
     /// Source playlist ID and row index for moves within an editable playlist.
     pub from: Option<(String, u32)>,
+    /// The "Playing next" row it was picked up from, for moves within it.
+    pub queued: Option<usize>,
 }
 
 impl DragTrack {
@@ -701,6 +703,7 @@ impl DragTrack {
             image: item.image(64).map(str::to_string),
             items: vec![item.clone()],
             from,
+            queued: None,
         }
     }
 
@@ -806,6 +809,18 @@ pub enum Action {
     /// Queue several songs in order and show one notification.
     QueueMany {
         songs: Vec<(String, String)>,
+    },
+    /// Move the "Playing next" row shown at `from`, holding `uri`, to the
+    /// slot before row `to` (rule 10 of `docs/_reference/queue.md`).
+    MoveInQueue {
+        from: usize,
+        to: usize,
+        uri: String,
+    },
+    /// Put dragged songs into "Playing next" before row `at`.
+    InsertInQueue {
+        items: Vec<PlayableItem>,
+        at: usize,
     },
     /// Set saved state for several songs explicitly.
     SetSavedMany {
