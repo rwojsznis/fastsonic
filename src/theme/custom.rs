@@ -16,6 +16,18 @@ pub struct CustomTheme {
     pub palette: Palette,
 }
 
+/// How the picker names a palette file: its filename without `.json`. The
+/// saved choice still names the file.
+pub fn display_name(filename: &str) -> &str {
+    filename
+        .len()
+        .checked_sub(".json".len())
+        .filter(|&at| at > 0)
+        .and_then(|at| Some((filename.get(..at)?, filename.get(at..)?)))
+        .filter(|(_, extension)| extension.eq_ignore_ascii_case(".json"))
+        .map_or(filename, |(stem, _)| stem)
+}
+
 /// A damaged cache is treated as absent, so it never makes the rest of the
 /// settings unreadable.
 pub fn read_cached_theme<'de, D: serde::Deserializer<'de>>(
@@ -318,12 +330,13 @@ impl Catalog {
         if let Some(filename) =
             selected.filter(|filename| self.listed && self.find(filename).is_none())
         {
+            let name = display_name(filename);
             return match self.skipped.iter().find(|(skipped, _)| skipped == filename) {
                 Some((_, error)) => format!(
-                    "{filename} could not be read ({error}). Its last colours stay until it is fixed."
+                    "{name} could not be read ({error}). Its last colours stay until it is fixed."
                 ),
                 None => format!(
-                    "{filename} is no longer in the themes folder. Its last colours stay until you choose another theme."
+                    "{name} is no longer in the themes folder. Its last colours stay until you choose another theme."
                 ),
             };
         }
@@ -409,6 +422,18 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "the scan never ended");
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
+    }
+
+    #[test]
+    fn palettes_are_named_without_the_json_extension() {
+        assert_eq!(display_name("Nord.json"), "Nord");
+        assert_eq!(display_name("Rose Pine Dawn.json"), "Rose Pine Dawn");
+        assert_eq!(display_name("mine.JSON"), "mine");
+        assert_eq!(display_name("two.dots.json"), "two.dots");
+        assert_eq!(display_name("Café.json"), "Café");
+        assert_eq!(display_name(".json"), ".json", "nothing left to show");
+        assert_eq!(display_name("notes"), "notes");
+        assert_eq!(display_name("é"), "é");
     }
 
     #[test]
@@ -554,14 +579,14 @@ mod tests {
         wait(&mut catalog);
         let detail = catalog.detail(Some("broken.json"));
         assert!(
-            detail.starts_with("broken.json could not be read (key must be a string"),
+            detail.starts_with("broken could not be read (key must be a string"),
             "{detail}"
         );
         catalog.start(dir.clone(), Some("gone.json".into()), &Default::default());
         wait(&mut catalog);
         let detail = catalog.detail(Some("gone.json"));
         assert!(
-            detail.starts_with("gone.json is no longer in the themes folder"),
+            detail.starts_with("gone is no longer in the themes folder"),
             "{detail}"
         );
         assert!(

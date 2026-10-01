@@ -4286,11 +4286,12 @@ mod tests {
         let entry = |name: &str| painted_below(&painted, name, picker.y + 1.0).center();
         assert!(entry("Follow system").y < entry("Light").y);
         assert!(entry("Light").y < entry("Dark").y);
-        assert!(entry("Dark").y < entry("local.json").y);
+        // Listed by name, without `.json`.
+        assert!(entry("Dark").y < entry("local").y);
         view_frame(
             &ctx,
             &mut app,
-            pointer_click(entry("local.json"), egui::PointerButton::Primary),
+            pointer_click(entry("local"), egui::PointerButton::Primary),
             view,
         );
         let mut palette = crate::theme::Palette::light();
@@ -4303,9 +4304,39 @@ mod tests {
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         let id = accessible_node(&tree, "Theme", egui::accesskit::Role::ComboBox);
         let node = &tree.nodes.iter().find(|(node, _)| *node == id).unwrap().1;
-        assert_eq!(node.value(), Some("local.json"));
+        assert_eq!(node.value(), Some("local"), "read out as shown");
         wait_for_themes(&ctx, &mut app);
         let _ = std::fs::remove_dir_all(themes);
+    }
+
+    /// Beside the themes folder, a button opens the guide to writing a
+    /// theme. Only the page is drawn, so the click's action is collected
+    /// and never opens a browser.
+    #[test]
+    fn the_theme_row_links_to_the_guide_to_making_a_theme() {
+        let (ctx, mut app) = accessible_app("theme-guide");
+        app.backend.shutdown();
+        let view = crate::ui::settings::show;
+        for _ in 0..3 {
+            view_frame(&ctx, &mut app, vec![], view);
+        }
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let guide = painted_below(&painted, "How to make a theme", 0.0).center();
+        let folder = painted_below(&painted, "Open themes folder", 0.0).center();
+        assert!((guide.y - folder.y).abs() < 1.0, "side by side");
+        assert!(
+            folder.x < guide.x,
+            "the guide at the edge, like Skin Museum"
+        );
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(guide, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(app.actions.iter().any(|action| matches!(action,
+            Action::OpenUrl(url) if url == "https://github.com/rwojsznis/fastsonic/blob/main/docs/_reference/settings-and-files.md#custom-themes")));
     }
 
     /// The folder button looks and reads like the Winamp skins one, and

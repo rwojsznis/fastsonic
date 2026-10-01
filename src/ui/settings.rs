@@ -6,7 +6,7 @@ use crate::api::models::pick_image;
 use crate::app::App;
 use crate::model::{Action, Dialog};
 use crate::settings::ThemeChoice;
-use crate::theme::{self, Icon, Palette};
+use crate::theme::{self, Icon, Palette, custom::display_name};
 
 use super::widgets;
 
@@ -403,27 +403,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         } else {
             problem
         };
-        let folder_width = theme::soft_button_width(ui, THEMES_FOLDER) + SOFT_BUTTON_ICON;
+        let buttons_width = theme_buttons_width(ui);
         widgets::setting_row_sized(
             ui,
             &palette,
             "Theme",
             &detail,
-            THEME_PICKER_WIDTH.max(folder_width),
+            THEME_PICKER_WIDTH.max(buttons_width),
             |ui| {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
                     theme_picker(app, ui);
-                    if theme::soft_button(
-                        ui,
-                        &palette,
-                        Some(Icon::ExternalLink),
-                        THEMES_FOLDER,
-                        false,
-                    )
-                    .clicked()
-                    {
-                        app.actions.push(Action::OpenThemesFolder);
-                    }
+                    theme_buttons(app, ui, buttons_width);
                 });
             },
         );
@@ -1065,14 +1055,56 @@ const SOFT_BUTTON_ICON: f32 = 15.0 + 6.0;
 
 const THEMES_FOLDER: &str = "Open themes folder";
 
+const THEMES_GUIDE: &str = "How to make a theme";
+
+/// The guide to writing a palette file for the themes folder.
+const THEMES_GUIDE_URL: &str = "https://github.com/rwojsznis/fastsonic/blob/main/docs/_reference/settings-and-files.md#custom-themes";
+
+/// The Theme row's two buttons side by side.
+fn theme_buttons_width(ui: &egui::Ui) -> f32 {
+    [THEMES_GUIDE, THEMES_FOLDER]
+        .map(|label| theme::soft_button_width(ui, label) + SOFT_BUTTON_ICON)
+        .iter()
+        .sum::<f32>()
+        + CHOICE_GAP
+}
+
+/// The guide to writing a theme sits beside the folder it goes in, and
+/// above it when the row is narrower than `width`.
+fn theme_buttons(app: &mut App, ui: &mut egui::Ui, width: f32) {
+    let palette = app.palette;
+    let mut buttons = |ui: &mut egui::Ui| {
+        if theme::soft_button(ui, &palette, Some(Icon::Globe), THEMES_GUIDE, false).clicked() {
+            app.actions.push(Action::OpenUrl(THEMES_GUIDE_URL.into()));
+        }
+        if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), THEMES_FOLDER, false)
+            .clicked()
+        {
+            app.actions.push(Action::OpenThemesFolder);
+        }
+    };
+    if ui.available_width() >= width {
+        // In a right-aligned column a row runs right to left, so the guide
+        // ends up at the edge, as the Skin Museum does beside Open folder.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = CHOICE_GAP;
+            buttons(ui);
+        });
+    } else {
+        ui.spacing_mut().item_spacing.y = CHOICE_GAP;
+        buttons(ui);
+    }
+}
+
 /// The Theme row's picker: the built-in choices, then the palette files in
-/// the themes folder.
+/// the themes folder, by name.
 fn theme_picker(app: &mut App, ui: &mut egui::Ui) {
     let selected = app
         .settings
         .custom_theme
-        .clone()
-        .unwrap_or_else(|| app.settings.theme.label().to_owned());
+        .as_deref()
+        .map_or(app.settings.theme.label(), display_name)
+        .to_owned();
     let response = egui::ComboBox::from_id_salt("appearance-theme")
         .selected_text(selected.as_str())
         .width(THEME_PICKER_WIDTH.min(ui.available_width()))
@@ -1089,7 +1121,7 @@ fn theme_picker(app: &mut App, ui: &mut egui::Ui) {
             for theme in app.custom_themes.themes() {
                 let shown = app.settings.custom_theme.as_deref() == Some(theme.filename.as_str());
                 if ui
-                    .selectable_label(shown, theme.filename.as_str())
+                    .selectable_label(shown, display_name(&theme.filename))
                     .clicked()
                 {
                     app.actions

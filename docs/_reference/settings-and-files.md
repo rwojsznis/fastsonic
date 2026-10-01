@@ -89,8 +89,9 @@ beside `settings.json`: `~/.config/fastsonic/themes/` on Linux,
 `~/Library/Application Support/io.github.rwojsznis.fastsonic/themes/` on
 macOS, and `%APPDATA%\\github.rwojsznis\\fastsonic\\config\\themes\\` on
 Windows. **Open themes folder** beside the picker creates the folder if needed
-and opens it in your file manager. A palette is listed by its filename, and
-picking it applies it at once. Choosing Follow system, Light or Dark sets the
+and opens it in your file manager, and **How to make a theme** opens this
+section. A palette is listed by its filename without `.json` (`Gruvbox.json`
+is **Gruvbox**), and picking it applies it at once. Choosing Follow system, Light or Dark sets the
 palette aside again. A theme changes colours only; fonts and layout stay as
 they are, and Winamp skins keep their own look.
 
