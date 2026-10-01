@@ -237,6 +237,24 @@ fn main() -> eframe::Result<()> {
     } else {
         "warn,fastsonic=info"
     };
+    #[cfg(feature = "demo")]
+    let demo = cli.demo || cli.demo_shot.is_some();
+    // Demo mode invents plays, settings and a signed-in account, and the
+    // backend restores the saved sign-in as it starts. With the real profile
+    // it would reach the real server, write its inventions over the user's
+    // own, and truncate the log of an instance already running.
+    #[cfg(feature = "demo")]
+    let dirs = if demo {
+        let root = std::env::temp_dir().join(format!("fastsonic-demo-{}", std::process::id()));
+        paths::AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        }
+    } else {
+        paths::AppDirs::discover()
+    };
+    #[cfg(not(feature = "demo"))]
     let dirs = paths::AppDirs::discover();
     let dirs_ready = dirs.ensure();
     let mut logger =
@@ -263,8 +281,6 @@ fn main() -> eframe::Result<()> {
 
     // A second launch surfaces the instance already running instead of
     // starting a rival one. Held for the lifetime of the process.
-    #[cfg(feature = "demo")]
-    let demo = cli.demo || cli.demo_shot.is_some();
     #[cfg(feature = "demo")]
     let guarded = !demo;
     #[cfg(not(feature = "demo"))]
