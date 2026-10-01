@@ -332,6 +332,7 @@ fn main() -> eframe::Result<()> {
     let desktop_surfaces = options.media_controls;
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, options);
+    app.load_custom_themes();
     if let Some(guard) = &instance {
         app.set_remote_control(guard);
     }

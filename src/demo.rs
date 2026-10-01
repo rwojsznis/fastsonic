@@ -4229,4 +4229,114 @@ mod tests {
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }
+
+    fn wait_for_themes(ctx: &egui::Context, app: &mut App) {
+        let deadline = Instant::now() + std::time::Duration::from_secs(3);
+        while app.custom_themes.loading() {
+            app.poll_custom_themes(ctx);
+            assert!(Instant::now() < deadline, "the theme scan never ended");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// The painted rect of a label drawn below `below`.
+    fn painted_below(painted: &[(String, egui::Rect)], label: &str, below: f32) -> egui::Rect {
+        painted
+            .iter()
+            .find(|(text, rect)| text == label && rect.center().y > below)
+            .map(|(_, rect)| *rect)
+            .unwrap_or_else(|| panic!("{label:?} was never drawn below {below}: {painted:?}"))
+    }
+
+    /// The Theme picker lists Follow system, Light and Dark, then the files
+    /// in the themes folder. Picking one shows it at once, and a screen
+    /// reader hears the picker's name and what it shows.
+    #[test]
+    fn the_theme_picker_lists_the_built_in_themes_then_the_palette_files() {
+        let (ctx, mut app) = accessible_app("custom-theme-picker");
+        app.backend.shutdown();
+        let themes = app.dirs.themes_dir();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            themes.join("local.json"),
+            r##"{"base":"light","colors":{"accent":"#8c3fa5"}}"##,
+        )
+        .unwrap();
+        app.open(Page::Settings);
+        wait_for_themes(&ctx, &mut app);
+        let view = App::frame_ui;
+        for _ in 0..3 {
+            view_frame(&ctx, &mut app, vec![], view);
+        }
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let theme_row = painted_below(&painted, "Theme", 0.0).center().y;
+        let picker = painted_below(&painted, "Dark", theme_row - 20.0).center();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(picker, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(
+            app.custom_themes.loading(),
+            "opening the picker lists the folder again"
+        );
+        wait_for_themes(&ctx, &mut app);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let entry = |name: &str| painted_below(&painted, name, picker.y + 1.0).center();
+        assert!(entry("Follow system").y < entry("Light").y);
+        assert!(entry("Light").y < entry("Dark").y);
+        assert!(entry("Dark").y < entry("local.json").y);
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(entry("local.json"), egui::PointerButton::Primary),
+            view,
+        );
+        let mut palette = crate::theme::Palette::light();
+        palette.accent = egui::Color32::from_rgb(0x8c, 0x3f, 0xa5);
+        assert_eq!(app.settings.custom_theme.as_deref(), Some("local.json"));
+        assert_eq!(app.palette, palette);
+        assert_eq!(app.settings.cached_palette(), Some(palette));
+        assert_eq!(ctx.theme(), egui::Theme::Light);
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let id = accessible_node(&tree, "Theme", egui::accesskit::Role::ComboBox);
+        let node = &tree.nodes.iter().find(|(node, _)| *node == id).unwrap().1;
+        assert_eq!(node.value(), Some("local.json"));
+        wait_for_themes(&ctx, &mut app);
+        let _ = std::fs::remove_dir_all(themes);
+    }
+
+    /// The folder button looks and reads like the Winamp skins one, and
+    /// only asks for the folder: drawing never creates or opens it.
+    #[test]
+    fn the_themes_folder_button_asks_to_open_the_folder() {
+        let (ctx, mut app) = accessible_app("themes-folder-button");
+        app.backend.shutdown();
+        let view = crate::ui::settings::show;
+        for _ in 0..3 {
+            view_frame(&ctx, &mut app, vec![], view);
+        }
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let button = painted_below(&painted, "Open themes folder", 0.0).center();
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(button, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(matches!(app.actions.as_slice(), [Action::OpenThemesFolder]));
+        app.actions.clear();
+        app.open(Page::Settings);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Open themes folder", egui::accesskit::Role::Button);
+        wait_for_themes(&ctx, &mut app);
+        assert!(
+            !app.dirs.themes_dir().exists(),
+            "drawing cannot open or create folders"
+        );
+    }
 }

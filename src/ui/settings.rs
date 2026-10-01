@@ -392,25 +392,41 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     });
 
     section(ui, &palette, "Appearance", |ui| {
-        let width = choices_width(ui, ThemeChoice::ALL.map(ThemeChoice::label));
-        widgets::setting_row_sized(ui, &palette, "Theme", "", width, |ui| {
-            choices(ui, width, ThemeChoice::ALL.len(), |ui, index| {
-                let choice = ThemeChoice::ALL[index];
-                if theme::soft_button(
-                    ui,
-                    &palette,
-                    None,
-                    choice.label(),
-                    app.settings.theme == choice,
-                )
-                .clicked()
-                    && app.settings.theme != choice
-                {
-                    app.settings.theme = choice;
-                    changed = true;
-                }
-            });
-        });
+        let problem = app
+            .custom_themes
+            .detail(app.settings.custom_theme.as_deref());
+        let detail = if problem.is_empty() {
+            format!(
+                "Palette files in {} are listed after the built-in themes.",
+                app.dirs.themes_dir().display()
+            )
+        } else {
+            problem
+        };
+        let folder_width = theme::soft_button_width(ui, THEMES_FOLDER) + SOFT_BUTTON_ICON;
+        widgets::setting_row_sized(
+            ui,
+            &palette,
+            "Theme",
+            &detail,
+            THEME_PICKER_WIDTH.max(folder_width),
+            |ui| {
+                ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                    theme_picker(app, ui);
+                    if theme::soft_button(
+                        ui,
+                        &palette,
+                        Some(Icon::ExternalLink),
+                        THEMES_FOLDER,
+                        false,
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::OpenThemesFolder);
+                    }
+                });
+            },
+        );
         widgets::setting_row(
             ui,
             &palette,
@@ -1039,6 +1055,59 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if changed {
         app.actions.push(Action::SettingsChanged);
     }
+}
+
+/// The Theme picker, wide enough for most palette names.
+const THEME_PICKER_WIDTH: f32 = 200.0;
+
+/// What an icon adds to a `soft_button`'s width.
+const SOFT_BUTTON_ICON: f32 = 15.0 + 6.0;
+
+const THEMES_FOLDER: &str = "Open themes folder";
+
+/// The Theme row's picker: the built-in choices, then the palette files in
+/// the themes folder.
+fn theme_picker(app: &mut App, ui: &mut egui::Ui) {
+    let selected = app
+        .settings
+        .custom_theme
+        .clone()
+        .unwrap_or_else(|| app.settings.theme.label().to_owned());
+    let response = egui::ComboBox::from_id_salt("appearance-theme")
+        .selected_text(selected.as_str())
+        .width(THEME_PICKER_WIDTH.min(ui.available_width()))
+        .show_ui(ui, |ui| {
+            for choice in ThemeChoice::ALL {
+                let shown = app.settings.custom_theme.is_none() && app.settings.theme == choice;
+                if ui.selectable_label(shown, choice.label()).clicked() {
+                    app.actions.push(Action::SetTheme(choice));
+                }
+            }
+            if !app.custom_themes.themes().is_empty() {
+                ui.separator();
+            }
+            for theme in app.custom_themes.themes() {
+                let shown = app.settings.custom_theme.as_deref() == Some(theme.filename.as_str());
+                if ui
+                    .selectable_label(shown, theme.filename.as_str())
+                    .clicked()
+                {
+                    app.actions
+                        .push(Action::SetCustomTheme(theme.filename.clone()));
+                }
+            }
+        });
+    // Opening the picker lists the folder again, so a file added or edited
+    // while Settings is open shows up.
+    if response.response.clicked() {
+        app.actions.push(Action::ReloadThemes);
+    }
+    response.response.widget_info(|| {
+        let mut info =
+            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), "Theme");
+        info.current_text_value = Some(selected.clone());
+        info
+    });
 }
 
 /// A band's frequency the short way: 60, 170, 1K, 16K.

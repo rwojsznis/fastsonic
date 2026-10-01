@@ -35,7 +35,8 @@ impl VisMode {
 }
 
 impl ThemeChoice {
-    pub const ALL: [ThemeChoice; 3] = [Self::System, Self::Dark, Self::Light];
+    /// In the order the Theme picker lists them, before any palette files.
+    pub const ALL: [ThemeChoice; 3] = [Self::System, Self::Light, Self::Dark];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -81,6 +82,17 @@ pub struct Settings {
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
     pub theme: ThemeChoice,
+    /// The palette file chosen from the themes folder, by filename. While
+    /// set, it is shown instead of `theme`.
+    pub custom_theme: Option<String>,
+    /// That palette as last read, so the app starts in its colours and keeps
+    /// them if the file goes missing or stops parsing.
+    #[serde(
+        default,
+        deserialize_with = "crate::theme::custom::read_cached_theme",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub custom_theme_cache: Option<crate::theme::custom::CustomTheme>,
     /// Tint the interface with the colour of the playing album's art.
     pub accent_from_art: bool,
     pub player_bar_vis: PlayerBarVis,
@@ -184,6 +196,8 @@ impl Default for Settings {
             audio_cache: true,
             audio_cache_mb: 1024,
             theme: ThemeChoice::System,
+            custom_theme: None,
+            custom_theme_cache: None,
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
@@ -282,6 +296,15 @@ impl Settings {
         })
     }
 
+    /// The chosen palette file's colours as last read, when one is chosen.
+    pub fn cached_palette(&self) -> Option<crate::theme::Palette> {
+        let chosen = self.custom_theme.as_deref()?;
+        self.custom_theme_cache
+            .as_ref()
+            .filter(|theme| theme.filename == chosen)
+            .map(|theme| theme.palette)
+    }
+
     pub fn remember_search(&mut self, query: &str) {
         let query = query.trim();
         if query.is_empty() {
@@ -357,6 +380,76 @@ mod tests {
         })
         .unwrap();
         assert!(saved.contains(r#""theme":"dark""#), "{saved}");
+    }
+
+    #[test]
+    fn the_built_in_themes_read_follow_system_light_dark() {
+        use super::ThemeChoice;
+        assert_eq!(
+            ThemeChoice::ALL,
+            [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark]
+        );
+    }
+
+    /// A file from before palette files chooses none and caches none, and
+    /// writes neither back until one is chosen.
+    #[test]
+    fn older_settings_choose_no_palette_file() {
+        let settings: Settings = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
+        assert_eq!(settings.custom_theme, None);
+        assert_eq!(settings.custom_theme_cache, None);
+        assert_eq!(settings.cached_palette(), None);
+        let saved = serde_json::to_string(&settings).unwrap();
+        assert!(!saved.contains("custom_theme_cache"), "{saved}");
+    }
+
+    #[test]
+    fn a_cached_palette_round_trips_and_a_damaged_one_keeps_the_rest() {
+        use crate::theme::{Palette, custom::CustomTheme};
+        let mut palette = Palette::light();
+        palette.shadow = egui::Color32::from_rgba_unmultiplied(37, 128, 249, 117);
+        let settings = Settings {
+            custom_theme: Some("gruvbox.json".into()),
+            custom_theme_cache: Some(CustomTheme {
+                filename: "gruvbox.json".into(),
+                palette,
+            }),
+            ..Settings::default()
+        };
+        let encoded = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(restored, settings);
+        assert_eq!(restored.cached_palette(), Some(palette));
+
+        let mut damaged = serde_json::to_value(&settings).unwrap();
+        damaged["custom_theme_cache"] = serde_json::json!({"palette": "broken"});
+        damaged["audio_cache_mb"] = 777.into();
+        let recovered: Settings = serde_json::from_value(damaged).unwrap();
+        assert_eq!(recovered.custom_theme.as_deref(), Some("gruvbox.json"));
+        assert_eq!(recovered.audio_cache_mb, 777);
+        assert_eq!(recovered.custom_theme_cache, None);
+        assert_eq!(recovered.cached_palette(), None);
+    }
+
+    /// A cache left from another file, say after `custom_theme` was edited
+    /// by hand, is not that file's colours.
+    #[test]
+    fn a_cache_counts_only_for_the_file_it_was_read_from() {
+        use crate::theme::{Palette, custom::CustomTheme};
+        let settings = Settings {
+            custom_theme: Some("other.json".into()),
+            custom_theme_cache: Some(CustomTheme {
+                filename: "gruvbox.json".into(),
+                palette: Palette::light(),
+            }),
+            ..Settings::default()
+        };
+        assert_eq!(settings.cached_palette(), None);
+        let unchosen = Settings {
+            custom_theme: None,
+            ..settings
+        };
+        assert_eq!(unchosen.cached_palette(), None);
     }
 
     #[test]

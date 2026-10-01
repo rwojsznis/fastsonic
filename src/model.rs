@@ -907,6 +907,14 @@ pub enum Action {
     /// Ask GitHub for the latest release and report the result to the user.
     CheckForUpdates,
     SettingsChanged,
+    /// Show a built-in theme, setting aside any palette file.
+    SetTheme(crate::settings::ThemeChoice),
+    /// Show a palette from the themes folder, by filename.
+    SetCustomTheme(String),
+    /// List the themes folder again, and take the chosen palette's new
+    /// colours if its file changed.
+    ReloadThemes,
+    OpenThemesFolder,
     RestartEngine,
     ShowWindow,
     HideWindow,

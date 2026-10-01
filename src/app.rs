@@ -148,6 +148,10 @@ pub struct App {
     /// the taskbar: Windows and X11.
     pub taskbar_hiding_supported: bool,
     applied_dark: Option<bool>,
+    /// The palette files in the themes folder.
+    pub custom_themes: theme::custom::Catalog,
+    /// Wakes the window when the themes folder has been listed.
+    waker: Waker,
 
     pub auth: AuthStatus,
     pub user: Option<User>,
@@ -453,6 +457,9 @@ impl App {
             .and_then(Page::decode)
             .filter(|page| !matches!(page, Page::Settings | Page::Queue))
             .unwrap_or(Page::Home);
+        // The chosen palette file's colours from the last run, so even the
+        // first frame wears them while the folder is read again.
+        let palette = settings.cached_palette().unwrap_or_else(Palette::dark);
 
         let mut app = Self {
             dirs,
@@ -472,10 +479,12 @@ impl App {
             control_commands: None,
             control_now_playing: None,
             offline: false,
-            palette: Palette::dark(),
+            palette,
             window_level_supported: true,
             taskbar_hiding_supported: cfg!(windows),
             applied_dark: None,
+            custom_themes: theme::custom::Catalog::default(),
+            waker: waker.clone(),
             auth: AuthStatus::Starting,
             user: None,
             local_ready: false,
@@ -623,11 +632,7 @@ impl App {
     pub fn attach(&mut self, ctx: &egui::Context) {
         theme::install(ctx);
         ctx.add_bytes_loader(std::sync::Arc::new(self.backend.art().clone()));
-        ctx.set_theme(match self.settings.theme {
-            ThemeChoice::Dark => egui::ThemePreference::Dark,
-            ThemeChoice::Light => egui::ThemePreference::Light,
-            ThemeChoice::System => egui::ThemePreference::System,
-        });
+        ctx.set_theme(self.theme_preference());
         self.applied_dark = None;
         self.winamp.forget_textures();
         self.window_hidden = false;
@@ -1645,6 +1650,7 @@ impl App {
     }
 
     fn tick(&mut self, ctx: &egui::Context) {
+        self.poll_custom_themes(ctx);
         let now = Instant::now();
         if self.winamp_level_reassert > 0 {
             self.winamp_level_reassert -= 1;
@@ -1900,6 +1906,46 @@ impl App {
         self.settings.save(&self.dirs.settings_file());
     }
 
+    /// Lists the themes folder off this thread: at launch, when Settings
+    /// opens and when the Theme picker opens. Building the app or a window
+    /// never reads it.
+    pub fn load_custom_themes(&mut self) {
+        self.custom_themes.start(
+            self.dirs.themes_dir(),
+            self.settings.custom_theme.clone(),
+            &self.waker,
+        );
+    }
+
+    /// Takes a finished listing, and with it the chosen palette's colours
+    /// when its file changed.
+    pub(crate) fn poll_custom_themes(&mut self, ctx: &egui::Context) {
+        if self.custom_themes.poll()
+            && let Some(filename) = &self.settings.custom_theme
+            && let Some(theme) = self.custom_themes.find(filename)
+            && self.settings.custom_theme_cache.as_ref() != Some(theme)
+        {
+            // The choice as it is now, never the one the scan started with.
+            self.settings.custom_theme_cache = Some(theme.clone());
+            self.mark_settings_dirty();
+            ctx.set_theme(self.theme_preference());
+        }
+    }
+
+    /// Whether egui draws light or dark: the chosen palette's base, or the
+    /// built-in choice.
+    fn theme_preference(&self) -> egui::ThemePreference {
+        match self.settings.cached_palette() {
+            Some(palette) if palette.dark => egui::ThemePreference::Dark,
+            Some(_) => egui::ThemePreference::Light,
+            None => match self.settings.theme {
+                ThemeChoice::Dark => egui::ThemePreference::Dark,
+                ThemeChoice::Light => egui::ThemePreference::Light,
+                ThemeChoice::System => egui::ThemePreference::System,
+            },
+        }
+    }
+
     fn apply_theme(&mut self, ctx: &egui::Context) {
         #[cfg(target_os = "linux")]
         if let Some(dark) = self
@@ -1917,12 +1963,15 @@ impl App {
             }
         }
         let dark = ctx.theme() == egui::Theme::Dark;
-        if self.applied_dark != Some(dark) {
-            self.palette = if dark {
+        let palette = self.settings.cached_palette().unwrap_or_else(|| {
+            if dark {
                 Palette::dark()
             } else {
                 Palette::light()
-            };
+            }
+        });
+        if self.applied_dark != Some(dark) || self.palette != palette {
+            self.palette = palette;
             theme::apply(ctx, &self.palette);
             self.applied_dark = Some(dark);
             self.accents.clear();
@@ -3303,6 +3352,11 @@ impl App {
     // ---- navigation ------------------------------------------------------------
 
     pub fn open(&mut self, page: Page) {
+        if page == Page::Settings {
+            // Palette files added or edited since are listed by the time
+            // the Theme picker is reached.
+            self.load_custom_themes();
+        }
         self.page_used.insert(page.clone(), Instant::now());
         if *self.page() == page {
             self.ensure_loaded(page.clone());
@@ -4371,12 +4425,29 @@ impl App {
             Action::CheckForUpdates => self.check_for_updates(true),
             Action::SettingsChanged => {
                 self.settings_dirty = true;
-                ctx.set_theme(match self.settings.theme {
-                    ThemeChoice::Dark => egui::ThemePreference::Dark,
-                    ThemeChoice::Light => egui::ThemePreference::Light,
-                    ThemeChoice::System => egui::ThemePreference::System,
-                });
+                ctx.set_theme(self.theme_preference());
             }
+            Action::SetTheme(choice) => {
+                self.settings.theme = choice;
+                self.settings.custom_theme = None;
+                self.settings.custom_theme_cache = None;
+                self.mark_settings_dirty();
+                ctx.set_theme(self.theme_preference());
+                self.apply_theme(ctx);
+            }
+            Action::SetCustomTheme(filename) => {
+                // Only a palette that was read can be shown; the choice
+                // never leaves the app without usable colours.
+                if let Some(theme) = self.custom_themes.find(&filename) {
+                    self.settings.custom_theme_cache = Some(theme.clone());
+                    self.settings.custom_theme = Some(filename);
+                    self.mark_settings_dirty();
+                    ctx.set_theme(self.theme_preference());
+                    self.apply_theme(ctx);
+                }
+            }
+            Action::ReloadThemes => self.load_custom_themes(),
+            Action::OpenThemesFolder => self.open_folder(self.dirs.themes_dir()),
             Action::RestartEngine => {
                 self.save_settings();
                 let config = engine_config(
@@ -7253,6 +7324,211 @@ mod tests {
         app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(false));
         app.apply_theme(&ctx);
         assert_eq!(ctx.theme(), egui::Theme::Dark);
+    }
+
+    fn wait_for_custom_themes(app: &mut App, ctx: &egui::Context) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while app.custom_themes.loading() {
+            app.poll_custom_themes(ctx);
+            assert!(Instant::now() < deadline, "the theme scan never ended");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// The chosen palette is cached in the settings, so the next start
+    /// wears it from the first frame, and keeps wearing it when its file is
+    /// deleted or broken, without the rest of the settings changing.
+    #[test]
+    fn a_chosen_palette_survives_a_restart_and_a_missing_or_broken_file() {
+        let mut app = test_app("custom-theme-restart");
+        app.backend.shutdown();
+        let ctx = egui::Context::default();
+        let directory = app.dirs.themes_dir();
+        let file = directory.join("local.json");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            &file,
+            br##"{"base":"light","colors":{"accent":"#8c3fa5"}}"##,
+        )
+        .unwrap();
+        app.settings.theme = ThemeChoice::Dark;
+        app.settings.audio_cache_mb = 777;
+        app.settings.custom_theme = Some("local.json".into());
+        assert!(
+            !app.custom_themes.loading(),
+            "building the app never reads the themes folder"
+        );
+        app.load_custom_themes();
+        wait_for_custom_themes(&mut app, &ctx);
+        app.apply_theme(&ctx);
+        let mut expected = Palette::light();
+        expected.accent = egui::Color32::from_rgb(0x8c, 0x3f, 0xa5);
+        assert_eq!(app.palette, expected);
+        app.save_settings();
+        let accepted = Settings::load(&app.dirs.settings_file());
+        assert!(accepted.custom_theme_cache.is_some());
+
+        for contents in [
+            None,
+            Some("{broken"),
+            Some(r##"{"colors":{"accent":"#bad"}}"##),
+        ] {
+            match contents {
+                Some(contents) => std::fs::write(&file, contents).unwrap(),
+                None => std::fs::remove_file(&file).unwrap(),
+            }
+            let mut restored = App::new(
+                &Waker::default(),
+                app.dirs.clone(),
+                Settings::load(&app.dirs.settings_file()),
+                AppOptions {
+                    media_controls: false,
+                    tray: false,
+                },
+            );
+            restored.backend.shutdown();
+            assert_eq!(restored.palette, expected, "even the first frame");
+            let ctx = egui::Context::default();
+            restored.attach(&ctx);
+            restored.apply_theme(&ctx);
+            assert_eq!(ctx.theme(), egui::Theme::Light);
+            assert_eq!(restored.palette, expected);
+            restored.load_custom_themes();
+            wait_for_custom_themes(&mut restored, &ctx);
+            restored.apply_theme(&ctx);
+            assert_eq!(restored.palette, expected);
+            let detail = restored.custom_themes.detail(Some("local.json"));
+            assert!(detail.contains("last colours stay"), "{detail}");
+            restored.save_settings();
+            assert_eq!(Settings::load(&restored.dirs.settings_file()), accepted);
+        }
+        std::fs::remove_dir_all(app.dirs.config.parent().unwrap()).unwrap();
+    }
+
+    /// Editing the chosen file and listing the folder again shows the new
+    /// colours at once; a broken edit keeps the last ones.
+    #[test]
+    fn listing_again_takes_the_chosen_palettes_edits() {
+        let mut app = test_app("custom-theme-reload");
+        app.backend.shutdown();
+        let ctx = egui::Context::default();
+        let directory = app.dirs.themes_dir();
+        let file = directory.join("mine.json");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(&file, br#"{"base":"dark"}"#).unwrap();
+        app.settings.custom_theme = Some("mine.json".into());
+        app.load_custom_themes();
+        wait_for_custom_themes(&mut app, &ctx);
+        app.apply_theme(&ctx);
+        assert_eq!(app.palette, Palette::dark());
+        for (contents, expected) in [
+            (r#"{"base":"light"}"#, Palette::light()),
+            ("broken", Palette::light()),
+            (r#"{"base":"dark"}"#, Palette::dark()),
+        ] {
+            std::fs::write(&file, contents).unwrap();
+            app.apply(Action::ReloadThemes, &ctx);
+            wait_for_custom_themes(&mut app, &ctx);
+            app.apply_theme(&ctx);
+            assert_eq!(app.palette, expected, "{contents}");
+            assert_eq!(app.settings.custom_theme.as_deref(), Some("mine.json"));
+        }
+
+        std::fs::write(directory.join("new.json"), "{}").unwrap();
+        app.open(Page::Settings);
+        assert!(app.custom_themes.loading(), "opening Settings lists again");
+        wait_for_custom_themes(&mut app, &ctx);
+        assert!(app.custom_themes.find("new.json").is_some());
+
+        app.apply(Action::SetTheme(ThemeChoice::Light), &ctx);
+        std::fs::write(&file, r#"{"base":"dark"}"#).unwrap();
+        app.apply(Action::ReloadThemes, &ctx);
+        wait_for_custom_themes(&mut app, &ctx);
+        app.apply_theme(&ctx);
+        assert_eq!(
+            app.palette,
+            Palette::light(),
+            "listing again never chooses a palette file"
+        );
+        assert!(app.settings.custom_theme.is_none());
+        std::fs::remove_dir_all(app.dirs.config.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_scan_does_not_hold_up_a_choice_or_bring_back_an_old_one() {
+        let mut app = test_app("custom-theme-worker");
+        app.backend.shutdown();
+        let ctx = egui::Context::default();
+        app.settings.custom_theme = Some("old.json".into());
+        let (started, worker) = std::sync::mpsc::channel();
+        let (finish, continue_load) = std::sync::mpsc::channel();
+        app.custom_themes.load_test(move || {
+            started.send(std::thread::current().id()).unwrap();
+            continue_load.recv().unwrap();
+            vec![theme::custom::CustomTheme {
+                filename: "old.json".into(),
+                palette: Palette::dark(),
+            }]
+        });
+        assert_ne!(
+            worker.recv_timeout(Duration::from_secs(3)).unwrap(),
+            std::thread::current().id()
+        );
+        app.apply(Action::SetTheme(ThemeChoice::Light), &ctx);
+        assert_eq!(app.palette, Palette::light());
+        assert!(app.custom_themes.loading());
+        finish.send(()).unwrap();
+        wait_for_custom_themes(&mut app, &ctx);
+        app.apply_theme(&ctx);
+        assert_eq!(app.palette, Palette::light());
+        assert!(app.custom_themes.find("old.json").is_some());
+        assert!(app.settings.custom_theme.is_none());
+        assert!(app.settings.custom_theme_cache.is_none());
+    }
+
+    #[test]
+    fn a_palette_file_sets_egui_s_base_and_the_built_in_choices_stay() {
+        let mut app = test_app("custom-theme");
+        app.backend.shutdown();
+        let ctx = egui::Context::default();
+        app.settings.theme = ThemeChoice::System;
+        let mut palette = Palette::light();
+        palette.accent = egui::Color32::RED;
+        app.custom_themes = theme::custom::Catalog::from_themes(vec![theme::custom::CustomTheme {
+            filename: "local.json".into(),
+            palette,
+        }]);
+        app.apply(Action::SetCustomTheme("local.json".into()), &ctx);
+        assert_eq!(app.palette, palette);
+        assert_eq!(
+            app.settings.theme,
+            ThemeChoice::System,
+            "a palette file keeps the built-in choice underneath"
+        );
+        assert_eq!(ctx.theme(), egui::Theme::Light);
+        assert!(!ctx.global_style().visuals.dark_mode);
+        assert_eq!(ctx.global_style().visuals.panel_fill, palette.panel);
+        let accepted = app.settings.clone();
+        app.apply(Action::SetCustomTheme("missing.json".into()), &ctx);
+        assert_eq!(
+            app.settings, accepted,
+            "a palette that was never read cannot replace usable colours"
+        );
+        app.apply(Action::SettingsChanged, &ctx);
+        assert_eq!(
+            ctx.theme(),
+            egui::Theme::Light,
+            "other settings keep the palette's base"
+        );
+        for choice in ThemeChoice::ALL {
+            app.apply(Action::SetTheme(choice), &ctx);
+            assert_eq!(app.settings.theme, choice);
+            assert!(app.settings.custom_theme.is_none());
+            assert!(app.settings.custom_theme_cache.is_none());
+            if choice != ThemeChoice::System {
+                assert_eq!(app.palette.dark, choice == ThemeChoice::Dark);
+            }
+        }
     }
 
     #[cfg(target_os = "linux")]

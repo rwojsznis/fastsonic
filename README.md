@@ -28,6 +28,9 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - Light, dark, and system themes, following the system by default, with
   optional album-art colour that fades between songs. On Linux, the system
   theme follows the desktop portal.
+- [Custom themes](docs/_reference/settings-and-files.md#custom-themes): JSON
+  colour palettes in a `themes` folder, picked in Settings after the built-in
+  themes and applied at once.
 - System font fallbacks for titles in scripts Inter does not cover, and for
   the styled, circled and Javanese letters people put in names; Arabic is
   enlarged to read as large as the Latin text around it, and Windows prefers

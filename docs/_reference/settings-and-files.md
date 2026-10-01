@@ -8,6 +8,7 @@ Linux the default locations are:
 | What | Where | Safe to delete? |
 | --- | --- | --- |
 | Settings | `~/.config/fastsonic/settings.json` | Yes; preferences reset |
+| Custom themes | `~/.config/fastsonic/themes/` | Yes; the built-in themes remain |
 | Winamp skins | `~/.config/fastsonic/skins/` | Yes; add them again |
 | MilkDrop presets | `~/.config/fastsonic/milkdrop/` | Yes; fetch them again |
 | Server credential | `~/.local/state/fastsonic/credentials.json` | Yes; sign in again |
@@ -61,6 +62,8 @@ Interface settings cover theme, album-art accents, compact rows, shortcut
 hints, sidebar state, zoom, player bar visualizer, Winamp skin/random
 selection/windows/equalizer, and MilkDrop. On
 Linux, Follow system reads the light or dark preference from the desktop portal.
+The theme can also be a palette file of your own; see
+[Custom themes](#custom-themes).
 On Windows the main window uses the standard title bar; **Custom title bar**
 (`custom_titlebar`) draws Fastsonic's own title bar and window buttons instead,
 and changing it replaces only the native window. On Windows, **Show in
@@ -77,6 +80,91 @@ to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer
 either way, including when the version installed is the current one; on macOS
 the application menu asks the same question.
+
+## Custom themes
+
+**Settings → Appearance → Theme** lists **Follow system**, **Light** and
+**Dark**, then, after a separator, the palette files in the `themes` folder
+beside `settings.json`: `~/.config/fastsonic/themes/` on Linux,
+`~/Library/Application Support/io.github.rwojsznis.fastsonic/themes/` on
+macOS, and `%APPDATA%\\github.rwojsznis\\fastsonic\\config\\themes\\` on
+Windows. **Open themes folder** beside the picker creates the folder if needed
+and opens it in your file manager. A palette is listed by its filename, and
+picking it applies it at once. Choosing Follow system, Light or Dark sets the
+palette aside again. A theme changes colours only; fonts and layout stay as
+they are, and Winamp skins keep their own look.
+
+A palette file is a UTF-8 JSON file ending in `.json`. It names a `base`,
+`dark` (the default) or `light`, and the `colors` it changes from that base;
+any colour it leaves out is the base's own, so a file can be as short as one
+colour. The base also decides whether egui's own controls, such as text
+fields and scroll bars, are drawn light or dark. For example,
+`themes/Gruvbox.json`:
+
+```json
+{
+  "base": "dark",
+  "colors": {
+    "window": "#282828",
+    "panel": "#1d2021",
+    "surface": "#32302f",
+    "surface_hover": "#3c3836",
+    "surface_active": "#504945",
+    "outline": "#3c3836",
+    "text": "#ebdbb2",
+    "secondary": "#bdae93",
+    "dim": "#928374",
+    "accent": "#b8bb26",
+    "accent_hover": "#98971a",
+    "on_accent": "#282828",
+    "danger": "#fb4934",
+    "warning": "#fabd2f",
+    "overlay": "#32302f",
+    "shadow": "#0000008c"
+  }
+}
+```
+
+Each colour is `#RRGGBB`, or `#RRGGBBAA` with an alpha channel. These are all
+of them:
+
+| Colour | What it paints |
+| --- | --- |
+| `window` | The page background, and the label of a chosen button |
+| `panel` | The sidebar, the player bar, and the queue and lyrics panels |
+| `surface` | Cards, buttons, fields and the settings sections |
+| `surface_hover` | A surface under the pointer |
+| `surface_active` | A surface being pressed, and the empty part of a slider |
+| `outline` | Borders and separators |
+| `text` | Titles, labels and icons |
+| `secondary` | Descriptions, artists and other quieter text |
+| `dim` | The quietest text and icons, and anything unavailable |
+| `accent` | Primary buttons, switches, a liked heart, shuffle and repeat when on |
+| `accent_hover` | An accent control under the pointer |
+| `on_accent` | Text and icons drawn on the accent |
+| `danger` | Errors |
+| `warning` | Warnings |
+| `overlay` | Menus, dialogs and notifications |
+| `shadow` | The shadow under menus and dialogs, usually with alpha |
+
+**Colour from album art** tints pages with the playing cover over any theme;
+turn it off to keep a palette's colours everywhere.
+
+The folder is read in the background when Fastsonic starts, when Settings
+opens, and when the Theme picker opens, so a palette added or edited while the
+app runs shows up there without a restart, and an edit to the chosen palette
+is applied. Subfolders and links are not followed, each file may be up to
+64 KiB, and up to 128 palettes in a folder of at most 512 entries are listed.
+
+A file that cannot be read, because it is not valid JSON, names a colour or
+field that does not exist, or has a colour in another format, is left out of
+the picker, and the Theme row says which file and why; the log has every
+one. Fastsonic keeps a copy of the chosen palette in `settings.json`
+(`custom_theme` names the file, `custom_theme_cache` holds its colours), so it
+starts in those colours before the folder has been read. If the chosen file is
+later deleted or broken, its last colours stay, including across restarts, and
+the Theme row explains why until you fix the file or choose another theme. A
+damaged copy is ignored without resetting any other setting.
 
 ## Command line
 

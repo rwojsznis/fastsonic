@@ -54,6 +54,11 @@ impl AppDirs {
         self.config.join("milkdrop")
     }
 
+    /// Palette files, as `.json`, listed in Settings > Appearance > Theme.
+    pub fn themes_dir(&self) -> PathBuf {
+        self.config.join("themes")
+    }
+
     pub fn session_file(&self) -> PathBuf {
         self.state.join("session.json")
     }
