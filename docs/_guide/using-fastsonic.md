@@ -25,6 +25,9 @@ rows on screen match the order saved on the server. Right-clicking the
 playing song in the player bar offers the same removal while it plays from a
 playlist you can edit.
 
+Drag a song row, or the playing song's cover or title in the player bar, onto
+a playlist in the sidebar to add it there.
+
 ## Keyboard input
 
 In a playlist, album or Liked Songs, Up and Down move between songs in the

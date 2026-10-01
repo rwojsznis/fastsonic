@@ -3334,6 +3334,58 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// The cover and title in the player bar are a song source, not just
+    /// links, so the sidebar receives the playing song the same way it
+    /// receives a dragged table row.
+    #[test]
+    fn dragging_the_now_playing_song_supplies_a_playlist_row() {
+        let (ctx, mut app) = accessible_app("now-playing-drag");
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+        let playing = app.now_playing().expect("the demo plays a song").uri;
+        // The bar's height follows the fonts, so feel for the cover rather
+        // than hardcode where it sits.
+        let payload = (0..12).find_map(|step| {
+            let start = egui::pos2(40.0, 800.0 - 10.0 - step as f32 * 6.0);
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(start),
+                    egui::Event::PointerButton {
+                        pos: start,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerMoved(start + egui::vec2(20.0, -10.0))],
+            );
+            let payload = egui::DragAndDrop::payload::<DragTrack>(&ctx);
+            egui::DragAndDrop::clear_payload(&ctx);
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            payload
+        });
+        let payload = payload.expect("dragging the player bar's song should carry it");
+        assert_eq!(payload.uri, playing);
+        assert_eq!(payload.from, None, "this is an add, not a playlist move");
+        app.backend.shutdown();
+    }
+
     /// Pins are pins: dropping a pinned row at the top of the block
     /// reorders the pins themselves, and the rest of the shelf stays in
     /// its automatic order.
