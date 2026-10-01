@@ -3687,6 +3687,7 @@ impl App {
                     self.play_request(request, false);
                 }
                 RowContext::Uris(uris) => {
+                    let index = offset_of(uris.as_ref(), &uri, index);
                     let (uris, index) = cap_uris(uris.as_ref(), index);
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
                     self.play_request(request, false);
@@ -5032,6 +5033,19 @@ fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
 }
 
 /// Caps large track lists at 500 items starting from the selected row.
+/// Where in `uris` a clicked row's song is. A row that plays a list of its
+/// own, as each Recent row does, still hands over its place in the list on
+/// screen; when that place holds another song, the song wins. A song that
+/// appears twice keeps the occurrence the row points at.
+fn offset_of(uris: &[String], uri: &str, index: u32) -> u32 {
+    if uri.is_empty() || uris.get(index as usize).is_some_and(|held| held == uri) {
+        return index;
+    }
+    uris.iter()
+        .position(|held| held == uri)
+        .map_or(index, |position| position as u32)
+}
+
 fn cap_uris(uris: &[String], index: u32) -> (Vec<String>, u32) {
     const MAX: usize = 500;
     if uris.len() <= MAX {
@@ -5045,6 +5059,25 @@ fn cap_uris(uris: &[String], index: u32) -> (Vec<String>, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Recent row plays a list holding only its song but hands over its
+    /// place in the whole tab, past the end of that list for every row but
+    /// the top one.
+    #[test]
+    fn a_row_plays_the_song_it_names() {
+        let uris = |ids: &[&str]| -> Vec<String> {
+            ids.iter().map(|id| format!("sonic:track:{id}")).collect()
+        };
+        assert_eq!(offset_of(&uris(&["b"]), "sonic:track:b", 4), 0);
+        assert_eq!(
+            offset_of(&uris(&["a", "b", "a"]), "sonic:track:a", 2),
+            2,
+            "a repeated song keeps the occurrence clicked"
+        );
+        assert_eq!(offset_of(&uris(&["a", "b"]), "sonic:track:b", 0), 1);
+        assert_eq!(offset_of(&uris(&["a", "b"]), "", 1), 1, "a header play");
+        assert_eq!(offset_of(&uris(&["a"]), "sonic:track:z", 3), 3);
+    }
 
     #[test]
     fn shift_wheel_moves_the_shelf_without_scrolling_the_page() {
