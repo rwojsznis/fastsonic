@@ -55,6 +55,75 @@ fn choices(
     }
 }
 
+/// A settings slider's rail: egui's own, with the filled part of it in the
+/// accent colour.
+fn slider_rail_style(style: &mut egui::Style, palette: &Palette) {
+    style.visuals.selection.bg_fill = palette.accent;
+    style.visuals.slider_trailing_fill = true;
+}
+
+/// Shapes a settings slider's value box like the pill-shaped buttons in the
+/// other settings rows.
+fn slider_value_style(style: &mut egui::Style, palette: &Palette) {
+    style.visuals.widgets.inactive.bg_fill = palette.surface;
+    style.visuals.widgets.hovered.bg_fill = palette.surface_hover;
+    style.visuals.widgets.active.bg_fill = palette.surface_active;
+    let pill = CornerRadius::same(14);
+    for widget in [
+        &mut style.visuals.widgets.inactive,
+        &mut style.visuals.widgets.hovered,
+        &mut style.visuals.widgets.active,
+        &mut style.visuals.widgets.open,
+    ] {
+        widget.corner_radius = pill;
+    }
+    style
+        .text_styles
+        .insert(egui::TextStyle::Button, theme::medium(13.0));
+    style.spacing.button_padding = Vec2::new(12.0, 6.0);
+}
+
+/// A settings slider with its value box beside it, where egui's own slider
+/// would put it. The two are drawn apart so each keeps its own rounding: a
+/// pill-shaped rail would carry its accent fill past the handle. `slider`
+/// and `value` set up each part for `number` over `range`.
+fn setting_slider<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    number: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    slider: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
+    value: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    // A settings row lays its control out from the right, so the value box
+    // goes in first there to end up right of the rail.
+    let right_to_left = ui.layout().prefer_right_to_left();
+    ui.horizontal(|ui| {
+        let rail = |ui: &mut egui::Ui, number: &mut N| {
+            ui.scope(|ui| {
+                slider_rail_style(ui.style_mut(), palette);
+                ui.add(slider(egui::Slider::new(number, range.clone())).show_value(false))
+            })
+            .inner
+        };
+        let field = |ui: &mut egui::Ui, number: &mut N| {
+            ui.scope(|ui| {
+                slider_value_style(ui.style_mut(), palette);
+                ui.add(value(egui::DragValue::new(number).range(range.clone())))
+            })
+            .inner
+        };
+        if right_to_left {
+            let typed = field(ui, number);
+            rail(ui, number) | typed
+        } else {
+            let moved = rail(ui, number);
+            moved | field(ui, number)
+        }
+    })
+    .inner
+}
+
 fn section(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -673,10 +742,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "How long each preset plays before the next fades in.",
             |ui| {
                 let mut seconds = app.settings.milkdrop_seconds.clamp(2, 300);
-                let slider = egui::Slider::new(&mut seconds, 2..=300)
-                    .logarithmic(true)
-                    .suffix(" s");
-                if ui.add(slider).changed() {
+                let changed = setting_slider(
+                    ui,
+                    &palette,
+                    &mut seconds,
+                    2..=300,
+                    |slider| slider.logarithmic(true),
+                    |value| value.suffix(" s"),
+                )
+                .changed();
+                if changed {
                     app.actions.push(Action::SetMilkdropSeconds(seconds));
                 }
             },
@@ -706,39 +781,48 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .collect();
                 let shown = labels.clone();
                 let typed = stops.clone();
-                let slider = egui::Slider::new(&mut at, 0..=last)
-                    .step_by(1.0)
-                    .custom_formatter(move |value, _| {
-                        shown
-                            .get((value.round().max(0.0) as usize).min(shown.len() - 1))
-                            .cloned()
-                            .unwrap_or_default()
-                    })
-                    .custom_parser(move |text| {
-                        // A rate typed in lands on the nearest stop, since
-                        // the stops are all this dial can hold.
-                        let text = text.trim().to_lowercase();
-                        if text.starts_with("un") {
-                            return Some(typed.len().saturating_sub(1) as f64);
-                        }
-                        let wanted: u32 = text
-                            .trim_end_matches("fps")
-                            .trim()
-                            .split(',')
-                            .next()?
-                            .trim()
-                            .parse()
-                            .ok()?;
-                        typed
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, rate)| **rate > 0)
-                            .min_by_key(|(_, rate)| rate.abs_diff(wanted))
-                            .map(|(index, _)| index as f64)
-                    });
-                if ui.add(slider).changed()
-                    && let Some(rate) = stops.get(at)
-                {
+                let changed = setting_slider(
+                    ui,
+                    &palette,
+                    &mut at,
+                    0..=last,
+                    |slider| slider.step_by(1.0),
+                    // A drag moves one stop every twenty points.
+                    |value| {
+                        value
+                            .speed(0.05)
+                            .custom_formatter(move |value, _| {
+                                shown
+                                    .get((value.round().max(0.0) as usize).min(shown.len() - 1))
+                                    .cloned()
+                                    .unwrap_or_default()
+                            })
+                            .custom_parser(move |text| {
+                                // A rate typed in lands on the nearest stop, since
+                                // the stops are all this dial can hold.
+                                let text = text.trim().to_lowercase();
+                                if text.starts_with("un") {
+                                    return Some(typed.len().saturating_sub(1) as f64);
+                                }
+                                let wanted: u32 = text
+                                    .trim_end_matches("fps")
+                                    .trim()
+                                    .split(',')
+                                    .next()?
+                                    .trim()
+                                    .parse()
+                                    .ok()?;
+                                typed
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(_, rate)| **rate > 0)
+                                    .min_by_key(|(_, rate)| rate.abs_diff(wanted))
+                                    .map(|(index, _)| index as f64)
+                            })
+                    },
+                )
+                .changed();
+                if changed && let Some(rate) = stops.get(at) {
                     app.actions.push(Action::SetMilkdropFps(*rate));
                 }
             },
@@ -1027,5 +1111,50 @@ fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettin
     painter.add(Shape::line(points, Stroke::new(2.0, color)));
     for (hz, db) in crate::eq::BANDS.iter().zip(settings.bands_db) {
         painter.circle_filled(pos2(x_of(*hz), y_of(db + settings.preamp_db)), 3.0, color);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_slider_fill_stops_under_its_handle() {
+        let ctx = egui::Context::default();
+        let palette = crate::theme::Palette::dark();
+        crate::theme::install(&ctx);
+        crate::theme::apply(&ctx, &palette);
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let mut style = (**ui.style()).clone();
+            super::slider_rail_style(&mut style, &palette);
+            // egui paints the accent fill this far past the handle's centre,
+            // and the handle's radius is at least this for a slider of the
+            // settings' height.
+            let overshoot = f32::from(style.visuals.widgets.inactive.corner_radius.nw);
+            let handle = style.spacing.interact_size.y / 2.5;
+            assert!(overshoot < handle, "{overshoot} >= {handle}");
+
+            super::slider_value_style(&mut style, &palette);
+            assert_eq!(
+                style.visuals.widgets.inactive.corner_radius,
+                egui::CornerRadius::same(14)
+            );
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn a_setting_slider_draws_its_rail_and_value_box() {
+        let ctx = egui::Context::default();
+        let palette = crate::theme::Palette::dark();
+        crate::theme::install(&ctx);
+        crate::theme::apply(&ctx, &palette);
+        let mut value = 42u32;
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let response =
+                super::setting_slider(ui, &palette, &mut value, 2..=300, |s| s, |v| v.suffix(" s"));
+            // The rail and the box sit side by side, so together they are
+            // wider than the rail alone.
+            assert!(response.rect.width() > ui.spacing().slider_width);
+        });
+        output.textures_delta.clear();
     }
 }
