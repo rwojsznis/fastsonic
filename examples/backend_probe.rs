@@ -346,6 +346,33 @@ fn main() -> anyhow::Result<()> {
         "Clear takes your songs and leaves the album's",
         cleared.upcoming.len() == album_rows,
     );
+    // Rule 2 for a whole album: Add to queue reads its songs off the audio
+    // thread and queues them in the album's order, and a song asked for
+    // straight after it waits its turn behind them.
+    let album_songs: Vec<String> = cleared
+        .current
+        .iter()
+        .chain(cleared.upcoming.iter())
+        .map(|row| row.uri.clone())
+        .collect();
+    let mut expected = album_songs.clone();
+    expected.push(album_songs[0].clone());
+    probe.forget_queues();
+    probe
+        .backend
+        .player(PlayerCommand::AddToQueue(album.uri.clone()));
+    probe
+        .backend
+        .player(PlayerCommand::AddToQueue(album_songs[0].clone()));
+    let total = expected.len();
+    let added = probe.until_queue(move |queue| queue.queued.len() == total)?;
+    probe.check(
+        "an album is queued as its songs, and a song asked for after it plays after them",
+        added.queued.iter().map(|row| row.uri.clone()).eq(expected),
+    );
+    probe.forget_queues();
+    probe.backend.player(PlayerCommand::ClearQueue);
+    probe.until_queue(|queue| queue.queued.is_empty())?;
 
     println!("\n-- rule 9: the queue survives the engine being replaced (P4.4)");
     // Changing the output device or the normalisation switch builds a new

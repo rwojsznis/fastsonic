@@ -34,7 +34,7 @@ use super::cache::Cache;
 use super::chain::{Chain, replay_gain};
 use super::decode::{Decoder, Stream};
 use super::output::{Heard, Output, PREFERRED_RATE, TARGET_QUEUE, Token};
-use super::queue::{Entry, Queue, QueueSnapshot, Rewound, local_track};
+use super::queue::{Additions, Entry, Queue, QueueSnapshot, Rewound, local_track};
 use super::state::{
     EngineEvent, LoadSpec, LocalState, LocalTrack, Notify, Playback, PlayerCommand, RepeatMode,
 };
@@ -163,6 +163,8 @@ pub(super) struct Worker {
     /// one; nothing counts with it.
     tokens: Token,
     queue: Queue,
+    /// Albums, playlists and artists on their way into "Playing next".
+    additions: Additions,
     /// The track after the one being decoded, opened before it is needed.
     prefetch: Option<Prefetch>,
     /// Whether a description has been asked for and not yet answered.
@@ -244,6 +246,7 @@ impl Worker {
             open: VecDeque::new(),
             tokens: 0,
             queue: Queue::default(),
+            additions: Additions::default(),
             prefetch: None,
             describing: false,
             described_failed: None,
@@ -315,6 +318,7 @@ impl Worker {
             Message::Command(command) => self.handle(command),
             Message::Described(id, song) => self.described(id, song),
             Message::Prefetched(id, opened) => self.prefetched(id, opened),
+            Message::Expanded(ticket, songs) => self.expanded(ticket, songs),
             Message::Shutdown => return Flow::Stop,
         }
         Flow::Go
@@ -718,15 +722,11 @@ impl Worker {
             // Rule 7: Clear empties your part of the queue and leaves
             // the album's rows alone.
             PlayerCommand::ClearQueue => {
+                self.additions.clear();
                 self.queue.clear_queued();
                 self.publish_queue();
             }
-            PlayerCommand::AddToQueue(uri) => {
-                if let Some(id) = convert::id_of(&uri, convert::Kind::Track) {
-                    self.queue.add(Entry::new(id));
-                    self.publish_queue();
-                }
-            }
+            PlayerCommand::AddToQueue(uri) => self.add_to_queue(&uri),
             PlayerCommand::PlayQueued(row) => self.play_queued(row),
             PlayerCommand::Seek(position_ms) => self.seek(position_ms),
             // Local playback makes these the same thing: there is no
@@ -749,6 +749,57 @@ impl Worker {
             PlayerCommand::Load(spec) => self.load(spec),
             // Connect's "play here instead". There is nowhere else.
             PlayerCommand::Activate => {}
+        }
+    }
+
+    /// Rule 2. A song goes to the end of "Playing next" at once; an album,
+    /// a playlist or an artist goes there as its songs, read on the runtime
+    /// so that the sound never waits on the server for them.
+    fn add_to_queue(&mut self, uri: &str) {
+        let Some((kind, id)) = convert::parse_uri(uri) else {
+            return;
+        };
+        if kind == convert::Kind::Track {
+            if let Some(entries) = self.additions.known(vec![Entry::new(id)]) {
+                entries.into_iter().for_each(|entry| self.queue.add(entry));
+                self.publish_queue();
+            }
+            return;
+        }
+        let ticket = self.additions.reserve();
+        let client = Arc::clone(&self.client);
+        let replies = self.replies.clone();
+        let id = id.to_string();
+        self.runtime.spawn(async move {
+            let songs = songs_of(&client, kind, &id).await;
+            let _ = replies.send(Message::Expanded(ticket, songs));
+        });
+    }
+
+    fn expanded(&mut self, ticket: u64, songs: Result<Vec<Child>, String>) {
+        self.additions.answer(
+            ticket,
+            songs.map(|songs| songs.into_iter().map(Entry::known).collect()),
+        );
+        let mut added = false;
+        for answer in self.additions.take_ready() {
+            match answer {
+                Ok(entries) => {
+                    added |= !entries.is_empty();
+                    entries.into_iter().for_each(|entry| self.queue.add(entry));
+                }
+                Err(message) => {
+                    log::warn!("cannot queue: {message}");
+                    // Said once; cleared so the same failure is said again.
+                    self.state.error = Some(format!("Couldn't add to the queue: {message}"));
+                    self.publish();
+                    self.state.error = None;
+                    self.publish();
+                }
+            }
+        }
+        if added {
+            self.publish_queue();
         }
     }
 
@@ -942,69 +993,8 @@ impl Worker {
         };
         let (kind, id) = convert::parse_uri(context)
             .ok_or_else(|| format!("{context} is not something this app can play."))?;
-        let songs = match kind {
-            convert::Kind::Album => {
-                self.runtime
-                    .block_on(self.client.get_album(id))
-                    .map_err(|error| error.to_string())?
-                    .song
-            }
-            convert::Kind::Playlist => {
-                self.runtime
-                    .block_on(self.client.get_playlist(id))
-                    .map_err(|error| error.to_string())?
-                    .entry
-            }
-            convert::Kind::Track => vec![
-                self.runtime
-                    .block_on(self.client.get_song(id))
-                    .map_err(|error| error.to_string())?,
-            ],
-            convert::Kind::Artist => self.artist_songs(id)?,
-            // The Liked Songs page. One request answers the whole list,
-            // which is why it is a context rather than a list of URIs.
-            convert::Kind::Collection => {
-                self.runtime
-                    .block_on(self.client.starred())
-                    .map_err(|error| error.to_string())?
-                    .song
-            }
-        };
+        let songs = self.runtime.block_on(songs_of(&self.client, kind, id))?;
         Ok(songs.into_iter().map(Entry::known).collect())
-    }
-
-    /// Playing an artist: their popular songs if the server can rank them,
-    /// and otherwise their records, oldest first.
-    ///
-    /// `getTopSongs` is Last.fm-backed, so on the ordinary self-hosted
-    /// server with no key it answers with nothing — which is not an error,
-    /// just an artist page that has no Popular section. The albums are what
-    /// makes the Play button on that page mean something anyway.
-    fn artist_songs(&self, id: &str) -> Result<Vec<Child>, String> {
-        let artist = self
-            .runtime
-            .block_on(self.client.get_artist(id))
-            .map_err(|error| error.to_string())?;
-        let top = self
-            .runtime
-            .block_on(self.client.top_songs(&artist.name, 100))
-            .unwrap_or_default();
-        if !top.is_empty() {
-            return Ok(top);
-        }
-        let mut albums = artist.album.clone();
-        albums.sort_by_key(|album| (album.year, album.name.clone()));
-        let mut songs = Vec::new();
-        for album in &albums {
-            match self.runtime.block_on(self.client.get_album(&album.id)) {
-                Ok(album) => songs.extend(album.song),
-                Err(error) => log::warn!("cannot read {}: {error}", album.name),
-            }
-        }
-        if songs.is_empty() {
-            return Err(format!("{} has nothing to play.", artist.name));
-        }
-        Ok(songs)
     }
 
     /// Opens the track the queue is on and starts it.
@@ -1154,6 +1144,59 @@ impl Worker {
         *self.shared_queue.lock().unwrap_or_else(|p| p.into_inner()) = snapshot.clone();
         (self.notify)(EngineEvent::Queue(snapshot));
     }
+}
+
+/// The songs a context stands for, in its own order: what playing it plays,
+/// and what queueing it adds.
+async fn songs_of(
+    client: &SubsonicClient,
+    kind: convert::Kind,
+    id: &str,
+) -> Result<Vec<Child>, String> {
+    let text = |error: crate::api::subsonic::ApiError| error.to_string();
+    Ok(match kind {
+        convert::Kind::Album => client.get_album(id).await.map_err(text)?.song,
+        convert::Kind::Playlist => client.get_playlist(id).await.map_err(text)?.entry,
+        convert::Kind::Track => vec![client.get_song(id).await.map_err(text)?],
+        convert::Kind::Artist => artist_songs(client, id).await?,
+        // The Liked Songs page. One request answers the whole list, which is
+        // why it is a context rather than a list of URIs.
+        convert::Kind::Collection => client.starred().await.map_err(text)?.song,
+    })
+}
+
+/// Playing an artist: their popular songs if the server can rank them, and
+/// otherwise their records, oldest first.
+///
+/// `getTopSongs` is Last.fm-backed, so on the ordinary self-hosted server
+/// with no key it answers with nothing — which is not an error, just an
+/// artist page that has no Popular section. The albums are what makes the
+/// Play button on that page mean something anyway.
+async fn artist_songs(client: &SubsonicClient, id: &str) -> Result<Vec<Child>, String> {
+    let artist = client
+        .get_artist(id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let top = client
+        .top_songs(&artist.name, 100)
+        .await
+        .unwrap_or_default();
+    if !top.is_empty() {
+        return Ok(top);
+    }
+    let mut albums = artist.album.clone();
+    albums.sort_by_key(|album| (album.year, album.name.clone()));
+    let mut songs = Vec::new();
+    for album in &albums {
+        match client.get_album(&album.id).await {
+            Ok(album) => songs.extend(album.song),
+            Err(error) => log::warn!("cannot read {}: {error}", album.name),
+        }
+    }
+    if songs.is_empty() {
+        return Err(format!("{} has nothing to play.", artist.name));
+    }
+    Ok(songs)
 }
 
 /// Opens a track away from the audio thread, for the join it is going to

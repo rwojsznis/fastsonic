@@ -133,6 +133,63 @@ pub(super) enum Rewound {
     Restart,
 }
 
+/// Additions to "Playing next" that wait for the server: an album, a
+/// playlist or an artist is queued as its songs, which have to be read
+/// first. They land in the order they were asked for, so a song queued
+/// after an album plays after the album's songs even though it needed no
+/// request, and Clear forgets the ones still waiting (rule 7).
+#[derive(Debug, Default)]
+pub(super) struct Additions {
+    waiting: VecDeque<(u64, Option<Addition>)>,
+    next: u64,
+}
+
+/// The songs an addition turned out to be, or why it could not be read.
+pub(super) type Addition = Result<Vec<Entry>, String>;
+
+impl Additions {
+    /// Holds a place for songs still being read, and names it.
+    pub(super) fn reserve(&mut self) -> u64 {
+        self.next += 1;
+        self.waiting.push_back((self.next, None));
+        self.next
+    }
+
+    /// Songs that need no request. With nothing waiting ahead of them they
+    /// are handed straight back; otherwise they queue behind what is.
+    pub(super) fn known(&mut self, entries: Vec<Entry>) -> Option<Vec<Entry>> {
+        if self.waiting.is_empty() {
+            return Some(entries);
+        }
+        self.next += 1;
+        self.waiting.push_back((self.next, Some(Ok(entries))));
+        None
+    }
+
+    /// The server's answer for a reserved place. One for a place that was
+    /// cleared meanwhile is dropped.
+    pub(super) fn answer(&mut self, ticket: u64, answer: Addition) {
+        if let Some((_, slot)) = self.waiting.iter_mut().find(|(held, _)| *held == ticket) {
+            *slot = Some(answer);
+        }
+    }
+
+    /// Everything at the front that is ready, in the order it was asked for.
+    pub(super) fn take_ready(&mut self) -> Vec<Addition> {
+        let mut ready = Vec::new();
+        while self.waiting.front().is_some_and(|(_, slot)| slot.is_some()) {
+            if let Some((_, Some(answer))) = self.waiting.pop_front() {
+                ready.push(answer);
+            }
+        }
+        ready
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.waiting.clear();
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct Queue {
     /// "Playing next", oldest first. Rule 2: the same song queued twice is
@@ -471,6 +528,67 @@ mod tests {
 
     fn entries(ids: &[&str]) -> Vec<Entry> {
         ids.iter().map(|id| Entry::new(*id)).collect()
+    }
+
+    fn ids(ready: Vec<Addition>) -> Vec<Result<Vec<String>, String>> {
+        ready
+            .into_iter()
+            .map(|answer| answer.map(|list| list.into_iter().map(|entry| entry.id).collect()))
+            .collect()
+    }
+
+    /// Rule 2 for albums: queued as its songs, after what was queued before
+    /// it, and before whatever was queued after it, whichever answer comes
+    /// back first.
+    #[test]
+    fn additions_land_in_the_order_they_were_asked_for() {
+        let mut additions = Additions::default();
+        assert_eq!(
+            additions.known(entries(&["solo"])),
+            Some(entries(&["solo"])),
+            "nothing waiting: a song goes straight in"
+        );
+        let first = additions.reserve();
+        let second = additions.reserve();
+        assert_eq!(additions.known(entries(&["after"])), None);
+        additions.answer(second, Ok(entries(&["b1", "b2"])));
+        assert!(
+            additions.take_ready().is_empty(),
+            "the first album is still read"
+        );
+        additions.answer(first, Ok(entries(&["a1", "a1", "a2"])));
+        assert_eq!(
+            ids(additions.take_ready()),
+            vec![
+                Ok(vec!["a1".into(), "a1".into(), "a2".into()]),
+                Ok(vec!["b1".into(), "b2".into()]),
+                Ok(vec!["after".into()]),
+            ],
+            "a song repeated in an album stays repeated"
+        );
+        assert_eq!(additions.known(entries(&["x"])), Some(entries(&["x"])));
+    }
+
+    #[test]
+    fn a_failed_read_holds_its_place_and_clear_forgets_what_waits() {
+        let mut additions = Additions::default();
+        let failed = additions.reserve();
+        assert_eq!(additions.known(entries(&["after"])), None);
+        additions.answer(failed, Err("gone".into()));
+        assert_eq!(
+            ids(additions.take_ready()),
+            vec![Err("gone".into()), Ok(vec!["after".into()])]
+        );
+
+        let cleared = additions.reserve();
+        assert_eq!(additions.known(entries(&["queued"])), None);
+        additions.clear();
+        additions.answer(cleared, Ok(entries(&["late"])));
+        assert!(
+            additions.take_ready().is_empty(),
+            "a late answer after Clear is dropped"
+        );
+        assert_eq!(additions.known(entries(&["y"])), Some(entries(&["y"])));
     }
 
     /// An album loaded and playing from its first track.

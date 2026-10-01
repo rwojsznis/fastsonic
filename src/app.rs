@@ -3543,33 +3543,38 @@ impl App {
 
     /// Adds a row to Next up immediately, before the context's upcoming rows.
     fn add_to_queue(&mut self, uri: String, label: String) {
+        if self.queued_moments_ago(&uri) {
+            return;
+        }
         self.queue_one(uri, label, true);
     }
 
-    /// Rule 2: one song, queued after the songs queued before it and
-    /// ahead of the album's own rows. The engine puts it there and says so;
-    /// all this owes is the ask, the name to draw until the server
-    /// describes the row, and one toast.
+    /// Whether `uri` was queued so recently that asking again is the same
+    /// click arriving twice. One double-click is one wish; two separate
+    /// asks are two rows.
+    fn queued_moments_ago(&mut self, uri: &str) -> bool {
+        self.queue_add_clicks
+            .retain(|(_, at)| at.elapsed() < QUEUE_ADD_DEBOUNCE);
+        self.queue_add_clicks
+            .iter()
+            .any(|(clicked, _)| clicked == uri)
+    }
+
+    /// Rule 2: one song, or an album, playlist or artist as its songs,
+    /// queued after what was queued before it and ahead of the playing
+    /// album's own rows. The engine puts it there and says so; all this
+    /// owes is the ask, the name to draw until the server describes the
+    /// row, and one toast.
     ///
     /// `announce` is false when a batch should produce one toast.
     fn queue_one(&mut self, uri: String, label: String, announce: bool) {
-        if convert::id_of(&uri, Kind::Track).is_none() {
-            // Nothing else can be queued: an album or a playlist is played
-            // rather than queued.
-            return;
-        }
-        // One double-click is one wish; two separate asks are two rows.
-        self.queue_add_clicks
-            .retain(|(_, at)| at.elapsed() < QUEUE_ADD_DEBOUNCE);
-        if self
-            .queue_add_clicks
-            .iter()
-            .any(|(clicked, _)| *clicked == uri)
-        {
+        if convert::parse_uri(&uri).is_none() {
             return;
         }
         self.queue_add_clicks.push((uri.clone(), Instant::now()));
-        if !label.is_empty() {
+        // An album's rows arrive with their songs; only a lone song needs a
+        // name to draw until the server describes it.
+        if !label.is_empty() && convert::id_of(&uri, Kind::Track).is_some() {
             self.queue_names.insert(uri.clone(), label.clone());
         }
         if announce {
@@ -3781,14 +3786,26 @@ impl App {
             Action::SetRepeat(mode) => self.set_repeat(mode),
             Action::AddToQueue { uri, label } => self.add_to_queue(uri, label),
             Action::QueueMany { songs } => {
-                let count = songs.len();
-                for (uri, label) in songs {
-                    self.queue_one(uri, label, false);
+                // Each picked row is its own ask, so a song picked twice is
+                // queued twice. Only an add from an earlier click can make
+                // one of them a repeat, so decide that before adding any.
+                let repeats: Vec<bool> = songs
+                    .iter()
+                    .map(|(uri, _)| self.queued_moments_ago(uri))
+                    .collect();
+                let mut count = 0;
+                for ((uri, label), repeat) in songs.into_iter().zip(repeats) {
+                    if !repeat {
+                        self.queue_one(uri, label, false);
+                        count += 1;
+                    }
                 }
-                self.toast(match count {
-                    1 => "1 song added to queue".to_string(),
-                    count => format!("{count} songs added to queue"),
-                });
+                if count > 0 {
+                    self.toast(match count {
+                        1 => "1 song added to queue".to_string(),
+                        count => format!("{count} songs added to queue"),
+                    });
+                }
             }
             Action::SetSavedMany { uris, saved } => {
                 for uri in &uris {
@@ -5745,6 +5762,59 @@ mod tests {
             vec![PlayerCommand::AddToQueue("sonic:track:b".into())],
             "one click, one ask, and no request to anybody else"
         );
+    }
+
+    /// Add to queue on an album asks the engine for the album, which reads
+    /// its songs and queues them in order. Before, the ask was dropped and
+    /// the menu item did nothing.
+    #[test]
+    fn an_album_is_queued_through_the_engine() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.backend.asked();
+        app.apply(
+            Action::AddToQueue {
+                uri: "sonic:album:al1".into(),
+                label: "Ages".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.asked(),
+            vec![PlayerCommand::AddToQueue("sonic:album:al1".into())]
+        );
+        assert!(!app.queue_names.contains_key("sonic:album:al1"));
+        app.backend.shutdown();
+    }
+
+    /// A playlist can hold the same song twice. Picking both rows and
+    /// choosing Add to queue is one ask for each row, so the song is queued
+    /// twice, as the notification says; the same click arriving twice is
+    /// still one ask.
+    #[test]
+    fn a_song_picked_twice_is_queued_twice() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let add = Action::QueueMany {
+            songs: vec![
+                ("sonic:track:b".into(), "b".into()),
+                ("sonic:track:c".into(), "c".into()),
+                ("sonic:track:b".into(), "b".into()),
+            ],
+        };
+        app.backend.asked();
+        app.apply(add.clone(), &ctx);
+        let toasts = app.toasts.len();
+        app.apply(add, &ctx);
+        assert_eq!(app.toasts.len(), toasts, "no second addition to announce");
+        assert_eq!(
+            app.backend.asked(),
+            ["b", "c", "b"]
+                .map(|id| PlayerCommand::AddToQueue(format!("sonic:track:{id}")))
+                .to_vec(),
+            "every picked row is queued, in order"
+        );
+        app.backend.shutdown();
     }
 
     /// Rule 2, the other half: a double-click counts once, two separate

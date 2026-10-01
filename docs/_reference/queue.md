@@ -20,7 +20,9 @@ the panel draws and what a click asks for.
 2. **Add to queue adds a song to your part of the queue.** It goes after
    the songs you queued earlier and before the playlist's songs. Queue
    the same song twice and it plays twice. A double-click only counts
-   once.
+   once. An album goes in as its songs, in its own order, once the server
+   has listed them; anything you queue meanwhile waits behind it, and
+   Clear forgets an album still on its way.
 
 3. **When a song starts, its row leaves the queue.** It doesn't matter
    how it started: the song before it ended, you pressed Next, or you

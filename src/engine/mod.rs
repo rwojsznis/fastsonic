@@ -118,6 +118,10 @@ pub(crate) enum Message {
     /// open; the join then opens it the slow way, where a failure can be
     /// reported to the interface.
     Prefetched(String, Box<Option<worker::Opened>>),
+    /// The songs of an album, playlist or artist asked for by Add to
+    /// queue, read on the runtime and named by the place
+    /// `queue::Additions` holds for them.
+    Expanded(u64, Result<Vec<crate::api::subsonic::Child>, String>),
     Shutdown,
 }
 
