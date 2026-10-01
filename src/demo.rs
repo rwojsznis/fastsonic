@@ -1673,6 +1673,65 @@ mod tests {
         ]
     }
 
+    /// The empty space's tooltip belongs to the empty space: once shown, it
+    /// closes when the pointer moves onto a control drawn over the bar.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_visualizer_tooltip_stays_off_the_player_bar_controls() {
+        let (ctx, mut app) = accessible_app("player-bar-tooltip");
+        ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        let mut time = 0.0;
+        let mut draw = |app: &mut App, pos: egui::Pos2| {
+            time += 1.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(time),
+                    events: vec![egui::Event::PointerMoved(pos)],
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            fn texts(shape: &egui::epaint::Shape, found: &mut Vec<String>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => found.push(text.galley.job.text.clone()),
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| texts(shape, found));
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            output
+                .shapes
+                .iter()
+                .for_each(|clipped| texts(&clipped.shape, &mut found));
+            found
+        };
+        let tip = "Click to change the visualizer";
+
+        // The tooltip shown over the empty margin beside the cover.
+        let empty = egui::pos2(6.0, 796.0);
+        for _ in 0..3 {
+            draw(&mut app, empty);
+        }
+        assert!(draw(&mut app, empty).iter().any(|text| text == tip));
+
+        // The pointer moves onto the play button.
+        let play = egui::pos2(640.0, 800.0 - crate::theme::PLAYER_BAR_HEIGHT / 2.0 - 10.0);
+        for _ in 0..3 {
+            draw(&mut app, play);
+        }
+
+        let shown = draw(&mut app, play);
+        assert!(!shown.iter().any(|text| text == tip), "{shown:?}");
+        app.backend.shutdown();
+    }
+
     #[test]
     fn the_liked_songs_menu_is_as_narrow_as_the_other_menus() {
         use egui::accesskit::Role;
