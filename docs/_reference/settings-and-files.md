@@ -26,6 +26,11 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 `%LOCALAPPDATA%\\github.rwojsznis\\fastsonic\\data`, and caches use the sibling
 `cache` directory.
 
+`session.json` also keeps the window's size and position. A window left
+maximized or full screen reopens that way; the remembered size and position
+describe an ordinary window and are not applied to one that already fills the
+screen, because sizing or moving it would restore it down.
+
 Clearing caches never signs you out. `credentials.json` contains a salted
 Subsonic token, not the password, plus a short-lived Navidrome session when
 available. Treat it like a password and do not share it. Settings → Storage
