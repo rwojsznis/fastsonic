@@ -8,6 +8,12 @@ album is playing. Your songs always play first.
 Above the playing song, the queue names the album, playlist, artist, or
 Liked Songs it came from. Select that name to open its page.
 
+The **Shuffle** button beside a page's **Play** button changes the shuffle
+mode and starts nothing. Chosen while nothing plays, it applies to the next
+**Play**; while another album or playlist plays, it shuffles that one, and the
+queue shows the new order. **Shuffle play** in a menu still starts the
+collection shuffled.
+
 These are the rules the app follows. The queue lives in the player, so
 every one of them is about this computer: there is no other device with a
 queue of its own to disagree with. The tests in `src/engine/queue.rs` hold
