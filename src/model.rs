@@ -920,6 +920,8 @@ pub enum Action {
         shelf: crate::settings::LibraryShelf,
         sort: crate::settings::LibrarySort,
     },
+    /// Show the Library as cover cards, or as rows.
+    SetLibraryGrid(bool),
     /// Rearrange the Library's pins, Liked Songs' key among them.
     ArrangeLibrary {
         pinned: Vec<String>,

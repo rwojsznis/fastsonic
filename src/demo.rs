@@ -898,6 +898,25 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
     }
     for surface in show.unwrap_or("").split(',').map(str::trim) {
         match surface {
+            // The Library as rows or cards in a narrow, a middling and the
+            // widest sidebar, with the artwork collapsed so captures of each
+            // match.
+            "library-list"
+            | "library-list-narrow"
+            | "library-list-wide"
+            | "library-grid"
+            | "library-grid-narrow"
+            | "library-grid-wide" => {
+                app.settings.sidebar_grid = surface.starts_with("library-grid");
+                app.settings.art_expanded = false;
+                app.settings.sidebar_width = if surface.ends_with("-narrow") {
+                    230.0
+                } else if surface.ends_with("-wide") {
+                    440.0
+                } else {
+                    380.0
+                };
+            }
             "queue" => app.show_queue_panel = true,
             "playing-next" => {
                 app.show_queue_panel = true;
@@ -3083,6 +3102,287 @@ mod tests {
         }
     }
 
+    /// The list/grid switch is a labelled button, and the choice survives a
+    /// restart through the settings file.
+    #[test]
+    fn library_grid_toggle_is_accessible_and_persistent() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("library-grid-toggle");
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let grid = accessible_node(&tree, "Show as grid", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(grid, AccessibleAction::Click, None)],
+        );
+        assert!(app.settings.sidebar_grid);
+        let path = app.dirs.config.join("library-grid.json");
+        app.settings.save(&path);
+        assert!(Settings::load(&path).sidebar_grid);
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let list = accessible_node(&tree, "Show as list", Role::Button);
+        accessible_node(&tree, "Sunday morning", Role::Button);
+        accessible_node(&tree, "Play Sunday morning", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(list, AccessibleAction::Click, None)],
+        );
+        assert!(!app.settings.sidebar_grid);
+        app.backend.shutdown();
+    }
+
+    /// A click on a card opens it without playing; its corner button plays
+    /// it, then pauses it while it is the one playing.
+    #[test]
+    fn library_grid_cards_navigate_and_their_corner_buttons_play() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("library-grid-card-actions");
+        app.settings.sidebar_grid = true;
+        app.open(Page::Search);
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let card = accessible_node(&tree, "Sunday morning", Role::Button);
+        let previous_context = app.playing_context_uri();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(card, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.page(), &Page::Playlist("pl2".into()));
+        assert_eq!(app.playing_context_uri(), previous_context);
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play Sunday morning", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some(playlist_uri("pl2").as_str())
+        );
+        assert_eq!(app.page(), &Page::Playlist("pl2".into()));
+        assert!(app.believed_playing());
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let pause = accessible_node(&tree, "Pause Sunday morning", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(pause, AccessibleAction::Click, None)],
+        );
+        assert!(!app.believed_playing());
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some(playlist_uri("pl2").as_str())
+        );
+        app.backend.shutdown();
+    }
+
+    /// In the grid a double click is two clicks that open the card; the
+    /// corner button is the one that plays.
+    #[test]
+    fn double_clicking_a_library_grid_card_only_navigates() {
+        let (ctx, mut app) = accessible_app("library-grid-double-click");
+        app.settings.sidebar_grid = true;
+        app.open(Page::Search);
+        let view = crate::ui::sidebar::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let card = sidebar_text(&painted, "Sunday morning").center();
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(card, egui::PointerButton::Primary),
+            view,
+        );
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(card, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(played_contexts(&app).is_empty());
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::Open(Page::Playlist(id)) if id == "pl2"))
+        );
+        app.backend.shutdown();
+    }
+
+    /// With the artwork expanded the grid scrolls under it, so a song or a
+    /// card let go over the artwork must not land on the card beneath it.
+    #[test]
+    fn library_grid_ignores_song_and_card_drops_behind_expanded_art() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("library-grid-art-drops");
+        app.settings.sidebar_grid = true;
+        app.settings.art_expanded = true;
+        assert!(app.now_playing().unwrap().art_url.is_some());
+        let frame = |ctx: &egui::Context, app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::sidebar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+                .platform_output
+                .accesskit_update
+                .expect("sidebar tree")
+        };
+        let tree = frame(&ctx, &mut app, vec![]);
+        let art = ctx
+            .read_response(egui::Id::new("sidebar-art"))
+            .expect("expanded artwork")
+            .rect;
+        let playlists = app.library.playlists.get().expect("demo playlists");
+        let user = app.user_id().unwrap_or_default().to_string();
+        // An owned card the artwork covers, wherever the fonts put it.
+        let hidden = tree
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                let label = node.label()?;
+                if node.role() != Role::Button
+                    || !playlists
+                        .iter()
+                        .any(|playlist| playlist.name == label && playlist.owned_by(&user))
+                {
+                    return None;
+                }
+                let bounds = node.bounds()?;
+                let card = egui::Rect::from_min_max(
+                    egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                    egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+                );
+                let overlap = card.intersect(art);
+                (overlap.width() > 16.0 && overlap.height() > 16.0).then(|| overlap.center())
+            })
+            .expect("an owned card behind the artwork");
+        let visible = sidebar_row(&tree, "Liked Songs").left_top() + egui::vec2(24.0, 24.0);
+        assert!(!art.contains(visible));
+        let release = |app: &mut App, pos| {
+            frame(&ctx, app, vec![egui::Event::PointerMoved(pos)]);
+            frame(
+                &ctx,
+                app,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+        };
+        app.actions.clear();
+        egui::DragAndDrop::set_payload(
+            &ctx,
+            DragTrack::song(&song(&track_uri("trk0"), "Rosewood"), None),
+        );
+        release(&mut app, hidden);
+        assert!(!app.actions.iter().any(|action| matches!(
+            action,
+            Action::AddToPlaylist { .. } | Action::ToggleSaved(_)
+        )));
+        egui::DragAndDrop::clear_payload(&ctx);
+
+        let drag_card = || {
+            egui::DragAndDrop::set_payload(
+                &ctx,
+                DragEntry {
+                    uri: playlist_uri("pl1"),
+                    title: "Late night focus".into(),
+                    image: None,
+                },
+            );
+        };
+        let rearranged = |app: &App| {
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::ArrangeLibrary { .. }))
+        };
+        drag_card();
+        release(&mut app, hidden);
+        assert!(!rearranged(&app), "a card dropped on the artwork moved");
+        egui::DragAndDrop::clear_payload(&ctx);
+
+        drag_card();
+        release(&mut app, visible);
+        assert!(rearranged(&app), "a card dropped on a visible card stayed");
+        egui::DragAndDrop::clear_payload(&ctx);
+        app.backend.shutdown();
+    }
+
+    /// While a song is held over a card that can take it, the card's cover
+    /// is outlined. egui reports no hovers during a drag, so the outline
+    /// has to follow the pointer.
+    #[test]
+    fn library_grid_highlights_a_song_drop_target_during_drag() {
+        let (ctx, mut app) = accessible_app("library-grid-drop-highlight");
+        app.settings.sidebar_grid = true;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let pos = sidebar_row(&tree, "Liked Songs").left_top() + egui::vec2(24.0, 24.0);
+        egui::DragAndDrop::set_payload(
+            &ctx,
+            DragTrack::song(&song(&track_uri("trk0"), "Rosewood"), None),
+        );
+        let run = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        // Hold the button down away from the card, as a real drag does.
+        let start = egui::pos2(900.0, 400.0);
+        run(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        run(&mut app, vec![egui::Event::PointerMoved(pos)]);
+        let output = run(&mut app, vec![egui::Event::PointerMoved(pos)]);
+        assert!(ctx.input(|input| input.pointer.primary_down()));
+        assert!(
+            output.shapes.iter().any(|clipped| matches!(&clipped.shape,
+                egui::epaint::Shape::Rect(rect)
+                    if rect.stroke.width == 2.0
+                        && rect.stroke.color == app.palette.accent
+                        && rect.rect.contains(pos)
+            )),
+            "no accent outline on the drop target"
+        );
+        egui::DragAndDrop::clear_payload(&ctx);
+        app.backend.shutdown();
+    }
+
     /// Liked Songs has no URI of its own, so its row lights from the context
     /// it plays, the starred songs, as a playlist's row does from its own.
     #[test]
@@ -3915,9 +4215,9 @@ mod tests {
             frame(&ctx, &mut app);
         }
 
-        // Sweep from the top. The first slots pin the row around Liked
-        // Songs; the first below the pins is the one between what were the
-        // first two unpinned playlists.
+        // Sweep from the top. The first slots pin the row above Liked Songs,
+        // and the lower edge of the pins keeps it pinned; the first slot
+        // below them lands it after the first unpinned playlist.
         let mut dropped = false;
         for step in 0..40 {
             let pos = egui::pos2(120.0, 100.0 + step as f32 * 10.0);
@@ -3947,8 +4247,9 @@ mod tests {
             }
         }
         assert!(dropped, "no sweep position landed below the pins");
-        let expected: Vec<String> = std::iter::once(4)
-            .chain((0..PLAYLISTS.len()).filter(|index| *index != 4))
+        let expected: Vec<String> = [0, 4]
+            .into_iter()
+            .chain((1..PLAYLISTS.len()).filter(|index| *index != 4))
             .map(|index| playlist_uri(&format!("pl{index}")))
             .collect();
         assert_eq!(app.settings.sidebar_order, expected);
@@ -4099,12 +4400,7 @@ mod tests {
             app.saved.insert(track_uri("trk0"), false);
             egui::DragAndDrop::set_payload(
                 &ctx,
-                DragTrack {
-                    uri: track_uri("trk0"),
-                    title: "Rosewood".into(),
-                    image: None,
-                    from: None,
-                },
+                DragTrack::song(&song(&track_uri("trk0"), "Rosewood"), None),
             );
             accessible_frame(&ctx, &mut app, vec![egui::Event::PointerMoved(liked)]);
             accessible_frame(
@@ -4577,6 +4873,7 @@ mod tests {
             cache: root.join("cache"),
         };
         let ctx = egui::Context::default();
+        ctx.enable_accesskit();
         let waker = crate::backend::Waker::default();
         waker.attach(&ctx);
         let mut app = App::new(
@@ -4591,37 +4888,20 @@ mod tests {
         app.attach(&ctx);
         populate(&mut app);
 
-        // Find the Y position of the Library header.
-        let mut library_y = None;
-        let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1280.0, 800.0),
-            )),
-            ..Default::default()
-        };
-        for _ in 0..2 {
-            let mut output = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
-            output.textures_delta.clear();
-            fn walk(shape: &egui::epaint::Shape, found: &mut Option<f32>) {
-                match shape {
-                    egui::epaint::Shape::Text(text) => {
-                        if text.galley.job.text == "Library" {
-                            *found = Some(text.pos.y);
-                        }
-                    }
-                    egui::epaint::Shape::Vec(shapes) => {
-                        shapes.iter().for_each(|shape| walk(shape, found));
-                    }
-                    _ => {}
-                }
-            }
-            for clipped in &output.shapes {
-                walk(&clipped.shape, &mut library_y);
-            }
-        }
-        let y = library_y.expect("Library label was not found");
-        let search_pos = egui::pos2(168.0, y + 4.0);
+        // Use the button's own bounds: the header can gain controls without
+        // changing which button this pointer test presses.
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let search = accessible_node(&tree, "Search Your Library", egui::accesskit::Role::Button);
+        let bounds = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == search)
+            .and_then(|(_, node)| node.bounds())
+            .expect("Search Your Library bounds");
+        let search_pos = egui::pos2(
+            ((bounds.x0 + bounds.x1) / 2.0) as f32,
+            ((bounds.y0 + bounds.y1) / 2.0) as f32,
+        );
 
         // Click on the search button in the Library shelf header.
         frame_events(

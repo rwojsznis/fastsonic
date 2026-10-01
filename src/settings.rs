@@ -166,6 +166,8 @@ pub struct Settings {
     pub art_expanded: bool,
     /// Use compact single-line rows without cover art in the sidebar.
     pub sidebar_compact: bool,
+    /// Show the Library as responsive cover cards instead of rows.
+    pub sidebar_grid: bool,
     pub sidebar_width: f32,
     pub lyrics_width: f32,
     pub queue_width: f32,
@@ -275,6 +277,7 @@ impl Default for Settings {
             sidebar_visible: true,
             art_expanded: false,
             sidebar_compact: false,
+            sidebar_grid: false,
             sidebar_width: 250.0,
             lyrics_width: 360.0,
             queue_width: 360.0,
@@ -702,6 +705,21 @@ mod tests {
             settings.library_sort.into_iter().collect::<Vec<_>>(),
             [(LibraryShelf::Artists, LibrarySort::Name)]
         );
+    }
+
+    #[test]
+    fn library_grid_round_trips_and_older_settings_keep_the_list() {
+        let old: Settings = serde_json::from_str(r#"{"sidebar_compact":true}"#).unwrap();
+        assert!(old.sidebar_compact);
+        assert!(!old.sidebar_grid);
+
+        let settings = Settings {
+            sidebar_grid: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(restored.sidebar_grid);
     }
 
     #[test]

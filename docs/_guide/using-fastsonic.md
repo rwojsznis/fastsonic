@@ -110,6 +110,14 @@ Fastsonic closes, so resuming one plays the last song on its own.
 Click a playlist, album or artist in the sidebar to open it; double-click it
 to play it, as its cover's play button does.
 
+The button beside the Library heading switches between the list and a grid of
+cover cards, which adds columns as the sidebar widens, and the choice is
+remembered. A click on a card opens it and its corner button plays it, or
+pauses and resumes it while it plays; a double click only opens it. Pins,
+search, sorting and dragging work the same in both. With the artwork expanded,
+the grid scrolls on under the cover, and a song or card dropped on the cover is
+ignored rather than landing on the card hidden beneath it.
+
 The menu under the Library filters chooses an order for each section, and
 the choice is remembered. **Name** and **Recently played** are offered
 everywhere. Playlists also sort by **Creator**, their owner, and albums by

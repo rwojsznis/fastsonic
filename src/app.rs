@@ -4437,6 +4437,10 @@ impl App {
                     self.mark_settings_dirty();
                 }
             }
+            Action::SetLibraryGrid(grid) => {
+                self.settings.sidebar_grid = grid;
+                self.mark_settings_dirty();
+            }
             Action::ArrangeLibrary {
                 pinned,
                 playlist_order,
