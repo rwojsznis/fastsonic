@@ -318,8 +318,9 @@ pub struct App {
     last_now_playing_uri: Option<String>,
     pub playlist_busy: bool,
     pub quit_requested: bool,
-    /// The axis a scroll gesture settled on, and when it last moved.
-    scroll_lock: Option<(ScrollAxis, Instant)>,
+    /// The axis a scroll gesture settled on, and when it last moved, on the
+    /// frames' input clock.
+    scroll_lock: Option<(ScrollAxis, f64)>,
     /// Whether the current scroll gesture comes from a trackpad.
     scroll_from_trackpad: bool,
     /// Recent scroll positions, to read the gesture's speed when it ends.
@@ -328,8 +329,9 @@ pub struct App {
     scroll_accum: egui::Vec2,
     /// The speed still carrying the page after the fingers lifted.
     glide: Option<egui::Vec2>,
-    /// Time of the last scroll event, used to detect the end of a gesture.
-    scroll_last_event: Option<Instant>,
+    /// Input time of the last scroll event, used to detect the end of a
+    /// gesture.
+    scroll_last_event: Option<f64>,
     /// The platform says when fingers touch and lift (Wayland does, X11
     /// does not), so a pause with fingers resting is not taken for a lift.
     scroll_lift_announced: bool,
@@ -386,9 +388,9 @@ enum ScrollAxis {
     Vertical,
 }
 
-/// A trackpad gesture that pauses this long has ended; the next movement
-/// picks its axis afresh.
-const SCROLL_GESTURE_GAP: Duration = Duration::from_millis(150);
+/// A trackpad gesture that pauses this long, in seconds, has ended; the
+/// next movement picks its axis afresh.
+const SCROLL_GESTURE_GAP: f64 = 0.15;
 
 /// How far short Linux trackpad deltas land of what other players scroll.
 const TRACKPAD_SCALE: f32 = 1.8;
@@ -5385,7 +5387,13 @@ impl App {
             (sum, pointish, ended, announced, forced_axis)
         });
         self.scroll_lift_announced |= announced;
-        let now = Instant::now();
+        // Gestures are timed on the input clock: a slow frame delays the
+        // events it would have carried, and wall time would take that wait
+        // for the fingers lifting.
+        let now = ctx.input(|input| input.time);
+        // A discarded pass runs the frame again without its events; only the
+        // first may end a gesture or move the glide on.
+        let first_pass = ctx.current_pass_index() == 0;
         if raw != egui::Vec2::ZERO {
             self.scroll_from_trackpad = from_trackpad;
         }
@@ -5400,8 +5408,7 @@ impl App {
         if trackpad_here && raw != egui::Vec2::ZERO {
             self.glide = None;
             self.scroll_accum += raw * TRACKPAD_SCALE;
-            self.scroll_history
-                .add(ctx.input(|input| input.time), self.scroll_accum);
+            self.scroll_history.add(now, self.scroll_accum);
             self.scroll_last_event = Some(now);
             // Wayland announces the lift; where nothing does, the quiet-gap
             // check below needs a frame to run in.
@@ -5417,17 +5424,16 @@ impl App {
         let quiet = !self.scroll_lift_announced
             && self
                 .scroll_last_event
-                .is_some_and(|at| now.duration_since(at).as_secs_f32() > 0.15);
-        if ended || quiet {
+                .is_some_and(|at| now - at > SCROLL_GESTURE_GAP);
+        if first_pass && (ended || quiet) {
             // Only movement just before the lift carries on: fingers that
             // stopped and rested first leave nothing to glide on.
-            let lift_time = ctx.input(|input| input.time);
             let rested = ended
                 && self
                     .scroll_history
                     .iter()
                     .last()
-                    .is_some_and(|(time, _)| lift_time - time > GLIDE_REST);
+                    .is_some_and(|(time, _)| now - time > GLIDE_REST);
             let mut velocity = if rested {
                 egui::Vec2::ZERO
             } else {
@@ -5445,7 +5451,7 @@ impl App {
             self.scroll_last_event = None;
         }
         if let Some(velocity) = self.glide {
-            if raw == egui::Vec2::ZERO {
+            if raw == egui::Vec2::ZERO && first_pass {
                 let dt = ctx.input(|input| input.stable_dt).clamp(0.001, 0.05);
                 ctx.input_mut(|input| input.smooth_scroll_delta += velocity * dt);
                 let slower = velocity * (-dt / GLIDE_DECAY).exp();
@@ -5458,9 +5464,7 @@ impl App {
         // when Shift is pressed or released. Only trackpad gestures hold it.
         let held = forced_axis.or_else(|| {
             self.scroll_lock
-                .filter(|(_, at)| {
-                    now.duration_since(*at) < SCROLL_GESTURE_GAP && (!moved || from_trackpad)
-                })
+                .filter(|(_, at)| now - *at < SCROLL_GESTURE_GAP && (!moved || from_trackpad))
                 .map(|(axis, _)| axis)
         });
         let axis = match held {
@@ -7857,11 +7861,85 @@ mod tests {
         };
         frame(&mut app, 0.0, Some(egui::TouchPhase::Start), 20.0);
         frame(&mut app, 0.016, Some(egui::TouchPhase::Move), 20.0);
-        std::thread::sleep(Duration::from_millis(200));
         frame(&mut app, 0.3, None, 0.0);
         assert!(app.glide.is_none());
         frame(&mut app, 1.0, Some(egui::TouchPhase::End), 0.0);
         assert!(app.glide.is_none());
+    }
+
+    /// Runs `lock_scroll_axis` for one frame of X11-style touchpad input,
+    /// which never announces the fingers touching or lifting, optionally
+    /// with a discarded first pass.
+    #[cfg(target_os = "linux")]
+    fn x11_touchpad_frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        time: f64,
+        delta: f32,
+        discard: bool,
+    ) {
+        let events = (delta != 0.0)
+            .then(|| egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, delta),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::default(),
+            })
+            .into_iter()
+            .collect();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                app.lock_scroll_axis(ui.ctx());
+                if discard && ui.ctx().current_pass_index() == 0 {
+                    ui.ctx().request_discard("test");
+                }
+            },
+        );
+        output.textures_delta.clear();
+    }
+
+    /// A frame that comes late, with no events yet, is not the fingers
+    /// lifting: the gap is measured on the input clock, not the wall clock.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_slow_frame_is_not_taken_for_a_lift() {
+        let mut app = test_app("touchpad-slow-frame");
+        let ctx = egui::Context::default();
+        x11_touchpad_frame(&ctx, &mut app, 0.0, 20.0, false);
+        x11_touchpad_frame(&ctx, &mut app, 0.016, 20.0, false);
+        std::thread::sleep(Duration::from_millis(200));
+        x11_touchpad_frame(&ctx, &mut app, 0.032, 0.0, false);
+        assert!(app.glide.is_none(), "still scrolling, nothing glides");
+        x11_touchpad_frame(&ctx, &mut app, 0.3, 0.0, false);
+        assert!(app.glide.is_some(), "a quiet gap still lifts on X11");
+    }
+
+    /// A discarded pass runs the frame again without its events; the glide
+    /// moves on once per frame, not once per pass.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_discarded_pass_does_not_speed_up_the_glide() {
+        let glide_after = |discard: bool| {
+            let mut app = test_app(if discard {
+                "touchpad-glide-discard"
+            } else {
+                "touchpad-glide-once"
+            });
+            let ctx = egui::Context::default();
+            for (frame, delta) in [40.0, 40.0, 40.0].into_iter().enumerate() {
+                x11_touchpad_frame(&ctx, &mut app, frame as f64 * 0.016, delta, false);
+            }
+            x11_touchpad_frame(&ctx, &mut app, 0.3, 0.0, false);
+            assert!(app.glide.is_some(), "the lift starts a glide");
+            x11_touchpad_frame(&ctx, &mut app, 0.316, 0.0, discard);
+            app.glide.expect("still gliding").y
+        };
+        assert_eq!(glide_after(true), glide_after(false));
     }
 
     #[test]
