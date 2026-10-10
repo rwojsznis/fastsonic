@@ -383,6 +383,37 @@ pub fn menu_submenu<R>(
     label: &str,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> Option<egui::InnerResponse<R>> {
+    submenu(ui, palette, icon, label, None, add_contents)
+}
+
+/// A submenu that holds a field to type in. A click inside it focuses the
+/// field or scrolls its list instead of closing the menu; its entries still
+/// close the menu when chosen.
+fn menu_submenu_with_field<R>(
+    ui: &mut Ui,
+    palette: &Palette,
+    icon: Option<Icon>,
+    label: &str,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> Option<egui::InnerResponse<R>> {
+    submenu(
+        ui,
+        palette,
+        icon,
+        label,
+        Some(egui::PopupCloseBehavior::CloseOnClickOutside),
+        add_contents,
+    )
+}
+
+fn submenu<R>(
+    ui: &mut Ui,
+    palette: &Palette,
+    icon: Option<Icon>,
+    label: &str,
+    close_behavior: Option<egui::PopupCloseBehavior>,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> Option<egui::InnerResponse<R>> {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, 28.0), Sense::click());
     let is_in_menu = egui::containers::menu::is_in_menu(ui);
@@ -459,10 +490,15 @@ pub fn menu_submenu<R>(
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
     theme::focus_ring(ui, &response);
+    let mut config = egui::containers::menu::MenuConfig::find(ui);
+    if let Some(close_behavior) = close_behavior {
+        config = config.close_behavior(close_behavior);
+    }
     if is_in_menu {
-        egui::containers::menu::SubMenu::new().show(ui, &response, add_contents)
+        egui::containers::menu::SubMenu::new()
+            .config(config)
+            .show(ui, &response, add_contents)
     } else {
-        let config = egui::containers::menu::MenuConfig::find(ui);
         egui::Popup::menu(&response)
             .close_behavior(config.close_behavior)
             .style(config.style.clone())
@@ -563,7 +599,7 @@ pub fn picked_menu(
 fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, songs: &[(String, String)]) {
     let query_id = ui.make_persistent_id("add-to-playlist-query");
     let palette = app.palette;
-    let opened = menu_submenu(
+    let opened = menu_submenu_with_field(
         ui,
         &palette,
         Some(Icon::ListPlus),
@@ -680,11 +716,16 @@ pub(crate) fn playlist_picker(
             },
         );
     }
+    // The popup lays out within last frame's size, so a list a filter has
+    // shrunk would stay that short once the filter is cleared. Asking for
+    // the full height lets it grow back; it still shrinks to fit its rows.
+    let list_height = 320.0;
     crate::autoscroll::show(
         ui,
         egui::ScrollArea::vertical()
             .id_salt("filtered-playlists")
-            .max_height(320.0),
+            .max_height(list_height)
+            .min_scrolled_height(list_height),
         egui::Vec2b::new(false, true),
         |ui| {
             for (index, (id, name)) in matches.into_iter().enumerate() {

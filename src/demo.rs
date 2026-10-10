@@ -2625,6 +2625,77 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[test]
+    fn playlist_submenu_stays_open_for_a_click_in_its_filter_and_grows_back_when_cleared() {
+        use egui::accesskit::{Action, Role};
+        let (ctx, mut app) = accessible_app("playlist-submenu-click");
+        app.backend.set_offline(true);
+        let songs = vec![song(&track_uri("trk0"), "First song")];
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::widgets::picked_menu(ui, app, &songs, None),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let tree = draw(&mut app, vec![]);
+        let add = accessible_node(&tree, "Add to playlist", Role::Button);
+        draw(&mut app, vec![accessible_action(add, Action::Click, None)]);
+        draw(&mut app, vec![]);
+        let tree = draw(&mut app, vec![]);
+        let field = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Filter playlists"))
+            .and_then(|(_, node)| node.bounds())
+            .expect("the playlist filter");
+        let center = egui::pos2(
+            ((field.x0 + field.x1) / 2.0) as f32,
+            ((field.y0 + field.y1) / 2.0) as f32,
+        );
+        let height = || {
+            let layer = ctx.layer_id_at(center).expect("the submenu's layer");
+            ctx.memory(|memory| memory.area_rect(layer.id))
+                .expect("the submenu's area")
+                .height()
+        };
+        let full = height();
+
+        // #when the filter field is clicked
+        draw(
+            &mut app,
+            pointer_click(center, egui::PointerButton::Primary),
+        );
+        let tree = draw(&mut app, vec![]);
+
+        // #then the submenu stays open with every playlist
+        assert!(egui::Popup::is_any_open(&ctx));
+        accessible_node(&tree, "Sunday morning", Role::Button);
+
+        // #when a filter narrows the list and is then cleared
+        draw(&mut app, vec![egui::Event::Text("night".into())]);
+        draw(&mut app, vec![]);
+        assert!(height() < full, "the filter shrinks the submenu");
+        draw(
+            &mut app,
+            vec![keyboard(egui::Key::Backspace, egui::Modifiers::NONE); 5],
+        );
+        draw(&mut app, vec![]);
+        draw(&mut app, vec![]);
+
+        // #then the submenu grows back to its full height
+        assert_eq!(height(), full);
+        app.backend.shutdown();
+    }
+
     fn frame_events(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
