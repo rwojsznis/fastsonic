@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use cpal::traits::DeviceTrait;
 use rodio::Source;
 
-use crate::sink::{DefaultWatch, ErrorHook, open_stream, pick_device};
+use crate::sink::{DefaultWatch, DeviceStream, ErrorHook, open_stream, pick_device};
 
 /// The chain is stereo, from the decoder to the device.
 pub(crate) const CHANNELS: usize = 2;
@@ -59,7 +59,9 @@ pub(crate) struct Heard {
 /// The device, once it is open.
 struct Stream {
     sink: rodio::Sink,
-    stream: rodio::OutputStream,
+    /// Paused with the sink once Pause has played out, so a paused player
+    /// costs the device and the mixer nothing.
+    stream: DeviceStream,
     /// The name of the device the stream was opened on.
     device_name: Option<String>,
     /// Set from the audio thread when the stream dies (device unplugged).
@@ -80,6 +82,14 @@ struct Stream {
 impl Stream {
     fn failed(&self) -> bool {
         self.failed.load(Ordering::Relaxed)
+    }
+
+    fn resume_device(&mut self) {
+        self.stream.resume(&self.failed);
+    }
+
+    fn rest_device(&mut self) {
+        self.stream.pause(&self.failed);
     }
 }
 
@@ -188,6 +198,9 @@ impl Output {
             return Ok(Duration::ZERO);
         }
         let stream = self.ensure_open()?;
+        if !stream.sink.is_paused() {
+            stream.resume_device();
+        }
         let frames = samples.len() / CHANNELS;
         let now = Instant::now();
         if stream.fed && stream.sink.empty() && !stream.sink.is_paused() {
@@ -262,6 +275,7 @@ impl Output {
     pub(crate) fn play(&mut self) {
         self.playing = true;
         if let Some(stream) = &mut self.open {
+            stream.resume_device();
             stream.pause_pending = false;
             stream.transport.fade_in();
             stream.sink.play();
@@ -296,14 +310,16 @@ impl Output {
         let Some(stream) = &mut self.open else {
             return;
         };
-        stream.sink = rodio::Sink::connect_new(stream.stream.mixer());
+        stream.sink = rodio::Sink::connect_new(&stream.stream.mixer);
         stream.sink.set_volume(attenuation(self.volume));
         stream.pause_pending = false;
         if playing {
+            stream.resume_device();
             stream.transport.fade_in();
         } else {
             stream.transport.close();
             stream.sink.pause();
+            stream.rest_device();
         }
         stream.clock.reset();
         stream.fed = false;
@@ -325,6 +341,9 @@ fn settle_pause(stream: &mut Stream) {
         stream.sink.pause();
         stream.transport.close();
         stream.pause_pending = false;
+        // With the fade played out, the device can stop asking for sound
+        // until Play.
+        stream.rest_device();
     }
 }
 
@@ -585,15 +604,15 @@ fn open_device(
         CHANNELS as u16,
         PREFERRED_RATE,
     )?;
-    stream.log_on_drop(false);
-    let rate = stream.config().sample_rate();
+    let rate = stream.sample_rate;
     log::info!("the audio output runs at {rate} Hz");
-    let sink = rodio::Sink::connect_new(stream.mixer());
+    let sink = rodio::Sink::connect_new(&stream.mixer);
     sink.set_volume(volume);
     let transport = if playing {
         Envelope::rising(rate)
     } else {
         sink.pause();
+        stream.pause(&failed);
         Envelope::closed(rate)
     };
     Ok(Stream {
@@ -740,6 +759,52 @@ mod tests {
             assert!(gain >= last, "the curve dips at step {step}");
             last = gain;
         }
+    }
+
+    /// A paused player stops the device asking for sound once the fade has
+    /// played out, and Play or a playing restart starts it again; filling
+    /// the queue while paused leaves it resting. Needs an output, so a
+    /// machine without audio has nothing to check.
+    #[test]
+    fn pause_rests_the_device_and_play_wakes_it() {
+        let mut output = Output::new(None, crate::sink::DEFAULT_BUFFER_MS, 0, Arc::new(|_| {}));
+        let Ok(rate) = output.rate() else {
+            return;
+        };
+        let running = |output: &Output| output.open.as_ref().map(|open| open.stream.running());
+        // Silence, so a test run plays nothing on the speakers.
+        let silence = vec![0.0; rate as usize / 10 * CHANNELS];
+        assert_eq!(running(&output), Some(false), "opened paused, it rests");
+
+        output.play();
+        output.append(&silence, 1, Duration::ZERO).unwrap();
+        assert_eq!(running(&output), Some(true));
+
+        output.pause();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while output.transitioning() && Instant::now() < deadline {
+            std::thread::sleep(ms(20));
+            output.queued();
+        }
+        assert_eq!(running(&output), Some(false), "paused, the device rests");
+        output.pause();
+        assert_eq!(running(&output), Some(false), "pausing twice is harmless");
+
+        output.append(&silence, 1, ms(100)).unwrap();
+        assert_eq!(
+            running(&output),
+            Some(false),
+            "filling the queue lets it rest"
+        );
+
+        output.play();
+        assert_eq!(running(&output), Some(true), "Play wakes it");
+
+        output.restart(false);
+        assert_eq!(running(&output), Some(false), "a paused seek rests it");
+        output.restart(true);
+        assert_eq!(running(&output), Some(true), "a playing one wakes it");
+        output.pause();
     }
 
     #[test]

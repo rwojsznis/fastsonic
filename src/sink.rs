@@ -3,11 +3,12 @@
 //! Stream opening is fallible because release builds abort on panic. A machine
 //! without an output device gets an error in the interface instead.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 /// The backend name Settings uses for this sink.
 pub const NAME: &str = "rodio";
@@ -48,9 +49,130 @@ pub(crate) fn engine_buffer(
     }
 }
 
+/// The device's stream and the mixer it plays, held here rather than in
+/// rodio's `OutputStream` so that Pause can stop it.
+///
+/// rodio keeps its cpal stream private and running until it is dropped, so
+/// a paused player still had the device asking for sound and the mixer
+/// making silence for it, for as long as the app stayed open. Pausing the
+/// stream stops those callbacks but keeps the device open, so Play starts
+/// again at once.
+pub(crate) struct DeviceStream {
+    stream: cpal::Stream,
+    pub(crate) mixer: rodio::mixer::Mixer,
+    pub(crate) sample_rate: u32,
+    /// Whether the device is asking for sound.
+    running: bool,
+}
+
+impl DeviceStream {
+    fn open(
+        device: &cpal::Device,
+        config: &cpal::StreamConfig,
+        format: cpal::SampleFormat,
+        on_error: impl FnMut(cpal::StreamError) + Send + 'static,
+    ) -> Result<Self, rodio::StreamError> {
+        let (mixer, source) = rodio::mixer::mixer(
+            config.channels as rodio::ChannelCount,
+            config.sample_rate.0 as rodio::SampleRate,
+        );
+        let stream = build_stream(device, config, format, source, on_error)?;
+        stream.play().map_err(rodio::StreamError::PlayStreamError)?;
+        Ok(Self {
+            stream,
+            mixer,
+            sample_rate: config.sample_rate.0,
+            running: true,
+        })
+    }
+
+    /// Whether the device is asking for sound.
+    #[cfg(test)]
+    pub(crate) fn running(&self) -> bool {
+        self.running
+    }
+
+    /// Has the device ask for sound again. A device that will not is
+    /// marked `failed`, so the next append reopens the output.
+    pub(crate) fn resume(&mut self, failed: &AtomicBool) {
+        if self.running {
+            return;
+        }
+        match self.stream.play() {
+            Ok(()) => self.running = true,
+            Err(error) => {
+                log::error!("cannot restart the audio output: {error}");
+                failed.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Stops the device asking for sound, keeping it open. Never fails: a
+    /// stream that cannot pause keeps running, as it always used to.
+    pub(crate) fn pause(&mut self, failed: &AtomicBool) {
+        if !self.running {
+            return;
+        }
+        match self.stream.pause() {
+            Ok(()) => self.running = false,
+            Err(cpal::PauseStreamError::DeviceNotAvailable) => {
+                log::warn!("the audio output went away while pausing");
+                failed.store(true, Ordering::Relaxed);
+            }
+            Err(error) => log::warn!("cannot pause the audio output: {error}"),
+        }
+    }
+}
+
+/// Builds a stream that plays `source` in the device's sample format, with
+/// silence whenever the mixer has nothing, as rodio's own stream does.
+fn build_stream(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    format: cpal::SampleFormat,
+    source: rodio::mixer::MixerSource,
+    on_error: impl FnMut(cpal::StreamError) + Send + 'static,
+) -> Result<cpal::Stream, rodio::StreamError> {
+    fn build<T>(
+        device: &cpal::Device,
+        config: &cpal::StreamConfig,
+        mut source: rodio::mixer::MixerSource,
+        on_error: impl FnMut(cpal::StreamError) + Send + 'static,
+    ) -> Result<cpal::Stream, cpal::BuildStreamError>
+    where
+        T: cpal::SizedSample + cpal::FromSample<rodio::Sample>,
+    {
+        device.build_output_stream::<T, _, _>(
+            config,
+            move |data: &mut [T], _| {
+                for out in data {
+                    *out = source.next().map(T::from_sample_).unwrap_or(T::EQUILIBRIUM);
+                }
+            },
+            on_error,
+            None,
+        )
+    }
+    use cpal::SampleFormat as Format;
+    match format {
+        Format::F32 => build::<f32>(device, config, source, on_error),
+        Format::F64 => build::<f64>(device, config, source, on_error),
+        Format::I8 => build::<i8>(device, config, source, on_error),
+        Format::I16 => build::<i16>(device, config, source, on_error),
+        Format::I32 => build::<i32>(device, config, source, on_error),
+        Format::I64 => build::<i64>(device, config, source, on_error),
+        Format::U8 => build::<u8>(device, config, source, on_error),
+        Format::U16 => build::<u16>(device, config, source, on_error),
+        Format::U32 => build::<u32>(device, config, source, on_error),
+        Format::U64 => build::<u64>(device, config, source, on_error),
+        _ => return Err(rodio::StreamError::UnsupportedSampleFormat),
+    }
+    .map_err(rodio::StreamError::BuildStreamError)
+}
+
 /// Opens the stream at the rate the chain would rather run at, so nothing
 /// is converted, else at the device's own rate, which Windows insists on
-/// for a shared device, else at whatever rodio can find.
+/// for a shared device, else at any configuration the device lists.
 ///
 /// The first two attempts request the configured buffer. The fallback lets
 /// the driver choose its buffer size.
@@ -63,35 +185,59 @@ pub(crate) fn open_stream(
     buffer_ms: u32,
     channels: u16,
     preferred_rate: u32,
-) -> Result<rodio::OutputStream, rodio::StreamError> {
-    let supported = device
+) -> Result<DeviceStream, rodio::StreamError> {
+    let default = device
         .default_output_config()
-        .map(|config| *config.buffer_size())
-        .unwrap_or(cpal::SupportedBufferSize::Unknown);
-    let builder = |sample_rate: u32, buffer: bool| -> Result<_, rodio::StreamError> {
-        let builder = rodio::OutputStreamBuilder::from_device(device.clone())?
-            .with_channels(channels as rodio::ChannelCount)
-            .with_sample_rate(sample_rate as rodio::SampleRate)
-            .with_error_callback(on_error.clone());
-        Ok(if buffer {
-            builder.with_buffer_size(engine_buffer(sample_rate, buffer_ms, supported))
+        .map_err(rodio::StreamError::DefaultStreamConfigError)?;
+    let format = default.sample_format();
+    let config = |sample_rate: u32, buffer: bool| cpal::StreamConfig {
+        channels: channels as cpal::ChannelCount,
+        sample_rate: cpal::SampleRate(sample_rate),
+        buffer_size: if buffer {
+            engine_buffer(sample_rate, buffer_ms, *default.buffer_size())
         } else {
-            builder
-        })
+            cpal::BufferSize::Default
+        },
     };
     // The fixed engine buffer addresses Windows shared-mode underruns (#88).
     // CoreAudio, ALSA, PulseAudio, and PipeWire keep their proven
     // driver-selected callback periods.
     let fixed_buffer = cfg!(windows);
-    if let Ok(stream) = builder(preferred_rate, fixed_buffer)?.open_stream() {
+    if let Ok(stream) = DeviceStream::open(
+        device,
+        &config(preferred_rate, fixed_buffer),
+        format,
+        on_error.clone(),
+    ) {
         return Ok(stream);
     }
-    if let Ok(config) = device.default_output_config()
-        && let Ok(stream) = builder(config.sample_rate().0, fixed_buffer)?.open_stream()
-    {
+    if let Ok(stream) = DeviceStream::open(
+        device,
+        &config(default.sample_rate().0, fixed_buffer),
+        format,
+        on_error.clone(),
+    ) {
         return Ok(stream);
     }
-    builder(preferred_rate, false)?.open_stream_or_fallback()
+    DeviceStream::open(
+        device,
+        &config(preferred_rate, false),
+        format,
+        on_error.clone(),
+    )
+    .or_else(|error| {
+        for supported in rodio::stream::supported_output_configs(device)? {
+            if let Ok(stream) = DeviceStream::open(
+                device,
+                &supported.config(),
+                supported.sample_format(),
+                on_error.clone(),
+            ) {
+                return Ok(stream);
+            }
+        }
+        Err(error)
+    })
 }
 
 /// Last default-output name, polled on a worker thread because Windows device
