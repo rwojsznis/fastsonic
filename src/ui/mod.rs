@@ -72,12 +72,101 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             lyrics::side_panel(app, ui);
         }
         central(app, ui);
+        keep_room_for_panels(app, ctx);
     }
     dialogs::show(app, ctx);
     widgets::drag_ghost(ctx, &app.palette);
     toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);
     window_controls(ui, &app.palette);
     window_resize(ui);
+}
+
+/// The main window's narrowest width with these panels open: their least
+/// widths and the page's.
+fn main_min_width(page: f32, sidebar: bool, right_panel: bool) -> f32 {
+    let sidebar = if sidebar { SIDEBAR_MIN_WIDTH } else { 0.0 };
+    let right = if right_panel {
+        theme::SIDE_PANEL_MIN_WIDTH
+    } else {
+        0.0
+    };
+    (sidebar + right + page).max(crate::window::MAIN_MIN_SIZE[0])
+}
+
+/// The sidebar's narrowest width.
+pub(crate) const SIDEBAR_MIN_WIDTH: f32 = 210.0;
+
+/// Raise the window's minimum width while the Queue or Lyrics panel is open,
+/// so even at its narrowest the page beside the panels keeps the room its
+/// top bar needs, and lower it again once they close. Window managers that
+/// tile ignore the minimum; the panels still give way there.
+fn keep_room_for_panels(app: &App, ctx: &Context) {
+    if crate::window::fixed_size() {
+        return;
+    }
+    let width = main_min_width(
+        topbar::least_width(ctx),
+        app.settings.sidebar_visible,
+        app.show_queue_panel || app.show_lyrics_panel,
+    )
+    .round();
+    let id = Id::new("main-min-width");
+    let sent = ctx.data(|data| data.get_temp::<f32>(id));
+    // The window starts at MAIN_MIN_SIZE, so there is nothing to send until
+    // the panels need more.
+    if sent.unwrap_or(crate::window::MAIN_MIN_SIZE[0]) != width {
+        ctx.data_mut(|data| data.insert_temp(id, width));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(vec2(
+            width,
+            crate::window::MAIN_MIN_SIZE[1],
+        )));
+    }
+}
+
+/// How a resizable side panel fits beside the page.
+pub(crate) struct PanelFit {
+    /// The widths the panel may take this frame.
+    pub range: std::ops::RangeInclusive<f32>,
+    /// Whether the room the page needs holds the panel under the width the
+    /// listener chose for it.
+    pub yielding: bool,
+}
+
+/// Fit a side panel between `range` and the page beside it. The panel gives
+/// up width, down to its minimum, so the page keeps `room`, less the least
+/// its top bar needs. The width chosen for the panel stays in the settings
+/// and comes back once the window widens again.
+///
+/// `room` is what the panel and everything after it share.
+pub(crate) fn yielding_panel(
+    ctx: &Context,
+    id: &str,
+    range: std::ops::RangeInclusive<f32>,
+    chosen: f32,
+    room: f32,
+) -> PanelFit {
+    let (min, max) = range.into_inner();
+    let max = max.min(room).max(min);
+    let width = chosen.clamp(min, max);
+    // egui remembers the width the panel last drew at, a clamped one too.
+    // Hand it back the chosen width whenever there is room for more.
+    let id = Id::new(id);
+    if let Some(mut state) = egui::containers::panel::PanelState::load(ctx, id)
+        && state.outer_rect.width() + 0.5 < width
+    {
+        state.outer_rect.set_width(width);
+        ctx.data_mut(|data| data.insert_persisted(id, state));
+    }
+    PanelFit {
+        range: min..=max,
+        yielding: max < chosen - 0.5,
+    }
+}
+
+/// Whether a panel's new width is one the listener chose: it moved while
+/// not held back by the page, or by their own drag.
+pub(crate) fn panel_width_chosen(ctx: &Context, id: &str, fit: &PanelFit) -> bool {
+    !fit.yielding || ctx.is_being_dragged(Id::new(id).with("__resize"))
 }
 
 /// The cover size a library grid card asks the server for: the card size, so

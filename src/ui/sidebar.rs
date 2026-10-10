@@ -464,10 +464,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // The traffic lights float over the top-left of the sidebar now, so the
     // first nav row has to start below them.
     let top = 12 + theme::titlebar_inset(ui.ctx()) as i8;
+    let beside = if app.show_queue_panel || app.show_lyrics_panel {
+        theme::SIDE_PANEL_MIN_WIDTH
+    } else {
+        0.0
+    };
+    let fit = super::yielding_panel(
+        ui.ctx(),
+        "sidebar",
+        super::SIDEBAR_MIN_WIDTH..=440.0,
+        app.settings.sidebar_width,
+        ui.available_width() - super::topbar::least_width(ui.ctx()) - beside,
+    );
     let panel = egui::Panel::left("sidebar")
         .resizable(true)
         .default_size(app.settings.sidebar_width)
-        .size_range(210.0..=440.0)
+        .size_range(fit.range.clone())
         .show_separator_line(false)
         .frame(Frame::new().fill(palette.panel).inner_margin(Margin {
             left: 12,
@@ -490,7 +502,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
     });
     let width = response.response.rect.width();
-    if (width - app.settings.sidebar_width).abs() > 1.0 {
+    if (width - app.settings.sidebar_width).abs() > 1.0
+        && super::panel_width_chosen(ui.ctx(), "sidebar", &fit)
+    {
         app.settings.sidebar_width = width;
         app.actions.push(Action::SettingsChanged);
     }

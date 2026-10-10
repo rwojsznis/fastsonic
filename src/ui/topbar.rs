@@ -37,6 +37,36 @@ const SEARCH_MIN: f32 = 80.0;
 const RIGHT_CONTROLS_WIDTH: f32 =
     super::widgets::PAGE_PADDING + AVATAR_SIZE + 4.0 + 3.0 * ICON_BUTTON_SIZE + 3.0 * ITEM_SPACING;
 
+/// What precedes the field until the bar has drawn once: the page padding,
+/// the back and forward buttons and the gaps after them.
+const LEAD_GUESS: f32 = super::widgets::PAGE_PADDING + 2.0 * 32.0 + 3.0 * ITEM_SPACING + 8.0;
+/// The badge collapsed to its icon: a square as tall as its 12.5 pt label.
+const BADGE_CHIP: f32 = 15.0 + BADGE_PADDING_Y;
+
+fn lead_id() -> egui::Id {
+    egui::Id::new("topbar-lead")
+}
+
+/// The narrowest the bar, and so the page under it, can be before its
+/// controls run into each other: the narrowest field, with the spinner and
+/// the badge as an icon. Counting them even while they are away keeps the
+/// panels and the window from changing width as they come and go.
+pub fn least_width(ctx: &egui::Context) -> f32 {
+    let lead = ctx
+        .data(|data| data.get_temp(lead_id()))
+        .unwrap_or(LEAD_GUESS);
+    least_width_after(lead)
+}
+
+fn least_width_after(lead: f32) -> f32 {
+    lead + SEARCH_MIN
+        + RIGHT_CONTROLS_WIDTH
+        + SPINNER_SIZE
+        + ITEM_SPACING
+        + ITEM_SPACING
+        + BADGE_CHIP
+}
+
 /// How the top bar divides itself for one window width.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct TopbarFit {
@@ -245,6 +275,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     0.0
                 };
             let search_room = (ui.available_width() - window_controls.topbar_width).max(0.0);
+            // What sits before the field: the page padding, the navigation
+            // buttons, and any window buttons. The panels beside the page
+            // keep room for it (`least_width`).
+            let lead = width - ui.available_width() + window_controls.topbar_width;
+            ui.ctx().data_mut(|data| data.insert_temp(lead_id(), lead));
             let fit = topbar_fit(
                 search_room,
                 controls,
@@ -498,6 +533,19 @@ mod topbar_fit_tests {
         assert!(!fit.labels);
         assert_eq!(fit.search, 100.0);
         assert_eq!(right_end(room, UPDATE, CHIP), 0.0);
+    }
+
+    /// At the least width the panels leave it, the bar still holds the
+    /// spinner and the badge beside the narrowest field.
+    #[test]
+    fn the_least_width_holds_every_control_beside_the_field() {
+        let lead = LEAD_GUESS;
+        let room = least_width_after(lead) - lead;
+        let controls = RIGHT_CONTROLS_WIDTH + SPINNER_SIZE + ITEM_SPACING;
+        let fit = topbar_fit(room, controls, UPDATE, CHIP);
+        assert!(!fit.labels);
+        assert_eq!(fit.search, SEARCH_MIN);
+        assert!(controls + CHIP + fit.search <= room);
     }
 
     #[test]

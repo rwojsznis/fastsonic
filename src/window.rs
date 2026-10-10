@@ -312,6 +312,23 @@ const fn repaint_delay_for(vsync: bool, frame: std::time::Duration) -> std::time
     }
 }
 
+/// The main window's smallest size with no side panel open. The page and
+/// its top bar fit beside the narrowest sidebar from here.
+pub const MAIN_MIN_SIZE: [f32; 2] = [760.0, 520.0];
+
+static FIXED_SIZE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the main window keeps one size it was given, as demo shots ask,
+/// so the interface must not raise its minimum.
+pub fn fixed_size() -> bool {
+    FIXED_SIZE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Pins the main window to the size it is created with.
+pub fn set_fixed_size(on: bool) {
+    FIXED_SIZE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 static CUSTOM_TITLEBAR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether the main window draws its own title bar and window buttons

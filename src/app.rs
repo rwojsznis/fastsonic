@@ -5943,6 +5943,85 @@ mod tests {
         middle_click_a_playlist_row(false);
     }
 
+    /// A narrow window takes width from the side panels before the top bar
+    /// runs out of room, and the widths the listener chose come back once
+    /// the window widens. With the Queue open, the window's minimum grows to
+    /// the panels' least widths and the page's.
+    #[test]
+    fn side_panels_give_the_top_bar_its_room_and_keep_their_widths() {
+        fn draw(ctx: &egui::Context, app: &mut App, width: f32) -> Vec<egui::ViewportCommand> {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 700.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+                .viewport_output
+                .remove(&egui::ViewportId::ROOT)
+                .map(|viewport| viewport.commands)
+                .unwrap_or_default()
+        }
+        let panel = |ctx: &egui::Context, id: &str| {
+            egui::containers::panel::PanelState::load(ctx, egui::Id::new(id))
+                .unwrap()
+                .size()
+                .x
+        };
+        let ctx = egui::Context::default();
+        let mut app = test_app("panels-give-way");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.settings.sidebar_width = 400.0;
+        app.settings.queue_width = 500.0;
+        app.show_queue_panel = true;
+
+        let mut commands = Vec::new();
+        for _ in 0..3 {
+            commands.extend(draw(&ctx, &mut app, 1000.0));
+        }
+        let least = crate::ui::topbar::least_width(&ctx);
+        let sidebar = panel(&ctx, "sidebar");
+        let queue = panel(&ctx, "queue-panel");
+        assert!(
+            sidebar + queue + least <= 1000.5,
+            "the page keeps {} of the {least} points its bar needs",
+            1000.0 - sidebar - queue
+        );
+        assert!(sidebar >= 210.0 && queue >= crate::theme::SIDE_PANEL_MIN_WIDTH);
+        assert_eq!(app.settings.sidebar_width, 400.0);
+        assert_eq!(app.settings.queue_width, 500.0);
+        let min = (210.0 + crate::theme::SIDE_PANEL_MIN_WIDTH + least).round();
+        assert!(
+            commands.iter().any(|command| matches!(
+                command,
+                egui::ViewportCommand::MinInnerSize(size) if size.x == min
+            )),
+            "the window's minimum makes room for the Queue: {commands:?}"
+        );
+
+        for _ in 0..2 {
+            draw(&ctx, &mut app, 1800.0);
+        }
+        assert_eq!(panel(&ctx, "sidebar"), 400.0);
+        assert_eq!(panel(&ctx, "queue-panel"), 500.0);
+
+        // Closing the Queue gives the window its usual minimum back.
+        app.show_queue_panel = false;
+        let commands = draw(&ctx, &mut app, 1800.0);
+        assert!(commands.iter().any(|command| matches!(
+            command,
+            egui::ViewportCommand::MinInnerSize(size)
+                if size.x == crate::window::MAIN_MIN_SIZE[0]
+        )));
+        app.backend.shutdown();
+    }
+
     /// Linux autoscrolls once the listener turns it on; macOS never does.
     #[test]
     fn middle_clicking_a_playlist_row_autoscrolls_on_linux_when_chosen() {

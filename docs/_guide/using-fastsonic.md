@@ -15,6 +15,11 @@ plays: the songs on screen, in the order shown, including a song that appears
 twice. Play is disabled when a filter matches nothing; it never falls back to
 the whole list. Clearing the filter restores the original order.
 
+When the window narrows, Library, Queue and Lyrics give up width before the
+top bar runs out of room, and return to the widths you chose once it widens.
+With Queue or Lyrics open, the window cannot be made narrower than the room
+they need beside the page.
+
 Right-clicking a song in a playlist you can edit offers **Remove from this
 playlist** even when the list is sorted or filtered, since removal does not
 depend on position; with several songs picked, it removes them all. Drag a

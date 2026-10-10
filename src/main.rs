@@ -396,6 +396,8 @@ fn main() -> eframe::Result<()> {
     #[cfg(feature = "demo")]
     let demo_inner = cli.demo_size;
     #[cfg(feature = "demo")]
+    fastsonic::window::set_fixed_size(demo_inner.is_some());
+    #[cfg(feature = "demo")]
     let demo_storage = app.dirs.cache.join("demo-window.ron");
     let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(app)));
 
@@ -744,7 +746,7 @@ fn native_options(
                 // surface fills the window; the standard frame is the default.
                 .with_decorations(main_window_decorated(fastsonic::window::custom_titlebar()))
                 .with_inner_size(size)
-                .with_min_inner_size(inner_size.unwrap_or([760.0, 520.0]))
+                .with_min_inner_size(inner_size.unwrap_or(fastsonic::window::MAIN_MIN_SIZE))
                 .with_fullscreen(fullscreen);
             if inner_size.is_some() {
                 viewport = viewport.with_max_inner_size(size);

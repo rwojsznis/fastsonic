@@ -31,10 +31,17 @@ fn blend(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
 
 pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
+    let fit = super::yielding_panel(
+        ui.ctx(),
+        "lyrics-panel",
+        theme::SIDE_PANEL_MIN_WIDTH..=640.0,
+        app.settings.lyrics_width,
+        ui.available_width() - super::topbar::least_width(ui.ctx()),
+    );
     let panel = egui::Panel::right("lyrics-panel")
         .resizable(true)
         .default_size(app.settings.lyrics_width)
-        .size_range(theme::SIDE_PANEL_MIN_WIDTH..=640.0)
+        .size_range(fit.range.clone())
         .show_separator_line(false)
         .frame(
             Frame::new()
@@ -84,7 +91,9 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         contents(app, ui);
     });
     let current_width = response.response.rect.width();
-    if (app.settings.lyrics_width - current_width).abs() > 1.0 {
+    if (app.settings.lyrics_width - current_width).abs() > 1.0
+        && super::panel_width_chosen(ui.ctx(), "lyrics-panel", &fit)
+    {
         app.settings.lyrics_width = current_width;
         app.actions.push(Action::SettingsChanged);
     }

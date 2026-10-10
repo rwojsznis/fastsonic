@@ -32,10 +32,17 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
 
 pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
+    let fit = super::yielding_panel(
+        ui.ctx(),
+        "queue-panel",
+        theme::SIDE_PANEL_MIN_WIDTH..=560.0,
+        app.settings.queue_width,
+        ui.available_width() - super::topbar::least_width(ui.ctx()),
+    );
     let panel = egui::Panel::right("queue-panel")
         .resizable(true)
         .default_size(app.settings.queue_width)
-        .size_range(theme::SIDE_PANEL_MIN_WIDTH..=560.0)
+        .size_range(fit.range.clone())
         .show_separator_line(false)
         .frame(
             Frame::new()
@@ -107,7 +114,9 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         );
     });
     let width = response.response.rect.width();
-    if (width - app.settings.queue_width).abs() > 1.0 {
+    if (width - app.settings.queue_width).abs() > 1.0
+        && super::panel_width_chosen(ui.ctx(), "queue-panel", &fit)
+    {
         app.settings.queue_width = width;
         app.actions.push(Action::SettingsChanged);
     }
