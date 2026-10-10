@@ -170,18 +170,33 @@ fn run_control(control: Control) -> i32 {
         Control::NowPlaying { .. } => "nowplaying".to_owned(),
         Control::Show => "show".to_owned(),
     };
-    match single_instance::send(&verb) {
-        Ok(single_instance::Reply::Ok) => 0,
+    let printed = match single_instance::send(&verb) {
+        Ok(single_instance::Reply::Ok) => return 0,
         Ok(single_instance::Reply::NowPlaying(snapshot)) => {
             if raw {
-                println!("{snapshot}");
+                format!("{snapshot}\n")
             } else {
-                println!("{}", format_now_playing(&snapshot));
+                format!("{}\n", format_now_playing(&snapshot))
             }
-            0
         }
         Err(error) => {
             eprintln!("Fastsonic is not running or does not support remote control: {error}");
+            return 1;
+        }
+    };
+    write_reply(&mut std::io::stdout().lock(), &printed)
+}
+
+/// Writes a command's reply to standard output. A reader that stops early,
+/// such as `head`, closes the pipe; that ends the command quietly instead of
+/// panicking as `println!` does.
+#[cfg(not(target_os = "linux"))]
+fn write_reply(out: &mut impl std::io::Write, text: &str) -> i32 {
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => 0,
+        Err(error) => {
+            eprintln!("cannot print the reply: {error}");
             1
         }
     }
@@ -957,6 +972,25 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod native_window_tests {
     use super::*;
+
+    /// A reader that closes the pipe early ends the command quietly.
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn a_closed_pipe_ends_a_reply_quietly() {
+        struct Closed;
+        impl std::io::Write for Closed {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        assert_eq!(write_reply(&mut Closed, "playing\n"), 0);
+        let mut buffer = Vec::new();
+        assert_eq!(write_reply(&mut buffer, "playing\n"), 0);
+        assert_eq!(buffer, b"playing\n");
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
