@@ -304,3 +304,53 @@ Declined:
   scroll-bar pair that reverted itself (`9754bd3`, `d4c3f56`), and the
   fallback-font log (`0ce65a1`).
 
+
+## Sync through upstream 0.12.0
+
+`upstream/v0.12.0` is recorded as the second parent of the Fastsonic sync
+commit. Most of the range is upstream moving its own code into the fastframe
+crates and finishing the Spotifast rename; the portable work in it is small.
+
+Taken and adapted to Fastsonic:
+
+- The Add to playlist submenu stays open when its filter is clicked, and
+  grows back once the filter is cleared (`d732b06`).
+- Library, Queue and Lyrics give up width before the top bar's controls run
+  together, and the window's minimum width makes room for an open Queue or
+  Lyrics panel (`e18b1b2`; the fork's bar has one badge, not two).
+- The audio device rests while playback is paused (`2f81a7f`), ported into
+  the engine's own output: a queue filled while paused leaves it resting.
+- Two touchpad fixes from the scrolling upstream moved into fastframe-scroll
+  (`5b70e3b`), applied to the fork's own copy: gestures are timed on the
+  input clock, and only a frame's first pass may end one or move the glide.
+- `fastsonic now-playing | head` ends quietly instead of panicking
+  (`a2be13d`), a Windows clippy fix in the MilkDrop window (`d90b38c`), and
+  the Winamp guide's note that Play restarts a playing song (`579edbe`).
+
+Already true here, or not applicable:
+
+- Repeated moves in Playing next (`916cd66`): the engine moves one named song
+  per command, with no clear-and-re-add and no stale server answer to allow.
+- Loading reported as paused to the media controls (`8f50455`), the default
+  output followed and a failed output reopened (`c52deb0`), and the tray
+  quitting rather than hiding when no panel shows it (`64d73b7`): the fork's
+  own modules already do these.
+- The macOS socket-path limit fixed in `b7ff417`: the fork's single-instance
+  channel is a loopback port, not a socket.
+
+Declined:
+
+- The fastframe crates and the egui and winit forks: audio, scrolling,
+  single instance, now playing, tray and shell (`c52deb0`, `5b70e3b`,
+  `eead127`, `8f50455`, `4722ca1`, `cf880e1`, `af5477e`, `64d73b7`,
+  `b7ff417`, `acf1f37`, `6e16b06`). `eead127` also replaced upstream's fixed,
+  unauthenticated loopback control port with a user-private socket, or a
+  token on Windows. The fork still has that port (47114) on macOS and
+  Windows; closing it is its own piece of work, not a dependency swap.
+- The Spotifast rename and the end of Fastpotify profile migration
+  (`16a9dde`, `e10a8d4`, `d646a29`, `fa7ec94`), Turkish (`1f03a76`), and
+  repository policy (`065ca22`, `d201d05`, `5f9c0d5`, `6b7a236`, `dce6a76`,
+  `5138017`, `c036788`).
+- Spotify: personal-app reauthorization (`4f42fe5`) and volume for remote
+  devices (`059969c`).
+- Release notes, website and version (`d6b45a7`, `5c66dde`, `ed9cb55`).
