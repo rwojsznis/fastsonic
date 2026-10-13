@@ -27,6 +27,10 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 `%LOCALAPPDATA%\\github.rwojsznis\\fastsonic\\data`, and caches use the sibling
 `cache` directory.
 
+The session is saved shortly after it changes, including when a new song
+starts, and every 30 seconds while music plays, so a crash or a power cut
+resumes close to where you were. `history.json` is replaced whole, through a
+temporary file, and on Linux and macOS only your account can read it.
 The session and the play history are also written just before the computer
 sleeps (Linux and Windows) and when you sign out or shut down (Windows). On
 Linux, Fastsonic takes a short logind "delay" lock for this, listed by

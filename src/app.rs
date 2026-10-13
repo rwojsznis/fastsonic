@@ -29,6 +29,8 @@ use crate::tray::{TrayCommand, TrayService};
 use crate::util;
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
+/// How old the saved resume point may grow while music plays.
+const SESSION_REFRESH: Duration = Duration::from_secs(30);
 /// The longest the app sleeps in the tray with nothing due, so the timers
 /// in `tick` (saving, eviction, the update check) keep running.
 const HEADLESS_SLEEP: Duration = Duration::from_secs(2);
@@ -1798,6 +1800,8 @@ impl App {
             self.session_dirty = true;
         }
         self.last_now_playing_uri = Some(now.uri.clone());
+        // A new track is a new resume point.
+        self.session_dirty = true;
         self.resume_context = self.playing_context_uri();
         self.resume_track = Some(now.uri.clone());
         self.resume_context_track = self.context_row_under(&now.uri);
@@ -1915,6 +1919,14 @@ impl App {
         self.sync_skin(ctx);
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
+        }
+        // The resume point moves while music plays, and nothing else marks
+        // the session for saving then. Refresh it now and again so a session
+        // that ends without a goodbye (a power cut, a crash) resumes close by.
+        if self.now_playing().is_some_and(|now| now.playing)
+            && self.last_session_save.elapsed() > SESSION_REFRESH
+        {
+            self.session_dirty = true;
         }
         if self.session_dirty && self.last_session_save.elapsed() > Duration::from_secs(2) {
             self.save_session();
@@ -10273,6 +10285,60 @@ mod tests {
             assert_eq!(history.plays().len(), 1);
             let _ = std::fs::remove_dir_all(app.dirs.state.parent().unwrap());
         }
+    }
+
+    /// Playing music keeps the saved resume point fresh on its own, so a
+    /// session that ends without a goodbye resumes close to where it was.
+    #[test]
+    fn playing_music_saves_the_resume_point_now_and_again() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let ctx = egui::Context::default();
+        // The timers alone: the engine's own first report would take the
+        // song away again.
+        let pass = |app: &mut App| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.tick(ui.ctx());
+            });
+            output.textures_delta.clear();
+        };
+        app.last_session_save = Instant::now();
+        app.session_dirty = false;
+        let saved = app.last_session_save;
+
+        pass(&mut app);
+        assert_eq!(app.last_session_save, saved, "no save while it is fresh");
+        assert!(!app.session_dirty);
+
+        app.last_session_save = Instant::now() - SESSION_REFRESH - Duration::from_secs(1);
+        pass(&mut app);
+        assert!(!app.session_dirty);
+        assert!(
+            app.last_session_save.elapsed() < SESSION_REFRESH,
+            "saved again"
+        );
+    }
+
+    /// A new song is a new resume point, saved without waiting for anything
+    /// else to mark the session.
+    #[test]
+    fn a_new_song_marks_the_session_for_saving() {
+        let mut app = headless_app();
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.session_dirty = false;
+        app.on_now_playing_changed();
+        assert!(app.session_dirty);
+        app.session_dirty = false;
+        app.on_now_playing_changed();
+        assert!(!app.session_dirty, "the same song is not a new point");
     }
 
     /// In the tray the app sleeps as long as nothing is due: until the next
