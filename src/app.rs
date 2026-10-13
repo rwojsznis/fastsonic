@@ -50,6 +50,16 @@ const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// two rows, but one double-click is one ask.
 const QUEUE_ADD_DEBOUNCE: Duration = Duration::from_millis(1500);
 
+/// A seek shown before the engine has answered it.
+struct HeldSeek {
+    position_ms: u32,
+    at: Instant,
+    /// Seeks asked for since the engine last caught up. It counts each one
+    /// it carries out in `seek_sequence`, so several asks in a row are held
+    /// until the last of them lands, not the first.
+    unanswered: u64,
+}
+
 /// A context shown as playing before the backend confirms it.
 struct AssumedContext {
     uri: String,
@@ -308,6 +318,10 @@ pub struct App {
     /// reports `VolumeChanged` asynchronously while position snapshots land
     /// every second, so a snapshot must not undo the change on its way past.
     pending_local_volume: Option<(u16, Instant)>,
+    /// A seek asked for here that the engine has not carried out yet. Its
+    /// snapshots still report the place before the jump until then, and the
+    /// bar must not go back there in the meantime.
+    held_seek: Option<HeldSeek>,
     optimistic_playing: Option<(bool, Instant)>,
     /// Track shown immediately after a play request, until the engine reports.
     intent_track: Option<(String, Instant)>,
@@ -580,6 +594,7 @@ impl App {
             account_id: None,
             audio_cache,
             pending_local_volume: None,
+            held_seek: None,
             optimistic_playing: None,
             intent_track: None,
             shuffle_wanted: session.shuffle_on,
@@ -972,7 +987,7 @@ impl App {
                     .clone()
                     .or_else(|| track.art_url.clone()),
                 duration_ms: track.duration_ms,
-                position_ms: self.local.position_now(),
+                position_ms: self.shown_position(track.duration_ms),
                 playing,
                 loading: self.local.playback == Playback::Loading,
                 shuffle: self.shuffle_wanted,
@@ -983,6 +998,43 @@ impl App {
             });
         }
         None
+    }
+
+    /// Where the song is, as far as the interface can tell: the place a seek
+    /// asked for until the engine has carried it out, and the engine's own
+    /// report otherwise.
+    fn shown_position(&self, duration_ms: u32) -> u32 {
+        match &self.held_seek {
+            Some(held) if held.at.elapsed() < PLAYBACK_HOLD => {
+                let since = if self.local.playback == Playback::Playing {
+                    held.at.elapsed().as_millis() as u32
+                } else {
+                    0
+                };
+                held.position_ms
+                    .saturating_add(since)
+                    .min(duration_ms.max(held.position_ms))
+            }
+            _ => self.local.position_now(),
+        }
+    }
+
+    /// Lets go of a held seek once the engine has answered every one asked
+    /// for, or has moved on to something the seek no longer applies to.
+    fn settle_held_seek(&mut self, state: &LocalState) {
+        let Some(held) = &mut self.held_seek else {
+            return;
+        };
+        let answered = state.seek_sequence.wrapping_sub(self.local.seek_sequence);
+        held.unanswered = held.unanswered.saturating_sub(answered);
+        let uri = |state: &LocalState| state.track.as_ref().map(|track| track.uri.clone());
+        let moved_on = state.track_sequence != self.local.track_sequence
+            || uri(state) != uri(&self.local)
+            || state.playback == Playback::Stopped
+            || state.error.is_some();
+        if held.unanswered == 0 || moved_on || held.at.elapsed() >= PLAYBACK_HOLD {
+            self.held_seek = None;
+        }
     }
 
     /// Last session's track, shown paused when no device is playing.
@@ -1509,6 +1561,7 @@ impl App {
                 self.intent_track = None;
             }
         }
+        self.settle_held_seek(&state);
         let held_volume = self.held_local_volume(state.volume);
         if held_volume.is_none() && state.volume != self.settings.volume {
             self.settings.volume = state.volume;
@@ -4053,6 +4106,16 @@ impl App {
             self.session_dirty = true;
             return;
         }
+        let unanswered = self
+            .held_seek
+            .as_ref()
+            .filter(|held| held.at.elapsed() < PLAYBACK_HOLD)
+            .map_or(0, |held| held.unanswered);
+        self.held_seek = Some(HeldSeek {
+            position_ms,
+            at: Instant::now(),
+            unanswered: unanswered + 1,
+        });
         self.backend.player(PlayerCommand::Seek(position_ms));
     }
 
@@ -9833,6 +9896,103 @@ mod tests {
             app.note_listening();
             assert_eq!(app.plays.plays().len(), sequence as usize);
         }
+        app.backend.shutdown();
+    }
+
+    fn playing_for_seek(app: &mut App) {
+        app.handle_local(LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track_sequence: 1,
+            track: Some(crate::engine::LocalTrack {
+                uri: "sonic:track:seek".into(),
+                title: "Seek me".into(),
+                duration_ms: 180_000,
+                ..Default::default()
+            }),
+            position_ms: 10_000,
+            position_at: Some(Instant::now()),
+            seek_sequence: 1,
+            ..Default::default()
+        });
+    }
+
+    /// A seek shows where it asked for at once, and a snapshot from before
+    /// the engine carried it out does not pull the bar back.
+    #[test]
+    fn a_seek_holds_its_place_until_the_engine_carries_it_out() {
+        let mut app = headless_app();
+        playing_for_seek(&mut app);
+
+        app.seek(95_000);
+        let shown = app.now_playing().expect("playing").position_ms;
+        assert!((95_000..96_000).contains(&shown), "shown at {shown}");
+
+        let mut stale = app.local.clone();
+        stale.position_ms = 11_000;
+        stale.position_at = Some(Instant::now());
+        app.handle_local(stale);
+        let shown = app.now_playing().expect("playing").position_ms;
+        assert!(shown >= 95_000, "a stale snapshot moved the bar to {shown}");
+
+        let mut landed = app.local.clone();
+        landed.seek_sequence = 2;
+        landed.position_ms = 95_200;
+        landed.position_at = None;
+        landed.playback = Playback::Paused;
+        app.handle_local(landed);
+        assert!(app.held_seek.is_none());
+        assert_eq!(app.now_playing().map(|now| now.position_ms), Some(95_200));
+        app.backend.shutdown();
+    }
+
+    /// Two seeks in a row are held until the second lands: the answer to
+    /// the first is already out of date.
+    #[test]
+    fn the_first_of_two_seeks_landing_does_not_release_the_second() {
+        let mut app = headless_app();
+        playing_for_seek(&mut app);
+        app.local.playback = Playback::Paused;
+        app.local.position_at = None;
+
+        app.seek(40_000);
+        app.seek(120_000);
+        let mut first = app.local.clone();
+        first.seek_sequence = 2;
+        first.position_ms = 40_000;
+        app.handle_local(first);
+        assert_eq!(app.now_playing().map(|now| now.position_ms), Some(120_000));
+
+        let mut second = app.local.clone();
+        second.seek_sequence = 3;
+        second.position_ms = 120_100;
+        app.handle_local(second);
+        assert!(app.held_seek.is_none());
+        assert_eq!(app.now_playing().map(|now| now.position_ms), Some(120_100));
+        app.backend.shutdown();
+    }
+
+    /// Another song starting is not an answer to the seek, but the seek no
+    /// longer applies: the new song's own place is shown.
+    #[test]
+    fn a_new_song_lets_go_of_a_held_seek() {
+        let mut app = headless_app();
+        playing_for_seek(&mut app);
+        app.seek(95_000);
+
+        let mut next = app.local.clone();
+        next.track_sequence = 2;
+        next.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:next".into(),
+            duration_ms: 200_000,
+            ..Default::default()
+        });
+        next.position_ms = 0;
+        next.position_at = None;
+        next.playback = Playback::Loading;
+        app.handle_local(next);
+        assert!(app.held_seek.is_none());
+        assert_eq!(app.now_playing().map(|now| now.position_ms), Some(0));
         app.backend.shutdown();
     }
 
