@@ -19,6 +19,8 @@ plays: the songs on screen, in the order shown, including a song that appears
 twice. Play is disabled when a filter matches nothing; it never falls back to
 the whole list, though it still pauses and resumes the page's songs while
 they are what is playing. Clearing the filter restores the original order.
+Sorting by album keeps each album's songs together in disc and track order,
+and two albums that share a name stay apart.
 
 When the window narrows, Library, Queue and Lyrics give up width before the
 top bar runs out of room, and return to the widths you chose once it widens.
