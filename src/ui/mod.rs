@@ -53,7 +53,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.max_rect().min,
                 vec2(
                     ui.max_rect().width(),
-                    theme::TOP_BAR_HEIGHT + theme::titlebar_inset(ui.ctx()),
+                    theme::top_bar_height() + theme::titlebar_inset(ui.ctx()),
                 ),
             ),
         );
@@ -433,6 +433,11 @@ const fn titlebar_spans_window(on_macos: bool, custom_titlebar: bool) -> bool {
 const WINDOW_RESIZE_BORDER: f32 = 5.0;
 const WINDOW_RESIZE_CORNER: f32 = 10.0;
 const WINDOWS_WINDOW_CONTROLS_WIDTH: f32 = 3.0 * 36.0 + WINDOW_RESIZE_BORDER;
+/// The caption row: the custom Windows header's height, or Linux's buttons
+/// with their margin.
+#[cfg(not(target_os = "linux"))]
+const WINDOWS_WINDOW_CONTROLS_HEIGHT: f32 = theme::CUSTOM_TOP_BAR_HEIGHT;
+#[cfg(target_os = "linux")]
 const WINDOWS_WINDOW_CONTROLS_HEIGHT: f32 = 36.0 + WINDOW_RESIZE_BORDER;
 // The 760-point minimum with the default 250-point sidebar leaves 510 points.
 const WINDOWS_MIN_INLINE_TOPBAR_WIDTH: f32 = 510.0 + WINDOWS_WINDOW_CONTROLS_WIDTH;
@@ -575,9 +580,18 @@ pub fn window_controls(ui: &mut egui::Ui, palette: &theme::Palette) {
         .as_slice(),
     )];
     #[cfg(target_os = "linux")]
-    let (margin, spacing) = (LINUX_CONTROLS_MARGIN, LINUX_CONTROLS_SPACING);
+    let (margin, top, spacing) = (
+        LINUX_CONTROLS_MARGIN,
+        LINUX_CONTROLS_MARGIN,
+        LINUX_CONTROLS_SPACING,
+    );
+    // Windows centres its 36-point buttons in the custom header.
     #[cfg(not(target_os = "linux"))]
-    let (margin, spacing) = (WINDOW_RESIZE_BORDER, 0.0);
+    let (margin, top, spacing) = (
+        WINDOW_RESIZE_BORDER,
+        (WINDOWS_WINDOW_CONTROLS_HEIGHT - 36.0) / 2.0 + 2.0,
+        0.0,
+    );
     for (right, buttons) in groups {
         if buttons.is_empty() {
             continue;
@@ -588,7 +602,7 @@ pub fn window_controls(ui: &mut egui::Ui, palette: &theme::Palette) {
             ("window-controls-left", Align2::LEFT_TOP, margin)
         };
         egui::Area::new(egui::Id::new(id))
-            .anchor(anchor, vec2(x, margin))
+            .anchor(anchor, vec2(x, top))
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
                 ui.spacing_mut().item_spacing.x = spacing;
@@ -651,13 +665,41 @@ fn window_button(
     #[cfg(not(target_os = "linux"))]
     let response = {
         let image = icon.image(palette.secondary, 14.0).alt_text(tooltip);
-        ui.add_sized(
-            egui::Vec2::splat(36.0),
-            egui::Button::image(image).frame_when_inactive(false),
-        )
+        ui.scope(|ui| {
+            caption_feedback(ui, button == WindowButton::Close);
+            ui.add_sized(
+                egui::Vec2::splat(36.0),
+                egui::Button::image(image).frame_when_inactive(false),
+            )
+        })
+        .inner
     };
     if response.on_hover_text(tooltip).clicked() {
         ui.ctx().send_viewport_cmd(command);
+    }
+}
+
+/// Windows' caption feedback: a light wash over Minimize and Maximize while
+/// hovered and red under Close, each dimmer while pressed, so they show on
+/// dark backgrounds too.
+#[cfg(not(target_os = "linux"))]
+fn caption_feedback(ui: &mut egui::Ui, close: bool) {
+    let (hover, pressed) = if close {
+        (
+            Color32::from_rgb(232, 17, 35),
+            Color32::from_rgb(174, 13, 26),
+        )
+    } else {
+        (Color32::from_white_alpha(55), Color32::from_white_alpha(32))
+    };
+    let widgets = &mut ui.style_mut().visuals.widgets;
+    for (state, fill) in [
+        (&mut widgets.hovered, hover),
+        (&mut widgets.active, pressed),
+    ] {
+        state.bg_fill = fill;
+        state.weak_bg_fill = fill;
+        state.bg_stroke = Stroke::NONE;
     }
 }
 

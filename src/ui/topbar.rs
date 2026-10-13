@@ -206,7 +206,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // Where the titlebar used to be: the bar grows upwards into that space and
     // its empty parts drag the window.
     let inset = theme::titlebar_inset(ui.ctx());
-    let content_height = theme::TOP_BAR_HEIGHT + inset;
+    let content_height = theme::top_bar_height() + inset;
     // macOS drags from a strip across the whole window (`ui::show`).
     if crate::window::custom_titlebar() {
         super::titlebar_drag(
@@ -217,9 +217,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
         );
     }
-    ui.add_space(window_controls.topbar_top);
+    // Balance the custom Windows header, including the gap below its caption
+    // buttons.
+    let top_padding = if cfg!(windows) && crate::window::custom_titlebar() {
+        4.0
+    } else {
+        0.0
+    };
+    ui.add_space(window_controls.topbar_top + top_padding);
     ui.allocate_ui_with_layout(
-        vec2(width, content_height),
+        vec2(width, content_height - top_padding),
         Layout::left_to_right(Align::Center),
         |ui| {
             ui.add_space(super::widgets::PAGE_PADDING);

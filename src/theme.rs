@@ -107,6 +107,22 @@ pub const PLAYER_BAR_HEIGHT: f32 = 88.0;
 /// has to suit the other, or the window would jump on the swap.
 pub const SIDE_PANEL_MIN_WIDTH: f32 = 280.0;
 pub const TOP_BAR_HEIGHT: f32 = 56.0;
+pub const CUSTOM_TOP_BAR_HEIGHT: f32 = 48.0;
+
+/// The top bar's height. The custom Windows title bar keeps it close to its
+/// 36-point caption buttons; Linux's custom title bar keeps the ordinary
+/// height.
+pub fn top_bar_height() -> f32 {
+    top_bar_height_for(cfg!(windows), crate::window::custom_titlebar())
+}
+
+const fn top_bar_height_for(on_windows: bool, custom_titlebar: bool) -> f32 {
+    if on_windows && custom_titlebar {
+        CUSTOM_TOP_BAR_HEIGHT
+    } else {
+        TOP_BAR_HEIGHT
+    }
+}
 
 /// macOS hides the titlebar and draws the window content all the way to the
 /// top edge, so whatever sits at the top of the window has to leave room for
@@ -1016,6 +1032,16 @@ pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the custom Windows title bar slims the top bar down to its
+    /// caption buttons; Linux's custom title bar and macOS keep the height.
+    #[test]
+    fn only_the_custom_windows_title_bar_slims_the_top_bar() {
+        assert_eq!(top_bar_height_for(true, true), CUSTOM_TOP_BAR_HEIGHT);
+        assert_eq!(top_bar_height_for(true, false), TOP_BAR_HEIGHT);
+        assert_eq!(top_bar_height_for(false, true), TOP_BAR_HEIGHT);
+        assert_eq!(top_bar_height_for(false, false), TOP_BAR_HEIGHT);
+    }
 
     #[test]
     fn fallback_baseline_offset_is_zero_for_inter() {
