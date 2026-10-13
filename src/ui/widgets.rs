@@ -1000,7 +1000,10 @@ pub fn item_menu(
             if crate::api::subsonic::convert::is_radio_seed(&uri)
                 && menu_item(ui, &palette, Some(Icon::Radio), "Go to song radio")
             {
-                app.actions.push(Action::Open(Page::Radio(uri.clone())));
+                app.actions.push(Action::OpenSongRadio {
+                    uri: uri.clone(),
+                    track: Box::new(track.clone()),
+                });
             }
             let artists: Vec<&ArtistRef> = track
                 .artists

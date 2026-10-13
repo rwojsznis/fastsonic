@@ -2287,12 +2287,140 @@ mod tests {
                 view,
             );
             assert!(
-                matches!(app.actions.as_slice(), [Action::Open(Page::Radio(asked))] if *asked == seed),
+                matches!(
+                    app.actions.as_slice(),
+                    [Action::Open(Page::Radio(asked)) | Action::OpenSongRadio { uri: asked, .. }]
+                        if *asked == seed
+                ),
                 "{item}: {:?}",
                 app.actions
             );
             app.actions.clear();
         }
+        app.backend.shutdown();
+    }
+
+    /// Go to song radio from a list names the radio after its song and
+    /// shows its cover at once, even for a song that never played or came
+    /// back from a radio, instead of a page titled just "Radio".
+    #[test]
+    fn song_radio_from_liked_songs_is_named_after_the_song() {
+        let (ctx, mut app) = accessible_app("liked-song-radio");
+        let view = crate::ui::collection::liked;
+        let song = app
+            .library
+            .liked
+            .items
+            .last()
+            .expect("a liked song")
+            .track
+            .clone();
+        let seed = song.uri.clone();
+        assert!(
+            !app.radio_pages.contains_key(&seed),
+            "a radio not opened before"
+        );
+        // Only songs that played or came back from a radio are cached.
+        app.track_cache.clear();
+        view_frame(&ctx, &mut app, vec![], view);
+        let text = view_frame(&ctx, &mut app, vec![], view);
+        let row = text
+            .iter()
+            .rev()
+            .find(|(text, _)| text == &song.name)
+            .unwrap_or_else(|| panic!("{} in Liked Songs", song.name))
+            .1
+            .center();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(row, egui::PointerButton::Secondary),
+            view,
+        );
+        let text = view_frame(&ctx, &mut app, vec![], view);
+        let radio = text
+            .iter()
+            .find(|(text, _)| text == "Go to song radio")
+            .expect("the song's menu")
+            .1
+            .center();
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(radio, egui::PointerButton::Primary),
+            view,
+        );
+        let actions = std::mem::take(&mut app.actions);
+        assert!(
+            matches!(actions.as_slice(), [Action::OpenSongRadio { uri, .. }] if uri == &seed),
+            "the menu opens the song's radio: {actions:?}"
+        );
+        assert!(
+            app.track_cache.is_empty(),
+            "the menu leaves the cache to the action, applied after drawing"
+        );
+        for action in actions {
+            app.apply(action, &ctx);
+        }
+        assert_eq!(app.page(), &Page::Radio(seed.clone()));
+        assert_eq!(
+            app.radio_name(&seed),
+            Some(format!("{} Radio", song.name)),
+            "the radio is named after the song"
+        );
+        assert_eq!(
+            app.radio_images(&seed),
+            song.album.as_ref().expect("the song's album").images,
+            "the radio shows the song's cover"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A song already cached without its album's art, as an album's song
+    /// list caches it, takes the row's album for the radio's cover, while
+    /// what the cache already knows is kept.
+    #[test]
+    fn song_radio_takes_the_rows_album_art_for_a_cached_song() {
+        let (ctx, mut app) = accessible_app("song-radio-album-art");
+        let song = app
+            .library
+            .liked
+            .items
+            .last()
+            .expect("a liked song")
+            .track
+            .clone();
+        assert!(
+            song.album
+                .as_ref()
+                .is_some_and(|album| !album.images.is_empty()),
+            "the demo's liked song has album art"
+        );
+        let seed = song.uri.clone();
+        let id = crate::util::uri_id(&seed).expect("a track id").to_owned();
+        let mut cached = song.clone();
+        cached.album = None;
+        cached.name = "Cached name".into();
+        app.track_cache.clear();
+        app.track_cache.insert(id.clone(), cached);
+        app.apply(
+            Action::OpenSongRadio {
+                uri: seed.clone(),
+                track: Box::new(song.clone()),
+            },
+            &ctx,
+        );
+        assert_eq!(app.page(), &Page::Radio(seed.clone()));
+        assert_eq!(
+            app.radio_images(&seed),
+            song.album.as_ref().unwrap().images,
+            "the cover comes from the row's album"
+        );
+        assert_eq!(
+            app.track_cache[&id].name, "Cached name",
+            "the cached song is kept"
+        );
         app.backend.shutdown();
     }
 

@@ -4267,6 +4267,7 @@ impl App {
         if matches!(
             &action,
             Action::Open(_)
+                | Action::OpenSongRadio { .. }
                 | Action::OpenUri(_)
                 | Action::OpenUrl(_)
                 | Action::FocusSearch
@@ -4288,6 +4289,7 @@ impl App {
         }
         match action {
             Action::Open(page) => self.open(page),
+            Action::OpenSongRadio { uri, track } => self.open_song_radio(&uri, &track),
             Action::PrepareTint(url) => {
                 if self.settings.accent_from_art {
                     self.tint_for(Some(&url));
