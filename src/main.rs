@@ -511,7 +511,18 @@ fn main() -> eframe::Result<()> {
         )
         // Launched from a desktop there is no console to see this on; the
         // log file is where a report of a window that never opened starts.
-        .inspect_err(|error| log::error!("Native window failed: {error}"))?;
+        .inspect_err(|error| {
+            log::error!("Native window failed: {error}");
+            #[cfg(all(windows, target_arch = "aarch64"))]
+            if matches!(
+                error,
+                eframe::Error::Glutin(_)
+                    | eframe::Error::NoGlutinConfigs(..)
+                    | eframe::Error::OpenGL(_)
+            ) {
+                fastsonic::window::report_missing_opengl();
+            }
+        })?;
         waker.detach();
 
         let (switch, hide) = {

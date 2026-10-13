@@ -64,11 +64,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CMAKE_GENERATOR: Ninja
-    timeout-minutes: 30
+    # The arm64 runner has four cores and needs longer from cold.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # windows-11-arm is the only place the Windows on ARM build is tested.
+        os: [ubuntu-latest, macos-latest, windows-latest, windows-11-arm]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -85,15 +87,18 @@ jobs:
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
       - name: GLEW for libprojectM
         if: runner.os == 'Windows'
-        run: vcpkg install glew:x64-windows-static
+        run: vcpkg install glew:${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}-windows-static
       # projectm-sys asks CMake for the Visual Studio generator, which the
       # runner image no longer satisfies; Ninja inside the MSVC environment
       # builds the same thing without caring which Visual Studio is on. The
       # generator is job-level env, since a GITHUB_ENV write never reached
-      # the build script.
+      # the build script. Native tools on each runner: the action's default
+      # is x64, which on the arm64 runner would compile under emulation.
       - name: MSVC environment for libprojectM
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -115,3 +120,19 @@ jobs:
           $imports = & dumpbin /dependents target\debug\fastsonic.exe | Out-String
           $runtime = $imports | Select-String -Pattern 'MSVCP[0-9_]*\.dll|VCRUNTIME[0-9_]*\.dll'
           if ($runtime) { throw "Fastsonic imports an MSVC runtime:`n$runtime" }
+          $machine = if ($env:RUNNER_ARCH -eq 'ARM64') { 'AA64 machine \(ARM64\)' } else { '8664 machine \(x64\)' }
+          $headers = & dumpbin /headers target\debug\fastsonic.exe | Out-String
+          if ($headers -notmatch $machine) { throw "fastsonic.exe is not built for $env:RUNNER_ARCH`:`n$headers" }
+
+      # The installer is otherwise compiled only when a release is tagged,
+      # and each architecture takes its own branch of the script.
+      - name: Windows installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+          & $iscc "/DVersion=$version" "/DArch=$arch" "/DBinary=$PWD\target\debug\fastsonic.exe" "/DOutputDir=$env:RUNNER_TEMP\fastsonic-installer-check" packaging\windows\fastsonic.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

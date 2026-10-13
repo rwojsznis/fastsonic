@@ -80,3 +80,19 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+
+#if Arch == "x86_64"
+[Code]
+// x64compatible lets this installer run on an ARM PC under emulation. The
+// ARM installer has everything this one has and runs natively, so point to
+// it. A silent install goes ahead without asking.
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if IsArm64 and not WizardSilent then
+    Result := MsgBox('This PC has an ARM processor. The ARM installer ' +
+      '(aarch64) runs natively, faster and on less battery.' + #13#10#13#10 +
+      'Install the version for Intel and AMD processors anyway?',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+end;
+#endif

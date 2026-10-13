@@ -6,6 +6,42 @@
 pub const ON_TOP_UNAVAILABLE: &str =
     "On Wayland, use your desktop's Keep Above shortcut or window rule.";
 
+/// Says why no window opened on Windows on ARM and offers the fix.
+///
+/// Snapdragon graphics drivers have no OpenGL of their own. Windows provides
+/// it on ARM through Microsoft's compatibility pack, a Store app that
+/// translates it to Direct3D 12, so a missing or broken pack leaves eframe
+/// without a context and the app would otherwise close without a word.
+#[cfg(all(windows, target_arch = "aarch64"))]
+pub fn report_missing_opengl() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IDYES, MB_ICONERROR, MB_YESNO, MessageBoxW};
+    /// The Store page of the OpenCL, OpenGL & Vulkan Compatibility Pack.
+    const STORE_PAGE: &str = "ms-windows-store://pdp/?ProductId=9NQPSL29BFFF";
+
+    let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let title = wide("Fastsonic cannot open its window");
+    let text = wide(
+        "On Windows on ARM, the OpenGL that Fastsonic draws with comes from \
+         Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its \
+         Microsoft Store page to install or repair it?",
+    );
+    // SAFETY: both strings are NUL-terminated UTF-16 that outlive the call,
+    // and the box has no owner window.
+    let answer = unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_YESNO | MB_ICONERROR,
+        )
+    };
+    if answer == IDYES
+        && let Err(error) = open::that(STORE_PAGE)
+    {
+        log::warn!("cannot open the Microsoft Store: {error}");
+    }
+}
+
 /// The active backend matters: a Wayland session can also host X11 windows.
 /// winit's Wayland backend cannot change a window's stacking level.
 pub fn supports_window_level(display: raw_window_handle::RawDisplayHandle) -> bool {

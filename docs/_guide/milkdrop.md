@@ -9,8 +9,8 @@ presets in its own window and process.
   <source src="../assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
-MilkDrop is included in the Linux, macOS, and x86_64 Windows builds. The
-Windows on ARM build leaves it out.
+MilkDrop is included in every build: Linux, macOS, and Windows on Intel,
+AMD and ARM PCs alike.
 
 ## The window
 

@@ -14,6 +14,12 @@ driver of any current PC or Mac provides. A virtual machine or remote session
 without a graphics driver, such as Windows on the Microsoft Basic Display
 Adapter, may not offer it, and Fastsonic then exits at startup; install the
 machine's graphics driver or enable GPU acceleration for the virtual machine.
+Snapdragon PCs running Windows on ARM have no OpenGL in their graphics
+driver; Windows provides it through Microsoft's OpenCL, OpenGL & Vulkan
+Compatibility Pack from the Microsoft Store, and when it is missing
+Fastsonic says so and offers to open the pack's Store page. On an ARM PC,
+use the aarch64 installer: the x86_64 one runs there only under emulation,
+and asks before installing.
 There is no separate software-rendering mode. MilkDrop needs OpenGL 3.3.
 The log records the OpenGL renderer each window got, and the error when one
 could not open, so a launch that shows nothing still leaves something to
