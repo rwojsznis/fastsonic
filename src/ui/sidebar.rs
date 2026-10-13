@@ -1,5 +1,7 @@
 //! The left panel: navigation and Your Library.
 
+use std::collections::HashMap;
+
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::pick_image;
@@ -160,6 +162,21 @@ fn saved_time(value: Option<&str>) -> Option<i64> {
         .map(|time| time.as_millisecond())
 }
 
+/// Each key's place in a saved order, built once per sort so a comparison
+/// never searches the whole list. A repeated key keeps its first place.
+fn first_ranks<'a>(keys: impl Iterator<Item = &'a str>) -> HashMap<&'a str, usize> {
+    let mut ranks = HashMap::new();
+    for (rank, key) in keys.enumerate() {
+        ranks.entry(key).or_insert(rank);
+    }
+    ranks
+}
+
+/// A key's place, or after every placed key when the order lacks it.
+fn rank_of(ranks: &HashMap<&str, usize>, key: &str) -> usize {
+    ranks.get(key).copied().unwrap_or(usize::MAX)
+}
+
 /// Orders the entries by `sort`, then lifts the pins, Liked Songs among
 /// them while it is pinned, above the rest. Sorts are stable, so ties keep
 /// the server's order.
@@ -176,34 +193,25 @@ fn order_entries(app: &App, sort: LibrarySort, entries: &mut [Entry]) {
                 entry.name.to_lowercase(),
             )
         }),
-        LibrarySort::RecentlyPlayed => entries.sort_by_key(|entry| {
-            app.recent_contexts
-                .iter()
-                .position(|held| held == entry.ordering_key())
-                .unwrap_or(usize::MAX)
-        }),
+        LibrarySort::RecentlyPlayed => {
+            let ranks = first_ranks(app.recent_contexts.iter().map(String::as_str));
+            entries.sort_by_cached_key(|entry| rank_of(&ranks, entry.ordering_key()));
+        }
         LibrarySort::RecentlyAdded => entries
             .sort_by_key(|entry| (entry.added_at.is_none(), std::cmp::Reverse(entry.added_at))),
         // Playlists the saved arrangement has not met yet come first.
-        LibrarySort::Local => entries.sort_by_key(|entry| {
-            match app
-                .settings
-                .sidebar_order
-                .iter()
-                .position(|held| held == entry.ordering_key())
-            {
-                Some(rank) => (1, rank),
+        LibrarySort::Local => {
+            let ranks = first_ranks(app.settings.sidebar_order.iter().map(String::as_str));
+            entries.sort_by_cached_key(|entry| match ranks.get(entry.ordering_key()) {
+                Some(&rank) => (1, rank),
                 None => (0, entry.playlist_index.unwrap_or(0)),
-            }
-        }),
+            });
+        }
         LibrarySort::Library => {}
     }
     let pins = app.settings.library_pins();
-    entries.sort_by_key(|entry| {
-        pins.iter()
-            .position(|held| held == entry.ordering_key())
-            .unwrap_or(usize::MAX)
-    });
+    let ranks = first_ranks(pins.iter().map(String::as_str));
+    entries.sort_by_cached_key(|entry| rank_of(&ranks, entry.ordering_key()));
 }
 
 fn playlist_entry(playlist: &crate::api::models::Playlist, index: usize, user_id: &str) -> Entry {
@@ -1960,6 +1968,33 @@ mod ordering_tests {
         app.settings.pinned_contexts = vec![uri("a")];
         order_entries(&app, LibrarySort::Name, &mut entries);
         assert_eq!(ids(&entries), ["a", "b", "c", "d"]);
+        assert_eq!(ids(&rows(&app)), ["a", "b", "c", "d"]);
+        app.backend.shutdown();
+    }
+
+    /// A key saved twice keeps its first place, and rows a saved order
+    /// lacks keep their own order among themselves.
+    #[test]
+    fn ranked_sorts_keep_the_first_duplicate_and_a_stable_order_for_missing_rows() {
+        let mut app = app("ranked-sorts");
+        app.settings.liked_songs_pinned = false;
+        app.settings.pinned_contexts.clear();
+        app.recent_contexts = ["c", "a", "c"].map(uri).to_vec();
+        app.settings.sidebar_order = ["c", "a", "c"].map(uri).to_vec();
+
+        for (sort, expected) in [
+            (LibrarySort::RecentlyPlayed, ["c", "a", "b", "d"]),
+            (LibrarySort::Local, ["b", "d", "c", "a"]),
+        ] {
+            let mut entries = rows(&app);
+            order_entries(&app, sort, &mut entries);
+            assert_eq!(ids(&entries), expected, "{sort:?}");
+        }
+
+        app.settings.pinned_contexts = ["c", "a", "c"].map(uri).to_vec();
+        let mut entries = rows(&app);
+        order_entries(&app, LibrarySort::Library, &mut entries);
+        assert_eq!(ids(&entries), ["c", "a", "b", "d"]);
         assert_eq!(ids(&rows(&app)), ["a", "b", "c", "d"]);
         app.backend.shutdown();
     }
