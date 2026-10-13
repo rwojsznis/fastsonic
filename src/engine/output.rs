@@ -16,7 +16,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::time::{Duration, Instant};
 
 use cpal::traits::DeviceTrait;
@@ -45,6 +45,10 @@ const TRANSPORT_FADE: Duration = Duration::from_millis(50);
 /// How long a change of volume takes to arrive. rodio would apply it in one
 /// step, which clicks when the slider jumps.
 const VOLUME_RAMP: Duration = Duration::from_millis(30);
+
+/// Wakes the engine once the device has made room in a full queue. It is
+/// called on the device's own thread, so it must not wait on anything.
+pub(crate) type Waker = Arc<dyn Fn() + Send + Sync>;
 
 /// Which track a chunk of sound belongs to.
 ///
@@ -112,6 +116,8 @@ pub(crate) struct Output {
     volume: u16,
     /// Desired transport state, including before the device is opened.
     playing: bool,
+    /// What is in the sink, counted for the engine's wait for room.
+    room: Arc<Room>,
 }
 
 impl Output {
@@ -120,6 +126,7 @@ impl Output {
         buffer_ms: u32,
         volume: u16,
         on_error: ErrorHook,
+        on_room: Waker,
     ) -> Self {
         Self {
             device,
@@ -129,6 +136,7 @@ impl Output {
             watch: None,
             volume,
             playing: false,
+            room: Room::new(on_room),
         }
     }
 
@@ -205,6 +213,7 @@ impl Output {
         if samples.is_empty() {
             return Ok(Duration::ZERO);
         }
+        let room = Arc::clone(&self.room);
         let stream = self.ensure_open()?;
         if !stream.sink.is_paused() {
             stream.resume_device();
@@ -223,16 +232,34 @@ impl Output {
             stream.rate as rodio::SampleRate,
             samples,
         );
+        room.appended(frames as u64);
         stream.sink.append(TransitionSource::new(
             source,
             Arc::clone(&stream.transport),
             Arc::clone(&stream.volume),
+            room,
         ));
         let dur = Duration::from_secs_f64(frames as f64 / f64::from(stream.rate));
         stream.clock.push(Chunk { dur, token, from });
         stream.fed = true;
         stream.last_append = Some(now);
         Ok(dur)
+    }
+
+    /// Arms the wake for when the device has played `refill` of what is
+    /// queued, for a caller about to wait for it. `false` when nothing is
+    /// queued and there is no room to wait for.
+    pub(crate) fn wait_for_room(&self, refill: Duration) -> bool {
+        let Some(stream) = &self.open else {
+            return false;
+        };
+        let frames = u64::from(stream.rate) * refill.as_millis() as u64 / 1_000;
+        self.room.arm(frames)
+    }
+
+    /// The wait is over, however it ended.
+    pub(crate) fn stop_waiting(&self) {
+        self.room.disarm();
     }
 
     /// How much sound is waiting to be heard.
@@ -353,6 +380,74 @@ fn settle_pause(stream: &mut Stream) {
         // With the fade played out, the device can stop asking for sound
         // until Play.
         stream.rest_device();
+    }
+}
+
+/// Frames handed to the sink and not yet played or thrown away, and the
+/// level at which a waiting engine wants to hear about it.
+///
+/// The count goes down as rodio lets go of each chunk, which it does on the
+/// device's thread when the chunk has played out or when a restart throws
+/// it away. The engine waits on its own channel, so the wake is a message.
+struct Room {
+    frames: AtomicU64,
+    /// While the engine waits for room, the level at or below which it is
+    /// woken; zero while nothing waits.
+    wake_at: AtomicU64,
+    wake: Waker,
+}
+
+impl Room {
+    fn new(wake: Waker) -> Arc<Self> {
+        Arc::new(Self {
+            frames: AtomicU64::new(0),
+            wake_at: AtomicU64::new(0),
+            wake,
+        })
+    }
+
+    fn appended(&self, frames: u64) {
+        self.frames.fetch_add(frames, Ordering::Relaxed);
+    }
+
+    /// Asks to be woken once `refill` frames of what is queued have gone.
+    /// A chunk thrown away by a restart counts as gone: that is room too.
+    fn arm(&self, refill: u64) -> bool {
+        let queued = self.frames.load(Ordering::Relaxed);
+        let wake_at = queued.saturating_sub(refill).max(1);
+        self.wake_at.store(wake_at, Ordering::Relaxed);
+        // Pairs with the fence in `consumed`: either the chunk that reaches
+        // the level sees it armed, or this sees that chunk already gone.
+        fence(Ordering::SeqCst);
+        if self.frames.load(Ordering::Relaxed) > wake_at {
+            return true;
+        }
+        self.disarm();
+        false
+    }
+
+    fn disarm(&self) {
+        self.wake_at.store(0, Ordering::Relaxed);
+    }
+
+    /// rodio has let go of a chunk: wakes the engine once the queue has
+    /// drained to the level it waits for, and only then.
+    fn consumed(&self, frames: u64) {
+        let left = self
+            .frames
+            .fetch_sub(frames, Ordering::Relaxed)
+            .saturating_sub(frames);
+        fence(Ordering::SeqCst);
+        let wake_at = self.wake_at.load(Ordering::Relaxed);
+        if wake_at != 0
+            && left <= wake_at
+            && self
+                .wake_at
+                .compare_exchange(wake_at, 0, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            (self.wake)();
+        }
     }
 }
 
@@ -482,6 +577,9 @@ struct TransitionSource {
     inner: rodio::buffer::SamplesBuffer,
     transport: Arc<Envelope>,
     volume: Arc<VolumeRamp>,
+    room: Arc<Room>,
+    /// The chunk's length, counted out of `room` when rodio lets go of it.
+    frames: u64,
     channel: usize,
     gain: f32,
 }
@@ -491,14 +589,27 @@ impl TransitionSource {
         inner: rodio::buffer::SamplesBuffer,
         transport: Arc<Envelope>,
         volume: Arc<VolumeRamp>,
+        room: Arc<Room>,
     ) -> Self {
+        // Nothing has been taken from it yet, so this is its whole length.
+        let frames = (inner.size_hint().0 / CHANNELS) as u64;
         Self {
             inner,
             transport,
             volume,
+            room,
+            frames,
             channel: 0,
             gain: 1.0,
         }
+    }
+}
+
+impl Drop for TransitionSource {
+    /// rodio drops a chunk once it has played it, or when the sink it was
+    /// in is replaced, so either way it has left the queue.
+    fn drop(&mut self) {
+        self.room.consumed(self.frames);
     }
 }
 
@@ -840,7 +951,13 @@ mod tests {
     /// machine without audio has nothing to check.
     #[test]
     fn pause_rests_the_device_and_play_wakes_it() {
-        let mut output = Output::new(None, crate::sink::DEFAULT_BUFFER_MS, 0, Arc::new(|_| {}));
+        let mut output = Output::new(
+            None,
+            crate::sink::DEFAULT_BUFFER_MS,
+            0,
+            Arc::new(|_| {}),
+            Arc::new(|| {}),
+        );
         let Ok(rate) = output.rate() else {
             return;
         };
@@ -880,6 +997,38 @@ mod tests {
         output.pause();
     }
 
+    /// rodio lets go of each chunk on the device's thread as it plays out,
+    /// and that is what wakes an engine waiting for room. Needs an output,
+    /// so a machine without audio has nothing to check.
+    #[test]
+    fn a_playing_device_wakes_the_wait_for_room() {
+        let (sender, woken) = std::sync::mpsc::channel();
+        let mut output = Output::new(
+            None,
+            crate::sink::DEFAULT_BUFFER_MS,
+            0,
+            Arc::new(|_| {}),
+            Arc::new(move || {
+                let _ = sender.send(());
+            }),
+        );
+        let Ok(rate) = output.rate() else {
+            return;
+        };
+        output.play();
+        let silence = vec![0.0; rate as usize / 50 * CHANNELS];
+        for chunk in 0..10 {
+            output.append(&silence, 1, ms(20 * chunk)).unwrap();
+        }
+        assert!(output.wait_for_room(ms(20)));
+        assert!(
+            woken.recv_timeout(Duration::from_secs(2)).is_ok(),
+            "20 ms played and nothing woke the wait"
+        );
+        output.stop_waiting();
+        output.pause();
+    }
+
     #[test]
     fn play_and_pause_envelopes_cross_the_full_range_on_the_sample_clock() {
         let frames = fade_frames(PREFERRED_RATE, TRANSPORT_FADE);
@@ -901,8 +1050,13 @@ mod tests {
     fn a_transport_ramp_applies_one_gain_to_both_stereo_channels() {
         let envelope = Envelope::rising(8);
         let source = rodio::buffer::SamplesBuffer::new(2, 8, vec![1.0; 8]);
-        let samples: Vec<_> =
-            TransitionSource::new(source, envelope, VolumeRamp::at(8, 1.0)).collect();
+        let samples: Vec<_> = TransitionSource::new(
+            source,
+            envelope,
+            VolumeRamp::at(8, 1.0),
+            Room::new(Arc::new(|| {})),
+        )
+        .collect();
         assert_eq!(samples.len(), 8);
         for pair in samples.as_chunks::<2>().0 {
             assert_eq!(pair[0], pair[1]);
@@ -955,7 +1109,12 @@ mod tests {
         volume.set(0.0);
         let falling: Vec<f32> = (0..2)
             .flat_map(|_| {
-                TransitionSource::new(chunk(), Arc::clone(&transport), Arc::clone(&volume))
+                TransitionSource::new(
+                    chunk(),
+                    Arc::clone(&transport),
+                    Arc::clone(&volume),
+                    Room::new(Arc::new(|| {})),
+                )
             })
             .collect();
         assert_eq!(falling[0], 1.0);
@@ -968,5 +1127,63 @@ mod tests {
                 .iter()
                 .all(|pair| pair[0] == pair[1])
         );
+    }
+
+    fn counted_room() -> (Arc<Room>, Arc<AtomicU32>) {
+        let woken = Arc::new(AtomicU32::new(0));
+        let count = Arc::clone(&woken);
+        let room = Room::new(Arc::new(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        }));
+        (room, woken)
+    }
+
+    /// A chunk of `frames` silent frames, counted into `room` the way
+    /// [`Output::append`] counts one.
+    fn chunk_in(room: &Arc<Room>, frames: usize) -> TransitionSource {
+        room.appended(frames as u64);
+        TransitionSource::new(
+            rodio::buffer::SamplesBuffer::new(2, 8, vec![0.0; frames * CHANNELS]),
+            Envelope::at(8, SCALE),
+            VolumeRamp::at(8, 1.0),
+            Arc::clone(room),
+        )
+    }
+
+    /// An engine waiting for room sleeps through the chunks that leave the
+    /// queue above its level, and the one that reaches it wakes the engine,
+    /// once. Looking every few milliseconds instead kept the audio thread
+    /// awake two hundred times a second for as long as music played.
+    #[test]
+    fn a_waiting_engine_wakes_once_the_queue_has_drained_enough() {
+        let (room, woken) = counted_room();
+        let mut chunks: Vec<_> = (0..4).map(|_| chunk_in(&room, 10)).collect();
+        assert!(room.arm(20));
+
+        drop(chunks.remove(0));
+        assert_eq!(woken.load(Ordering::SeqCst), 0, "30 left: still asleep");
+        drop(chunks.remove(0));
+        assert_eq!(woken.load(Ordering::SeqCst), 1, "20 left: woken");
+        drop(chunks.remove(0));
+        assert_eq!(woken.load(Ordering::SeqCst), 1, "and only once");
+
+        // A chunk a restart throws away unplayed has left the queue too.
+        assert!(room.arm(20));
+        drop(chunks);
+        assert_eq!(woken.load(Ordering::SeqCst), 2);
+        assert_eq!(room.frames.load(Ordering::SeqCst), 0);
+    }
+
+    /// With nothing queued there is nothing to wait for, and the wait the
+    /// engine gives up on leaves nothing armed behind it.
+    #[test]
+    fn there_is_no_room_to_wait_for_in_an_empty_queue() {
+        let (room, woken) = counted_room();
+        assert!(!room.arm(20));
+        let chunk = chunk_in(&room, 100);
+        assert!(room.arm(20));
+        room.disarm();
+        drop(chunk);
+        assert_eq!(woken.load(Ordering::SeqCst), 0);
     }
 }

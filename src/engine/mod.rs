@@ -122,6 +122,9 @@ pub(crate) enum Message {
     /// queue, read on the runtime and named by the place
     /// `queue::Additions` holds for them.
     Expanded(u64, Result<Vec<crate::api::subsonic::Child>, String>),
+    /// The device has played enough of a full queue for a top-up, sent
+    /// from its own thread to wake the loop waiting for that.
+    Room,
     Shutdown,
 }
 

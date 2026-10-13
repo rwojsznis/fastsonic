@@ -16,7 +16,7 @@
 //! looks that much further back.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,6 +32,9 @@ const KEPT: usize = 72_000;
 /// How far behind the newest sample the visualiser looks, so that it shows
 /// what the speaker is playing rather than what the sink has queued.
 pub const LAG: usize = SAMPLE_RATE as usize * 3 / 20;
+/// How recently the tap must have been read for a visualiser to count as
+/// on screen. A few frames, so one slow frame does not count as none.
+const WATCHED: Duration = Duration::from_millis(250);
 /// Samples that go into one spectrum.
 pub const FFT_SAMPLES: usize = 512;
 const SPECTRUM_BINS: usize = FFT_SAMPLES / 2;
@@ -67,6 +70,10 @@ pub struct AudioTap {
     /// sink, so that a reader can look at what is being *heard*. See the
     /// note at the top of this module.
     lead: AtomicUsize,
+    /// When [`AudioTap::window`] was last called, in milliseconds after
+    /// `born`, plus one so that zero is never.
+    read: AtomicU64,
+    born: Instant,
     /// The ring the MilkDrop child reads, attached while its window is open.
     #[cfg(feature = "milkdrop")]
     shm: Mutex<Option<std::sync::Arc<crate::milkdrop::shm::Ring>>>,
@@ -83,6 +90,8 @@ impl Default for AudioTap {
         Self {
             samples: Mutex::new(VecDeque::with_capacity(KEPT)),
             lead: AtomicUsize::new(0),
+            read: AtomicU64::new(0),
+            born: Instant::now(),
             #[cfg(feature = "milkdrop")]
             shm: Mutex::new(None),
         }
@@ -109,6 +118,23 @@ impl AudioTap {
     /// move with the music instead of ahead of it.
     pub fn lead(&self) -> usize {
         self.lead.load(Ordering::Relaxed)
+    }
+
+    /// Whether anything is drawing from the tap: a visualiser has read it
+    /// in the last few frames, or MilkDrop's window is open. Only then does
+    /// the engine keep the lead fresh between top-ups of its queue; with
+    /// nothing on screen it sleeps until the device wants more.
+    pub fn watched(&self) -> bool {
+        #[cfg(feature = "milkdrop")]
+        if self.shm.lock().unwrap_or_else(|p| p.into_inner()).is_some() {
+            return true;
+        }
+        let read = self.read.load(Ordering::Relaxed);
+        read != 0 && self.since_born() < read - 1 + WATCHED.as_millis() as u64
+    }
+
+    fn since_born(&self) -> u64 {
+        self.born.elapsed().as_millis() as u64
     }
 
     /// See [`AudioTap::lead`].
@@ -158,6 +184,7 @@ impl AudioTap {
     /// than that. The engine's [`AudioTap::set_lead`] is what makes the
     /// difference between heard and pushed.
     pub fn window(&self, count: usize, lag: usize) -> Vec<f32> {
+        self.read.store(self.since_born() + 1, Ordering::Relaxed);
         let samples = self.samples.lock().unwrap_or_else(|p| p.into_inner());
         let end = samples
             .len()
@@ -602,6 +629,22 @@ mod tests {
         assert_eq!(tap.window(2, 1), [0.0, 1.0]);
         tap.clear();
         assert_eq!(tap.window(2, 0), [0.0, 0.0]);
+    }
+
+    /// The engine keeps the lead fresh only for a visualiser that is
+    /// drawing, which is one that has read the tap in the last few frames.
+    #[test]
+    fn the_tap_is_watched_while_something_reads_it() {
+        let tap = AudioTap {
+            born: Instant::now() - Duration::from_secs(1),
+            ..AudioTap::default()
+        };
+        assert!(!tap.watched(), "nothing has read it yet");
+        tap.window(4, 0);
+        assert!(tap.watched());
+        // Read as the tap was made, a second ago.
+        tap.read.store(1, Ordering::Relaxed);
+        assert!(!tap.watched(), "a read long ago is nobody watching");
     }
 
     #[test]

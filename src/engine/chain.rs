@@ -120,6 +120,12 @@ impl Chain {
         self.limiter = Limiter::new(f64::from(self.rate));
     }
 
+    /// Whether a visualiser is reading the tap, and so needs its lead kept
+    /// fresh.
+    pub(super) fn watched(&self) -> bool {
+        self.tap.watched()
+    }
+
     /// How much of what has been pushed to the tap is still waiting at the
     /// device. Everything reading the tap looks that far back, so the
     /// visualisers move with the speaker rather than with the decoder, which

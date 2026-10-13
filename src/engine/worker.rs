@@ -42,8 +42,18 @@ use super::{EngineConfig, Message};
 
 /// How long the loop sleeps when there is nothing to decode.
 const IDLE_TICK: Duration = Duration::from_millis(200);
-/// How long it sleeps when the output is full and playing.
+/// How long it sleeps while a fade plays out, or while a visualiser is
+/// looking at the tap: the lead it reads is only as fresh as this loop.
 const BUSY_TICK: Duration = Duration::from_millis(5);
+/// How much of a full queue the device plays before the loop is woken to
+/// top it up. A chunk is a packet, 20 ms of Opus to 93 ms of FLAC, so
+/// waking for every packet, or looking every few milliseconds, would keep
+/// the thread awake for nothing; this wakes it a few dozen times a second.
+const REFILL: Duration = Duration::from_millis(20);
+/// The longest the loop waits for room before it looks again: a device
+/// that has failed finishes no chunk to wake it, and the position report
+/// and a join being heard are not to wait longer than this either.
+const QUEUE_WAIT: Duration = Duration::from_millis(50);
 /// How often a playing position is corrected. The interface interpolates
 /// between two of these, so this is about drift, not about smoothness.
 const POSITION_REPORT: Duration = Duration::from_millis(500);
@@ -217,6 +227,10 @@ impl Worker {
             };
             error_notify(EngineEvent::State(snapshot));
         });
+        let room = replies.clone();
+        let on_room = Arc::new(move || {
+            let _ = room.send(Message::Room);
+        });
         Self {
             client,
             runtime,
@@ -231,6 +245,7 @@ impl Worker {
                 config.buffer_ms,
                 state.volume,
                 on_error,
+                on_room,
             ),
             // The equalizer, the tap and the limiter, between the decoder
             // and the device. Built at the rate the device is most likely
@@ -279,12 +294,10 @@ impl Worker {
             }
             self.prefetch();
             self.describe_one();
-            let wait = if self.state.playback == Playback::Playing || self.output.transitioning() {
-                BUSY_TICK
-            } else {
-                IDLE_TICK
-            };
-            match self.commands.recv_timeout(wait) {
+            let wait = self.wait();
+            let received = self.commands.recv_timeout(wait);
+            self.output.stop_waiting();
+            match received {
                 Ok(message) => {
                     if matches!(self.message(message), Flow::Stop) {
                         break;
@@ -295,6 +308,27 @@ impl Worker {
             }
         }
         self.output.pause();
+    }
+
+    /// How long the loop may sleep when there is nothing to decode. A
+    /// command wakes it whatever this says.
+    ///
+    /// Playing with the queue full, it sleeps until the device has played
+    /// [`REFILL`] of it, woken by the chunk that gets there, and tops the
+    /// queue up in one go. The exceptions want the loop's short tick: a
+    /// Pause playing out its fade, and a visualiser on screen, whose idea
+    /// of what the speaker is playing is the lead this loop keeps fresh.
+    fn wait(&self) -> Duration {
+        if self.output.transitioning() {
+            return BUSY_TICK;
+        }
+        if self.state.playback != Playback::Playing {
+            return IDLE_TICK;
+        }
+        if self.chain.watched() || !self.output.wait_for_room(REFILL) {
+            return BUSY_TICK;
+        }
+        QUEUE_WAIT
     }
 
     /// Everything waiting, before any decoding: a command must not sit
@@ -319,6 +353,8 @@ impl Worker {
             Message::Described(id, song) => self.described(id, song),
             Message::Prefetched(id, opened) => self.prefetched(id, opened),
             Message::Expanded(ticket, songs) => self.expanded(ticket, songs),
+            // Only here to end the wait; the loop does the rest.
+            Message::Room => {}
             Message::Shutdown => return Flow::Stop,
         }
         Flow::Go
