@@ -26,21 +26,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let id = album.id.clone();
                 let uri = album.uri.clone();
                 let subtitle = join_names(album.artists.iter().map(|artist| artist.name.as_str()));
+                let control = widgets::ContextControl::of(app, &uri);
                 let card = widgets::card(
                     ui,
                     app,
                     pick_image(&album.images, 300),
                     &album.name,
                     &subtitle,
-                    false,
-                    true,
+                    widgets::CardCover::square(control.playing),
                 );
                 if card.play {
-                    app.actions.push(Action::PlayContext {
-                        uri,
-                        offset_uri: None,
-                        offset_index: None,
-                    });
+                    control.press(app, &uri);
                 }
                 if card.clicked {
                     app.actions.push(Action::Open(Page::Album(id)));
@@ -77,21 +73,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let artist = app.library.artists.items[index].clone();
                 let id = artist.id.clone();
                 let uri = artist.uri.clone();
+                let control = widgets::ContextControl::of(app, &uri);
                 let card = widgets::card(
                     ui,
                     app,
                     pick_image(&artist.images, 300),
                     &artist.name,
                     "Artist",
-                    true,
-                    true,
+                    widgets::CardCover::portrait(control.playing),
                 );
                 if card.play {
-                    app.actions.push(Action::PlayContext {
-                        uri,
-                        offset_uri: None,
-                        offset_index: None,
-                    });
+                    control.press(app, &uri);
                 }
                 if card.clicked {
                     app.actions.push(Action::Open(Page::Artist(id)));

@@ -418,21 +418,17 @@ fn songs(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: usize
 }
 
 fn artist_card(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
+    let control = widgets::ContextControl::of(app, &artist.uri);
     let card = widgets::card(
         ui,
         app,
         pick_image(&artist.images, 300),
         &artist.name,
         "Artist",
-        true,
-        true,
+        widgets::CardCover::portrait(control.playing),
     );
     if card.play {
-        app.actions.push(Action::PlayContext {
-            uri: artist.uri.clone(),
-            offset_uri: None,
-            offset_index: None,
-        });
+        control.press(app, &artist.uri);
     }
     if card.clicked {
         app.actions
@@ -474,21 +470,17 @@ fn album_card(app: &mut App, ui: &mut egui::Ui, album: &crate::api::models::Albu
         album.year().unwrap_or(""),
         crate::api::models::join_names(album.artists.iter().map(|a| a.name.as_str()))
     );
+    let control = widgets::ContextControl::of(app, &album.uri);
     let card = widgets::card(
         ui,
         app,
         pick_image(&album.images, 300),
         &album.name,
         subtitle.trim_start_matches(" • "),
-        false,
-        true,
+        widgets::CardCover::square(control.playing),
     );
     if card.play {
-        app.actions.push(Action::PlayContext {
-            uri: album.uri.clone(),
-            offset_uri: None,
-            offset_index: None,
-        });
+        control.press(app, &album.uri);
     }
     if card.clicked {
         app.actions
@@ -525,21 +517,17 @@ fn albums_grid(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
 }
 
 fn playlist_card(app: &mut App, ui: &mut egui::Ui, playlist: &crate::api::models::Playlist) {
+    let control = widgets::ContextControl::of(app, &playlist.uri);
     let card = widgets::card(
         ui,
         app,
         pick_image(&playlist.images, 300),
         &playlist.name,
         &format!("By {}", playlist.owner_name()),
-        false,
-        true,
+        widgets::CardCover::square(control.playing),
     );
     if card.play {
-        app.actions.push(Action::PlayContext {
-            uri: playlist.uri.clone(),
-            offset_uri: None,
-            offset_index: None,
-        });
+        control.press(app, &playlist.uri);
     }
     if card.clicked {
         app.actions

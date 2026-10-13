@@ -1707,7 +1707,7 @@ mod tests {
 
     #[test]
     fn accessible_tab_reaches_cards_beyond_the_visible_grid() {
-        use crate::ui::widgets::{card, card_row_height, virtual_wrapped_cards};
+        use crate::ui::widgets::{CardCover, card, card_row_height, virtual_wrapped_cards};
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("card-grid");
         let mut reached_last = false;
@@ -1734,8 +1734,7 @@ mod tests {
                                 None,
                                 &format!("Album {index}"),
                                 "Artist",
-                                false,
-                                false,
+                                CardCover::default(),
                             );
                         });
                     });
@@ -3373,6 +3372,186 @@ mod tests {
                     |action| matches!(action, Action::Open(Page::Playlist(id)) if id == "pl2")
                 ),
                 "double click must still open the page"
+            );
+            app.backend.shutdown();
+        }
+    }
+
+    /// One frame of `view` alone, for its screen-reader tree.
+    fn view_tree(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+        view: fn(&mut App, &mut egui::Ui),
+    ) -> egui::accesskit::TreeUpdate {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 2200.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| view(app, ui),
+        );
+        output.textures_delta.clear();
+        output
+            .platform_output
+            .accesskit_update
+            .expect("screen-reader tree")
+    }
+
+    /// Makes `context` the one the engine has loaded, playing or paused on
+    /// the song already playing.
+    fn make_current(app: &mut App, context: &str, playback: Playback) {
+        let track = app.local.track.clone().expect("the demo plays a song");
+        app.handle_queue(QueueSnapshot {
+            current: Some(QueueRow {
+                uri: track.uri.clone(),
+                track: Some(track.clone()),
+            }),
+            context_uri: Some(context.to_string()),
+            context_at: Some(track.uri),
+            ..Default::default()
+        });
+        let mut state = app.local.clone();
+        state.playback = playback;
+        app.handle_local(state);
+    }
+
+    /// The cover's control follows its row: the current playlist pauses
+    /// while it plays and, paused, resumes where it was instead of starting
+    /// over. Any other row's cover plays that row from the top.
+    #[test]
+    fn the_cover_of_the_current_playlist_pauses_and_resumes_it() {
+        for playback in [Playback::Playing, Playback::Paused] {
+            let (ctx, mut app) = accessible_app(&format!("sidebar-cover-{playback:?}"));
+            make_current(&mut app, &playlist_uri("pl1"), playback);
+            assert_eq!(app.believed_playing(), playback == Playback::Playing);
+            let view = crate::ui::sidebar::show;
+            view_frame(&ctx, &mut app, vec![], view);
+            let painted = view_frame(&ctx, &mut app, vec![], view);
+            let cover = |name: &str| {
+                let name = sidebar_text(&painted, name);
+                egui::pos2(name.left() - 34.0, name.center().y + 9.0)
+            };
+            let (current, other) = (cover("Late night focus"), cover("Sunday morning"));
+            app.actions.clear();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(current, egui::PointerButton::Primary),
+                view,
+            );
+            assert!(
+                app.actions
+                    .iter()
+                    .any(|action| matches!(action, Action::TogglePlay)),
+                "{playback:?}: the current playlist's cover toggles playback"
+            );
+            assert!(
+                played_contexts(&app).is_empty(),
+                "{playback:?}: the current playlist must not start over"
+            );
+            app.actions.clear();
+            // Far enough apart in time not to make a double click.
+            for _ in 0..30 {
+                view_frame(&ctx, &mut app, vec![], view);
+            }
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(other, egui::PointerButton::Primary),
+                view,
+            );
+            assert_eq!(played_contexts(&app), [playlist_uri("pl2")]);
+            app.backend.shutdown();
+        }
+    }
+
+    /// A card's play control follows its context the same way: pause while
+    /// it plays, resume in place while paused, and every other card starts
+    /// its own context.
+    #[test]
+    fn a_cards_play_control_pauses_and_resumes_its_context() {
+        fn albums(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::library::show(app, ui, Page::Albums);
+        }
+        let run = |ctx: &egui::Context, app: &mut App, events| view_tree(ctx, app, events, albums);
+        let center = |tree: &egui::accesskit::TreeUpdate, label: &dyn Fn(&str) -> bool| {
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label().is_some_and(label))
+                .and_then(|(_, node)| node.bounds())
+                .expect("the control on screen");
+            egui::pos2(
+                ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                ((bounds.y0 + bounds.y1) / 2.0) as f32,
+            )
+        };
+        for (playback, glyph) in [(Playback::Playing, "Pause"), (Playback::Paused, "Play")] {
+            let (ctx, mut app) = accessible_app(&format!("card-control-{playback:?}"));
+            let current = app.library.albums.items[0].album.clone();
+            let other = app.library.albums.items[1].album.clone();
+            make_current(&mut app, &current.uri, playback);
+            for (album, expected) in [(&current, glyph), (&other, "Play")] {
+                let tree = run(&ctx, &mut app, vec![]);
+                let prefix = format!("{}, ", album.name);
+                let card = center(&tree, &|label| label.starts_with(&prefix));
+                let tree = run(&ctx, &mut app, vec![egui::Event::PointerMoved(card)]);
+                let button = center(&tree, &|label| label == expected);
+                app.actions.clear();
+                run(
+                    &ctx,
+                    &mut app,
+                    pointer_click(button, egui::PointerButton::Primary),
+                );
+                if album.uri == current.uri {
+                    assert!(
+                        matches!(app.actions.as_slice(), [Action::TogglePlay]),
+                        "{playback:?}: the current album toggles, got {:?}",
+                        app.actions
+                    );
+                } else {
+                    assert_eq!(played_contexts(&app), std::slice::from_ref(&other.uri));
+                }
+            }
+            app.backend.shutdown();
+        }
+    }
+
+    /// The page's own Play resumes its paused playlist in place, and stays
+    /// usable for it when a filter hides every song: there is nothing new
+    /// to start, but there is something to resume.
+    #[test]
+    fn the_header_play_resumes_its_paused_playlist_even_when_filtered_empty() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        fn playlist(app: &mut App, ui: &mut egui::Ui) {
+            crate::ui::collection::playlist(app, ui, "pl1");
+        }
+        for filter in ["", "no song is called this"] {
+            let (ctx, mut app) = accessible_app("header-resume");
+            make_current(&mut app, &playlist_uri("pl1"), Playback::Paused);
+            app.playlist_pages
+                .get_mut("pl1")
+                .expect("demo playlist")
+                .filter = filter.into();
+            view_tree(&ctx, &mut app, vec![], playlist);
+            let tree = view_tree(&ctx, &mut app, vec![], playlist);
+            let play = accessible_node(&tree, "Play", Role::Button);
+            app.actions.clear();
+            view_tree(
+                &ctx,
+                &mut app,
+                vec![accessible_action(play, AccessibleAction::Click, None)],
+                playlist,
+            );
+            assert!(
+                matches!(app.actions.as_slice(), [Action::TogglePlay]),
+                "filter {filter:?}: the paused playlist resumes, got {:?}",
+                app.actions
             );
             app.backend.shutdown();
         }

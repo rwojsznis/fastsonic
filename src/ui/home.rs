@@ -105,21 +105,17 @@ fn album_shelf(app: &mut App, ui: &mut egui::Ui, id: &str, title: &str, shelf: S
                 (true, Some(year)) => year.to_string(),
                 (true, None) => String::new(),
             };
+            let control = widgets::ContextControl::of(app, &album.uri);
             let card = widgets::card(
                 ui,
                 app,
                 pick_image(&album.images, 300),
                 &album.name,
                 &subtitle,
-                false,
-                true,
+                widgets::CardCover::square(control.playing),
             );
             if card.play {
-                app.actions.push(Action::PlayContext {
-                    uri: album.uri.clone(),
-                    offset_uri: None,
-                    offset_index: None,
-                });
+                control.press(app, &album.uri);
             }
             if card.clicked {
                 app.actions
@@ -228,6 +224,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         palette.text,
                     );
                     if hovered && let Some(uri) = uri {
+                        let control = widgets::ContextControl::of(app, uri);
                         let button = Rect::from_center_size(
                             pos2(rect.right() - 28.0, rect.center().y),
                             Vec2::splat(40.0),
@@ -238,20 +235,20 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                             ));
                         if theme::circle_button(
                             &mut child,
-                            Icon::PlayFilled,
+                            if control.playing {
+                                Icon::PauseFilled
+                            } else {
+                                Icon::PlayFilled
+                            },
                             40.0,
                             palette.accent,
                             palette.accent_hover,
                             palette.on_accent,
-                            "Play",
+                            if control.playing { "Pause" } else { "Play" },
                         )
                         .clicked()
                         {
-                            app.actions.push(Action::PlayContext {
-                                uri: uri.clone(),
-                                offset_uri: None,
-                                offset_index: None,
-                            });
+                            control.press(app, uri);
                         }
                     }
                 }
@@ -318,8 +315,7 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
                 track.image(300),
                 &track.name,
                 &track.artist_names(),
-                false,
-                true,
+                widgets::CardCover::square(false),
             );
             if card.play {
                 app.actions.push(Action::PlayUris {
@@ -366,21 +362,17 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
     }
     widgets::shelf(ui, &palette, "top-artists", "Your top artists", |ui| {
         for artist in &artists {
+            let control = widgets::ContextControl::of(app, &artist.uri);
             let card = widgets::card(
                 ui,
                 app,
                 pick_image(&artist.images, 300),
                 &artist.name,
                 "Artist",
-                true,
-                true,
+                widgets::CardCover::portrait(control.playing),
             );
             if card.play {
-                app.actions.push(Action::PlayContext {
-                    uri: artist.uri.clone(),
-                    offset_uri: None,
-                    offset_index: None,
-                });
+                control.press(app, &artist.uri);
             }
             if card.clicked {
                 app.actions

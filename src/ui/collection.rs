@@ -190,8 +190,8 @@ pub fn actions_row(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         if let Some(uri) = &actions.play_uri {
-            let now_playing_here = app.playing_context_uri().as_deref() == Some(uri.as_str())
-                && app.believed_playing();
+            let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
+            let now_playing_here = context_here && app.believed_playing();
             let icon = if now_playing_here {
                 Icon::PauseFilled
             } else {
@@ -203,7 +203,7 @@ pub fn actions_row(
             if app.play_pending(uri) {
                 theme::circle_spinner(ui, 56.0, palette.accent, palette.on_accent, "Starting…");
             } else if ui
-                .add_enabled_ui(now_playing_here || can_start, |ui| {
+                .add_enabled_ui(context_here || can_start, |ui| {
                     theme::circle_button(
                         ui,
                         icon,
@@ -219,7 +219,9 @@ pub fn actions_row(
                 .clicked()
             {
                 let is_filtered = filter.as_ref().is_some_and(|f| !f.trim().is_empty());
-                if now_playing_here {
+                // The context this page belongs to resumes where it was,
+                // paused or playing; only another context starts over.
+                if context_here {
                     app.actions.push(Action::TogglePlay);
                 } else if let Some(uris) = actions.view.clone()
                     && (radio.is_some()

@@ -289,6 +289,9 @@ fn entry_label(entry: &Entry) -> String {
 
 /// A list row's cover offers to play the row while it is hovered. Returns
 /// whether it took the click, so the row does not act on it too.
+///
+/// The row that is the current context pauses while it plays and resumes
+/// in place while paused, rather than starting over.
 fn cover_play_button(
     app: &mut App,
     ui: &mut egui::Ui,
@@ -296,6 +299,7 @@ fn cover_play_button(
     index: usize,
     cover_rect: Rect,
     parent: &egui::Response,
+    control: super::widgets::ContextControl,
 ) -> bool {
     let Some(uri) = entry_play_uri(entry) else {
         return false;
@@ -312,33 +316,33 @@ fn cover_play_button(
             CornerRadius::same(if entry.round { 22 } else { 6 }),
             egui::Color32::from_black_alpha(120),
         );
-        Icon::PlayFilled
-            .image(
-                if play_hover {
-                    app.palette.accent
-                } else {
-                    egui::Color32::WHITE
-                },
-                18.0,
-            )
-            .paint_at(
-                ui,
-                Rect::from_center_size(
-                    cover_rect.center() + theme::play_glyph_offset(Icon::PlayFilled, 18.0),
-                    Vec2::splat(18.0),
-                ),
-            );
+        let icon = if control.playing {
+            Icon::PauseFilled
+        } else {
+            Icon::PlayFilled
+        };
+        icon.image(
+            if play_hover {
+                app.palette.accent
+            } else {
+                egui::Color32::WHITE
+            },
+            18.0,
+        )
+        .paint_at(
+            ui,
+            Rect::from_center_size(
+                cover_rect.center() + theme::play_glyph_offset(icon, 18.0),
+                Vec2::splat(18.0),
+            ),
+        );
     }
     if !play.clicked() {
         return false;
     }
     // The first click of a double click plays; the second must not play again.
     if !play.double_clicked() {
-        app.actions.push(Action::PlayContext {
-            uri,
-            offset_uri: None,
-            offset_index: None,
-        });
+        control.press(app, &uri);
     }
     true
 }
@@ -1058,8 +1062,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 let droppable = entry.liked || entry.owned;
                 let drop_hover = drop_target == Some(index);
                 let active = entry.folder.is_none() && entry.page == current_page;
-                let playing =
-                    context_playing && entry_is_playing_context(entry, playing_context.as_deref());
+                let current = entry_is_playing_context(entry, playing_context.as_deref());
+                let playing = context_playing && current;
                 let pinned = pins.iter().any(|key| key == entry.ordering_key());
                 let (_, rect) = ui.allocate_space(vec2(ui.available_width(), row_height));
                 let id = ui.id().with((
@@ -1232,8 +1236,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                             palette.secondary,
                         );
                         // Hovering the art offers to play right from here.
-                        cover_took_click =
-                            cover_play_button(app, ui, entry, index, cover_rect, &response);
+                        let control = super::widgets::ContextControl { current, playing };
+                        cover_took_click = cover_play_button(
+                            app, ui, entry, index, cover_rect, &response, control,
+                        );
                     }
                     if playing {
                         let icon_rect = Rect::from_center_size(

@@ -17,7 +17,8 @@ selected query starts a new entry.
 Sorting or filtering a playlist, an album or Liked Songs changes what Play
 plays: the songs on screen, in the order shown, including a song that appears
 twice. Play is disabled when a filter matches nothing; it never falls back to
-the whole list. Clearing the filter restores the original order.
+the whole list, though it still pauses and resumes the page's songs while
+they are what is playing. Clearing the filter restores the original order.
 
 When the window narrows, Library, Queue and Lyrics give up width before the
 top bar runs out of room, and return to the widths you chose once it widens.
@@ -124,7 +125,10 @@ Fastsonic closes, so resuming one plays the last song on its own.
 ## Sidebar order
 
 Click a playlist, album or artist in the sidebar to open it; double-click it
-to play it, as its cover's play button does.
+to play it, as its cover's play button does. On what is already playing, that
+button pauses instead, and on what is paused it resumes where it stopped
+rather than starting over; the cards on Home, Search, the Library pages and an
+artist's page, and the big Play at the top of a page, behave the same.
 
 The button beside the Library heading switches between the list and a grid of
 cover cards, which adds columns as the sidebar widens, and the choice is

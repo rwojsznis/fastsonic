@@ -119,21 +119,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         for album in &albums {
                             let subtitle =
                                 format!("{} • {}", album.year().unwrap_or(""), album.kind_label());
+                            let control = widgets::ContextControl::of(app, &album.uri);
                             let card = widgets::card(
                                 ui,
                                 app,
                                 pick_image(&album.images, 300),
                                 &album.name,
                                 subtitle.trim_start_matches(" • "),
-                                false,
-                                true,
+                                widgets::CardCover::square(control.playing),
                             );
                             if card.play {
-                                app.actions.push(Action::PlayContext {
-                                    uri: album.uri.clone(),
-                                    offset_uri: None,
-                                    offset_index: None,
-                                });
+                                control.press(app, &album.uri);
                             }
                             if card.clicked {
                                 app.actions
@@ -178,21 +174,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             {
                 widgets::shelf(ui, &palette, "related", "Fans also like", |ui| {
                     for artist in related {
+                        let control = widgets::ContextControl::of(app, &artist.uri);
                         let card = widgets::card(
                             ui,
                             app,
                             pick_image(&artist.images, 300),
                             &artist.name,
                             "Artist",
-                            true,
-                            true,
+                            widgets::CardCover::portrait(control.playing),
                         );
                         if card.play {
-                            app.actions.push(Action::PlayContext {
-                                uri: artist.uri.clone(),
-                                offset_uri: None,
-                                offset_index: None,
-                            });
+                            control.press(app, &artist.uri);
                         }
                         if card.clicked {
                             app.actions
