@@ -119,8 +119,10 @@ souvlaki = { version = "0.8", default-features = false }
 # exception instead of letting it abort the process.
 objc2 = { version = "0.6", features = ["exception"] }
 # NSWindow and NSUserDefaults answer a title-bar double-click the way the
-# Desktop & Dock setting asks (src/window.rs).
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow"] }
+# Desktop & Dock setting asks (src/window.rs). NSWorkspace, with its
+# NSAccessibility methods, answers whether Reduce motion is on
+# (src/motion.rs).
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSUserDefaults"] }
 
 # AccessKit connects egui's control names, states, and actions to native

@@ -35,7 +35,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - Restores the last track, position, context, and manually queued songs.
 - Light, dark, and system themes, following the system by default, with
   optional album-art colour that fades between songs. On Linux, the system
-  theme follows the desktop portal.
+  theme follows the desktop portal. The interface keeps still when the system
+  asks for [less motion](docs/_guide/using-fastsonic.md#less-motion).
 - [Custom themes](docs/_reference/settings-and-files.md#custom-themes): JSON
   colour palettes in a `themes` folder, picked in Settings after the built-in
   themes and applied at once. Eight (Catppuccin, Nord, Rose Pine, Tokyo Night

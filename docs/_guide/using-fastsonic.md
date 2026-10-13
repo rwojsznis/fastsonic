@@ -186,6 +186,22 @@ Settings → Appearance → **Player bar visualizer** offers a spectrum or wavef
 behind the controls. It is off by default. Click empty space on the player bar
 to cycle through spectrum, waveform, and off.
 
+## Less motion
+
+Fastsonic keeps still when the system asks it to: **Animation effects**
+turned off in Windows, **Reduce motion** on macOS, or **Animations** turned
+off in GNOME. Each animation then shows where it ends at once: hovers and
+expanding sections change without easing, a jump to a place in a list lands
+there without scrolling, the player bar takes a new song's colour without
+fading, the lyrics jump to the sung line and light it without a fade, and
+rows make room for a dragged song without sliding. Spinners still turn, and
+the visualizers still follow the music.
+
+Windows and macOS are asked again about once a second, so changing the
+setting takes effect without a restart. On Linux the desktop portal reports
+GNOME's switch as it changes; other desktops that do not publish it keep
+Fastsonic's animations.
+
 ## macOS Dock menu
 
 Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**

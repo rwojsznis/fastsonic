@@ -152,16 +152,17 @@ pub fn install(ctx: &egui::Context) {
 /// fields agree with the custom views.
 pub fn apply(ctx: &egui::Context, palette: &Palette) {
     let mut style = (*ctx.global_style()).clone();
-    apply_to_style(&mut style, palette);
+    apply_to_style(&mut style, palette, crate::motion::reduced(ctx));
     ctx.set_global_style(style);
 }
 
 /// Applies a palette to this view and children without changing global style.
 pub fn apply_local(ui: &mut egui::Ui, palette: &Palette) {
-    apply_to_style(ui.style_mut(), palette);
+    let reduced = crate::motion::reduced(ui.ctx());
+    apply_to_style(ui.style_mut(), palette, reduced);
 }
 
-fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
+fn apply_to_style(style: &mut egui::Style, palette: &Palette, reduced_motion: bool) {
     let visuals = &mut style.visuals;
     *visuals = if palette.dark {
         egui::Visuals::dark()
@@ -258,7 +259,7 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
     };
     style.interaction.selectable_labels = false;
     style.interaction.tooltip_delay = 0.4;
-    style.animation_time = 0.12;
+    crate::motion::set_style(style, reduced_motion);
     style.url_in_tooltip = false;
 }
 

@@ -30,6 +30,7 @@ pub mod media_controls;
 pub mod media_controls;
 pub mod milkdrop;
 pub mod model;
+pub mod motion;
 pub mod opener;
 pub mod opus;
 pub mod paths;

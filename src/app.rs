@@ -336,6 +336,8 @@ pub struct App {
     /// does not), so a pause with fingers resting is not taken for a lift.
     scroll_lift_announced: bool,
     autoscroll: crate::autoscroll::Autoscroll,
+    /// Whether the desktop asks for less motion.
+    motion: crate::motion::Motion,
     /// How each table is sorted, per page, for as long as the app runs.
     /// The rows picked out in a track table, and the page they belong to.
     /// One table at a time: picking rows on another page replaces it.
@@ -589,6 +591,7 @@ impl App {
             scroll_last_event: None,
             scroll_lift_announced: false,
             autoscroll: crate::autoscroll::Autoscroll::default(),
+            motion: crate::motion::Motion::default(),
             selection: None,
             table_sorts: session
                 .sorts
@@ -5146,6 +5149,7 @@ impl App {
         self.handle_control_commands();
         self.handle_events();
         self.handle_media_commands();
+        self.sync_motion(ctx);
         self.handle_tray();
         #[cfg(target_os = "macos")]
         self.handle_dock_menu();
@@ -5159,6 +5163,25 @@ impl App {
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
         self.schedule_next_pass(ctx);
+    }
+
+    /// Follows the desktop's wish for less motion, which egui's easing and
+    /// the views' own animations then honour. A window reopened from the
+    /// tray has a new context, which is told even when nothing changed.
+    fn sync_motion(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "linux")]
+        let desktop = self
+            .system_appearance
+            .as_ref()
+            .and_then(crate::appearance::SystemAppearance::animations);
+        #[cfg(not(target_os = "linux"))]
+        let desktop = None;
+        if self.motion.refresh(Instant::now(), desktop) {
+            log::debug!("reduce motion: {}", self.motion.reduced());
+        }
+        if crate::motion::reduced(ctx) != self.motion.reduced() {
+            crate::motion::apply(ctx, self.motion.reduced());
+        }
     }
 
     /// Asks for the next pass that playback, pending plays and polling need.
@@ -8053,6 +8076,23 @@ mod tests {
                 tray: false,
             },
         )
+    }
+
+    /// A window reopened from the tray draws with a new context, which
+    /// must keep still too although the preference did not change.
+    #[test]
+    fn a_new_context_learns_the_wish_for_less_motion() {
+        let mut app = test_app("reduced-motion-new-context");
+        let tray = egui::Context::default();
+        app.sync_motion(&tray);
+        app.motion.set(true);
+        crate::motion::apply(&tray, true);
+        let window = egui::Context::default();
+        theme::apply(&window, &Palette::dark());
+        app.sync_motion(&window);
+        assert!(crate::motion::reduced(&window));
+        assert_eq!(window.global_style().animation_time, 0.0);
+        app.backend.shutdown();
     }
 
     #[test]
