@@ -616,14 +616,14 @@ fn paint_expanded_art(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
         }
         .as_shape(rect, egui::CornerRadius::same(8)),
     );
-    super::widgets::paint_cover(
+    super::widgets::playing_cover(
         ui,
         &palette,
+        app.backend.art(),
+        "sidebar-art",
         Some(&url),
         rect,
         8.0,
-        Icon::Music,
-        Some(app.backend.art()),
     );
     let art = ui.interact(rect, egui::Id::new("sidebar-art"), Sense::click());
     let chevron_rect = Rect::from_center_size(

@@ -146,6 +146,40 @@ pub fn radio_seed(radio: &str) -> Option<String> {
 /// way it did when the old API offered three.
 pub const ART_SIZES: [u32; 3] = [64, 300, 640];
 
+/// The sizes a cover is drawn from, asked of `getCoverArt`, smallest first.
+///
+/// The server resizes to any size and keeps what it made, and the disk cache
+/// keeps each size under its own name, so a size per pixel would fill both
+/// with near copies as a panel is dragged. Each step is about half as big
+/// again as the last, and the three [`ART_SIZES`] are among them, so the
+/// covers cached before sizes followed the display are still read.
+pub const ART_REQUEST_SIZES: [u32; 8] = [64, 128, 192, 300, 448, 640, 960, 1280];
+
+/// How many times the pixels it covers a cover is asked for at. It is scaled
+/// down on this computer to what it covers before it is drawn, and a little
+/// more than that hides the server's compression in the copy.
+const ART_OVERSAMPLE: f32 = 1.25;
+
+/// The size to ask `getCoverArt` for, for a cover covering `pixels` on the
+/// display: the smallest step with a quarter more pixels than that, or the
+/// largest step.
+pub fn art_request_size(pixels: f32) -> u32 {
+    let smallest = ART_REQUEST_SIZES[0];
+    let wanted = (pixels * ART_OVERSAMPLE).ceil().max(1.0) as u32;
+    // The smallest size loses fine detail to its compression, which shows
+    // unless it is drawn at half its size or less: a logo in a sidebar row
+    // breaks up.
+    let wanted = if pixels * 2.0 > smallest as f32 {
+        wanted.max(smallest + 1)
+    } else {
+        wanted
+    };
+    ART_REQUEST_SIZES
+        .into_iter()
+        .find(|size| *size >= wanted)
+        .unwrap_or(ART_REQUEST_SIZES[ART_REQUEST_SIZES.len() - 1])
+}
+
 /// A cover-art request, deferred: `src/images.rs` turns this into a real
 /// `getCoverArt` URL with the current credential when it fetches.
 pub fn art_url(cover_art_id: &str, size: u32) -> String {
@@ -566,6 +600,32 @@ mod tests {
         assert_eq!(parse_art_url("sonic:art:300:al-al1"), Some((300, "al-al1")));
         // Nothing here carries a credential, so nothing that gets cached does.
         assert!(!images.iter().any(|image| image.url.contains("t=")));
+    }
+
+    /// Rule: a cover is asked for at a quarter more than the pixels it
+    /// covers, in steps, and the smallest size only for covers of 32 pixels
+    /// or less. A 44 point sidebar row takes 128 at 100%, a 148 point card
+    /// 192, and a 212 point page header 300; on a 2x display the card takes
+    /// 448 and the header 640.
+    #[test]
+    fn art_is_asked_for_at_the_pixels_it_covers_in_steps() {
+        assert_eq!(art_request_size(24.0), 64);
+        assert_eq!(art_request_size(32.0), 64);
+        assert_eq!(art_request_size(33.0), 128);
+        assert_eq!(art_request_size(44.0), 128);
+        assert_eq!(art_request_size(88.0), 128);
+        assert_eq!(art_request_size(148.0), 192);
+        assert_eq!(art_request_size(212.0), 300);
+        assert_eq!(art_request_size(296.0), 448);
+        assert_eq!(art_request_size(424.0), 640);
+        assert_eq!(art_request_size(5000.0), 1280, "the largest step caps it");
+        assert_eq!(art_request_size(0.0), 64);
+        // The sizes cached before sizes followed the display are still steps.
+        for size in ART_SIZES {
+            assert!(ART_REQUEST_SIZES.contains(&size), "{size}");
+        }
+        assert_eq!(art_request_size(240.0), 300);
+        assert_eq!(art_request_size(512.0), 640);
     }
 
     #[test]

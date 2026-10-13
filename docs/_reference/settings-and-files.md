@@ -38,11 +38,15 @@ In memory, Fastsonic keeps the 12 playlists, 16 albums and 10 artists you
 opened last, and the details of 800 songs, so a long session does not grow
 without bound; the open page, what is playing, and playlists with an edit on
 its way are always kept. A page dropped from memory is read again when you
-open it. Besides the artwork itself, up to 64 softened 256-pixel covers, made
-from sidebar thumbnails to stand in for a page's cover while it loads, are kept
-in memory; nothing about them is written to disk. They are made from the
-thumbnail already decoded for the screen, so keeping a page open never reads
-its cover from the disk cache or downloads it again.
+open it. A cover on screen is held only as a texture scaled to the pixels it
+covers; its downloaded and decoded copies are let go of once it is drawn, and
+read back from the artwork cache when another size of it is needed. Textures
+and the downloads still waiting to be drawn share a 64 MB budget, the
+longest unseen artwork going first. Each size of a cover asked of the server
+is its own file in the artwork cache. Besides the artwork itself, up to 64
+softened 256-pixel covers, made from the 64-pixel thumbnails of sidebar rows
+to stand in for a page's cover while it loads, are kept in memory; nothing
+about them is written to disk beyond the thumbnail itself.
 
 A playlist read in full is kept in the playlist cache under the server's
 `changed` time. Opening it again shows the cached songs at once only if that

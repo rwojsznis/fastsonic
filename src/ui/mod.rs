@@ -169,9 +169,11 @@ pub(crate) fn panel_width_chosen(ctx: &Context, id: &str, fit: &PanelFit) -> boo
     !fit.yielding || ctx.is_being_dragged(Id::new(id).with("__resize"))
 }
 
-/// The cover size a library grid card asks the server for: the card size, so
-/// a page opened from the grid has its card's cover to show while the
-/// header's larger one arrives.
+/// The image a library grid card is drawn from, when an item offers several
+/// URLs, as an artist image can: the card size, so a page opened from the
+/// grid has its card's cover to show while the header's larger one arrives.
+/// A cover-art request is asked of the server at the size the card covers,
+/// whatever size this names.
 const GRID_ART_TARGET_WIDTH: u32 = 300;
 
 /// Keeps the most recent loading preview of each metadata type available to
@@ -219,7 +221,7 @@ fn prepare_page_art(app: &mut App, ui: &egui::Ui, row: &egui::Response, image: O
 }
 
 /// The page's tint comes from its 64-pixel thumbnail, which the sidebar row
-/// or card that opened it has usually fetched already.
+/// that opened it has usually fetched already, for its softened cover.
 fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {

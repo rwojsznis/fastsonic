@@ -394,14 +394,14 @@ fn big_cover(app: &App, ui: &mut egui::Ui, column: Rect, align: Align) {
         }
         .as_shape(cover, radius),
     );
-    widgets::paint_cover(
+    widgets::playing_cover(
         ui,
         &theme::Palette::dark(),
+        app.backend.art(),
+        "fullscreen-lyrics",
         now.art_url.as_deref().or(now.art_small.as_deref()),
         cover,
         radius,
-        Icon::Music,
-        Some(app.backend.art()),
     );
     let words = Rect::from_min_max(pos2(column.left(), cover.bottom() + 18.0), column.max);
     let mut text = ui.new_child(
@@ -506,14 +506,14 @@ fn track_heading(app: &App, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let size = 52.0;
             let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
-            widgets::paint_cover(
+            widgets::playing_cover(
                 ui,
                 &theme::Palette::dark(),
-                now.art_small.as_deref().or(now.art_url.as_deref()),
+                app.backend.art(),
+                "lyrics-heading",
+                widgets::playing_art(ui, now.art_small.as_deref(), now.art_url.as_deref(), size),
                 rect,
                 4.0,
-                Icon::Music,
-                Some(app.backend.art()),
             );
             ui.vertical(|ui| {
                 ui.add(

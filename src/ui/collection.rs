@@ -36,6 +36,10 @@ pub struct HeroImages<'a> {
     pub thumbnail: Option<&'a str>,
 }
 
+// Which of an item's images the header and its stand-ins are drawn from.
+// For cover art they only name the picture: the size asked of the server
+// follows the pixels the cover covers (`images::request_for`).
+
 /// The header's cover is up to 212 points square, sharp on a HiDPI screen.
 const HERO_ART: u32 = 640;
 /// What cards ask for; one already drawn previews the header for free.

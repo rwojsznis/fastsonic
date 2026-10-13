@@ -63,16 +63,31 @@ answer stay disabled under a loading row, and if the request fails the known
 header stays above **Retry**. A link to something no list has shown has only
 the loading or error row.
 
-Artwork is requested from `getCoverArt` in three sizes: 64 pixels for song
-rows, the Library list, compact lists and the colour a page is tinted with,
-300 for cards and the Library grid, and 640 for a page's header cover and the
-playing song's large artwork. Each size is downloaded once and cached. While
-the header's cover is on its way, the card cover of the same item stands in if
-it is already loaded, and otherwise the 64-pixel thumbnail, enlarged and
-softened. A ready cover stays until its replacement is ready, and a page whose
-answer has no cover shows its placeholder rather than an old image. Hovering a
-sidebar row works out the page's tint from the thumbnail the row already
-shows. An artist image the server offers as its own URL is fetched as is.
+Each cover is requested from `getCoverArt` at about a quarter more pixels
+than it covers on the window's display, rounded up to one of 64, 128, 192,
+300, 448, 640, 960 or 1280 pixels, so a panel being dragged wider does not
+ask for a new size at every pixel, nor fill the server's resize cache and
+the artwork cache with near copies. The 64-pixel size serves only covers of
+32 pixels or less. At 100% scaling a sidebar row asks for 128, a card for
+192 and a page header for 300; at 200% a card asks for 448 and a header for
+640. The colour a page is tinted with and the softened stand-in for a page's
+cover use the 64-pixel size, and the media controls the 640-pixel one. Each
+size is downloaded once and cached under its own request, so artwork cached
+in those three sizes by earlier versions is still read. Fastsonic then
+scales each cover on this computer to the pixels it covers before drawing
+it.
+
+While a cover at a new size is on its way, after a panel is resized or the
+window moves to another display, the nearest size of the same cover already
+drawn stands in. While a page header's cover is on its way, the card cover
+of the same item stands in if it is already drawn, and otherwise the
+64-pixel thumbnail, enlarged and softened. The player bar, the sidebar's
+large artwork and the lyrics keep the last song's cover for up to two
+seconds while the next one's arrives. A ready cover stays until its
+replacement is ready, and a page whose answer has no cover shows its
+placeholder rather than an old image. Hovering a sidebar row works out the
+page's tint from its thumbnail before the page opens. An artist image the
+server offers as its own URL is fetched as is, and only scaled here.
 
 Sorting the Library's albums or artists by anything but the server's own
 order loads the rest of that section, one page after another through the same

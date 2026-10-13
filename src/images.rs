@@ -1,9 +1,16 @@
-//! Album art: fetched once, kept on disk, decoded by egui on demand.
+//! Album art: fetched once, kept on disk, and drawn from a copy scaled to
+//! the pixels each cover covers.
 //!
 //! [`ArtLoader`] handles `http(s)` URIs in egui's image pipeline, and the
 //! `sonic:art:<size>:<id>` requests the Subsonic layer leaves in its models.
 //! The first request starts a background download or disk-cache read. A size
 //! limit keeps long sessions from retaining unlimited textures.
+//!
+//! A cover is not drawn from what the server sent. [`CoverScaler`] decodes
+//! it off the UI thread and scales it to the pixels it covers on the display,
+//! and that copy is what the GPU holds. Once its texture is made the
+//! downloaded and decoded copies are let go of; another size of the same
+//! cover reads them back from the disk cache.
 //!
 //! Two things are particular to a self-hosted server.
 //!
@@ -12,9 +19,10 @@
 //! the real URL when it fetches. That keeps the credential out of anything
 //! that gets cached or logged, and means a new sign-in does not invalidate
 //! the art on disk: the cache is keyed by the request, not by the URL.
-//! Artist images are the exception — the server hands over pre-signed
-//! `/share/img/` URLs that need no credential, and those arrive here as
-//! ordinary `http(s)` and are fetched as they are.
+//! The size in a request is chosen where the cover is drawn, by
+//! [`request_for`]. Artist images are the exception — the server hands over
+//! pre-signed `/share/img/` URLs that need no credential, and those arrive
+//! here as ordinary `http(s)` and are fetched as they are.
 //!
 //! **A `200` is not proof of an image.** Ask `getCoverArt` for an id it does
 //! not have and it answers `HTTP 200` with an *error envelope* where the
@@ -22,17 +30,21 @@
 //! disk cache under the name of a cover, and every later request would read
 //! it back and fail to decode. So the bytes are checked before they are kept.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use egui::load::{Bytes, BytesLoadResult, BytesLoader, BytesPoll, ImagePoll, LoadError};
+use egui::load::{
+    Bytes, BytesLoadResult, BytesLoader, BytesPoll, ImageLoadResult, ImageLoader, ImagePoll,
+    LoadError, SizeHint,
+};
 use sha1::{Digest, Sha1};
 
 use crate::api::subsonic::Credentials;
 use crate::api::subsonic::auth::without_credentials;
-use crate::api::subsonic::convert::parse_art_url;
+use crate::api::subsonic::convert::{art_request_size, art_url, parse_art_url};
 
 /// Maximum artwork bytes held in memory.
 ///
@@ -41,12 +53,106 @@ use crate::api::subsonic::convert::parse_art_url;
 /// reloaded every two and a half minutes (#129).
 ///
 /// Size-based eviction keeps visible images stable.
+///
+/// It counts the textures of painted covers, which are on the GPU, and the
+/// encoded bytes of covers still waiting to be painted. A card's cover is
+/// scaled to the 148 or so pixels it covers and holds about 120 KB, so a page
+/// of cards stays well inside it.
 const HELD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ART_BYTES: usize = 8 * 1024 * 1024;
 
-/// Decoded ColorImage plus the GPU texture, both RGBA.
-fn decoded_and_texture_bytes(width: usize, height: usize) -> usize {
-    2 * width.saturating_mul(height).saturating_mul(4)
+/// How long another copy of the same artwork goes on being painted without
+/// a copy of a cover before that copy is let go: a panel being resized leaves
+/// a copy behind at each step. It is measured from the artwork's latest
+/// paint, not the clock, so copies painted together stay together however
+/// long the window then sits idle.
+const SUPERSEDED: Duration = Duration::from_secs(5);
+
+/// How covers are sampled. Each is scaled to the pixels it covers before it
+/// reaches the GPU, but sizes come in steps and a cover can be drawn smaller
+/// for a moment, from a larger copy standing in while its own is made; a
+/// plain linear filter then skips texels, so edges stair-step and fine detail
+/// turns to grain. Mipmaps let the GPU read a prefiltered level instead.
+/// Every painter of a cover must use these same options: egui keys its
+/// textures by URI and options, so a second set would upload the cover twice.
+pub const COVER_TEXTURE: egui::TextureOptions =
+    egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear));
+
+/// A cover's GPU texture, RGBA, with its mipmap chain adding a third of the
+/// base level. Once the texture exists the decoded image is let go (see
+/// [`forget_decoded`]), so this is all a painted cover holds.
+fn texture_bytes(width: usize, height: usize) -> usize {
+    width
+        .saturating_mul(height)
+        .saturating_mul(4)
+        .saturating_mul(4)
+        / 3
+}
+
+/// The side, in pixels, of the copy of a cover drawn `pixels` wide: the next
+/// step of 32 up, so a panel being resized makes a few copies rather than one
+/// per pixel.
+pub fn cover_pixels(pixels: f32) -> u32 {
+    let pixels = pixels.ceil().max(1.0) as u32;
+    pixels.div_ceil(32) * 32
+}
+
+/// What to fetch for `url` drawn `pixels` wide on the display. A cover-art
+/// request asks the server for the size that suits those pixels (see
+/// [`art_request_size`]), whatever size the model named; any other URL is
+/// fetched as it is.
+pub fn request_for(url: &str, pixels: f32) -> Cow<'_, str> {
+    match parse_art_url(url) {
+        Some((size, id)) => {
+            let wanted = art_request_size(pixels);
+            if wanted == size {
+                Cow::Borrowed(url)
+            } else {
+                Cow::Owned(art_url(id, wanted))
+            }
+        }
+        None => Cow::Borrowed(url),
+    }
+}
+
+/// The URI of `url`'s artwork scaled to `pixels` on its longer side. The
+/// suffix is a URL fragment, so it never reaches the server; [`CoverScaler`]
+/// answers for it.
+pub fn scaled_uri(url: &str, pixels: u32) -> String {
+    format!("{url}{SCALED}{pixels}")
+}
+
+const SCALED: &str = "#fastsonic-px=";
+
+/// The artwork URL and pixel size in a [`scaled_uri`].
+fn parse_scaled(uri: &str) -> Option<(&str, u32)> {
+    let (url, pixels) = uri.rsplit_once(SCALED)?;
+    let pixels = pixels.parse().ok().filter(|pixels| *pixels > 0)?;
+    handled(url).then_some((url, pixels))
+}
+
+/// The picture a request or URL is of, whatever size it asks for: copies made
+/// from a cover's 128 and its 300 pixel request are copies of one picture,
+/// and stand in for each other.
+fn artwork(url: &str) -> Cow<'_, str> {
+    match parse_art_url(url) {
+        Some((_, id)) => Cow::Owned(format!("sonic:cover:{id}")),
+        None => Cow::Borrowed(url),
+    }
+}
+
+/// Lets go of the decoded copy of `uri` that egui's image loaders keep in
+/// system memory after its texture is on the GPU. egui keeps the texture,
+/// and asks for the image again only if it needs another texture of it;
+/// the bytes then come back from the disk cache, off the UI thread.
+///
+/// Only the image loaders forget: egui's own `reduce_texture_memory` would
+/// also forget the bytes loader's entry, and with it the size the artwork
+/// budget evicts by, leaving the texture held for good.
+pub fn forget_decoded(ctx: &egui::Context, uri: &str) {
+    for loader in ctx.loaders().image.lock().iter() {
+        loader.forget(uri);
+    }
 }
 
 enum Entry {
@@ -54,15 +160,27 @@ enum Entry {
     Ready {
         bytes: Option<Arc<[u8]>>,
         last_used: Instant,
-        /// The source bytes still held, plus decoded image and texture once
-        /// painted.
+        /// The source bytes still held.
         retained: usize,
     },
     Failed(String),
 }
 
+/// A copy of an artwork on the GPU: the video memory it holds, and when it
+/// was last painted.
+struct PaintedCopy {
+    bytes: usize,
+    painted: Instant,
+}
+
+/// The scaled copies on the GPU, by [`artwork`] and copy URI.
+type Copies = HashMap<String, HashMap<String, PaintedCopy>>;
+
 struct Inner {
     entries: Mutex<HashMap<String, Entry>>,
+    /// Kept apart from `entries`, which drops a request's entry to reload
+    /// its bytes, so a texture is never forgotten while it is still held.
+    textures: Mutex<Copies>,
     http: reqwest::Client,
     runtime: tokio::runtime::Handle,
     cache_dir: PathBuf,
@@ -82,6 +200,7 @@ impl ArtLoader {
         Self {
             inner: Arc::new(Inner {
                 entries: Mutex::new(HashMap::new()),
+                textures: Mutex::new(HashMap::new()),
                 http,
                 runtime,
                 cache_dir,
@@ -98,6 +217,11 @@ impl ArtLoader {
             .credentials
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = credentials;
+    }
+
+    /// The image loader that scales this loader's artwork for painting.
+    pub fn scaler(&self) -> CoverScaler {
+        CoverScaler::new(self.inner.runtime.clone())
     }
 
     /// Bytes for `uri`, from memory, disk, or the network.
@@ -130,12 +254,30 @@ impl ArtLoader {
         }
     }
 
-    /// Evicts failed entries and the oldest artwork above the memory limit.
+    /// Evicts failed entries, copies of a cover no longer painted at their
+    /// size, and the oldest artwork above the memory limit, with every size
+    /// of it asked for and every scaled copy of it on the GPU.
     pub fn evict(&self, ctx: &egui::Context) {
-        let letting_go: Vec<String> = {
+        let superseded = superseded(
+            &mut self
+                .inner
+                .textures
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()),
+        );
+        for uri in superseded {
+            ctx.forget_image(&uri);
+        }
+        let (failed, letting_go) = {
             let entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
+            let textures = self
+                .inner
+                .textures
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             let mut failed: Vec<String> = Vec::new();
-            let mut held: Vec<(String, Instant, usize)> = Vec::new();
+            // Each artwork's latest use, what it holds, and its requests.
+            let mut held: HashMap<String, (Instant, usize, Vec<String>)> = HashMap::new();
             for (url, entry) in entries.iter() {
                 match entry {
                     // Forget failures so a later request can retry.
@@ -145,17 +287,57 @@ impl ArtLoader {
                         retained,
                         ..
                     } => {
-                        held.push((url.clone(), *last_used, *retained));
+                        let artwork = held.entry(artwork(url).into_owned()).or_insert((
+                            *last_used,
+                            0,
+                            Vec::new(),
+                        ));
+                        artwork.0 = artwork.0.max(*last_used);
+                        artwork.1 += *retained;
+                        artwork.2.push(url.clone());
                     }
                     Entry::Pending => {}
                 }
             }
-            failed.extend(over_budget(held, HELD_BYTES));
-            failed
+            for (key, (last_used, bytes, _)) in held.iter_mut() {
+                for copy in textures.get(key).into_iter().flat_map(HashMap::values) {
+                    *bytes += copy.bytes;
+                    *last_used = (*last_used).max(copy.painted);
+                }
+            }
+            let over = over_budget(
+                held.iter()
+                    .map(|(key, (last_used, bytes, _))| (key.clone(), *last_used, *bytes))
+                    .collect(),
+                HELD_BYTES,
+            );
+            let letting_go: Vec<(String, Vec<String>)> = over
+                .into_iter()
+                .filter_map(|key| {
+                    let (_, _, requests) = held.remove(&key)?;
+                    Some((key, requests))
+                })
+                .collect();
+            (failed, letting_go)
         };
-        for url in letting_go {
+        for url in failed {
             ctx.forget_image(&url);
             self.forget(&url);
+        }
+        for (key, requests) in letting_go {
+            let copies = self
+                .inner
+                .textures
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&key);
+            for uri in copies.into_iter().flat_map(HashMap::into_keys) {
+                ctx.forget_image(&uri);
+            }
+            for url in requests {
+                ctx.forget_image(&url);
+                self.forget(&url);
+            }
         }
     }
 
@@ -194,25 +376,80 @@ impl ArtLoader {
     }
 
     /// Drops the held source bytes once egui has made a texture. The disk
-    /// cache remains for later reloads.
-    pub fn release_bytes(&self, url: &str) {
-        self.inner.drop_bytes(url);
+    /// cache remains for later reloads. Answers whether any bytes were still
+    /// held, which is true once per load: the frame the texture first
+    /// appeared.
+    pub fn release_bytes(&self, url: &str) -> bool {
+        self.inner.drop_bytes(url)
     }
 
-    /// Record decoded image + texture size after egui has uploaded the cover.
-    pub fn note_decoded(&self, url: &str, width: usize, height: usize) {
-        if let Some(Entry::Ready {
-            bytes, retained, ..
-        }) = self
+    /// Records that the copy at `uri` of `url`'s artwork was painted, and
+    /// answers whether this is the first time: the frame egui made its
+    /// texture, and its decoded copy can be let go of.
+    pub fn note_texture(&self, url: &str, uri: &str, width: usize, height: usize) -> bool {
+        let now = Instant::now();
+        let key = artwork(url);
+        let mut textures = self
             .inner
-            .entries
+            .textures
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(copy) = textures
+            .get_mut(key.as_ref())
+            .and_then(|copies| copies.get_mut(uri))
+        {
+            copy.painted = now;
+            return false;
+        }
+        textures.entry(key.into_owned()).or_default().insert(
+            uri.to_string(),
+            PaintedCopy {
+                bytes: texture_bytes(width, height),
+                painted: now,
+            },
+        );
+        true
+    }
+
+    /// Forgets which copies are on the GPU, for a new window whose egui
+    /// holds none of them yet: each is then let go of as it is made again.
+    pub fn forget_textures(&self) {
+        self.inner
+            .textures
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .get_mut(url)
-        {
-            let encoded = bytes.as_ref().map(|bytes| bytes.len()).unwrap_or(0);
-            *retained = encoded + decoded_and_texture_bytes(width, height);
-        }
+            .clear();
+    }
+
+    /// The copy of `url`'s artwork already on the GPU that best stands in
+    /// for one `pixels` wide, while that one is made: a cover changing size,
+    /// one asked of the server at a new size, or one whose bytes are coming
+    /// back from the disk for another size, shows its last picture instead
+    /// of the placeholder.
+    pub fn nearest_copy(&self, url: &str, pixels: u32) -> Option<String> {
+        let textures = self
+            .inner
+            .textures
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        nearest(
+            textures
+                .get(artwork(url).as_ref())?
+                .keys()
+                .map(String::as_str),
+            pixels,
+        )
+        .map(str::to_string)
+    }
+
+    /// Whether a copy of `url`'s artwork is on the GPU.
+    pub fn has_copy(&self, url: &str) -> bool {
+        self.inner
+            .textures
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(artwork(url).as_ref())
+            .is_some_and(|copies| !copies.is_empty())
     }
 
     pub fn clear_disk_cache(&self) -> std::io::Result<u64> {
@@ -228,15 +465,58 @@ impl ArtLoader {
     }
 }
 
+/// Takes out of `textures` the copies of a cover last painted more than
+/// [`SUPERSEDED`] before another copy of it, and answers their URIs. A cover
+/// with a single copy is left to the memory budget.
+fn superseded(textures: &mut Copies) -> Vec<String> {
+    let mut letting_go = Vec::new();
+    for copies in textures.values_mut() {
+        let Some(latest) = copies.values().map(|copy| copy.painted).max() else {
+            continue;
+        };
+        copies.retain(|uri, copy| {
+            let keep = latest.duration_since(copy.painted) < SUPERSEDED;
+            if !keep {
+                letting_go.push(uri.clone());
+            }
+            keep
+        });
+    }
+    letting_go
+}
+
+/// The pixels a scaled copy really has: the size it was made at, or the
+/// size the server was asked for when that is smaller, since a copy is
+/// never enlarged.
+fn copy_pixels(uri: &str) -> Option<u32> {
+    let (url, pixels) = parse_scaled(uri)?;
+    Some(parse_art_url(url).map_or(pixels, |(asked, _)| pixels.min(asked)))
+}
+
+/// Of the scaled copies at `uris`, the smallest at least `pixels` wide, so
+/// no detail is missing, or else the largest there is. A copy with fewer
+/// than half the pixels is none: enlarged that far it is blocky, and a page
+/// header has its softened thumbnail to show instead.
+fn nearest<'a>(uris: impl Iterator<Item = &'a str>, pixels: u32) -> Option<&'a str> {
+    uris.filter_map(|uri| Some((copy_pixels(uri)?, uri)))
+        .filter(|&(size, _)| size.saturating_mul(2) >= pixels)
+        .min_by_key(|&(size, _)| {
+            if size >= pixels {
+                (false, size)
+            } else {
+                (true, u32::MAX - size)
+            }
+        })
+        .map(|(_, uri)| uri)
+}
+
 /// Which artwork to let go of so that what is kept fits `budget`,
 /// oldest first.
 ///
-/// "Oldest" is when egui last needed the bytes, which for a picture it
-/// has already made a texture of is when it first loaded. That makes
-/// this a rough order rather than a true reading of what is on screen,
-/// which is why the budget is generous: being roughly right about which
-/// to drop only matters once there is far more artwork than any window
-/// is showing.
+/// "Oldest" is when a cover was last painted, or when egui last needed
+/// its bytes for one still waiting to be. Being roughly right about which
+/// to drop only matters once there is far more artwork than any window is
+/// showing, which is why the budget is generous.
 fn over_budget(mut held: Vec<(String, Instant, usize)>, budget: usize) -> Vec<String> {
     let mut total: usize = held.iter().map(|(_, _, bytes)| bytes).sum();
     if total <= budget {
@@ -392,7 +672,7 @@ impl Inner {
         });
     }
 
-    fn drop_bytes(&self, url: &str) {
+    fn drop_bytes(&self, url: &str) -> bool {
         if let Some(Entry::Ready {
             bytes, retained, ..
         }) = self
@@ -403,7 +683,9 @@ impl Inner {
             && let Some(held) = bytes.take()
         {
             *retained = retained.saturating_sub(held.len());
+            return true;
         }
+        false
     }
 }
 
@@ -462,6 +744,11 @@ impl BytesLoader for ArtLoader {
 
     fn forget_all(&self) {
         self.inner
+            .textures
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        self.inner
             .entries
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -486,7 +773,7 @@ impl BytesLoader for ArtLoader {
 
 /// Whether this loader answers for `uri`: a URL the server handed over, or a
 /// cover-art request the Subsonic layer left for us to build.
-fn handled(uri: &str) -> bool {
+pub fn handled(uri: &str) -> bool {
     uri.starts_with("https://") || uri.starts_with("http://") || parse_art_url(uri).is_some()
 }
 
@@ -659,21 +946,25 @@ impl LyricsBackdrop {
 
 /// Softened artwork for covers that are still loading, one entry per URL.
 ///
-/// A library row's small thumbnail is already on screen when its page opens,
-/// so enlarging it blurred stands in for the cover until the full artwork
-/// arrives. Blurring happens off the UI thread and the result is kept, so a
-/// cover that is opened, left, and opened again shows softened art at once.
+/// A library row's small thumbnail stands in for the cover its page opens
+/// with: enlarged and blurred until the full artwork arrives. Blurring
+/// happens off the UI thread and the result is kept, so a cover that is
+/// opened, left, and opened again shows softened art at once.
 struct SoftenedCover {
     texture: egui::TextureHandle,
     last_used: Instant,
 }
 
-type SoftenedResult = (String, Option<egui::ColorImage>);
+/// A softened cover, `None` when the artwork could not be decoded, or why it
+/// could not be read for now.
+type SoftenedResult = (String, Result<Option<egui::ColorImage>, String>);
 
 pub struct SoftenedCovers {
     textures: HashMap<String, SoftenedCover>,
     pending: HashSet<String>,
     failed: HashSet<String>,
+    /// Artwork that could not be read, and when to ask for it again.
+    retry_at: HashMap<String, Instant>,
     ready_tx: std::sync::mpsc::Sender<SoftenedResult>,
     ready_rx: std::sync::mpsc::Receiver<SoftenedResult>,
 }
@@ -685,6 +976,7 @@ impl Default for SoftenedCovers {
             textures: HashMap::new(),
             pending: HashSet::new(),
             failed: HashSet::new(),
+            retry_at: HashMap::new(),
             ready_tx,
             ready_rx,
         }
@@ -693,8 +985,17 @@ impl Default for SoftenedCovers {
 
 impl SoftenedCovers {
     fn receive_ready(&mut self, ctx: &egui::Context) {
-        while let Ok((ready_uri, image)) = self.ready_rx.try_recv() {
+        while let Ok((ready_uri, result)) = self.ready_rx.try_recv() {
             self.pending.remove(&ready_uri);
+            let image = match result {
+                Ok(image) => image,
+                Err(_) => {
+                    self.retry_at
+                        .insert(ready_uri, Instant::now() + BACKDROP_RETRY);
+                    ctx.request_repaint_after(BACKDROP_RETRY);
+                    continue;
+                }
+            };
             let Some(image) = image else {
                 self.failed.insert(ready_uri);
                 continue;
@@ -735,74 +1036,45 @@ impl SoftenedCovers {
         if self.failed.contains(uri)
             || self.pending.contains(uri)
             || self.pending.len() >= HELD_COVERS
+            || self
+                .retry_at
+                .get(uri)
+                .is_some_and(|at| Instant::now() < *at)
         {
             return None;
         }
-        // The visible thumbnail has already been decoded by egui, and
-        // painting it releases its source bytes every frame. Asking for
-        // those bytes would start the loader again, only for the next frame
-        // to release them before they could be softened.
-        match ctx.try_load_image(uri, Default::default()) {
-            Ok(ImagePoll::Ready { image }) => {
-                let ready_tx = self.ready_tx.clone();
-                let ready_uri = uri.to_string();
-                let ctx = ctx.clone();
-                self.pending.insert(ready_uri.clone());
-                loader.inner.runtime.spawn_blocking(move || {
-                    let image = softened_background(&image);
-                    let _ = ready_tx.send((ready_uri, image));
-                    ctx.request_repaint();
-                });
-            }
-            Err(error) if unsupported_art(&error) => {
-                self.failed.insert(uri.to_string());
-            }
-            _ => {}
+        if !handled(uri) {
+            // No loader will ever answer for it, so it is not asked again.
+            self.failed.insert(uri.to_string());
+            return None;
         }
+        // Read from the disk cache, or the network, rather than from egui's
+        // decoded image: painted covers let that go once their texture
+        // exists, and their encoded bytes along with it.
+        self.retry_at.remove(uri);
+        self.pending.insert(uri.to_string());
+        let ready_tx = self.ready_tx.clone();
+        let ready_uri = uri.to_string();
+        let ctx = ctx.clone();
+        let inner = Arc::clone(&loader.inner);
+        loader.inner.runtime.spawn(async move {
+            let result = match inner.fetch(&ready_uri).await {
+                Ok(bytes) => inner
+                    .runtime
+                    .spawn_blocking(move || blurred_background(&bytes, COVER_BLUR))
+                    .await
+                    .map_err(|error| error.to_string()),
+                Err(error) => Err(error),
+            };
+            let _ = ready_tx.send((ready_uri, result));
+            ctx.request_repaint();
+        });
         None
     }
 }
 
-/// Whether no loader will ever answer for this artwork. A failed download is
-/// not: eviction forgets it, so it is asked for again.
-fn unsupported_art(error: &LoadError) -> bool {
-    matches!(
-        error,
-        LoadError::NotSupported
-            | LoadError::NoMatchingBytesLoader
-            | LoadError::NoImageLoaders
-            | LoadError::NoMatchingImageLoader { .. }
-    )
-}
-
-/// A softened cover from artwork egui has already decoded.
-fn softened_background(image: &egui::ColorImage) -> Option<egui::ColorImage> {
-    let [width, height] = image.size;
-    if width > 8192 || height > 8192 || image.pixels.len() > 64 * 1024 * 1024 / 4 {
-        return None;
-    }
-    let pixels = image
-        .pixels
-        .iter()
-        .flat_map(egui::Color32::to_srgba_unmultiplied)
-        .collect();
-    let image = image::RgbaImage::from_raw(width as u32, height as u32, pixels)?;
-    Some(blurred_image(image.into(), COVER_BLUR))
-}
-
 fn blurred_background(bytes: &[u8], sigma: f32) -> Option<egui::ColorImage> {
-    if bytes.len() > MAX_ART_BYTES {
-        return None;
-    }
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(8192);
-    limits.max_image_height = Some(8192);
-    limits.max_alloc = Some(64 * 1024 * 1024);
-    reader.limits(limits);
-    Some(blurred_image(reader.decode().ok()?, sigma))
+    Some(blurred_image(decode(bytes).ok()?, sigma))
 }
 
 fn blurred_image(image: image::DynamicImage, sigma: f32) -> egui::ColorImage {
@@ -811,6 +1083,272 @@ fn blurred_image(image: image::DynamicImage, sigma: f32) -> egui::ColorImage {
         [image.width() as usize, image.height() as usize],
         image.as_raw(),
     )
+}
+
+/// Decodes artwork, within the same bounds as every other decode here.
+fn decode(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    if bytes.len() > MAX_ART_BYTES {
+        return Err("artwork is too large".to_string());
+    }
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    reader.decode().map_err(|error| error.to_string())
+}
+
+/// `image` scaled so its longer side is `pixels`, with a Lanczos filter:
+/// every source pixel counts towards the result, so fine detail such as a
+/// logo stays sharp instead of breaking up. Artwork already that small or
+/// smaller is left as it is rather than enlarged.
+///
+/// A large reduction first averages the artwork down to twice the size
+/// wanted, which is cheap: Lanczos then weighs a few source pixels for each
+/// pixel rather than dozens, for the same picture.
+fn scaled(image: image::DynamicImage, pixels: u32) -> egui::ColorImage {
+    let longer = image.width().max(image.height());
+    let image = if longer > pixels {
+        let scale = pixels as f32 / longer as f32;
+        let width = ((image.width() as f32 * scale).round() as u32).max(1);
+        let height = ((image.height() as f32 * scale).round() as u32).max(1);
+        let image = if longer > pixels * 2 {
+            image.thumbnail(width * 2, height * 2)
+        } else {
+            image
+        };
+        // Through DynamicImage, whose resize is compiled in the image crate
+        // and so optimised even in a development build of this one.
+        image
+            .resize_exact(width, height, image::imageops::FilterType::Lanczos3)
+            .to_rgba8()
+    } else {
+        image.to_rgba8()
+    };
+    egui::ColorImage::from_rgba_unmultiplied(
+        [image.width() as usize, image.height() as usize],
+        image.as_raw(),
+    )
+}
+
+/// How many covers are scaled at once. Each takes a core while it lasts. A
+/// fast scroll asks for dozens in a moment, and scaling them all at once
+/// left the interface and the rest of the machine short of cores.
+const SCALING_AT_ONCE: usize = 2;
+
+/// How long a copy waits its turn after it was last asked for. A cover
+/// scrolled past before its turn came is not made at all, and one made after
+/// it was scrolled past is let go of rather than held.
+const SCALING_STALE: Duration = Duration::from_millis(500);
+
+/// A copy of a cover in the scaler: waiting its turn, with the artwork's
+/// bytes and when a frame last asked for it, being made, or made, with when
+/// it was made or last asked for. egui asks for a made copy once, to make
+/// its texture, and the painter then lets it go; one nobody asks for is a
+/// cover that left the screen while it was made.
+enum Slot {
+    Waiting {
+        asked: Instant,
+        bytes: Bytes,
+        pixels: u32,
+    },
+    Working,
+    Ready {
+        result: Result<Arc<egui::ColorImage>, String>,
+        asked: Instant,
+    },
+}
+
+#[derive(Default)]
+struct Scaling {
+    slots: HashMap<String, Slot>,
+    /// Threads making copies now, at most [`SCALING_AT_ONCE`].
+    workers: usize,
+}
+
+/// Makes the copy of a cover that egui uploads: the artwork from
+/// [`ArtLoader`], decoded and scaled to the pixels it is drawn at, off the
+/// UI thread. The GPU then holds a texture of that size, not of the source.
+///
+/// A few copies are made at a time, those asked for most recently first.
+pub struct CoverScaler {
+    runtime: tokio::runtime::Handle,
+    state: Arc<Mutex<Scaling>>,
+}
+
+impl CoverScaler {
+    pub fn new(runtime: tokio::runtime::Handle) -> Self {
+        Self {
+            runtime,
+            state: Arc::default(),
+        }
+    }
+}
+
+/// Makes the waiting copies, the most recently asked for first, until none
+/// is left, and drops those nobody has asked for lately.
+fn scale_waiting(state: &Mutex<Scaling>, ctx: &egui::Context) {
+    loop {
+        let (uri, bytes, pixels) = {
+            let mut state = state.lock().unwrap_or_else(|p| p.into_inner());
+            let now = Instant::now();
+            let before = state.slots.len();
+            state.slots.retain(|_, slot| match slot {
+                Slot::Waiting { asked, .. } => now.duration_since(*asked) < SCALING_STALE,
+                _ => true,
+            });
+            if state.slots.len() < before {
+                // A cover still on screen is asked for again on the next
+                // frame, and waits its turn once more.
+                ctx.request_repaint();
+            }
+            let next = state
+                .slots
+                .iter()
+                .filter_map(|(uri, slot)| match slot {
+                    Slot::Waiting { asked, .. } => Some((*asked, uri)),
+                    _ => None,
+                })
+                .max_by_key(|(asked, _)| *asked)
+                .map(|(_, uri)| uri.clone());
+            let Some(uri) = next else {
+                state.workers -= 1;
+                return;
+            };
+            match state.slots.insert(uri.clone(), Slot::Working) {
+                Some(Slot::Waiting { bytes, pixels, .. }) => (uri, bytes, pixels),
+                _ => unreachable!("the copy chosen was waiting"),
+            }
+        };
+        // A copy that cannot be made is an error, never a copy that stays
+        // pending for good.
+        let result = std::panic::catch_unwind(|| {
+            decode(&bytes).map(|image| Arc::new(scaled(image, pixels)))
+        })
+        .unwrap_or_else(|_| Err("the cover could not be scaled".to_string()));
+        let mut state = state.lock().unwrap_or_else(|p| p.into_inner());
+        // A copy forgotten while it was being made stays forgotten.
+        if let Some(slot @ Slot::Working) = state.slots.get_mut(&uri) {
+            *slot = Slot::Ready {
+                result,
+                asked: Instant::now(),
+            };
+            drop(state);
+            ctx.request_repaint();
+        }
+    }
+}
+
+impl ImageLoader for CoverScaler {
+    fn id(&self) -> &str {
+        "fastsonic::CoverScaler"
+    }
+
+    fn load(&self, ctx: &egui::Context, uri: &str, _: SizeHint) -> ImageLoadResult {
+        let Some((url, pixels)) = parse_scaled(uri) else {
+            return Err(LoadError::NotSupported);
+        };
+        match self
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .slots
+            .get_mut(uri)
+        {
+            Some(Slot::Ready { result, asked }) => {
+                *asked = Instant::now();
+                return match result {
+                    Ok(image) => Ok(ImagePoll::Ready {
+                        image: Arc::clone(image),
+                    }),
+                    Err(error) => Err(LoadError::Loading(error.clone())),
+                };
+            }
+            Some(Slot::Waiting { asked, .. }) => {
+                *asked = Instant::now();
+                return Ok(ImagePoll::Pending { size: None });
+            }
+            Some(Slot::Working) => return Ok(ImagePoll::Pending { size: None }),
+            None => {}
+        }
+        let bytes = match ctx.try_load_bytes(url)? {
+            BytesPoll::Pending { .. } => return Ok(ImagePoll::Pending { size: None }),
+            BytesPoll::Ready { bytes, .. } => bytes,
+        };
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.slots.insert(
+            uri.to_string(),
+            Slot::Waiting {
+                asked: Instant::now(),
+                bytes,
+                pixels,
+            },
+        );
+        if state.workers < SCALING_AT_ONCE {
+            state.workers += 1;
+            drop(state);
+            let state = Arc::clone(&self.state);
+            let ctx = ctx.clone();
+            self.runtime
+                .spawn_blocking(move || scale_waiting(&state, &ctx));
+        }
+        Ok(ImagePoll::Pending { size: None })
+    }
+
+    fn forget(&self, uri: &str) {
+        self.state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .slots
+            .remove(uri);
+    }
+
+    fn forget_all(&self) {
+        self.state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .slots
+            .clear();
+    }
+
+    fn byte_size(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .slots
+            .values()
+            .map(|slot| match slot {
+                Slot::Ready {
+                    result: Ok(image), ..
+                } => image.pixels.len() * 4,
+                _ => 0,
+            })
+            .sum()
+    }
+
+    fn has_pending(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .slots
+            .values()
+            .any(|slot| !matches!(slot, Slot::Ready { .. }))
+    }
+
+    fn end_pass(&self, _: u64) {
+        let now = Instant::now();
+        self.state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .slots
+            .retain(|_, slot| match slot {
+                Slot::Ready { asked, .. } => now.duration_since(*asked) < SCALING_STALE,
+                _ => true,
+            });
+    }
 }
 
 #[cfg(test)]
@@ -912,7 +1450,9 @@ mod tests {
             &ctx,
             &loader,
             Some(uri),
-            || loader.release_bytes(uri),
+            || {
+                loader.release_bytes(uri);
+            },
             |texture| texture.is_some(),
         );
         std::fs::remove_dir_all(dir).unwrap();
@@ -1020,25 +1560,21 @@ mod tests {
         egui::ColorImage::filled([1, 1], egui::Color32::WHITE)
     }
 
-    /// A cover on screen releases its encoded bytes every frame, and there
-    /// is deliberately no disk file or server here: the softened cover has
-    /// to come from the image egui already decoded, without restarting the
-    /// byte loader.
+    /// A painted cover keeps only its texture: the encoded bytes and the
+    /// decoded image both go, and a softened cover of the same artwork is
+    /// still made, from the disk cache.
     #[test]
-    fn softened_cover_reuses_decoded_art_after_source_bytes_are_released() {
+    fn painted_covers_keep_only_their_texture() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let dir =
-            std::env::temp_dir().join(format!("fastsonic-softened-decoded-{}", std::process::id()));
+            std::env::temp_dir().join(format!("fastsonic-painted-texture-{}", std::process::id()));
         let loader = backdrop_loader(&runtime, dir.clone());
         let ctx = egui::Context::default();
         egui_extras::install_image_loaders(&ctx);
         ctx.add_bytes_loader(Arc::new(loader.clone()));
-        let uri = "sonic:art:64:decoded";
-        let mut encoded = std::io::Cursor::new(Vec::new());
-        image::RgbImage::from_pixel(64, 32, image::Rgb([20, 30, 40]))
-            .write_to(&mut encoded, image::ImageFormat::Png)
-            .unwrap();
-        let bytes: Arc<[u8]> = encoded.into_inner().into();
+        let uri = "sonic:art:64:painted";
+        cached_png(&loader, uri, [20, 30, 40]);
+        let bytes: Arc<[u8]> = std::fs::read(loader.inner.cache_path(uri)).unwrap().into();
         loader.inner.entries.lock().unwrap().insert(
             uri.into(),
             Entry::Ready {
@@ -1047,17 +1583,35 @@ mod tests {
                 last_used: Instant::now(),
             },
         );
+        let decoded_bytes = |ctx: &egui::Context| -> usize {
+            ctx.loaders()
+                .image
+                .lock()
+                .iter()
+                .map(|loader| loader.byte_size())
+                .sum()
+        };
+        let texture_ready = |ctx: &egui::Context| {
+            matches!(
+                ctx.try_load_texture(uri, COVER_TEXTURE, Default::default()),
+                Ok(egui::load::TexturePoll::Ready { .. })
+            )
+        };
         runtime.block_on(async {
             tokio::time::timeout(Duration::from_secs(10), async {
-                while !matches!(
-                    ctx.try_load_texture(uri, Default::default(), Default::default()),
-                    Ok(egui::load::TexturePoll::Ready { .. })
-                ) {
+                while !texture_ready(&ctx) {
                     tokio::time::sleep(Duration::from_millis(1)).await;
                 }
+                assert!(decoded_bytes(&ctx) > 0, "egui decoded the cover");
+                // What painting the cover does on the frame its texture appears.
+                assert!(loader.release_bytes(uri));
+                forget_decoded(&ctx, uri);
+                assert!(!loader.release_bytes(uri), "only the first frame releases");
+                assert_eq!(decoded_bytes(&ctx), 0, "the decoded copy is let go");
+                assert!(texture_ready(&ctx), "the texture stays");
+
                 let mut covers = SoftenedCovers::default();
                 loop {
-                    loader.release_bytes(uri);
                     let texture = covers.texture(&ctx, &loader, uri);
                     assert!(
                         matches!(
@@ -1067,18 +1621,34 @@ mod tests {
                         "softening must not restart the byte loader"
                     );
                     if let Some(texture) = texture {
-                        assert_eq!(texture.size(), [256, 128]);
+                        assert_eq!(texture.size(), [256, 256]);
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(1)).await;
                 }
                 assert!(covers.pending.is_empty());
-                assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
             })
             .await
-            .expect("decoded artwork produces a softened cover");
+            .expect("a painted cover is softened from the disk cache");
         });
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Artwork that cannot be read right now, offline say, is asked for
+    /// again a little later rather than given up on.
+    #[test]
+    fn softened_cover_retries_artwork_it_could_not_read() {
+        let ctx = egui::Context::default();
+        let mut covers = SoftenedCovers::default();
+        covers.pending.insert("offline".to_string());
+        covers
+            .ready_tx
+            .send(("offline".to_string(), Err("no network".to_string())))
+            .unwrap();
+        covers.receive_ready(&ctx);
+        assert!(covers.pending.is_empty());
+        assert!(!covers.failed.contains("offline"));
+        assert!(covers.retry_at.contains_key("offline"));
     }
 
     #[test]
@@ -1107,9 +1677,12 @@ mod tests {
         covers.pending.insert("broken".to_string());
         covers
             .ready_tx
-            .send(("ready".to_string(), Some(softened_test_image())))
+            .send(("ready".to_string(), Ok(Some(softened_test_image()))))
             .unwrap();
-        covers.ready_tx.send(("broken".to_string(), None)).unwrap();
+        covers
+            .ready_tx
+            .send(("broken".to_string(), Ok(None)))
+            .unwrap();
 
         covers.receive_ready(&ctx);
 
@@ -1139,7 +1712,7 @@ mod tests {
         covers.pending.insert("fresh".to_string());
         covers
             .ready_tx
-            .send(("fresh".to_string(), Some(softened_test_image())))
+            .send(("fresh".to_string(), Ok(Some(softened_test_image()))))
             .unwrap();
 
         covers.receive_ready(&ctx);
@@ -1167,9 +1740,6 @@ mod tests {
         assert!(covers.texture(&ctx, &loader, "nowhere:cover").is_none());
         assert!(covers.failed.contains("nowhere:cover"));
         assert!(covers.pending.is_empty());
-        assert!(!unsupported_art(&LoadError::Loading(
-            "temporary network failure".into()
-        )));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1431,7 +2001,7 @@ mod tests {
     }
 
     fn retained_total(loader: &ArtLoader) -> usize {
-        loader
+        let encoded: usize = loader
             .inner
             .entries
             .lock()
@@ -1441,13 +2011,23 @@ mod tests {
                 Entry::Ready { retained, .. } => *retained,
                 _ => 0,
             })
-            .sum()
+            .sum();
+        let textures: usize = loader
+            .inner
+            .textures
+            .lock()
+            .expect("lock")
+            .values()
+            .flat_map(HashMap::values)
+            .map(|copy| copy.bytes)
+            .sum();
+        encoded + textures
     }
 
     #[test]
-    fn large_covers_evict_using_decoded_and_texture_sizes() {
-        let one = decoded_and_texture_bytes(640, 640);
-        assert_eq!(one, 2 * 640 * 640 * 4);
+    fn large_covers_evict_using_texture_sizes() {
+        let one = texture_bytes(640, 640);
+        assert_eq!(one, 640 * 640 * 4 * 4 / 3);
         let jpeg = 50_000usize;
         let dir = std::env::temp_dir().join(format!(
             "fastsonic-art-budget-{}-{}",
@@ -1466,10 +2046,10 @@ mod tests {
             dir.clone(),
         );
         let now = Instant::now();
+        let url = |i: u64| format!("sonic:art:640:al-{i}");
         for i in 0..40 {
-            let url = format!("https://i.scdn.co/image/{i}");
             loader.inner.entries.lock().expect("lock").insert(
-                url,
+                url(i),
                 Entry::Ready {
                     bytes: Some(Arc::from(vec![0u8; jpeg])),
                     last_used: now - Duration::from_secs(40 - i),
@@ -1483,22 +2063,41 @@ mod tests {
             "JPEG-only covers must still fit the budget: {jpeg_total}"
         );
         for i in 0..40 {
-            let url = format!("https://i.scdn.co/image/{i}");
-            loader.release_bytes(&url);
-            loader.note_decoded(&url, 640, 640);
+            loader.release_bytes(&url(i));
+            assert!(loader.note_texture(&url(i), &scaled_uri(&url(i), 640), 640, 640));
         }
+        // The oldest cover was also painted from its 128 pixel request, an
+        // entry of its own that goes with it.
+        let small = "sonic:art:128:al-0";
+        loader.inner.entries.lock().expect("lock").insert(
+            small.into(),
+            Entry::Ready {
+                bytes: None,
+                last_used: now - Duration::from_secs(60),
+                retained: 0,
+            },
+        );
         let before = retained_total(&loader);
         assert_eq!(before, 40 * one);
         assert!(
             before > HELD_BYTES,
-            "decoded 640×640 covers plus textures must exceed 64 MiB: {before}"
+            "640×640 cover textures must exceed 64 MiB: {before}"
         );
+        // Copies were painted in the order the covers were last used.
+        for i in 0..40 {
+            let mut textures = loader.inner.textures.lock().expect("lock");
+            let copy = textures
+                .get_mut(artwork(&url(i)).as_ref())
+                .and_then(|copies| copies.get_mut(&scaled_uri(&url(i), 640)))
+                .expect("a copy");
+            copy.painted = now - Duration::from_secs(40 - i);
+        }
         let ctx = egui::Context::default();
         loader.evict(&ctx);
         let after = retained_total(&loader);
         assert!(
             after <= HELD_BYTES,
-            "eviction must bring retained decoded+texture bytes under budget: after={after}"
+            "eviction must bring retained texture bytes under budget: after={after}"
         );
         assert!(
             after < before,
@@ -1506,16 +2105,587 @@ mod tests {
         );
         let entries = loader.inner.entries.lock().expect("lock");
         assert!(
-            !entries.contains_key("https://i.scdn.co/image/0"),
+            !entries.contains_key(&url(0)),
             "the oldest scrolled-away cover must go first"
         );
+        assert!(!entries.contains_key(small), "with every size asked for");
         assert!(
-            entries.contains_key("https://i.scdn.co/image/39"),
+            entries.contains_key(&url(39)),
             "the cover just scrolled into view must stay"
         );
         drop(entries);
+        assert!(
+            !loader
+                .inner
+                .textures
+                .lock()
+                .expect("lock")
+                .contains_key(artwork(&url(0)).as_ref()),
+            "its scaled copies go with it"
+        );
         loader.forget_all();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scaled_cover_uris_round_trip_and_step_by_32_pixels() {
+        let url = "sonic:art:300:al-1";
+        let uri = scaled_uri(url, 96);
+        assert_eq!(parse_scaled(&uri), Some((url, 96)));
+        assert_eq!(parse_scaled(url), None, "the source itself is not scaled");
+        let signed = "http://host/share/img/JWT?size=300";
+        assert_eq!(parse_scaled(&scaled_uri(signed, 64)), Some((signed, 64)));
+        assert_eq!(parse_scaled("bytes://cover#fastsonic-px=96"), None);
+        assert_eq!(cover_pixels(44.0), 64);
+        assert_eq!(cover_pixels(64.0), 64);
+        assert_eq!(cover_pixels(65.5), 96);
+        assert_eq!(cover_pixels(0.0), 32);
+    }
+
+    /// Rule: a cover-art request is asked of the server at the size the
+    /// cover's pixels want, whatever size the model named, and the
+    /// requests of one cover at every size are one picture. A URL the
+    /// server handed over is fetched as it is.
+    #[test]
+    fn a_request_follows_the_pixels_and_stays_the_same_picture() {
+        assert_eq!(request_for("sonic:art:64:al-1", 44.0), "sonic:art:128:al-1");
+        assert_eq!(
+            request_for("sonic:art:640:al-1", 148.0),
+            "sonic:art:192:al-1"
+        );
+        assert!(matches!(
+            request_for("sonic:art:300:al-1", 212.0),
+            Cow::Borrowed(_)
+        ));
+        let signed = "http://host/share/img/JWT?size=300";
+        assert_eq!(request_for(signed, 44.0), signed);
+        assert_eq!(artwork("sonic:art:64:al-1"), artwork("sonic:art:640:al-1"));
+        assert_ne!(artwork("sonic:art:64:al-1"), artwork("sonic:art:64:al-2"));
+        assert_eq!(artwork(signed), signed);
+    }
+
+    /// A cover is scaled down with a filter that keeps fine detail, and
+    /// never up.
+    #[test]
+    fn covers_are_scaled_down_to_their_pixels_and_never_up() {
+        let stripes = image::RgbImage::from_fn(300, 150, |x, _| {
+            if x % 2 == 0 {
+                image::Rgb([0, 0, 0])
+            } else {
+                image::Rgb([255, 255, 255])
+            }
+        });
+        let small = scaled(stripes.clone().into(), 60);
+        assert_eq!(small.size, [60, 30]);
+        // Five stripes to a pixel average out to grey rather than landing on
+        // whichever stripe a plain sample would hit.
+        let [r, _, _, _] = small.pixels[15 * 60 + 30].to_srgba_unmultiplied();
+        assert!((100..=160).contains(&r), "{r}");
+        let same = scaled(stripes.into(), 640);
+        assert_eq!(same.size, [300, 150]);
+    }
+
+    /// Averaging a large cover down before the Lanczos filter changes the
+    /// picture by less than a level or two, on artwork full of fine lines
+    /// and edges, and the copy is the size asked for.
+    #[test]
+    fn a_large_reduction_averages_first_for_the_same_picture() {
+        let artwork = image::RgbImage::from_fn(640, 480, |x, y| {
+            let line = ((x + 2 * y) / 3) % 7 < 2;
+            let edge = x > 320 && y < 200;
+            let shade = (x * 255 / 640) as u8;
+            match (line, edge) {
+                (true, _) => image::Rgb([255, 255, 255]),
+                (false, true) => image::Rgb([200, 20, shade]),
+                (false, false) => image::Rgb([shade, 60, 90]),
+            }
+        });
+        let averaged = scaled(artwork.clone().into(), 64);
+        assert_eq!(averaged.size, [64, 48]);
+        let direct = image::DynamicImage::from(artwork)
+            .resize_exact(64, 48, image::imageops::FilterType::Lanczos3)
+            .to_rgba8();
+        let difference: f64 = averaged
+            .pixels
+            .iter()
+            .zip(direct.pixels())
+            .map(|(averaged, direct)| {
+                let averaged = averaged.to_srgba_unmultiplied();
+                (0..3)
+                    .map(|channel| {
+                        (f64::from(averaged[channel]) - f64::from(direct[channel])).abs()
+                    })
+                    .sum::<f64>()
+            })
+            .sum::<f64>()
+            / (64.0 * 48.0 * 3.0);
+        assert!(difference < 2.0, "mean difference {difference}");
+    }
+
+    fn scaling_ctx(loader: &ArtLoader) -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.add_bytes_loader(Arc::new(loader.clone()));
+        ctx.add_image_loader(Arc::new(loader.scaler()));
+        ctx
+    }
+
+    /// The same artwork wanted at two sizes, a sidebar row's and a page
+    /// header's: the row's copy, painted every frame, must not keep taking
+    /// the bytes the header's copy is reloading from the disk, or the
+    /// header stays blurry for good.
+    #[test]
+    fn a_second_size_of_painted_artwork_is_still_made() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-two-sizes-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = scaling_ctx(&loader);
+        let url = "http://music.example/share/img/two-sizes";
+        cached_png(&loader, url, [20, 30, 40]);
+        let palette = crate::theme::Palette::dark();
+        let small = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(32.0, 32.0));
+        let large = egui::Rect::from_min_size(egui::pos2(100.0, 0.0), egui::vec2(64.0, 64.0));
+        let frame = |ctx: &egui::Context, rects: &[egui::Rect]| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                for rect in rects {
+                    crate::ui::widgets::paint_cover(
+                        ui,
+                        &palette,
+                        Some(url),
+                        *rect,
+                        6.0,
+                        crate::theme::Icon::Music,
+                        Some(&loader),
+                    );
+                }
+            });
+            output.textures_delta.clear();
+        };
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while texture_named(&ctx, &scaled_uri(url, 32)).is_none() {
+                    frame(&ctx, &[small]);
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                while texture_named(&ctx, &scaled_uri(url, 64)).is_none() {
+                    frame(&ctx, &[small, large]);
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("both sizes are made");
+        });
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A panel resized from one size to the next leaves the copy at the
+    /// old size unpainted; it goes, even when the new size asked the server
+    /// for a new size too. Two sizes painted together, a row's and a page
+    /// header's, both stay, even after the window has sat idle for minutes,
+    /// as does a cover's only copy.
+    #[test]
+    fn copies_no_longer_painted_at_their_size_are_let_go() {
+        let now = Instant::now();
+        let copy = |ago: u64| PaintedCopy {
+            bytes: 1,
+            painted: now - Duration::from_secs(ago),
+        };
+        let resized = "sonic:art:300:resized";
+        let zoomed = "sonic:art:300:zoomed";
+        let shared = "sonic:art:300:shared";
+        let alone = "sonic:art:300:alone";
+        let idle = "sonic:art:300:idle";
+        let mut textures: Copies = HashMap::new();
+        textures.insert(
+            artwork(resized).into_owned(),
+            HashMap::from([
+                (scaled_uri(resized, 224), copy(30)),
+                (scaled_uri(resized, 256), copy(0)),
+            ]),
+        );
+        textures.insert(
+            artwork(zoomed).into_owned(),
+            HashMap::from([
+                (scaled_uri(zoomed, 224), copy(30)),
+                (scaled_uri("sonic:art:640:zoomed", 448), copy(0)),
+            ]),
+        );
+        textures.insert(
+            artwork(shared).into_owned(),
+            HashMap::from([
+                (scaled_uri("sonic:art:128:shared", 64), copy(1)),
+                (scaled_uri(shared, 224), copy(0)),
+            ]),
+        );
+        textures.insert(
+            artwork(alone).into_owned(),
+            HashMap::from([(scaled_uri(alone, 64), copy(600))]),
+        );
+        textures.insert(
+            artwork(idle).into_owned(),
+            HashMap::from([
+                (scaled_uri(idle, 64), copy(601)),
+                (scaled_uri(idle, 288), copy(600)),
+            ]),
+        );
+        let mut gone = superseded(&mut textures);
+        gone.sort();
+        assert_eq!(gone, [scaled_uri(resized, 224), scaled_uri(zoomed, 224)]);
+        assert_eq!(textures[artwork(resized).as_ref()].len(), 1);
+        assert_eq!(textures[artwork(zoomed).as_ref()].len(), 1);
+        assert_eq!(textures[artwork(shared).as_ref()].len(), 2);
+        assert_eq!(textures[artwork(alone).as_ref()].len(), 1);
+        assert_eq!(
+            textures[artwork(idle).as_ref()].len(),
+            2,
+            "painted together, then idle"
+        );
+    }
+
+    /// A new window's egui holds none of the old one's textures, so each
+    /// copy counts as new again, and its decoded image is let go of again.
+    #[test]
+    fn a_new_window_starts_without_copies() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-new-window-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let url = "sonic:art:128:window";
+        let uri = scaled_uri(url, 64);
+        assert!(loader.note_texture(url, &uri, 64, 64));
+        assert!(!loader.note_texture(url, &uri, 64, 64));
+        assert!(loader.has_copy("sonic:art:640:window"), "any size of it");
+        loader.forget_textures();
+        assert!(!loader.has_copy(url));
+        assert!(loader.note_texture(url, &uri, 64, 64));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The copy that stands in has the pixels asked for, or is the largest;
+    /// a copy counts at the size the server was asked for when that is
+    /// smaller, as it was never enlarged.
+    #[test]
+    fn the_nearest_copy_has_the_pixels_asked_for_or_is_the_largest() {
+        let url = "sonic:art:1280:nearest";
+        let copies = [64, 224, 320].map(|pixels| scaled_uri(url, pixels));
+        let nearest_to = |pixels| nearest(copies.iter().map(String::as_str), pixels);
+        assert_eq!(nearest_to(200), Some(copies[1].as_str()));
+        assert_eq!(nearest_to(224), Some(copies[1].as_str()));
+        assert_eq!(nearest_to(32), Some(copies[0].as_str()));
+        assert_eq!(nearest_to(640), Some(copies[2].as_str()), "none is enough");
+        assert_eq!(nearest_to(641), None, "the largest has under half");
+        assert_eq!(nearest(std::iter::empty(), 64), None);
+
+        let thumbnail = scaled_uri("sonic:art:64:nearest", 288);
+        let sharp = scaled_uri("sonic:art:300:nearest", 224);
+        let both = [thumbnail.as_str(), sharp.as_str()];
+        assert_eq!(
+            nearest(both.into_iter(), 288),
+            Some(sharp.as_str()),
+            "an enlarged thumbnail has only its own pixels"
+        );
+        assert_eq!(
+            nearest([thumbnail.as_str()].into_iter(), 288),
+            None,
+            "the softened thumbnail does better"
+        );
+    }
+
+    /// The textures `shapes` are painted with, besides the font atlas.
+    fn painted_textures(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::TextureId> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect) => rect.brush.as_ref().map(|brush| brush.fill_texture_id),
+                egui::Shape::Mesh(mesh) => Some(mesh.texture_id),
+                _ => None,
+            })
+            .filter(|texture| *texture != egui::TextureId::default())
+            .collect()
+    }
+
+    /// The texture egui made of the copy at `uri`, once it has.
+    fn texture_named(ctx: &egui::Context, uri: &str) -> Option<egui::TextureId> {
+        ctx.tex_manager()
+            .read()
+            .allocated()
+            .find(|(_, meta)| meta.name == uri)
+            .map(|(texture, _)| *texture)
+    }
+
+    /// Paints frames until egui has made each of `uris`, painting `paint`.
+    fn paint_until_made(
+        runtime: &tokio::runtime::Runtime,
+        ctx: &egui::Context,
+        uris: &[String],
+        mut paint: impl FnMut(&mut egui::Ui),
+    ) {
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while uris.iter().any(|uri| texture_named(ctx, uri).is_none()) {
+                    let mut output = ctx.run_ui(egui::RawInput::default(), &mut paint);
+                    output.textures_delta.clear();
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("the copies are made");
+        });
+    }
+
+    /// A cover drawn at a new size, which asks the server for a new size,
+    /// shows its copy at the old one while the new copy is made, rather
+    /// than the placeholder.
+    #[test]
+    fn a_cover_changing_size_keeps_its_picture_while_the_new_copy_is_made() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-resized-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = scaling_ctx(&loader);
+        let url = "sonic:art:300:resized";
+        // A 96 point cover asks for 128 pixels, a 148 point one for 192.
+        cached_png(&loader, "sonic:art:128:resized", [20, 30, 40]);
+        let palette = crate::theme::Palette::dark();
+        let at =
+            |size: f32| egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(size, size));
+        let cover = |ui: &mut egui::Ui, size: f32| {
+            crate::ui::widgets::paint_cover(
+                ui,
+                &palette,
+                Some(url),
+                at(size),
+                6.0,
+                crate::theme::Icon::Music,
+                Some(&loader),
+            );
+        };
+        let small = scaled_uri("sonic:art:128:resized", 96);
+        paint_until_made(&runtime, &ctx, std::slice::from_ref(&small), |ui| {
+            cover(ui, 96.0)
+        });
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| cover(ui, 148.0));
+        output.textures_delta.clear();
+        assert!(texture_named(&ctx, &scaled_uri("sonic:art:192:resized", 160)).is_none());
+        assert_eq!(
+            painted_textures(&output.shapes),
+            [texture_named(&ctx, &small).unwrap()],
+            "the small copy stands in"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A new song's cover still being made leaves the last song's showing.
+    #[test]
+    fn a_new_songs_cover_keeps_the_last_ones_place_until_it_is_made() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-next-song-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = scaling_ctx(&loader);
+        let [first, next] = ["sonic:art:64:first", "sonic:art:64:next"];
+        // A 56 point cover asks for 128 pixels.
+        cached_png(&loader, "sonic:art:128:first", [20, 30, 40]);
+        cached_png(&loader, "sonic:art:128:next", [200, 30, 40]);
+        let palette = crate::theme::Palette::dark();
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(56.0, 56.0));
+        let cover = |ui: &mut egui::Ui, url: &str| {
+            crate::ui::widgets::playing_cover(ui, &palette, &loader, "bar", Some(url), rect, 6.0);
+        };
+        let shown = scaled_uri("sonic:art:128:first", 64);
+        paint_until_made(&runtime, &ctx, std::slice::from_ref(&shown), |ui| {
+            cover(ui, first)
+        });
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| cover(ui, next));
+        output.textures_delta.clear();
+        assert_eq!(
+            painted_textures(&output.shapes),
+            [texture_named(&ctx, &shown).unwrap()],
+            "the last song's cover stays"
+        );
+        paint_until_made(
+            &runtime,
+            &ctx,
+            &[scaled_uri("sonic:art:128:next", 64)],
+            |ui| cover(ui, next),
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn png(rgb: [u8; 3]) -> Bytes {
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(64, 64, image::Rgb(rgb))
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        Bytes::Shared(Arc::from(encoded.into_inner()))
+    }
+
+    /// A fast scroll asks for many copies at once; only a few are made at
+    /// a time.
+    #[test]
+    fn only_a_few_covers_are_scaled_at_once() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-at-once-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        ctx.add_bytes_loader(Arc::new(loader.clone()));
+        let scaler = loader.scaler();
+        let uris: Vec<String> = (0..8)
+            .map(|index| {
+                let url = format!("sonic:art:64:scroll-{index}");
+                cached_png(&loader, &url, [index * 20, 30, 40]);
+                scaled_uri(&url, 32)
+            })
+            .collect();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let mut ready = 0;
+                    for uri in &uris {
+                        if let Ok(ImagePoll::Ready { .. }) =
+                            scaler.load(&ctx, uri, SizeHint::default())
+                        {
+                            ready += 1;
+                        }
+                    }
+                    let (workers, working) = {
+                        let state = scaler.state.lock().unwrap();
+                        let working = state
+                            .slots
+                            .values()
+                            .filter(|slot| matches!(slot, Slot::Working))
+                            .count();
+                        (state.workers, working)
+                    };
+                    assert!(workers <= SCALING_AT_ONCE, "{workers}");
+                    assert!(working <= SCALING_AT_ONCE, "{working}");
+                    if ready == uris.len() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("every copy is made in the end");
+        });
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A cover scrolled past before its turn is dropped rather than made,
+    /// while one still asked for is made. Asked for again, the dropped one
+    /// is made too.
+    #[test]
+    fn a_copy_nobody_asks_for_any_more_is_not_made() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let ctx = egui::Context::default();
+        let scaler = CoverScaler::new(runtime.handle().clone());
+        let [gone, shown] = [
+            scaled_uri("sonic:art:64:gone", 32),
+            scaled_uri("sonic:art:64:shown", 32),
+        ];
+        {
+            let mut state = scaler.state.lock().unwrap();
+            let waiting = |ago: Duration| Slot::Waiting {
+                asked: Instant::now() - ago,
+                bytes: png([20, 30, 40]),
+                pixels: 32,
+            };
+            state.slots.insert(gone.clone(), waiting(SCALING_STALE * 2));
+            state.slots.insert(shown.clone(), waiting(Duration::ZERO));
+            state.workers = 1;
+        }
+        scale_waiting(&scaler.state, &ctx);
+        let state = scaler.state.lock().unwrap();
+        assert!(!state.slots.contains_key(&gone), "dropped, not made");
+        assert!(matches!(
+            state.slots.get(&shown),
+            Some(Slot::Ready { result: Ok(_), .. })
+        ));
+        assert_eq!(state.workers, 0, "the worker is done");
+        drop(state);
+
+        let dir =
+            std::env::temp_dir().join(format!("fastsonic-asked-again-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        ctx.add_bytes_loader(Arc::new(loader.clone()));
+        cached_png(&loader, "sonic:art:64:gone", [20, 30, 40]);
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !matches!(
+                    scaler.load(&ctx, &gone, SizeHint::default()),
+                    Ok(ImagePoll::Ready { .. })
+                ) {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("asked for again, it is made");
+        });
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A copy made after its cover left the screen, which no frame asks
+    /// for, is let go of at the end of a pass; one just made, or asked for,
+    /// is kept for egui to make its texture.
+    #[test]
+    fn a_made_copy_nobody_asks_for_is_let_go() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let scaler = CoverScaler::new(runtime.handle().clone());
+        let made = |ago: Duration| Slot::Ready {
+            result: Err("made".to_string()),
+            asked: Instant::now() - ago,
+        };
+        let [gone, fresh] = [
+            scaled_uri("sonic:art:64:gone", 32),
+            scaled_uri("sonic:art:64:fresh", 32),
+        ];
+        {
+            let mut state = scaler.state.lock().unwrap();
+            state.slots.insert(gone.clone(), made(SCALING_STALE * 2));
+            state.slots.insert(fresh.clone(), made(Duration::ZERO));
+        }
+        scaler.end_pass(1);
+        let state = scaler.state.lock().unwrap();
+        assert!(!state.slots.contains_key(&gone));
+        assert!(state.slots.contains_key(&fresh));
+    }
+
+    /// The scaler makes the copy off the UI thread from the artwork
+    /// loader's bytes, and holds it only until it is forgotten.
+    #[test]
+    fn the_scaler_makes_a_copy_from_the_artwork_loader() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-scaler-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        ctx.add_bytes_loader(Arc::new(loader.clone()));
+        let scaler = loader.scaler();
+        let url = "sonic:art:64:scaled";
+        cached_png(&loader, url, [20, 30, 40]);
+        let uri = scaled_uri(url, 32);
+        assert!(matches!(
+            scaler.load(&ctx, url, SizeHint::default()),
+            Err(LoadError::NotSupported)
+        ));
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match scaler.load(&ctx, &uri, SizeHint::default()) {
+                        Ok(ImagePoll::Ready { image }) => {
+                            assert_eq!(image.size, [32, 32]);
+                            break;
+                        }
+                        Ok(ImagePoll::Pending { .. }) => {}
+                        Err(error) => panic!("{error}"),
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("the scaled copy is made");
+        });
+        assert_eq!(scaler.byte_size(), 32 * 32 * 4);
+        scaler.forget(&uri);
+        assert_eq!(scaler.byte_size(), 0);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

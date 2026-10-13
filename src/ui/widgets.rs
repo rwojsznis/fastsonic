@@ -78,12 +78,15 @@ pub(super) fn paint_cover_with_thumbnail(
         return;
     }
     let corner = CornerRadius::same(radius.min(127.0) as u8);
-    let loaded = sources
-        .requested
-        .is_some_and(|url| paint_cover_url(ui, url, rect, corner, art))
-        || sources
-            .previous
-            .is_some_and(|url| paint_ready_cover_url(ui, url, rect, corner, art))
+    let at = |url| CoverAt { url, rect, corner };
+    // A copy at this size, or while it is made, the nearest copy of the
+    // same artwork already on the GPU.
+    let loaded = sources.requested.is_some_and(|url| {
+        paint_cover_url(ui, at(url), art, Asked::ForThePixels)
+            || paint_nearest_copy(ui, at(url), art)
+    }) || sources
+        .previous
+        .is_some_and(|url| paint_ready_cover_url(ui, at(url), art))
         || sources.softened.is_some_and(|texture| {
             paint_cover_texture(
                 ui,
@@ -95,7 +98,7 @@ pub(super) fn paint_cover_with_thumbnail(
         })
         || sources
             .thumbnail
-            .is_some_and(|url| paint_cover_url(ui, url, rect, corner, art));
+            .is_some_and(|url| paint_cover_url(ui, at(url), art, Asked::AsGiven));
     if !loaded {
         let painter = ui.painter();
         let fill = if palette.dark {
@@ -113,39 +116,203 @@ pub(super) fn paint_cover_with_thumbnail(
     }
 }
 
-/// Paints `url` only if it is already loaded, without asking for it.
-fn paint_ready_cover_url(
-    ui: &Ui,
-    url: &str,
+/// A cover to paint: its artwork, where it goes, and its corners.
+#[derive(Clone, Copy)]
+struct CoverAt<'a> {
+    url: &'a str,
     rect: Rect,
     corner: CornerRadius,
-    art: Option<&crate::images::ArtLoader>,
-) -> bool {
-    art.is_some_and(|art| art.is_ready(url)) && paint_cover_url(ui, url, rect, corner, art)
 }
 
-fn paint_cover_url(
+/// What a cover-art request asks the server for.
+#[derive(Clone, Copy)]
+enum Asked {
+    /// The size that suits the pixels the cover covers.
+    ForThePixels,
+    /// The size it names: a thumbnail standing in, drawn from what it is.
+    AsGiven,
+}
+
+/// Paints `cover`'s artwork only if it needs no wait on the network: a
+/// copy already on the GPU, or one made from bytes already loaded.
+fn paint_ready_cover_url(
     ui: &Ui,
-    url: &str,
-    rect: Rect,
-    corner: CornerRadius,
+    cover: CoverAt<'_>,
     art: Option<&crate::images::ArtLoader>,
 ) -> bool {
-    if let Some(art) = art {
-        art.touch(url);
+    art.is_some_and(|art| art.is_ready(cover.url))
+        && paint_cover_url(ui, cover, art, Asked::AsGiven)
+        || paint_nearest_copy(ui, cover, art)
+}
+
+/// The pixels `rect` covers on the display, along its longer side.
+fn drawn_pixels(ui: &Ui, rect: Rect) -> f32 {
+    rect.width().max(rect.height()) * ui.ctx().pixels_per_point()
+}
+
+/// Paints the copy of `cover`'s artwork already on the GPU that is nearest
+/// the size it is drawn at, without asking for one to be made. The artwork
+/// loader's bytes may be on their way back from the disk, or from the
+/// server at another size, meanwhile; the copy is the texture egui already
+/// holds.
+fn paint_nearest_copy(ui: &Ui, cover: CoverAt<'_>, art: Option<&crate::images::ArtLoader>) -> bool {
+    let Some(art) = art else {
+        return false;
+    };
+    let pixels = crate::images::cover_pixels(drawn_pixels(ui, cover.rect));
+    let Some(uri) = art.nearest_copy(cover.url, pixels) else {
+        return false;
+    };
+    let image = egui::Image::new(uri.as_str())
+        .texture_options(crate::images::COVER_TEXTURE)
+        .show_loading_spinner(false);
+    let Ok(egui::load::TexturePoll::Ready { texture }) =
+        image.load_for_size(ui.ctx(), cover.rect.size())
+    else {
+        return false;
+    };
+    let [width, height] = [texture.size.x, texture.size.y].map(|side| side.round() as usize);
+    art.note_texture(cover.url, &uri, width, height);
+    paint_cover_texture(ui, texture, cover.rect, cover.corner);
+    true
+}
+
+/// How long after it was last the playing song's the last song's cover may
+/// stand in for the next one's: long enough for a cover to load, short enough
+/// that one which cannot be had, or a song after a gap, shows the placeholder.
+const PLAYING_COVER_HOLD: f64 = 2.0;
+
+/// The playing song's cover last shown whole in one place, and the input
+/// time it was last the one asked for there.
+#[derive(Clone)]
+struct ShownCover {
+    url: std::sync::Arc<str>,
+    seen: f64,
+}
+
+/// The cover that stands in for `url`'s while it loads: the last one shown,
+/// if it was another song's and it was the one asked for a moment ago.
+fn stand_in(
+    shown: Option<&ShownCover>,
+    url: Option<&str>,
+    now: f64,
+) -> Option<std::sync::Arc<str>> {
+    let shown = shown?;
+    (url.is_some_and(|url| *shown.url != *url) && now - shown.seen < PLAYING_COVER_HOLD)
+        .then(|| std::sync::Arc::clone(&shown.url))
+}
+
+/// The playing song's artwork for a cover drawn `points` wide: the small
+/// rendition while it is sharp enough, the large one once the display needs
+/// more pixels than the small one has. A cover-art request is asked of the
+/// server at the size the cover needs either way; this matters for artwork
+/// that is a URL.
+pub fn playing_art<'a>(
+    ui: &Ui,
+    small: Option<&'a str>,
+    large: Option<&'a str>,
+    points: f32,
+) -> Option<&'a str> {
+    let pixels = points * ui.ctx().pixels_per_point();
+    if crate::api::subsonic::convert::art_request_size(pixels)
+        > crate::api::subsonic::convert::ART_REQUEST_SIZES[0]
+    {
+        large.or(small)
+    } else {
+        small.or(large)
     }
-    let image = egui::Image::new(url).show_loading_spinner(false);
+}
+
+/// Paints the playing song's cover. A new song's cover still being made
+/// keeps the last song's in its place for a moment, so a change of song
+/// does not pass through the placeholder. `key` tells apart the places that
+/// show it.
+pub fn playing_cover(
+    ui: &Ui,
+    palette: &Palette,
+    art: &crate::images::ArtLoader,
+    key: &str,
+    url: Option<&str>,
+    rect: Rect,
+    radius: f32,
+) {
+    let id = egui::Id::new(("playing-cover", key));
+    let now = ui.input(|input| input.time);
+    let shown = ui.ctx().data(|data| data.get_temp::<ShownCover>(id));
+    let previous = stand_in(shown.as_ref(), url, now);
+    paint_cover_with_thumbnail(
+        ui,
+        palette,
+        CoverSources {
+            requested: url,
+            previous: previous.as_deref(),
+            ..Default::default()
+        },
+        rect,
+        radius,
+        Icon::Music,
+        Some(art),
+    );
+    // Remembered while its own cover has a copy, from the frame it shows.
+    if let Some(url) = url
+        && art.has_copy(url)
+    {
+        let url = match shown {
+            Some(shown) if *shown.url == *url => shown.url,
+            _ => std::sync::Arc::from(url),
+        };
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(id, ShownCover { url, seen: now }));
+    }
+}
+
+/// Paints `cover`'s artwork from a copy scaled on the CPU to the pixels it
+/// covers, so the GPU holds no more than the screen shows and fine detail
+/// survives. A cover-art request is first asked of the server at the size
+/// those pixels want, unless `asked` says otherwise. Artwork the loader
+/// does not fetch is drawn as it is.
+fn paint_cover_url(
+    ui: &Ui,
+    cover: CoverAt<'_>,
+    art: Option<&crate::images::ArtLoader>,
+    asked: Asked,
+) -> bool {
+    let CoverAt { url, rect, corner } = cover;
+    let pixels = drawn_pixels(ui, rect);
+    let source = match asked {
+        Asked::ForThePixels => crate::images::request_for(url, pixels),
+        Asked::AsGiven => std::borrow::Cow::Borrowed(url),
+    };
+    if let Some(art) = art {
+        art.touch(&source);
+    }
+    let scaled = crate::images::handled(&source)
+        .then(|| crate::images::scaled_uri(&source, crate::images::cover_pixels(pixels)));
+    let uri = scaled.as_deref().unwrap_or(&source);
+    let image = egui::Image::new(uri)
+        .texture_options(crate::images::COVER_TEXTURE)
+        .show_loading_spinner(false);
     let Ok(egui::load::TexturePoll::Ready { texture }) = image.load_for_size(ui.ctx(), rect.size())
     else {
         return false;
     };
-    if let Some(art) = art {
-        art.release_bytes(url);
-        art.note_decoded(
-            url,
-            texture.size.x.round() as usize,
-            texture.size.y.round() as usize,
-        );
+    match art {
+        Some(art) => {
+            let [width, height] =
+                [texture.size.x, texture.size.y].map(|side| side.round() as usize);
+            // Only on the frame this copy's texture first appears: the same
+            // artwork can be wanted at another size, a row's and a page
+            // header's, and releasing the bytes on every frame of the one
+            // already made would snatch them from the other each time they
+            // came back from the disk, so it never got made.
+            if art.note_texture(&source, uri, width, height) {
+                art.release_bytes(&source);
+                crate::images::forget_decoded(ui.ctx(), uri);
+            }
+        }
+        // Nothing tracks this cover's copies, so let go of the decoded one
+        // as soon as egui holds the texture.
+        None => crate::images::forget_decoded(ui.ctx(), uri),
     }
     paint_cover_texture(ui, texture, rect, corner);
     true
@@ -2632,6 +2799,100 @@ pub fn setting_row_sized(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The last song's cover stands in for the next one's only right after
+    /// the change: not for a song without art, not after a gap, and not for
+    /// good when the new cover cannot be had.
+    #[test]
+    fn the_last_songs_cover_stands_in_only_for_a_moment() {
+        let shown = ShownCover {
+            url: std::sync::Arc::from("sonic:art:64:a"),
+            seen: 10.0,
+        };
+        let next = Some("sonic:art:64:c");
+        assert_eq!(
+            stand_in(Some(&shown), next, 10.5).as_deref(),
+            Some("sonic:art:64:a")
+        );
+        assert_eq!(
+            stand_in(Some(&shown), None, 10.5),
+            None,
+            "a song without art"
+        );
+        assert_eq!(stand_in(Some(&shown), Some("sonic:art:64:a"), 10.5), None);
+        assert_eq!(
+            stand_in(Some(&shown), next, 10.0 + PLAYING_COVER_HOLD),
+            None,
+            "too late"
+        );
+        assert_eq!(stand_in(None, next, 10.5), None);
+    }
+
+    /// Covers are painted below their pixel size while a larger copy
+    /// stands in, so they are sampled through mipmaps: without them the
+    /// edges stair-step and fine detail turns to grain.
+    #[test]
+    fn covers_are_uploaded_with_mipmaps() {
+        let ctx = egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(64, 64, image::Rgb([20, 30, 40]))
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        let uri = "bytes://mipmapped-cover.png";
+        ctx.include_bytes(uri, encoded.into_inner());
+        let palette = theme::Palette::dark();
+        let started = std::time::Instant::now();
+        while !ctx
+            .tex_manager()
+            .read()
+            .allocated()
+            .any(|(_, meta)| meta.name == uri)
+        {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(10),
+                "the cover never loaded"
+            );
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(148.0, 148.0));
+                paint_cover(ui, &palette, Some(uri), rect, 6.0, Icon::Music, None);
+            });
+            output.textures_delta.clear();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let manager = ctx.tex_manager();
+        let manager = manager.read();
+        let (_, meta) = manager
+            .allocated()
+            .find(|(_, meta)| meta.name == uri)
+            .unwrap();
+        assert_eq!(meta.options, crate::images::COVER_TEXTURE);
+        assert_eq!(meta.options.mipmap_mode, Some(egui::TextureFilter::Linear));
+    }
+
+    /// The playing song's artwork follows the display: the small rendition
+    /// while the cover is small enough to hide its compression, the large
+    /// one once it is not, and whichever there is when there is one.
+    #[test]
+    fn the_playing_art_is_the_large_rendition_once_the_small_one_is_short() {
+        let ctx = egui::Context::default();
+        let frame = |pixels_per_point: f32, pick: &mut dyn FnMut(&Ui)| {
+            ctx.set_pixels_per_point(pixels_per_point);
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| pick(ui));
+            output.textures_delta.clear();
+        };
+        let mut chosen = Vec::new();
+        for (pixels_per_point, points) in [(1.0, 24.0), (1.0, 56.0), (2.0, 24.0)] {
+            frame(pixels_per_point, &mut |ui| {
+                chosen.push(playing_art(ui, Some("small"), Some("large"), points));
+            });
+        }
+        assert_eq!(chosen, [Some("small"), Some("large"), Some("large")]);
+        frame(1.0, &mut |ui| {
+            assert_eq!(playing_art(ui, None, Some("large"), 24.0), Some("large"));
+            assert_eq!(playing_art(ui, Some("small"), None, 400.0), Some("small"));
+        });
+    }
 
     fn named(uri: &str, name: &str) -> PlayableItem {
         PlayableItem::Track(crate::api::models::Track {
