@@ -734,6 +734,10 @@ pub struct DragTrack {
     pub from: Option<(String, u32)>,
     /// The "Playing next" row it was picked up from, for moves within it.
     pub queued: Option<usize>,
+    /// The editable playlist the rows were dragged from, however many there
+    /// are. Several rows have no `from`, and dropping them back into their
+    /// own playlist must not add copies of them.
+    pub source_playlist: Option<String>,
 }
 
 impl DragTrack {
@@ -744,6 +748,7 @@ impl DragTrack {
             items: vec![item.clone()],
             from,
             queued: None,
+            source_playlist: None,
         }
     }
 

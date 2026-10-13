@@ -1294,17 +1294,19 @@ fn track_row_contents(
     // Start a sidebar drag only after egui's drag threshold.
     if response.drag_started_by(egui::PointerButton::Primary) {
         let items = dragged_items(row.item, row.picked, row.picked_songs);
+        let source_playlist = match row.context {
+            RowContext::Context {
+                editable_playlist: Some((id, _)),
+                ..
+            } => Some(id.clone()),
+            _ => None,
+        };
         // Keep the source index for moves within an editable playlist; a
         // selection is copied, never moved.
-        let from = (items.len() == 1)
-            .then(|| match row.context {
-                RowContext::Context {
-                    editable_playlist: Some((id, _)),
-                    ..
-                } => Some((id.clone(), row.index as u32)),
-                _ => None,
-            })
-            .flatten();
+        let from = source_playlist
+            .clone()
+            .filter(|_| items.len() == 1)
+            .map(|id| (id, row.index as u32));
         // A lone "Playing next" row can move within that section too.
         let queued = (items.len() == 1
             && matches!(row.context, RowContext::Queue)
@@ -1313,6 +1315,7 @@ fn track_row_contents(
         let mut track = DragTrack::song(items.first().unwrap_or(row.item), from);
         track.items = items;
         track.queued = queued;
+        track.source_playlist = source_playlist;
         egui::DragAndDrop::set_payload(ui.ctx(), track);
     }
     // A queue row is a position, not the song itself: the same song can

@@ -49,7 +49,8 @@ however you picked it, and the chip under the pointer names the first song
 and counts the rest. Drop it on a sidebar playlist to append, between the rows
 of another playlist you can edit to insert, or on Liked Songs to star every
 song. Dragging a row that is not picked carries that song alone, and moving
-rows within a playlist still moves one song at a time.
+rows within a playlist still moves one song at a time: a selection dropped
+back between the rows of its own playlist stays where it was.
 
 ## Keyboard input
 

@@ -5304,6 +5304,19 @@ mod tests {
             total.map(|total| total + 1)
         );
 
+        // Several of the playlist's own songs dropped back between its
+        // rows have no one row to move, and must not come back as copies.
+        app.playlist_busy = false;
+        let mut own = DragTrack::song(&song(&expected[0], "First"), None);
+        own.items.push(song(&expected[1], "Second"));
+        own.source_playlist = Some("pl1".into());
+        drop_at(&ctx, &mut app, landed, own);
+        assert!(
+            !app.playlist_busy,
+            "a selection dropped back into its own playlist was added again"
+        );
+        assert_eq!(order(&app), expected);
+
         app.table_sorts.insert(
             Page::Playlist("pl1".into()),
             TableSort {
@@ -5402,6 +5415,11 @@ mod tests {
             .collect();
         assert_eq!(names, [rows[0].0.clone(), rows[2].0.clone()]);
         assert_eq!(payload.from, None, "a selection is copied, not moved");
+        assert_eq!(
+            payload.source_playlist.as_deref(),
+            Some("pl1"),
+            "the selection remembers the playlist it left"
+        );
         egui::DragAndDrop::clear_payload(&ctx);
         app.backend.shutdown();
     }
