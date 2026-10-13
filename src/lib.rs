@@ -37,6 +37,7 @@ pub mod notch;
 pub mod opener;
 pub mod opus;
 pub mod paths;
+pub mod power;
 pub mod resample;
 pub mod settings;
 pub mod single_instance;

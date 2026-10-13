@@ -259,6 +259,13 @@ window or switching to the Winamp window creates its controls again. Media
 keys and the system's now-playing controls keep working while the window is
 closed.
 
+While nobody can see the window (minimised, closed to the tray, the display
+off or the screen locked), Fastsonic asks Windows to run it in efficiency
+mode, on efficient cores at efficient clocks, and hands the choice back as
+soon as the window shows again. The thread that feeds the sound card keeps
+its priority, so playback is not affected. If you set efficiency mode
+yourself in Task Manager, Fastsonic leaves it alone.
+
 ## Recent plays
 
 The queue panel's second tab combines the server's recent songs with tracks

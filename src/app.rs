@@ -96,7 +96,9 @@ pub struct NowPlaying {
 /// How the application is being started.
 #[derive(Clone, Copy, Debug)]
 pub struct AppOptions {
-    /// Register the MPRIS media-control service (Linux).
+    /// Register the media-control service (MPRIS on Linux), follow the
+    /// desktop's light or dark preference (Linux) and follow the system's
+    /// power and session state.
     pub media_controls: bool,
     /// Register the system-tray item (Linux).
     pub tray: bool,
@@ -136,6 +138,11 @@ pub struct App {
     /// every frame, so the answer is kept until the artwork changes.
     media_art: Option<(String, PathBuf)>,
     tray: Option<TrayService>,
+    /// The system's power and session state.
+    power: crate::power::Power,
+    /// What the app may spend on drawing, from the power state and the
+    /// window's; worked out in each logic pass.
+    pub budget: crate::power::Budget,
     pub window_hidden: bool,
     /// The window should close but the process should stay in the tray.
     pub hide_intent: bool,
@@ -475,6 +482,12 @@ impl App {
             .tray
             .then(|| TrayService::spawn(move || wake.wake()))
             .flatten();
+        let power = if options.media_controls {
+            let wake = waker.clone();
+            crate::power::Power::spawn(move || wake.wake())
+        } else {
+            crate::power::Power::fixed(crate::power::Conditions::default())
+        };
 
         let first_page = session
             .last_page
@@ -497,6 +510,8 @@ impl App {
             system_appearance,
             media_art: None,
             tray,
+            power,
+            budget: crate::power::Budget::default(),
             window_hidden: false,
             hide_intent: false,
             wants_show: false,
@@ -5380,6 +5395,7 @@ impl App {
         self.handle_events();
         self.handle_media_commands();
         self.sync_motion(ctx);
+        self.sync_power(ctx);
         self.handle_tray();
         #[cfg(target_os = "macos")]
         self.handle_dock_menu();
@@ -5466,6 +5482,32 @@ impl App {
     fn note_close_request(&mut self, close_requested: bool, hides_to_tray: bool) {
         if close_requested && !self.quit_requested && !self.switch_intent && hides_to_tray {
             self.hide_intent = true;
+        }
+    }
+
+    /// Follows the system's power and session state: works out the budget
+    /// for drawing, and saves before the system sleeps or the session ends.
+    fn sync_power(&mut self, ctx: &egui::Context) {
+        let shown =
+            !self.window_hidden && !ctx.input(|input| input.viewport().minimized.unwrap_or(false));
+        let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
+        let budget = crate::power::budget(self.power.conditions(), shown, focused);
+        if budget != self.budget {
+            log::debug!("budget: {budget:?}");
+            self.budget = budget;
+            self.power
+                .set_background(budget == crate::power::Budget::Background);
+        }
+        for event in self.power.events() {
+            use crate::power::Event;
+            match event {
+                Event::Suspending(ack) | Event::EndingSession(ack) => {
+                    self.save_state();
+                    self.save_plays();
+                    ack.done();
+                }
+                Event::Resumed => {}
+            }
         }
     }
 
@@ -10165,6 +10207,61 @@ mod tests {
         );
         app.local_ready = true;
         app
+    }
+
+    /// Before the system sleeps or the session ends, the session and the
+    /// play history reach the disk, and only then is the system let go.
+    #[test]
+    fn the_system_going_to_sleep_saves_the_session_and_the_history() {
+        use crate::power::{Ack, Event};
+        for make in [Event::Suspending, Event::EndingSession] {
+            let mut app = headless_app();
+            let ctx = egui::Context::default();
+            app.plays.record(
+                Track {
+                    uri: "sonic:track:a".into(),
+                    ..Track::default()
+                },
+                "2026-09-01T09:00:00Z".parse().unwrap(),
+            );
+            app.session_dirty = true;
+            let ack = Ack::default();
+            app.power.send(make(ack.clone()));
+            app.sync_power(&ctx);
+            assert!(ack.answered(), "the system was held back for nothing");
+            assert!(!app.session_dirty);
+            assert!(app.dirs.session_file().exists());
+            let history = crate::history::History::load(&app.dirs.history_file());
+            assert_eq!(history.plays().len(), 1);
+            let _ = std::fs::remove_dir_all(app.dirs.state.parent().unwrap());
+        }
+    }
+
+    /// A window in the tray, minimised, behind the lock screen or on a
+    /// display that is off is seen by nobody: nothing is drawn for it.
+    #[test]
+    fn nobody_sees_a_window_in_the_tray_or_behind_the_lock_screen() {
+        use crate::power::{Budget, Conditions};
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.sync_power(&ctx);
+        assert_eq!(app.budget, Budget::Normal);
+        app.window_hidden = true;
+        app.sync_power(&ctx);
+        assert_eq!(app.budget, Budget::Background, "in the tray");
+        app.window_hidden = false;
+        app.power.set_conditions(Conditions {
+            locked: true,
+            ..Conditions::default()
+        });
+        app.sync_power(&ctx);
+        assert_eq!(app.budget, Budget::Background, "locked");
+        app.power.set_conditions(Conditions {
+            saver: true,
+            ..Conditions::default()
+        });
+        app.sync_power(&ctx);
+        assert_eq!(app.budget, Budget::Saver, "saving energy");
     }
 
     /// Two toggles in one batch must see each other, not the frame snapshot.

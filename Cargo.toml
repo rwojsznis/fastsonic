@@ -126,9 +126,10 @@ objc2 = { version = "0.6", features = ["exception"] }
 # position is still on (src/window.rs). NSWorkspace, with its
 # NSAccessibility methods, answers whether Reduce motion is on
 # (src/motion.rs). The panel, views, controls and drawing are the
-# MacBook notch's Now Playing card (src/mac_notch.rs).
+# MacBook notch's Now Playing card (src/mac_notch.rs). NSProcessInfo reads
+# Low Power Mode (src/power/macos.rs).
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSAccessibilityProtocols", "NSAnimation", "NSAnimationContext", "NSApplication", "NSBezierPath", "NSButton", "NSCell", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSImageCell", "NSImageView", "NSMenu", "NSMenuItem", "NSPanel", "NSParagraphStyle", "NSResponder", "NSRunningApplication", "NSScreen", "NSText", "NSTextField", "NSTrackingArea", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDate", "NSGeometry", "NSObjCRuntime", "NSRunLoop", "NSString", "NSUserDefaults"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDate", "NSGeometry", "NSObjCRuntime", "NSProcessInfo", "NSRunLoop", "NSString", "NSUserDefaults"] }
 # The notch card's icons are the app's own SVGs, drawn to PNG for AppKit,
 # which reads SVG only on recent releases. Already compiled for egui_extras'
 # SVG loader, so this adds no code to the build.
@@ -152,7 +153,10 @@ eframe = { version = "0.36", default-features = false, features = ["accesskit", 
 
 [target.'cfg(windows)'.dependencies]
 # A hidden window for the media controls to belong to, and message loops.
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# Power, session and network state (src/power/windows.rs): power settings,
+# sleep and wake, the session lock, the network's reach and cost, EcoQoS,
+# and MMCSS for the thread that feeds the audio device.
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Power", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", features = ["blocking"] }

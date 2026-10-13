@@ -27,6 +27,12 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 `%LOCALAPPDATA%\\github.rwojsznis\\fastsonic\\data`, and caches use the sibling
 `cache` directory.
 
+The session and the play history are also written just before the computer
+sleeps (Linux and Windows) and when you sign out or shut down (Windows). On
+Linux, Fastsonic takes a short logind "delay" lock for this, listed by
+`systemd-inhibit --list`; inside Flatpak it needs
+`--system-talk-name=org.freedesktop.login1`.
+
 `session.json` also keeps the window's size and position. A window left
 maximized or full screen reopens that way; the remembered size and position
 describe an ordinary window and are not applied to one that already fills the

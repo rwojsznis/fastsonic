@@ -145,6 +145,9 @@ fn build_stream(
         device.build_output_stream::<T, _, _>(
             config,
             move |data: &mut [T], _| {
+                // Keeps its priority while the app runs under EcoQoS.
+                #[cfg(windows)]
+                crate::power::join_audio_task();
                 for out in data {
                     *out = source.next().map(T::from_sample_).unwrap_or(T::EQUILIBRIUM);
                 }
