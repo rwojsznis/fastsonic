@@ -258,7 +258,13 @@ pub fn actions_row(
                 } else {
                     palette.secondary
                 },
-                palette.text,
+                // Keep shuffle green under the pointer, or turning it on
+                // looks like nothing happened until the pointer leaves.
+                if shuffle {
+                    palette.accent_hover
+                } else {
+                    palette.text
+                },
                 if shuffle { "Shuffle off" } else { "Shuffle" },
             )
             .clicked()
@@ -267,20 +273,23 @@ pub fn actions_row(
             }
         }
         if let Some((uri, saved)) = &actions.saved {
-            let (icon, tooltip, color) = if *saved {
+            // A saved button stays green under the pointer, like shuffle.
+            let (icon, tooltip, color, hover) = if *saved {
                 (
                     actions.saved_icons.1,
                     actions.saved_tooltips.1,
                     palette.accent,
+                    palette.accent_hover,
                 )
             } else {
                 (
                     actions.saved_icons.0,
                     actions.saved_tooltips.0,
                     palette.secondary,
+                    palette.text,
                 )
             };
-            if theme::icon_button(ui, icon, 26.0, color, palette.text, tooltip).clicked() {
+            if theme::icon_button(ui, icon, 26.0, color, hover, tooltip).clicked() {
                 app.actions.push(Action::ToggleSaved(uri.clone()));
             }
         }

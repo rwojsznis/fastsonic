@@ -3650,6 +3650,89 @@ mod tests {
         }
     }
 
+    /// A toggle that is on stays green under the pointer: the header's
+    /// shuffle and saved buttons, a liked song's heart on its row and in the
+    /// player bar. Turning white or black on hover made a click look as if
+    /// it had done nothing until the pointer moved away.
+    #[test]
+    fn toggles_that_are_on_stay_green_while_hovered() {
+        // alb0 is saved, and its first song is liked and playing.
+        type Pick = fn(&egui::accesskit::Rect) -> bool;
+        let targets: [(&str, &str, Pick); 4] = [
+            ("shuffle", "Shuffle off", |b| b.y1 < 700.0),
+            ("album header", "Remove from Your Library", |_| true),
+            ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
+            ("player bar", "Remove from Liked Songs", |b| b.y0 > 700.0),
+        ];
+        for theme in ["dark", "light"] {
+            for (place, label, pick) in targets {
+                let (ctx, mut app) = accessible_app(&format!("on-hover-{theme}-{place}"));
+                app.open(Page::Album("alb0".into()));
+                app.apply(Action::SetShuffle(true), &ctx);
+                app.settings.theme = if theme == "light" {
+                    crate::settings::ThemeChoice::Light
+                } else {
+                    crate::settings::ThemeChoice::Dark
+                };
+                app.actions.push(Action::SettingsChanged);
+                let mut frame = |events| {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(1280.0, 800.0),
+                            )),
+                            events,
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    output
+                };
+                frame(vec![]);
+                let tree = frame(vec![])
+                    .platform_output
+                    .accesskit_update
+                    .expect("screen-reader tree");
+                let bounds = tree
+                    .nodes
+                    .iter()
+                    .filter(|(_, node)| {
+                        node.label() == Some(label) && node.role() == egui::accesskit::Role::Button
+                    })
+                    .filter_map(|(_, node)| node.bounds())
+                    .find(pick)
+                    .unwrap_or_else(|| panic!("missing {place} {label:?}"));
+                let centre = egui::pos2(
+                    (bounds.x0 + bounds.x1) as f32 / 2.0,
+                    (bounds.y0 + bounds.y1) as f32 / 2.0,
+                );
+                frame(vec![egui::Event::PointerMoved(centre)]);
+                let output = frame(vec![egui::Event::PointerMoved(centre)]);
+                // Icons are textured rects tinted by their fill.
+                let tints: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::Shape::Rect(rect)
+                            if rect.brush.is_some() && rect.rect.contains(centre) =>
+                        {
+                            Some(rect.fill)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    tints.contains(&app.palette.accent_hover),
+                    "a hovered {place} button in {theme} must still look on: {tints:?}"
+                );
+                assert!(!tints.contains(&app.palette.text), "{place} in {theme}");
+                app.backend.shutdown();
+            }
+        }
+    }
+
     /// The page's own Play resumes its paused playlist in place, and stays
     /// usable for it when a filter hides every song: there is nothing new
     /// to start, but there is something to resume.
