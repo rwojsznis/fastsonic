@@ -9737,6 +9737,63 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Next, Previous, a queue jump and an end of track with nothing opened
+    /// ahead of it load the next song while the last one is still on
+    /// screen. The engine says so with `Loading`, and the transport's disc
+    /// spins until the song starts, or until the load fails: a failed load
+    /// never reaches Playing, so it must not leave the spinner behind.
+    #[test]
+    fn a_load_mid_song_spins_the_transport_until_it_starts_or_fails() {
+        let mut app = headless_app();
+        let track = |uri: &str| {
+            Some(crate::engine::LocalTrack {
+                uri: uri.into(),
+                title: uri.into(),
+                duration_ms: 100_000,
+                ..Default::default()
+            })
+        };
+        let playing = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: track("sonic:track:a"),
+            position_ms: 30_000,
+            ..Default::default()
+        };
+        let spinning = |app: &mut App| {
+            app.refresh_frame_now();
+            app.now_playing().is_some_and(|now| now.loading)
+        };
+        app.handle_local(playing.clone());
+        assert!(!spinning(&mut app));
+
+        let loading = LocalState {
+            playback: Playback::Loading,
+            position_ms: 0,
+            ..playing.clone()
+        };
+        app.handle_local(loading.clone());
+        assert!(spinning(&mut app), "the next song is loading");
+
+        app.handle_local(LocalState {
+            playback: Playback::Playing,
+            track: track("sonic:track:b"),
+            track_sequence: 1,
+            ..loading.clone()
+        });
+        assert!(!spinning(&mut app), "the next song started");
+
+        app.handle_local(loading.clone());
+        assert!(spinning(&mut app));
+        app.handle_local(LocalState {
+            playback: Playback::Stopped,
+            error: Some("The server would not stream this song.".into()),
+            ..loading
+        });
+        assert!(!spinning(&mut app), "the load failed");
+        app.backend.shutdown();
+    }
+
     /// A short song played twice in a row is two plays, each counted once
     /// it has been listened to long enough; pausing or seeking one play does
     /// not count it again.
