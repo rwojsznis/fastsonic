@@ -354,3 +354,90 @@ Declined:
 - Spotify: personal-app reauthorization (`4f42fe5`) and volume for remote
   devices (`059969c`).
 - Release notes, website and version (`d6b45a7`, `5c66dde`, `ed9cb55`).
+
+## Sync through upstream 0.13.0
+
+`upstream/v0.13.0` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+
+Taken and adapted to Fastsonic:
+
+- Playback: the resampler's vector sums (`031e8c5`); a clean equalizer,
+  limiter and visualiser on explicit track changes and seeks, sliders that
+  answer a press, a 30 ms volume glide and 50 ms transport fades (`995c768`);
+  the output fed when it has room instead of polled (`277a4fa`); playback
+  that survives a changed or stalled output (`13876a8`, and the behaviour of
+  `051d86d`), which also fixed the fork's own wrong speed after a reopen at
+  another sample rate. The transport spinner (`4ba8d98`) was already true;
+  only its test came across.
+- Library and pages: pause on the playing context's cards and covers, and
+  resume instead of restart (`556eda6`, `bc44757`); song radio named after
+  its song (`6d970ac`); multi-song drags within a playlist (`a3e95f8`);
+  green toggles under the pointer (`d692a22`, `ffd90cf`); album sort in
+  track order (`5b7a5df`); Liked Songs honouring Colour from album art
+  (`7f70ef1`); compact dialogs (`0c2560d`); the centred clear glyph
+  (`09638fc`); the visualiser click setting (`224a0a1`); cheaper library
+  sorting (`9d74afe`); the By You filter, by the Subsonic playlist owner
+  (`25a8471`).
+- Queue, search and command line: Remove from queue, as an engine command
+  and queue rule 11 (`5553bdd`); one Recent search per run of typing
+  (`4ebfcf0`); `fastsonic play-search`, through `search3` and, for playlists,
+  their names (`7055320`).
+- Artwork: WebP covers (`9d8902f`); covers asked for at the size they are
+  drawn, through `getCoverArt`'s `size`, and scaled off the UI thread
+  (`3566580`); cover colours in demo mode (`b85f17f`).
+- Windows and platform: the Linux custom title bar, with GNOME's button
+  layout read through the portal (`14db97c`, the behaviour of `7ebbf8d`);
+  the Windows title bar's alignment (`d414667`); the mini player on a
+  connected display (`54e2224`); closing a minimised window to the tray
+  (`17f3a0d`); dual-GPU Macs (`12deee4`); from `5c3ae46` and `3d0b37b`,
+  raising on niri, windows moved back from no monitor and the zoom kept in
+  the settings; middle-click autoscroll (`cf5a802`, `13fedb9`); less motion
+  (`04a3d26`); the MacBook notch card (`7eae8bb`, its device button and
+  episodes left out).
+- Power: the in-tree power module with its readers (`595ddc4`), playback
+  out of App Nap (from `9d1ba8e`), paced visualisers and MilkDrop
+  (`c07b5bf`), the tray asleep until something is due (`fea496e`, with the
+  fork's own loop), the resume point and history kept safe (`f5a946c`),
+  durable whole-file writes (the behaviour of `6c1465b`) and the daily
+  update check and media-control covers held on metered connections
+  (`73daaef`).
+- Distribution: Windows on ARM with MilkDrop, built natively, and the ARM
+  installer prompt and OpenGL message (`5d77caf`, `d0a1c5a`); the
+  uninstaller's guard against a running copy, with its test in CI
+  (`ef46278`); the login answer no longer `Debug` (`e9854af`'s point, applied
+  to Navidrome's `/auth/login` answer). The rustls update (`68c453e`)
+  arrived first through Dependabot.
+
+Already true here, or not applicable:
+
+- Liked Songs a page at a time (`6b5e8d9`): `getStarred2` answers whole.
+- The tray icon's SVG filter (`36da0ff`): the fork's icon has none.
+- `chacha20` (`de210c8`): not in the fork's lockfile.
+- Signed update downloads (`1e37d0c`): the fork's update check only links
+  to the release page and downloads nothing.
+
+Declined:
+
+- Spotify: adder names and Blends (`9dd23c9`, `cbe8176`), the login port
+  (`98b37e7`, `f91ee83`), blank Web API playlists (`a9830c9`), Sonos and
+  Google Cast (`60e112a`, `72192c8`), remote device polling and icons
+  (`dd2d5e3`, `16c784c`, `58025c6`), artist top tracks (`d25a04b`), the
+  cached library and Home behind the shared app (`778259e`), recording
+  indexes (`ef49fba`), Web API logging, spinner and request scheduling
+  (`412c187`, `ec6c2b6`, `3a7bee0`), Made for you (`f4b1539`), upcoming
+  album pages (`fcf7baa`), playlist saves and owner avatars (`b27b240`;
+  Subsonic counts no saves and Navidrome users have no pictures), the
+  network-loss reconnection and offline views (`2ec2460`), and librespot
+  (`3b89ea0`).
+- The fastframe crates (`2b8f9f2`, `9132b28`, and the moves `9d1ba8e`,
+  `051d86d`, `6c1465b`, `7ebbf8d`, `5c3ae46`, `3d0b37b` beyond the
+  behaviours taken above).
+- Translations (`eff77cd`, `88d5831`, `fc60826`).
+- Packaging and distribution: the Windows Installer package and
+  native-packages (`d72939f`, `63f8977`, `6d2ca90`, `0e87b95`, `cf2e27a`),
+  the installers' copyright holder (`7048219`).
+- Website, README, docs assets and repository policy (`457cb4a`, `34802e2`,
+  `2590e33`, `92f0787`, `9e358bb`, `2010588`, `a6dc07b`, `6009eff`,
+  `3813fa8`) and the release itself (`36964f1`).
