@@ -32,9 +32,6 @@ mod playlist;
 
 pub use pixel_text::PixelText;
 
-/// How often the visualiser moves.
-const VIS_FRAME: Duration = Duration::from_micros(16_667);
-
 /// The stack's height in skin pixels: the main window, and the equalizer
 /// and the playlist under it, whichever are open.
 fn stack_height(settings: &crate::settings::Settings) -> u32 {
@@ -382,7 +379,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     // otherwise the marquee steps and the time ticks, and while paused the
     // time blinks.
     if vis_moving {
-        ctx.request_repaint_after(crate::window::animation_repaint_delay(VIS_FRAME));
+        crate::theme::visualiser_frame(&ctx, app.budget);
     } else if now.is_some() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }

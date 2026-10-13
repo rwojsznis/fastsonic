@@ -213,6 +213,10 @@ struct Child {
     /// by itself, another screen can mean another GPU.
     #[cfg(target_os = "macos")]
     screen: Option<winit::monitor::MonitorHandle>,
+    /// The window is covered (macOS and X11; winit does not report it on
+    /// Windows) or, on Wayland, suspended: nothing is drawn until it shows
+    /// again.
+    occluded: bool,
 }
 
 impl Child {
@@ -245,6 +249,7 @@ impl Child {
             reported: None,
             #[cfg(target_os = "macos")]
             screen: None,
+            occluded: false,
         }
     }
 
@@ -274,6 +279,15 @@ impl Child {
     /// number of frames a second, or nothing at all when uncapped.
     fn frame_interval(&self) -> Option<Duration> {
         (self.fps != 0).then(|| Duration::from_secs_f32(1.0 / self.fps as f32))
+    }
+
+    /// Nobody can see the window: it is covered, suspended or minimised.
+    fn hidden(&self) -> bool {
+        self.occluded
+            || self
+                .live
+                .as_ref()
+                .is_some_and(|live| live.window.is_minimized() == Some(true))
     }
 
     /// Asks the screen the window is on how often it refreshes.
@@ -497,9 +511,17 @@ impl ApplicationHandler<Control> for Child {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 self.on_key(event.logical_key, event_loop);
             }
-            WindowEvent::RedrawRequested => {
+            // A control or a key can ask for a frame while the window is
+            // hidden; it is drawn when the window shows again.
+            WindowEvent::RedrawRequested if !self.hidden() => {
                 self.render();
                 self.schedule_next_frame();
+            }
+            WindowEvent::Occluded(occluded) => {
+                self.occluded = occluded;
+                if !occluded && let Some(live) = &self.live {
+                    live.window.request_redraw();
+                }
             }
             _ => {}
         }
@@ -510,6 +532,13 @@ impl ApplicationHandler<Control> for Child {
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
             return;
         };
+        // A window nobody can see renders nothing. Showing it again brings
+        // an event (Occluded, or a resize back from a minimised size) that
+        // asks for the next frame.
+        if self.hidden() {
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+            return;
+        }
         match self.frame_interval() {
             None => {
                 live.window.request_redraw();
@@ -1070,6 +1099,17 @@ mod tests {
         }
         child.fps = 0;
         assert!(child.frame_interval().is_none(), "zero is uncapped");
+    }
+
+    /// A covered window is seen by nobody until it is uncovered.
+    #[test]
+    fn a_covered_window_is_hidden() {
+        let mut child = headless_child();
+        assert!(!child.hidden());
+        child.occluded = true;
+        assert!(child.hidden());
+        child.occluded = false;
+        assert!(!child.hidden());
     }
 
     /// Frame deadlines do not drift with rendering time.

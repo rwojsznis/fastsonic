@@ -87,7 +87,10 @@ selection/windows/equalizer, and MilkDrop. `player_bar_vis_click` (on by
 default, so older files keep it) lets a click on the player bar's empty space
 cycle `player_bar_vis` through `off`, `spectrum` and `waveform`. The interface
 zoom (`zoom`) belongs to the main window: each main window opens at it, and
-the mini player keeps its own scale. The sidebar's Library keeps
+the mini player keeps its own scale. MilkDrop's frame rate (`milkdrop_fps`,
+`0` for uncapped) is held to at most 30 while the system saves energy, and to
+one a second while the display is off or the screen is locked; the setting
+itself is left as you chose it. The sidebar's Library keeps
 `library_sort`, the order chosen for each section (`playlists`, `albums`,
 `artists`), as one of `library`, `recently_played`, `name`, `creator`,
 `recently_added` or `local` where the section supports it; a section missing

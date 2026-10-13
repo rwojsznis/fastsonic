@@ -21,6 +21,11 @@ corner to resize it.
 MilkDrop uses the same post-equalizer, pre-volume audio as the other
 visualisers. It keeps moving at zero volume.
 
+MilkDrop stops drawing while its window is minimised, and on macOS and Linux
+also while it is covered. While the system saves energy it draws at most 30
+frames a second, and one a second while the display is off or the screen is
+locked (Windows).
+
 ## Presets
 
 Presets change every ten seconds by default. Change the interval in Settings.

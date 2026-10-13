@@ -224,6 +224,12 @@ setting takes effect without a restart. On Linux the desktop portal reports
 GNOME's switch as it changes; other desktops that do not publish it keep
 Fastsonic's animations.
 
+The visualizers, the player bar's and the Winamp window's alike, draw at half
+their rate while Fastsonic's window is out of focus or the system saves energy
+(Energy Saver or battery saver on Windows, Low Power Mode on macOS, the
+power-saver profile on Linux), and not at all while nobody can see the window:
+minimised, closed to the tray, with the display off or the screen locked.
+
 ## macOS Dock menu
 
 Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
