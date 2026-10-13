@@ -32,7 +32,11 @@ maximized or full screen reopens that way; the remembered size and position
 describe an ordinary window and are not applied to one that already fills the
 screen, because sizing or moving it would restore it down. Quitting while
 lyrics are full screen returns the next window to the mode it had before
-them, rather than starting full screen without the lyrics.
+them, rather than starting full screen without the lyrics. A window that
+opens on no connected monitor, because its display was unplugged or comes
+up late, is moved to the middle of the primary one on its first frames;
+Wayland does not tell the app where its windows are, so nothing moves
+there.
 
 In memory, Fastsonic keeps the 12 playlists, 16 albums and 10 artists you
 opened last, and the details of 800 songs, so a long session does not grow

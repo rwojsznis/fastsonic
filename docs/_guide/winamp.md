@@ -71,8 +71,8 @@ playlist and equalizer have their own shade buttons.
 
 Switching to the main window and back keeps the shade modes and restores the
 mini player's own position. It does not inherit the main window's fullscreen
-or maximized state. On Windows and macOS a saved position on a display that
-is no longer connected is dropped, and the player opens on one that is.
+or maximized state. A saved position on a display that is no longer
+connected is not kept: the player opens on one that is.
 Wayland compositors choose window positions themselves and may ignore the
 saved position.
 

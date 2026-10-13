@@ -559,6 +559,7 @@ fn main() -> eframe::Result<()> {
                     app: Some(app),
                     slot: std::sync::Arc::clone(&creator_slot),
                     persist_memory,
+                    recovery_passes: OFFSCREEN_RECOVERY_PASSES,
                     #[cfg(windows)]
                     thumbbar,
                     #[cfg(feature = "demo")]
@@ -842,6 +843,11 @@ fn native_options(
 
 /// The eframe adapter around the long-lived [`app::App`]: delegates frames
 /// and, when the window goes away, hands the state back for the next window.
+/// A window is checked on its first pass, where eframe placed it, and on
+/// the second, after the saved position `App::attach` asked for, which
+/// either can leave on a monitor unplugged since.
+const OFFSCREEN_RECOVERY_PASSES: u8 = 2;
+
 struct Shell {
     app: Option<app::App>,
     slot: std::sync::Arc<std::sync::Mutex<Option<app::App>>>,
@@ -849,6 +855,9 @@ struct Shell {
     /// and never a demo's. Fixed when the window opens, even after an
     /// action switches modes.
     persist_memory: bool,
+    /// The first passes left to move a window that opened on no monitor
+    /// back onto one.
+    recovery_passes: u8,
     #[cfg(windows)]
     thumbbar: fastsonic::thumbbar::ThumbBar,
     /// A pending `--demo-shot` capture, if this is a screenshot run.
@@ -918,7 +927,14 @@ impl eframe::App for Shell {
         self.persist_memory
     }
 
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.recovery_passes > 0 {
+            self.recovery_passes -= 1;
+            fastsonic::window::recover_offscreen(ctx, frame);
+            if self.recovery_passes > 0 {
+                ctx.request_repaint();
+            }
+        }
         if let Some(app) = self.app.as_mut() {
             #[cfg(target_os = "macos")]
             for command in fastsonic::mac_menu::drain_commands() {
