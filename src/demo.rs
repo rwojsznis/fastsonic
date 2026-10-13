@@ -1406,6 +1406,49 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Typing over the selected query, or emptying the field, ends the run
+    /// of typing whose pauses replace one Recent search; typing on extends
+    /// it. The field says so through an action, after drawing.
+    #[test]
+    fn typing_over_the_selected_query_starts_a_new_run() {
+        use egui::text::{CCursor, CCursorRange};
+        let (ctx, mut app) = accessible_app("search-run");
+        let id = egui::Id::new("global-search");
+        app.search.query = "beatles".into();
+        app.search.focus_requested = true;
+        accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let run = app.search.edit_run;
+
+        let select_all = |ctx: &egui::Context| {
+            let mut state = egui::TextEdit::load_state(ctx, id).expect("the field's state");
+            state
+                .cursor
+                .set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(7))));
+            state.store(ctx, id);
+        };
+        select_all(&ctx);
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("q".into())]);
+        assert_eq!(app.search.query, "q");
+        assert_eq!(app.search.edit_run, run + 1, "a new query, not an edit");
+
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("u".into())]);
+        assert_eq!(app.search.query, "qu");
+        assert_eq!(app.search.edit_run, run + 1, "typing on is the same run");
+
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![
+                keyboard(egui::Key::Backspace, egui::Modifiers::NONE),
+                keyboard(egui::Key::Backspace, egui::Modifiers::NONE),
+            ],
+        );
+        assert!(app.search.query.is_empty());
+        assert_eq!(app.search.edit_run, run + 2, "emptying the field ends it");
+        app.backend.shutdown();
+    }
+
     #[test]
     fn accessible_sliders_accept_keyboard_and_screen_reader_values() {
         use crate::ui::widgets::{SliderEvent, thin_slider};

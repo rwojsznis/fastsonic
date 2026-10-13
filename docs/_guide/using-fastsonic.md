@@ -10,6 +10,10 @@ affecting browsing or playback.
 Search covers the songs, albums, artists, and playlists indexed by your
 server. Right-click rows and cards to star music, add songs to a playlist, or
 put a song in the queue. The playlist submenu filters as you type.
+Recent searches keeps one entry for a query typed with pauses: while you go on
+typing, the longer or shorter query replaces the one the pause recorded.
+Pressing Enter, picking a recent search, emptying the field or typing over the
+selected query starts a new entry.
 Sorting or filtering a playlist, an album or Liked Songs changes what Play
 plays: the songs on screen, in the order shown, including a song that appears
 twice. Play is disabled when a filter matches nothing; it never falls back to
