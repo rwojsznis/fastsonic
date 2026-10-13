@@ -54,7 +54,8 @@ enum Entry {
     Ready {
         bytes: Option<Arc<[u8]>>,
         last_used: Instant,
-        /// JPEG bytes still held, plus decoded image and texture once painted.
+        /// The source bytes still held, plus decoded image and texture once
+        /// painted.
         retained: usize,
     },
     Failed(String),
@@ -192,8 +193,8 @@ impl ArtLoader {
         true
     }
 
-    /// Drops held JPEG bytes once egui has made a texture. The disk cache
-    /// remains for later reloads.
+    /// Drops the held source bytes once egui has made a texture. The disk
+    /// cache remains for later reloads.
     pub fn release_bytes(&self, url: &str) {
         self.inner.drop_bytes(url);
     }
@@ -209,8 +210,8 @@ impl ArtLoader {
             .unwrap_or_else(|p| p.into_inner())
             .get_mut(url)
         {
-            let jpeg = bytes.as_ref().map(|bytes| bytes.len()).unwrap_or(0);
-            *retained = jpeg + decoded_and_texture_bytes(width, height);
+            let encoded = bytes.as_ref().map(|bytes| bytes.len()).unwrap_or(0);
+            *retained = encoded + decoded_and_texture_bytes(width, height);
         }
     }
 
@@ -1227,6 +1228,59 @@ mod tests {
             color[2] > color[0],
             "expected the blue field, got {color:?}"
         );
+    }
+
+    /// A server that does not resize a cover hands over the library's own
+    /// file, which can be WebP. The decoder behind both the page tint and
+    /// egui's image loaders must accept it, or every size of that cover
+    /// shows the placeholder.
+    #[test]
+    fn webp_cover_bytes_tint_and_decode_through_the_image_loaders() {
+        let image = image::RgbImage::from_pixel(16, 16, image::Rgb([20, 120, 200]));
+        let mut bytes = Vec::new();
+        image
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::WebP,
+            )
+            .expect("the image crate encodes WebP");
+        let color = accent_color(&bytes).expect("a WebP cover tints the page");
+        assert!(
+            color[2] > color[0],
+            "expected the blue field, got {color:?}"
+        );
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let dir = std::env::temp_dir().join(format!("fastsonic-art-webp-{}", std::process::id()));
+        let loader = backdrop_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        ctx.add_bytes_loader(Arc::new(loader.clone()));
+        let uri = "sonic:art:300:webp-cover";
+        let payload: Arc<[u8]> = bytes.into();
+        loader.inner.entries.lock().unwrap().insert(
+            uri.into(),
+            Entry::Ready {
+                retained: payload.len(),
+                bytes: Some(payload),
+                last_used: Instant::now(),
+            },
+        );
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match ctx.try_load_texture(uri, Default::default(), Default::default()) {
+                        Ok(egui::load::TexturePoll::Ready { .. }) => break,
+                        Ok(egui::load::TexturePoll::Pending { .. }) => {}
+                        Err(error) => panic!("the WebP cover failed to decode: {error}"),
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("the WebP cover produces a texture");
+        });
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn loader() -> ArtLoader {

@@ -38,8 +38,11 @@ egui_extras = { version = "0.36", features = ["image", "svg"] }
 # question.
 skrifa = "0.44"
 memmap2 = "0.9"
-# bmp is for Winamp skins, whose bitmaps are BMP files.
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
+# bmp is for Winamp skins, whose bitmaps are BMP files. webp is for cover
+# art: getCoverArt hands over the library's own file when it does not
+# resize it, and that can be WebP; without it every size of such a cover
+# fails to decode and the placeholder is drawn.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "webp"] }
 # Inflating the zip a Winamp skin comes as (src/skin/zip.rs). Already
 # compiled for reqwest's gzip support, so this adds no code to the build.
 flate2 = "1"
