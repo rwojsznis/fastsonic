@@ -5408,6 +5408,8 @@ impl App {
         self.sync_window_title(ctx);
         #[cfg(target_os = "macos")]
         self.sync_notch(ctx);
+        let close_requested = ctx.input(|input| input.viewport().close_requested());
+        self.note_close_request(close_requested, self.hides_to_tray());
         self.schedule_next_pass(ctx);
     }
 
@@ -5466,6 +5468,18 @@ impl App {
             }
         });
         crate::notch::sync(&self.notch, true, window_background, track.as_ref());
+    }
+
+    /// Closing the window keeps the process running in the tray when the
+    /// tray is shown and the setting asks for it.
+    ///
+    /// This runs with the logic, not the drawing: eframe runs only the logic
+    /// of a minimised window, and a close decided while drawing let closing a
+    /// minimised window quit the app instead.
+    fn note_close_request(&mut self, close_requested: bool, hides_to_tray: bool) {
+        if close_requested && !self.quit_requested && !self.switch_intent && hides_to_tray {
+            self.hide_intent = true;
+        }
     }
 
     /// Asks for the next pass that playback, pending plays and polling need.
@@ -5638,14 +5652,6 @@ impl App {
 
         if !self.toasts.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(120));
-        }
-        if ctx.input(|input| input.viewport().close_requested())
-            && !self.quit_requested
-            && !self.switch_intent
-            && self.hides_to_tray()
-        {
-            // Close the window and keep the process running in the tray.
-            self.hide_intent = true;
         }
         self.frame_now = None;
     }
@@ -9694,6 +9700,31 @@ mod tests {
         );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
+    /// Closing hides to the tray only when the tray can take the app, and
+    /// never overrides a quit or a switch between windows. The decision runs
+    /// in the logic pass, so it also holds for a minimised window, whose
+    /// drawing eframe skips.
+    #[test]
+    fn a_close_request_hides_to_the_tray_from_the_logic_pass() {
+        let mut app = headless_app();
+        app.note_close_request(true, false);
+        assert!(!app.hide_intent, "no tray to hide to");
+        app.note_close_request(false, true);
+        assert!(!app.hide_intent, "nothing asked to close");
+        app.note_close_request(true, true);
+        assert!(app.hide_intent);
+        app.backend.shutdown();
+
+        for (quit, switch) in [(true, false), (false, true)] {
+            let mut app = headless_app();
+            app.quit_requested = quit;
+            app.switch_intent = switch;
+            app.note_close_request(true, true);
+            assert!(!app.hide_intent, "a quit or a switch wins");
+            app.backend.shutdown();
+        }
     }
 
     /// A Windows tray double click arrives as two show requests; neither may
