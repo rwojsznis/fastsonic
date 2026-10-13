@@ -222,7 +222,7 @@ fn prepare_page_art(app: &mut App, ui: &egui::Ui, row: &egui::Response, image: O
 
 /// The page's tint comes from its 64-pixel thumbnail, which the sidebar row
 /// that opened it has usually fetched already, for its softened cover.
-fn page_tint(app: &mut App) -> Option<Color32> {
+pub(crate) fn page_tint(app: &mut App) -> Option<Color32> {
     let page = app.page().clone();
     let image = match &page {
         Page::Playlist(id) => app
@@ -247,7 +247,14 @@ fn page_tint(app: &mut App) -> Option<Color32> {
             .and_then(|artist| pick_image(&artist.images, 64))
             .map(str::to_string),
         Page::Radio(seed) => pick_image(&app.radio_images(seed), 64).map(str::to_string),
-        Page::LikedSongs => return Some(Color32::from_rgb(0x50, 0x38, 0xc8)),
+        // Liked Songs has no art of its own, but its colour is still one
+        // the setting turns off.
+        Page::LikedSongs => {
+            return app
+                .settings
+                .accent_from_art
+                .then_some(Color32::from_rgb(0x50, 0x38, 0xc8));
+        }
         _ => None,
     };
     if !app.settings.accent_from_art && image.is_some() {

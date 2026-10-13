@@ -3650,6 +3650,19 @@ mod tests {
         }
     }
 
+    /// Colour from album art off leaves every page header untinted, Liked
+    /// Songs included, whose colour is not drawn from any art.
+    #[test]
+    fn liked_songs_is_untinted_without_colour_from_album_art() {
+        let (_ctx, mut app) = accessible_app("liked-songs-tint");
+        app.open(Page::LikedSongs);
+        app.settings.accent_from_art = true;
+        assert!(crate::ui::page_tint(&mut app).is_some());
+        app.settings.accent_from_art = false;
+        assert_eq!(crate::ui::page_tint(&mut app), None);
+        app.backend.shutdown();
+    }
+
     /// A toggle that is on stays green under the pointer: the header's
     /// shuffle and saved buttons, a liked song's heart on its row and in the
     /// player bar. Turning white or black on hover made a click look as if
