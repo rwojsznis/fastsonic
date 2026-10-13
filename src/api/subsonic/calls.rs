@@ -720,6 +720,53 @@ impl SubsonicClient {
         Ok(convert::search_results(&results, playlists, offset, limit))
     }
 
+    /// `ApiRequest::PlaySearch`: the URI of the best match of one kind, or
+    /// `None` when nothing matches.
+    ///
+    /// Songs, albums and artists come from `search3`, asked for that kind
+    /// alone. A result named exactly what was typed wins; otherwise the
+    /// server's first, which is its own idea of the best. `search3` has no
+    /// playlists, so they are matched by name among the ones `getPlaylists`
+    /// lists, as the Search page matches them.
+    pub async fn best_match(
+        &self,
+        kind: crate::model::PlaySearchKind,
+        query: &str,
+    ) -> Result<Option<String>> {
+        use crate::model::PlaySearchKind;
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(None);
+        }
+        if kind == PlaySearchKind::Playlist {
+            let playlists = self.get_playlists().await?;
+            return Ok(best_playlist(&playlists, query)
+                .map(|playlist| convert::playlist_uri(&playlist.id)));
+        }
+        let count = |wanted: PlaySearchKind| if wanted == kind { MATCH_CANDIDATES } else { 0 };
+        let results: SearchResult3 = self
+            .get(
+                "search3",
+                "searchResult3",
+                &[
+                    param("query", query),
+                    param("artistCount", count(PlaySearchKind::Artist)),
+                    param("albumCount", count(PlaySearchKind::Album)),
+                    param("songCount", count(PlaySearchKind::Track)),
+                ],
+            )
+            .await?;
+        Ok(match kind {
+            PlaySearchKind::Track => best_named(&results.song, |song| &song.title, query)
+                .map(|song| convert::track_uri(&song.id)),
+            PlaySearchKind::Album => best_named(&results.album, |album| &album.name, query)
+                .map(|album| convert::album_uri(&album.id)),
+            PlaySearchKind::Artist => best_named(&results.artist, |artist| &artist.name, query)
+                .map(|artist| convert::artist_uri(&artist.id)),
+            PlaySearchKind::Playlist => None,
+        })
+    }
+
     /// `ApiRequest::Artist`. The artist page wants an image and a biography
     /// as well as the name, and those are a second call.
     pub async fn artist(&self, id: &str) -> Result<Artist> {
@@ -967,12 +1014,73 @@ fn newest_first(songs: &[Child]) -> Vec<SavedTrack> {
     tracks
 }
 
+/// How many results `play-search` looks through for one named exactly what
+/// was typed.
+const MATCH_CANDIDATES: u32 = 20;
+
+/// The result named exactly `query`, ignoring case, or else the first.
+fn best_named<'a, T>(items: &'a [T], name: impl Fn(&T) -> &str, query: &str) -> Option<&'a T> {
+    let query = query.to_lowercase();
+    items
+        .iter()
+        .find(|item| name(item).trim().to_lowercase() == query)
+        .or_else(|| items.first())
+}
+
+/// The playlist named `query`, ignoring case, else the first whose name
+/// starts with it, else the first whose name holds it.
+fn best_playlist<'a>(
+    playlists: &'a [super::types::Playlist],
+    query: &str,
+) -> Option<&'a super::types::Playlist> {
+    let query = query.to_lowercase();
+    let named = |test: &dyn Fn(&str) -> bool| {
+        playlists
+            .iter()
+            .find(|playlist| test(&playlist.name.trim().to_lowercase()))
+    };
+    named(&|name| name == query)
+        .or_else(|| named(&|name| name.starts_with(&query)))
+        .or_else(|| named(&|name| name.contains(&query)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn ids(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    #[test]
+    fn play_search_prefers_the_exact_name_and_then_the_servers_order() {
+        let names = ["Hey Jude (Live)", "hey jude", "Jude"];
+        assert_eq!(
+            best_named(&names, |name| name, "Hey Jude"),
+            Some(&"hey jude")
+        );
+        assert_eq!(
+            best_named(&names, |name| name, "jude beatles"),
+            Some(&"Hey Jude (Live)"),
+            "the server's first when nothing is named that"
+        );
+        assert_eq!(best_named(&[] as &[&str], |name| name, "x"), None);
+
+        let playlist = |name: &str| super::super::types::Playlist {
+            id: name.to_owned(),
+            name: name.to_owned(),
+            ..Default::default()
+        };
+        let playlists = [
+            playlist("Old running mix"),
+            playlist("Running late"),
+            playlist("running"),
+        ];
+        let best = |query| best_playlist(&playlists, query).map(|found| found.name.as_str());
+        assert_eq!(best("Running"), Some("running"));
+        assert_eq!(best("runn"), Some("Running late"));
+        assert_eq!(best("mix"), Some("Old running mix"));
+        assert_eq!(best("jazz"), None, "a playlist must hold the words");
     }
 
     #[test]

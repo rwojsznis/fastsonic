@@ -232,14 +232,26 @@ On Linux, control the running player over MPRIS, for example:
 playerctl --player=fastsonic play-pause
 ```
 
-MPRIS has no verb for starring a song, so `fastsonic like` stars or unstars the
-playing one in the running instance on Linux too.
+MPRIS has no verb for starring a song or for playing one by name, so
+`fastsonic like` and `fastsonic play-search` reach the running instance on
+Linux too.
 
 On macOS and Windows, `fastsonic play-pause`, `play`, `pause`, `next`,
 `previous`, `seek`, `seek-to`, `volume`, `volume-up`, `volume-down`, `mute`,
-`shuffle`, `repeat`, `like`, `play-uri`, `now-playing`, and `show` address the
-running instance. Run `fastsonic --help` or a subcommand's `--help` for exact
-arguments.
+`shuffle`, `repeat`, `like`, `play-uri`, `play-search`, `now-playing`, and
+`show` address the running instance. Run `fastsonic --help` or a subcommand's
+`--help` for exact arguments.
+
+`fastsonic play-search hey jude` searches your server and plays the best
+match, the way a launcher or a voice assistant asks for something by name:
+`play-uri` needs an id that only a search can find. With `--kind album`,
+`artist`, or `playlist` it plays one of those from the start instead of a
+song. A song, album or artist comes from the server's search, and one named
+exactly what you typed is preferred over the server's first result; a
+playlist is one of yours whose name is, starts with, or holds the words. When
+nothing matches, the app says so. A match that arrives after a newer search,
+or after you have played, paused or skipped something since, is dropped. The
+words are limited to 200 characters.
 
 ## Demo mode
 

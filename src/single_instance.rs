@@ -24,8 +24,10 @@
 //! save the current track, and play a URI.
 //! Clients poll the current snapshot; the app does not push updates.
 //!
-//! Any local process can reach the port, so `play-uri` validates its free-text
-//! argument here.
+//! Any local process can reach the port, so `play-uri` and `play-search`
+//! validate their free-text arguments here. On Linux, the instance's own
+//! D-Bus interface answers the two verbs MPRIS lacks, `like` and
+//! `play-search`, with the same checks.
 
 /// The name held for the lifetime of the running instance.
 #[cfg(target_os = "linux")]
@@ -75,7 +77,37 @@ pub enum ControlCommand {
     ToggleSaved,
     /// Play a `sonic:` URI: a song, album, playlist, or artist.
     PlayUri(String),
+    /// Search the server for a song, album, artist, or playlist, and play
+    /// the best match.
+    PlaySearch {
+        kind: crate::model::PlaySearchKind,
+        query: String,
+    },
 }
+
+/// `play-search`'s kind and words, held to the checks the other free-text
+/// arguments get: the words not empty, not long, and without control
+/// characters.
+pub fn play_search(kind: &str, query: &str) -> Option<ControlCommand> {
+    let kind = crate::model::PlaySearchKind::from_word(kind)?;
+    Some(ControlCommand::PlaySearch {
+        kind,
+        query: search_text(query)?,
+    })
+}
+
+/// Words to search for, checked like a URI is: any local process can reach
+/// the channel.
+pub fn search_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    let shaped = !text.is_empty()
+        && text.chars().count() <= SEARCH_TEXT_LIMIT
+        && !text.chars().any(char::is_control);
+    shaped.then(|| text.to_owned())
+}
+
+/// The longest `play-search` query, in characters.
+pub const SEARCH_TEXT_LIMIT: usize = 200;
 
 /// Marks this process as the running instance until dropped.
 pub struct Guard {
@@ -284,6 +316,10 @@ fn parse(line: &str) -> Option<Request> {
         }
         ("save-toggle", None) => ControlCommand::ToggleSaved,
         ("play-uri", Some(uri)) => ControlCommand::PlayUri(object_uri(uri)?),
+        ("play-search", Some(argument)) => {
+            let (kind, query) = argument.split_once(' ')?;
+            play_search(kind, query)?
+        }
         ("nowplaying", None) => return Some(Request::NowPlaying),
         _ => return None,
     };
@@ -307,7 +343,8 @@ fn object_uri(text: &str) -> Option<String> {
 #[cfg(not(target_os = "linux"))]
 fn read_line(stream: &mut std::net::TcpStream) -> Option<String> {
     use std::io::Read;
-    let mut buffer = [0u8; 256];
+    // Room for a `play-search` of its longest, in four-byte characters.
+    let mut buffer = [0u8; 1024];
     let mut filled = 0;
     loop {
         if filled == buffer.len() {
@@ -394,6 +431,21 @@ impl Instance {
             .push(ControlCommand::ToggleSaved);
         self.waker.wake();
     }
+
+    /// `fastsonic play-search`, which MPRIS has no verb for either. Any
+    /// client on the session bus can call it, so the words are checked as
+    /// the loopback channel checks them.
+    fn play_search(&self, kind: String, query: String) -> zbus::fdo::Result<()> {
+        let command = play_search(&kind, &query).ok_or_else(|| {
+            zbus::fdo::Error::InvalidArgs("not a kind and words to search for".to_owned())
+        })?;
+        self.commands
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(command);
+        self.waker.wake();
+        Ok(())
+    }
 }
 
 /// Serves `instance` on `connection` for the rest of the process, from a
@@ -461,6 +513,23 @@ pub fn toggle_saved() -> zbus::Result<()> {
         "ToggleSaved",
         zbus::proxy::MethodFlags::NoAutoStart.into(),
         &(),
+    )?;
+    Ok(())
+}
+
+/// Asks the running instance to search for `query` and play the best match
+/// of `kind`, without starting or raising it.
+#[cfg(target_os = "linux")]
+pub fn play_search_on_instance(kind: &str, query: &str) -> zbus::Result<()> {
+    let connection = zbus::blocking::connection::Builder::session()?
+        .method_timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let proxy =
+        zbus::blocking::Proxy::new(&connection, INSTANCE_NAME, INSTANCE_PATH, INSTANCE_NAME)?;
+    let _: Option<()> = proxy.call_with_flags(
+        "PlaySearch",
+        zbus::proxy::MethodFlags::NoAutoStart.into(),
+        &(kind, query),
     )?;
     Ok(())
 }
@@ -575,6 +644,51 @@ mod tests {
         ));
         assert!(parse("fastsonic:devices").is_none());
         assert!(parse("fastsonic:transfer a1b2c3d4e5").is_none());
+    }
+
+    #[test]
+    fn play_search_carries_its_kind_and_words() {
+        use crate::model::PlaySearchKind;
+        assert_eq!(
+            command("fastsonic:play-search track hey jude the beatles"),
+            Some(ControlCommand::PlaySearch {
+                kind: PlaySearchKind::Track,
+                query: "hey jude the beatles".into(),
+            })
+        );
+        assert_eq!(
+            command("fastsonic:play-search playlist Café del Mar"),
+            Some(ControlCommand::PlaySearch {
+                kind: PlaySearchKind::Playlist,
+                query: "Café del Mar".into(),
+            })
+        );
+        assert_eq!(command("fastsonic:play-search track"), None);
+        assert_eq!(command("fastsonic:play-search song hey jude"), None);
+        assert_eq!(command("fastsonic:play-search track \u{7}bell"), None);
+        assert_eq!(
+            command(&format!("fastsonic:play-search track {}", "a".repeat(201))),
+            None
+        );
+        // The longest query in four-byte characters still fits a line.
+        let longest = "\u{1f3b5}".repeat(SEARCH_TEXT_LIMIT);
+        let line = format!("fastsonic:play-search playlist {longest}\n");
+        let (mut client, mut server) = loopback_pair();
+        std::io::Write::write_all(&mut client, line.as_bytes()).expect("a write");
+        let read = read_line(&mut server).expect("one line");
+        assert!(matches!(
+            parse(&read),
+            Some(Request::Command(ControlCommand::PlaySearch { query, .. })) if query == longest
+        ));
+    }
+
+    fn loopback_pair() -> (std::net::TcpStream, std::net::TcpStream) {
+        use std::net::{Ipv4Addr, TcpListener, TcpStream};
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a loopback port");
+        let client =
+            TcpStream::connect(listener.local_addr().expect("an address")).expect("a link");
+        let (server, _) = listener.accept().expect("the other end");
+        (client, server)
     }
 
     #[test]
@@ -707,6 +821,18 @@ mod linux_tests {
             std::mem::take(&mut *guard.commands().lock().unwrap()),
             vec![ControlCommand::ToggleSaved],
             "like only toggles the saved state"
+        );
+        play_search_on_instance("album", "abbey road").unwrap();
+        assert!(
+            play_search_on_instance("song", "abbey road").is_err(),
+            "the instance checks the words it is sent"
+        );
+        assert_eq!(
+            std::mem::take(&mut *guard.commands().lock().unwrap()),
+            vec![ControlCommand::PlaySearch {
+                kind: crate::model::PlaySearchKind::Album,
+                query: "abbey road".to_owned(),
+            }],
         );
     }
 }

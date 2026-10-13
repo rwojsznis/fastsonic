@@ -103,6 +103,16 @@ enum Control {
     Like,
     /// Play a sonic URI: a track, album, playlist, or artist
     PlayUri { uri: String },
+    /// Search your server and play the best match: `play-search hey jude`,
+    /// or `play-search --kind album abbey road`
+    PlaySearch {
+        /// What to look for: a song, or an album, artist, or playlist to play from the start
+        #[arg(long, value_enum, default_value_t = SearchKind::Track)]
+        kind: SearchKind,
+        /// The words to search for
+        #[arg(required = true, num_args = 1..)]
+        query: Vec<String>,
+    },
     /// Print the playing track
     NowPlaying {
         /// Print the fields tab-separated instead: state, title, artists,
@@ -113,6 +123,36 @@ enum Control {
     },
     /// Bring the window of the running instance forward
     Show,
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum SearchKind {
+    Track,
+    Album,
+    Artist,
+    Playlist,
+}
+
+impl SearchKind {
+    fn word(self) -> &'static str {
+        match self {
+            Self::Track => "track",
+            Self::Album => "album",
+            Self::Artist => "artist",
+            Self::Playlist => "playlist",
+        }
+    }
+}
+
+/// The words of `play-search`, or the reason the running instance would
+/// refuse them, checked here so that the refusal can say why.
+fn search_words(query: &[String]) -> Result<String, String> {
+    single_instance::search_text(&query.join(" ")).ok_or_else(|| {
+        format!(
+            "search for up to {} characters of text",
+            single_instance::SEARCH_TEXT_LIMIT
+        )
+    })
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -167,6 +207,13 @@ fn run_control(control: Control) -> i32 {
         }
         Control::Like => "save-toggle".to_owned(),
         Control::PlayUri { uri } => format!("play-uri {uri}"),
+        Control::PlaySearch { kind, query } => match search_words(&query) {
+            Ok(words) => format!("play-search {} {words}", kind.word()),
+            Err(reason) => {
+                eprintln!("play-search: {reason}");
+                return 2;
+            }
+        },
         Control::NowPlaying { .. } => "nowplaying".to_owned(),
         Control::Show => "show".to_owned(),
     };
@@ -204,16 +251,26 @@ fn write_reply(out: &mut impl std::io::Write, text: &str) -> i32 {
 
 #[cfg(target_os = "linux")]
 fn run_control(control: Control) -> i32 {
-    // MPRIS has no verb for starring a song, so the instance answers that
-    // one itself.
-    if !matches!(control, Control::Like) {
-        eprintln!(
-            "On Linux the running instance speaks MPRIS instead; use e.g. \
-             `playerctl --player=fastsonic play-pause`."
-        );
-        return 2;
-    }
-    match single_instance::toggle_saved() {
+    // MPRIS has no verb for starring a song or for playing one by name, so
+    // the instance answers those itself.
+    let sent = match control {
+        Control::Like => single_instance::toggle_saved(),
+        Control::PlaySearch { kind, query } => match search_words(&query) {
+            Ok(words) => single_instance::play_search_on_instance(kind.word(), &words),
+            Err(reason) => {
+                eprintln!("play-search: {reason}");
+                return 2;
+            }
+        },
+        _ => {
+            eprintln!(
+                "On Linux the running instance speaks MPRIS instead; use e.g. \
+                 `playerctl --player=fastsonic play-pause`."
+            );
+            return 2;
+        }
+    };
+    match sent {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Fastsonic is not running or does not support remote control: {error}");
@@ -1161,5 +1218,32 @@ mod native_window_tests {
     fn only_windows_removes_the_native_frame() {
         assert!(!main_window_decorated(true));
         assert!(main_window_decorated(false));
+    }
+
+    /// `play-search` takes its words unquoted, a song by default, and
+    /// refuses words the running instance would refuse.
+    #[test]
+    fn play_search_takes_a_kind_and_words() {
+        let parsed = |args: &[&str]| {
+            let cli = Cli::try_parse_from(std::iter::once("fastsonic").chain(args.iter().copied()))
+                .expect("a command line");
+            match cli.control {
+                Some(Control::PlaySearch { kind, query }) => (kind.word(), search_words(&query)),
+                other => panic!("not play-search: {other:?}"),
+            }
+        };
+        assert_eq!(
+            parsed(&["play-search", "hey", "jude"]),
+            ("track", Ok("hey jude".to_owned()))
+        );
+        assert_eq!(
+            parsed(&["play-search", "--kind", "album", "abbey road"]),
+            ("album", Ok("abbey road".to_owned()))
+        );
+        assert!(Cli::try_parse_from(["fastsonic", "play-search"]).is_err());
+        assert!(Cli::try_parse_from(["fastsonic", "play-search", "--kind", "song", "x"]).is_err());
+        let long = "a".repeat(single_instance::SEARCH_TEXT_LIMIT + 1);
+        assert!(parsed(&["play-search", &long]).1.is_err());
+        assert!(parsed(&["play-search", "bell\u{7}"]).1.is_err());
     }
 }

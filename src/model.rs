@@ -479,6 +479,34 @@ impl HomeData {
 pub const ALBUM_SHELVES: [AlbumShelf; 3] =
     [AlbumShelf::Newest, AlbumShelf::Frequent, AlbumShelf::Random];
 
+/// What `fastsonic play-search` looks for: a song, or something to play
+/// from the start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaySearchKind {
+    Track,
+    Album,
+    Artist,
+    Playlist,
+}
+
+impl PlaySearchKind {
+    pub const ALL: [Self; 4] = [Self::Track, Self::Album, Self::Artist, Self::Playlist];
+
+    /// The word the control channel carries.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Track => "track",
+            Self::Album => "album",
+            Self::Artist => "artist",
+            Self::Playlist => "playlist",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.word() == word)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchFilter {
     #[default]
@@ -789,6 +817,20 @@ pub enum Action {
         uri: String,
         offset_uri: Option<String>,
         offset_index: Option<u32>,
+    },
+    /// Search the server for one kind of thing and play the best match, as
+    /// `fastsonic play-search` asks. Queued like the other play actions, so
+    /// it takes precedence in the order it was asked for.
+    PlaySearch {
+        kind: PlaySearchKind,
+        query: String,
+    },
+    /// The match a play-search found, played only if nothing has taken
+    /// precedence since: a newer play queued in the same frame as the
+    /// answer must still win.
+    PlaySearchMatch {
+        uri: String,
+        serial: u64,
     },
     PlayUris {
         uris: Vec<String>,

@@ -206,6 +206,13 @@ pub enum ApiRequest {
         query: String,
         serial: u64,
     },
+    /// Search for one kind of thing and report the best match, to play it:
+    /// how `fastsonic play-search` plays a song by its name.
+    PlaySearch {
+        kind: crate::model::PlaySearchKind,
+        query: String,
+        serial: u64,
+    },
     Artist {
         id: String,
     },
@@ -335,6 +342,13 @@ pub enum ApiResponse {
         query: String,
         serial: u64,
         result: ApiResult<SearchResults>,
+    },
+    /// The URI of the best match for an [`ApiRequest::PlaySearch`], or
+    /// `None` when nothing matched.
+    PlaySearch {
+        query: String,
+        serial: u64,
+        result: ApiResult<Option<String>>,
     },
     Artist {
         id: String,
@@ -1415,6 +1429,15 @@ async fn handle(
 
         ApiRequest::Search { query, serial } => ApiResponse::Search {
             result: client.search(&query, 0).await,
+            query,
+            serial,
+        },
+        ApiRequest::PlaySearch {
+            kind,
+            query,
+            serial,
+        } => ApiResponse::PlaySearch {
+            result: client.best_match(kind, &query).await,
             query,
             serial,
         },
