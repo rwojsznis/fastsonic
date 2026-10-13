@@ -74,13 +74,20 @@ again, for instance after another app changed it.
 
 ## Middle-click autoscroll
 
-On Windows, and on Linux once turned on, middle-click a scrolling list or its
-empty background, then move the pointer away from the starting point. That
-list follows the pointer, faster as the distance grows; a shelf scrolls
-sideways. Moving across another pane keeps the original list in control. A
-small dead zone prevents an ordinary middle-click from moving the view. Click
-again, press Esc, turn the wheel, or switch to another window to stop.
-Buttons and text fields keep their normal middle-click behaviour.
+On Windows, and on Linux once turned on, middle-click anywhere in a
+scrolling list, on a row, a link or a button as well as on its background,
+then move the pointer away from the starting point. That list follows the
+pointer, faster as the distance grows, and the pointer turns into an arrow
+showing which way it is going; a shelf scrolls sideways. Speed and the dead
+zone are those of Chromium's autoscroll: each direction has its own small dead
+zone, so an ordinary middle-click does not move the view, and a pointer
+slightly off the vertical does not drift the list sideways. Moving across
+another pane keeps the original list in control.
+
+Hold the middle button while you move and let go to stop. After a plain
+click the list keeps following the pointer: click again, press Esc, turn the
+wheel, or switch to another window to stop. Text fields keep middle-click
+paste, and sliders, scroll bars and panel edges keep their own dragging.
 
 This works automatically on Windows, with no setting to enable. On Linux,
 turn on **Middle-click autoscroll** under **Settings > Appearance**. It is

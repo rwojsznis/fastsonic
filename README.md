@@ -61,8 +61,9 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   and single-instance behavior.
 - Smooth local Play and Pause transitions, plus searchable playlist choices
   when adding one song or a selection.
-- Middle-click autoscroll: middle-click a list and move the pointer to scroll
-  it; click, press Esc, turn the wheel or switch windows to stop. It works
+- Middle-click autoscroll: middle-click anywhere in a list and move the
+  pointer to scroll it; let go of a held button, or click, press Esc, turn
+  the wheel or switch windows to stop. It works
   automatically on Windows. On Linux, turn on **Middle-click autoscroll**
   under **Settings > Appearance**; it is off by default because a middle
   click usually pastes there. See
