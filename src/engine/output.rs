@@ -38,8 +38,13 @@ pub(crate) const PREFERRED_RATE: u32 = 44_100;
 /// is not heard late.
 pub(crate) const TARGET_QUEUE: Duration = Duration::from_millis(500);
 
-/// How long Play takes to come up, and Pause to go down.
-const TRANSPORT_FADE: Duration = Duration::from_millis(250);
+/// How long Play takes to come up, and Pause to go down: long enough not
+/// to click, short enough that the button feels like it does it at once.
+const TRANSPORT_FADE: Duration = Duration::from_millis(50);
+
+/// How long a change of volume takes to arrive. rodio would apply it in one
+/// step, which clicks when the slider jumps.
+const VOLUME_RAMP: Duration = Duration::from_millis(30);
 
 /// Which track a chunk of sound belongs to.
 ///
@@ -75,6 +80,9 @@ struct Stream {
     /// Sample-clocked Play/Pause ramp, after the visualizer tap and before
     /// output volume.
     transport: Arc<Envelope>,
+    /// The output volume, on the same sample clock. It lives here rather
+    /// than on the sink so that a ramp crosses a restart's new sink.
+    volume: Arc<VolumeRamp>,
     /// Pause waits for the ramp to reach silence before pausing rodio.
     pause_pending: bool,
 }
@@ -215,9 +223,11 @@ impl Output {
             stream.rate as rodio::SampleRate,
             samples,
         );
-        stream
-            .sink
-            .append(TransitionSource::new(source, Arc::clone(&stream.transport)));
+        stream.sink.append(TransitionSource::new(
+            source,
+            Arc::clone(&stream.transport),
+            Arc::clone(&stream.volume),
+        ));
         let dur = Duration::from_secs_f64(frames as f64 / f64::from(stream.rate));
         stream.clock.push(Chunk { dur, token, from });
         stream.fed = true;
@@ -311,7 +321,6 @@ impl Output {
             return;
         };
         stream.sink = rodio::Sink::connect_new(&stream.stream.mixer);
-        stream.sink.set_volume(attenuation(self.volume));
         stream.pause_pending = false;
         if playing {
             stream.resume_device();
@@ -331,7 +340,7 @@ impl Output {
     pub(crate) fn set_volume(&mut self, volume: u16) {
         self.volume = volume;
         if let Some(stream) = &self.open {
-            stream.sink.set_volume(attenuation(volume));
+            stream.volume.set(attenuation(volume));
         }
     }
 }
@@ -408,6 +417,63 @@ impl Envelope {
     }
 }
 
+/// A linear gain ramp towards the volume last asked for, shared by every
+/// chunk so that it crosses their edges, and by both channels of a frame.
+///
+/// The target is the engine's to set; the rest is only ever touched by the
+/// one thread rodio's mixer runs on, so relaxed atomics are all it needs.
+struct VolumeRamp {
+    /// The volume asked for, as `f32` bits.
+    target: AtomicU32,
+    /// The gain the ramp is at, as `f32` bits.
+    current: AtomicU32,
+    /// The target the ramp is on its way to, so a new one is noticed.
+    heading: AtomicU32,
+    /// Frames left until it gets there.
+    remaining: AtomicU32,
+    /// Frames a whole ramp takes at the device's rate.
+    frames: u32,
+}
+
+impl VolumeRamp {
+    fn at(sample_rate: u32, gain: f32) -> Arc<Self> {
+        let bits = gain.to_bits();
+        Arc::new(Self {
+            target: AtomicU32::new(bits),
+            current: AtomicU32::new(bits),
+            heading: AtomicU32::new(bits),
+            remaining: AtomicU32::new(0),
+            frames: fade_frames(sample_rate, VOLUME_RAMP),
+        })
+    }
+
+    fn set(&self, gain: f32) {
+        self.target.store(gain.to_bits(), Ordering::Relaxed);
+    }
+
+    /// This frame's gain. A new target starts a whole ramp from wherever
+    /// the last one had got to.
+    fn next_gain(&self) -> f32 {
+        let target = self.target.load(Ordering::Relaxed);
+        let mut remaining = self.remaining.load(Ordering::Relaxed);
+        if self.heading.swap(target, Ordering::Relaxed) != target {
+            remaining = self.frames;
+        }
+        let gain = f32::from_bits(self.current.load(Ordering::Relaxed));
+        if remaining > 0 {
+            let target = f32::from_bits(target);
+            let next = if remaining == 1 {
+                target
+            } else {
+                gain + (target - gain) / remaining as f32
+            };
+            self.current.store(next.to_bits(), Ordering::Relaxed);
+            self.remaining.store(remaining - 1, Ordering::Relaxed);
+        }
+        gain
+    }
+}
+
 fn fade_frames(sample_rate: u32, length: Duration) -> u32 {
     (u64::from(sample_rate) * length.as_millis() as u64 / 1_000).max(1) as u32
 }
@@ -415,15 +481,21 @@ fn fade_frames(sample_rate: u32, length: Duration) -> u32 {
 struct TransitionSource {
     inner: rodio::buffer::SamplesBuffer,
     transport: Arc<Envelope>,
+    volume: Arc<VolumeRamp>,
     channel: usize,
     gain: f32,
 }
 
 impl TransitionSource {
-    fn new(inner: rodio::buffer::SamplesBuffer, transport: Arc<Envelope>) -> Self {
+    fn new(
+        inner: rodio::buffer::SamplesBuffer,
+        transport: Arc<Envelope>,
+        volume: Arc<VolumeRamp>,
+    ) -> Self {
         Self {
             inner,
             transport,
+            volume,
             channel: 0,
             gain: 1.0,
         }
@@ -436,7 +508,7 @@ impl Iterator for TransitionSource {
     fn next(&mut self) -> Option<Self::Item> {
         let sample = self.inner.next()?;
         if self.channel == 0 {
-            self.gain = self.transport.next_gain();
+            self.gain = self.transport.next_gain() * self.volume.next_gain();
         }
         self.channel = (self.channel + 1) % CHANNELS;
         Some(sample * self.gain)
@@ -607,7 +679,7 @@ fn open_device(
     let rate = stream.sample_rate;
     log::info!("the audio output runs at {rate} Hz");
     let sink = rodio::Sink::connect_new(&stream.mixer);
-    sink.set_volume(volume);
+    let volume = VolumeRamp::at(rate, volume);
     let transport = if playing {
         Envelope::rising(rate)
     } else {
@@ -625,6 +697,7 @@ fn open_device(
         fed: false,
         last_append: None,
         transport,
+        volume,
         pause_pending: false,
     })
 }
@@ -828,11 +901,72 @@ mod tests {
     fn a_transport_ramp_applies_one_gain_to_both_stereo_channels() {
         let envelope = Envelope::rising(8);
         let source = rodio::buffer::SamplesBuffer::new(2, 8, vec![1.0; 8]);
-        let samples: Vec<_> = TransitionSource::new(source, envelope).collect();
+        let samples: Vec<_> =
+            TransitionSource::new(source, envelope, VolumeRamp::at(8, 1.0)).collect();
         assert_eq!(samples.len(), 8);
         for pair in samples.as_chunks::<2>().0 {
             assert_eq!(pair[0], pair[1]);
         }
         assert!(samples[0] < samples[2]);
+    }
+
+    #[test]
+    fn volume_changes_take_thirty_ms_at_each_output_rate() {
+        for rate in [44_100, 48_000, 96_000] {
+            let frames = rate * 30 / 1_000;
+            let ramp = VolumeRamp::at(rate, 0.0);
+            for target in [1.0, 0.25, 0.0, 0.8] {
+                ramp.set(target);
+                let start = f32::from_bits(ramp.current.load(Ordering::Relaxed));
+                for frame in 0..frames {
+                    let gain = ramp.next_gain();
+                    let expected = start + (target - start) * frame as f32 / frames as f32;
+                    assert!((gain - expected).abs() < 0.0001, "{rate} Hz, frame {frame}");
+                }
+                assert_eq!(ramp.next_gain(), target);
+            }
+        }
+    }
+
+    #[test]
+    fn retargeting_volume_continues_from_the_current_gain() {
+        let ramp = VolumeRamp::at(48_000, 0.0);
+        ramp.set(1.0);
+        for _ in 0..480 {
+            ramp.next_gain();
+        }
+        let current = f32::from_bits(ramp.current.load(Ordering::Relaxed));
+        assert!(current > 0.0 && current < 1.0);
+        ramp.set(0.0);
+        assert_eq!(ramp.next_gain(), current);
+        for _ in 1..1440 {
+            ramp.next_gain();
+        }
+        assert_eq!(ramp.next_gain(), 0.0);
+    }
+
+    /// The ramp is one gain per frame, carried from one chunk into the
+    /// next, so a change made mid-chunk does not start again at the edge.
+    #[test]
+    fn the_volume_ramp_is_stereo_linked_and_spans_chunks() {
+        let transport = Envelope::at(48_000, SCALE);
+        let volume = VolumeRamp::at(48_000, 1.0);
+        let chunk = || rodio::buffer::SamplesBuffer::new(2, 48_000, vec![1.0; 2_000]);
+        volume.set(0.0);
+        let falling: Vec<f32> = (0..2)
+            .flat_map(|_| {
+                TransitionSource::new(chunk(), Arc::clone(&transport), Arc::clone(&volume))
+            })
+            .collect();
+        assert_eq!(falling[0], 1.0);
+        assert_eq!(&falling[2880..], &[0.0; 1120]);
+        assert!(falling.windows(2).all(|pair| pair[0] >= pair[1]));
+        assert!(
+            falling
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .all(|pair| pair[0] == pair[1])
+        );
     }
 }

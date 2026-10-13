@@ -186,9 +186,15 @@ Right-click a row of **Playing next**, or open its **…** menu, and choose
 **Remove from queue** to take out that one row; other copies of the song stay.
 Rows of **Next up** have no such entry.
 
-Local Play and Pause fade smoothly. The visualizers still follow the
-post-equalizer, pre-volume signal, so transport and volume changes do not move
-the picture.
+Play and Pause fade over 50 ms, and a volume change, mute included, glides
+over 30 ms instead of clicking. Pressing the player bar's volume slider sets
+the volume where you press, without waiting for the pointer to move; the seek
+slider shows where you press and seeks when you let go. Playing another song,
+Next, Previous, a queue jump and a seek start the equalizer and its limiter
+afresh, so no scrap of the sound before them reaches a quiet intro; a song
+that follows on by itself, gaplessly, and Pause and Play keep the music
+continuous. The visualizers still follow the post-equalizer, pre-volume
+signal, so transport and volume changes do not move the picture.
 
 Settings → Appearance → **Player bar visualizer** offers a spectrum or waveform
 behind the controls. It is off by default. Click empty space on the player bar

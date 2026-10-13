@@ -105,11 +105,19 @@ impl Chain {
     }
 
     /// Everything queued has been thrown away — a seek, or a track the
-    /// interface changed its mind about. What the tap holds would never
-    /// have been heard, so drawing it would be showing sound that no longer
-    /// exists.
-    pub(super) fn clear(&mut self) {
+    /// interface changed its mind about — so the chain starts clean too.
+    /// What the tap holds would never have been heard, so drawing it would
+    /// be showing sound that no longer exists. The equalizer's filters ring
+    /// on with what they last saw and the limiter holds the last eight
+    /// milliseconds back; kept, both would play a scrap of the old track
+    /// into the start of the new one, which a quiet intro makes plain.
+    ///
+    /// A gapless join and Pause do not come here: there the music carries
+    /// on, and so does what the chain remembers of it.
+    pub(super) fn reset(&mut self) {
         self.tap.clear();
+        self.eq.reset();
+        self.limiter = Limiter::new(f64::from(self.rate));
     }
 
     /// How much of what has been pushed to the tap is still waiting at the
@@ -452,6 +460,45 @@ mod tests {
             (heard + 6.02).abs() < 0.5,
             "what is played moved by {heard:.1} dB, not -6"
         );
+    }
+
+    /// A seek or a track the interface asked for starts from silence: the
+    /// equalizer's ringing and the limiter's held eight milliseconds of the
+    /// old track must not reach a new one that opens quietly. The volume at
+    /// zero leaves the limiter out, so the equalizer is checked on its own.
+    #[test]
+    fn a_reset_keeps_the_old_track_out_of_the_new_one() {
+        for (equalizer_on, volume) in [(false, u16::MAX), (true, u16::MAX), (true, 0)] {
+            let settings = crate::eq::shared();
+            {
+                let mut shared = settings.lock().unwrap();
+                shared.on = equalizer_on;
+                shared.bands_db[0] = 12.0;
+            }
+            let tap = AudioTap::new();
+            let mut chain = Chain::new(settings, Arc::clone(&tap), 44_100);
+            chain.process(&[0.25; 4096], volume, 1.0);
+            chain.reset();
+            assert!(tap.window(4096, 0).iter().all(|sample| *sample == 0.0));
+            let out = chain.process(&[0.0; 4096], volume, 1.0);
+            assert!(
+                out.iter().all(|sample| *sample == 0.0),
+                "the old track reached the new one (equalizer {equalizer_on}, volume {volume})"
+            );
+        }
+    }
+
+    /// Without a reset — a gapless join, or Pause and Play — the music goes
+    /// on, and the limiter's held tail comes out ahead of what follows it.
+    #[test]
+    fn going_on_keeps_the_limiter_tail() {
+        let mut chain = Chain::new(crate::eq::shared(), AudioTap::new(), 44_100);
+        chain.process(&[0.25; 4096], u16::MAX, 1.0);
+        let out = chain.process(&[0.0; 4096], u16::MAX, 1.0);
+        // Eight milliseconds at 44.1 kHz, both channels.
+        let held = 353 * 2;
+        assert!(out[..held].iter().all(|sample| *sample == 0.25));
+        assert!(out[held..].iter().all(|sample| *sample == 0.0));
     }
 
     /// The lead is what keeps the bars with the speaker rather than with

@@ -474,13 +474,13 @@ impl Worker {
         gain
     }
 
-    /// Throws away what is queued, at the device and in the tap alike: a
+    /// Throws away what is queued, at the device and in the chain alike: a
     /// seek, a new track, or the end of the list. What the tap holds would
-    /// never have been heard, and a visualiser drawing it would be showing
-    /// sound that was thrown away.
+    /// never have been heard, and what the equalizer and the limiter hold
+    /// belongs to the sound before the jump.
     fn restart(&mut self, playing: bool) {
         self.output.restart(playing);
-        self.chain.clear();
+        self.chain.reset();
     }
 
     /// Where the device has actually got to, and the join it has crossed.

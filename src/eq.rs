@@ -464,6 +464,17 @@ impl Processor {
         self.chains = vec![chain(&settings.bands_db, self.rate); CHANNELS];
     }
 
+    /// Forgets the signal so far, keeping the filters as they are: the
+    /// next sample is the first one these filters have seen.
+    pub fn reset(&mut self) {
+        for filter in self.chains.iter_mut().flatten() {
+            filter.x1 = 0.0;
+            filter.x2 = 0.0;
+            filter.y1 = 0.0;
+            filter.y2 = 0.0;
+        }
+    }
+
     /// Runs interleaved stereo samples through the equalizer, in place.
     pub fn process(&mut self, samples: &mut [f64]) {
         let wanted = self
