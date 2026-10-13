@@ -2,9 +2,9 @@
 //! left.
 //!
 //! Spirc owned this on the other side of a network. It is ours now, and
-//! `docs/_reference/queue.md` is what it has to do — ten rules, written
-//! for the person using the app. Rules 1 to 7 and 10 are held up by the
-//! tests in this file; 8 and 9 are the app's, in `src/app.rs`. (An older
+//! `docs/_reference/queue.md` is what it has to do — eleven rules, written
+//! for the person using the app. Rules 1 to 7, 10 and 11 are held up by
+//! the tests in this file; 8 and 9 are the app's, in `src/app.rs`. (An older
 //! tenth, about ignoring stale remote answers, was retired by P4.3: there
 //! is no second copy of the queue to be stale. Today's is about dragging
 //! into the queue.) The numbered comments through this file point back at
@@ -312,6 +312,34 @@ impl Queue {
         for (offset, entry) in entries.into_iter().enumerate() {
             self.queued.insert(at + offset, entry);
         }
+    }
+
+    /// Rule 11: take rows out of "Playing next", each named by where the
+    /// panel showed it and the song it held there. `false` if none of
+    /// them is still queued.
+    ///
+    /// Rows only ever leave from the top while a menu is open, so a row
+    /// that no longer names its song has moved up: the nearest copy at or
+    /// above it is the one chosen. Other copies of the song stay.
+    pub(super) fn remove_queued(&mut self, rows: &[(usize, &str)]) -> bool {
+        let mut rows = rows.to_vec();
+        // From the bottom up, so the rows still to go keep their places.
+        rows.sort_unstable_by_key(|(seen, _)| std::cmp::Reverse(*seen));
+        rows.dedup_by_key(|(seen, _)| *seen);
+        let mut removed = false;
+        for (seen, id) in rows {
+            let Some(last) = self.queued.len().checked_sub(1) else {
+                break;
+            };
+            let found = (0..=seen.min(last))
+                .rev()
+                .find(|&index| self.queued[index].id == id);
+            if let Some(index) = found {
+                self.queued.remove(index);
+                removed = true;
+            }
+        }
+        removed
     }
 
     /// Rule 7: Clear empties "Playing next" and leaves the album alone.
@@ -788,6 +816,44 @@ mod tests {
         assert_eq!(rows(&queue), ["q1", "x", "y", "q2", "z", "b"]);
         assert_eq!(next(&mut queue), Some("q1"));
         assert_eq!(next(&mut queue), Some("x"));
+    }
+
+    /// Rule 11: Remove from queue takes out the chosen row only. Other
+    /// copies of the song stay, the album's rows are never touched, and a
+    /// row that has gone already removes nothing.
+    #[test]
+    fn removing_a_queued_row_takes_only_that_row() {
+        let mut queue = album(&["a", "q1", "b"]);
+        for id in ["q1", "q2", "q1", "q3"] {
+            queue.add(Entry::new(id));
+        }
+        assert!(queue.remove_queued(&[(2, "q1")]));
+        assert_eq!(rows(&queue), ["q1", "q2", "q3", "q1", "b"]);
+        assert!(queue.remove_queued(&[(0, "q1"), (2, "q3")]), "a selection");
+        assert_eq!(rows(&queue), ["q2", "q1", "b"]);
+        assert!(!queue.remove_queued(&[(0, "gone")]));
+        assert!(
+            !queue.remove_queued(&[(2, "q1")]),
+            "the album's own copy is not one you queued"
+        );
+        assert_eq!(rows(&queue), ["q2", "q1", "b"]);
+        assert_eq!(next(&mut queue), Some("q2"));
+        assert_eq!(next(&mut queue), Some("q1"), "the album carries on");
+    }
+
+    /// Rule 11: a song that starts while the menu is open takes the top
+    /// row away; the removal still takes the row that was chosen, not
+    /// another copy of its song.
+    #[test]
+    fn a_removal_follows_its_row_when_the_rows_above_it_have_played() {
+        let mut queue = album(&["a", "b"]);
+        for id in ["q1", "x", "q2", "x"] {
+            queue.add(Entry::new(id));
+        }
+        // The second x was chosen at row 3; q1 then started.
+        assert_eq!(next(&mut queue), Some("q1"));
+        assert!(queue.remove_queued(&[(3, "x")]));
+        assert_eq!(rows(&queue), ["x", "q2", "b"]);
     }
 
     /// Rules 3 and 4: a song that starts is not also a row waiting to

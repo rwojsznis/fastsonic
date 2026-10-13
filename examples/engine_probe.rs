@@ -272,11 +272,20 @@ fn main() -> anyhow::Result<()> {
     let queue = engine.queue();
     check(
         "a dropped song goes in at its slot",
-        uris(&queue.queued) == [to_queue[1].clone(), dropped, to_queue[0].clone()],
+        uris(&queue.queued) == [to_queue[1].clone(), dropped.clone(), to_queue[0].clone()],
     );
     check(
         "and is described without being played",
         queue.queued.iter().all(|row| row.track.is_some()),
+    );
+
+    // Rule 11: Remove from queue takes out the chosen row alone.
+    engine.command(PlayerCommand::RemoveQueued(vec![(1, dropped.clone())]))?;
+    std::thread::sleep(Duration::from_millis(300));
+    let queue = engine.queue();
+    check(
+        "a removed Playing next row leaves the others in place",
+        uris(&queue.queued) == [to_queue[1].clone(), to_queue[0].clone()],
     );
 
     // Rule 7: Clear empties your part of the queue and nothing else.

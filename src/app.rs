@@ -2768,6 +2768,25 @@ impl App {
         self.queue_is_live
     }
 
+    /// Whether the queue row at `index` is a song you queued that the
+    /// engine can take out (rule 11). Next up plays from the album, and the
+    /// remembered queue of a closed session is not the engine's.
+    pub fn can_remove_from_queue(&self, index: usize) -> bool {
+        self.queue_is_live && index < self.queued_rows_len()
+    }
+
+    /// Rule 11: the engine takes the rows out and the panel draws its
+    /// answer, as it does for a move.
+    fn remove_from_queue(&mut self, rows: Vec<(usize, String)>) {
+        let rows: Vec<(usize, String)> = rows
+            .into_iter()
+            .filter(|(index, _)| self.can_remove_from_queue(*index))
+            .collect();
+        if !rows.is_empty() {
+            self.backend.player(PlayerCommand::RemoveQueued(rows));
+        }
+    }
+
     /// Rule 7: Clear empties the songs queued by hand and leaves the
     /// context's own rows alone. The engine does the emptying; the panel
     /// redraws from the queue it publishes for it.
@@ -4264,6 +4283,7 @@ impl App {
                 self.backend
                     .player(PlayerCommand::MoveQueued { from, to, uri });
             }
+            Action::RemoveFromQueue { rows } => self.remove_from_queue(rows),
             Action::InsertInQueue { items, at } => {
                 let songs: Vec<&PlayableItem> = items
                     .iter()
@@ -7587,6 +7607,77 @@ mod tests {
         let (_, next) = queue_uris(&app);
         assert_eq!(next, vec!["sonic:track:c", "sonic:track:ctx1"]);
         assert!(app.manual_queue.is_empty());
+    }
+
+    /// Rule 11: Remove from queue asks the engine for the chosen rows of
+    /// Playing next and nothing else. A Next up row is not yours to remove,
+    /// and the remembered queue is not the engine's to change.
+    #[test]
+    fn remove_from_queue_asks_for_your_own_rows_only() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let rows = |pairs: &[(usize, &str)]| {
+            pairs
+                .iter()
+                .map(|(row, uri)| (*row, uri.to_string()))
+                .collect::<Vec<_>>()
+        };
+        app.set_remembered_queue(
+            vec![
+                queue_row_item(&queue_row("sonic:track:q1")),
+                queue_row_item(&queue_row("sonic:track:c")),
+            ],
+            1,
+        );
+        assert!(!app.can_remove_from_queue(0));
+        app.backend.asked();
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: rows(&[(0, "sonic:track:q1")]),
+            },
+            &ctx,
+        );
+        assert!(app.backend.asked().is_empty());
+
+        app.handle_queue(snapshot(
+            Some("sonic:track:a"),
+            &["sonic:track:q1", "sonic:track:q2", "sonic:track:q1"],
+            &["sonic:track:q1", "sonic:track:ctx1"],
+        ));
+        assert!(app.can_remove_from_queue(2));
+        assert!(
+            !app.can_remove_from_queue(3),
+            "Next up plays from the album"
+        );
+        app.backend.asked();
+        app.apply(
+            Action::RemoveFromQueue {
+                rows: rows(&[(2, "sonic:track:q1"), (3, "sonic:track:q1")]),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.asked(),
+            vec![PlayerCommand::RemoveQueued(rows(&[(2, "sonic:track:q1")]))]
+        );
+        // The panel draws the engine's answer, which it publishes before
+        // the next frame.
+        app.handle_queue(snapshot(
+            Some("sonic:track:a"),
+            &["sonic:track:q1", "sonic:track:q2"],
+            &["sonic:track:q1", "sonic:track:ctx1"],
+        ));
+        let (_, next) = queue_uris(&app);
+        assert_eq!(
+            next,
+            [
+                "sonic:track:q1",
+                "sonic:track:q2",
+                "sonic:track:q1",
+                "sonic:track:ctx1"
+            ]
+        );
+        assert_eq!(app.queued_rows_len(), 2);
     }
 
     /// Rule 8 with no remote service in it, and rule 10 retired: the engine's word

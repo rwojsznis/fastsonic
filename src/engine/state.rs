@@ -258,6 +258,9 @@ pub enum PlayerCommand {
         uris: Vec<String>,
         at: usize,
     },
+    /// Rule 11: take these "Playing next" rows out, each named by the row
+    /// the panel showed it at and the track `uri` it held there.
+    RemoveQueued(Vec<(usize, String)>),
     /// Play the row at this position in the queue, counting the rows as
     /// `QueueSnapshot` draws them: "Playing next" first, then "Next up".
     /// The rows above it are skipped, which is rule 5 of

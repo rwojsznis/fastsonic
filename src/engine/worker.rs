@@ -746,6 +746,17 @@ impl Worker {
                     self.publish_queue();
                 }
             }
+            PlayerCommand::RemoveQueued(rows) => {
+                let rows: Vec<(usize, &str)> = rows
+                    .iter()
+                    .filter_map(|(row, uri)| {
+                        convert::id_of(uri, convert::Kind::Track).map(|id| (*row, id))
+                    })
+                    .collect();
+                if self.queue.remove_queued(&rows) {
+                    self.publish_queue();
+                }
+            }
             PlayerCommand::PlayQueued(row) => self.play_queued(row),
             PlayerCommand::Seek(position_ms) => self.seek(position_ms),
             // Local playback makes these the same thing: there is no

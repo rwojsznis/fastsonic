@@ -78,3 +78,13 @@ for.
     hold a row, the move still takes the song you picked up to the place
     you dropped it. The queue a closed session left behind is not the
     player's yet, so before anything plays a drop there just queues.
+
+11. **A song you queued can be taken out on its own.** Right-click a row
+    of *Playing next*, or open its **…** menu, and choose **Remove from
+    queue**; in the Winamp playlist, select the songs and choose **REM →
+    Remove selected**. Only the chosen row leaves: other copies of the
+    song stay where they are, and so does *Next up*, whose rows play from
+    the album or playlist and offer no such entry. If a song starts while
+    the menu is open, the row you chose is still the one that goes. The
+    queue a closed session left behind is not the player's yet, so its
+    rows cannot be removed before anything plays.

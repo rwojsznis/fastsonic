@@ -768,6 +768,15 @@ pub fn item_menu(
             label: label.clone(),
         });
     }
+    // Only a song you queued: Next up plays from the album.
+    if let (Some(RowContext::Queue), Some(index)) = (context, index)
+        && app.can_remove_from_queue(index)
+        && menu_item(ui, &palette, Some(Icon::Minus), "Remove from queue")
+    {
+        app.actions.push(Action::RemoveFromQueue {
+            rows: vec![(index, uri.clone())],
+        });
+    }
     {
         let saved = app.is_saved(&uri).unwrap_or(false);
         let (icon, text) = if saved {

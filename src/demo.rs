@@ -5194,6 +5194,103 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Rule 11: right-clicking a song under Playing next offers to take it
+    /// out of the queue, which asks the engine for that row alone; a Next
+    /// up row, which plays from the album, offers no such entry.
+    #[test]
+    fn a_queued_rows_menu_removes_it_from_the_queue() {
+        use crate::engine::{LocalTrack, PlayerCommand, QueueRow, QueueSnapshot};
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("queue-remove");
+        app.show_queue_panel = true;
+        let row = |id: &str, title: &str| QueueRow {
+            uri: track_uri(id),
+            track: Some(LocalTrack {
+                uri: track_uri(id),
+                title: title.into(),
+                ..Default::default()
+            }),
+        };
+        app.handle_queue(QueueSnapshot {
+            current: Some(row("trk0", "Playing")),
+            queued: vec![
+                row("q1", "Queued one"),
+                row("q2", "Queued two"),
+                row("q1", "Queued one"),
+            ],
+            upcoming: vec![row("u1", "Album song")],
+            context_uri: Some("sonic:album:x".into()),
+            context_at: Some(track_uri("trk0")),
+        });
+        accessible_frame(&ctx, &mut app, vec![]);
+        let center = |tree: &egui::accesskit::TreeUpdate, label: &str, nth: usize| {
+            let mut rows: Vec<_> = tree
+                .nodes
+                .iter()
+                .filter(|(_, node)| {
+                    node.role() == Role::Button
+                        && node.label().is_some_and(|text| text.starts_with(label))
+                })
+                .filter_map(|(_, node)| node.bounds())
+                .collect();
+            rows.sort_by(|a, b| a.y0.total_cmp(&b.y0));
+            let rect = *rows
+                .get(nth)
+                .unwrap_or_else(|| panic!("no {label:?} on screen"));
+            egui::pos2(
+                ((rect.x0 + rect.x1) / 2.0) as f32,
+                ((rect.y0 + rect.y1) / 2.0) as f32,
+            )
+        };
+        let offers_removal = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Remove from queue"))
+        };
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let next_up = center(&tree, "Play Album song", 0);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(next_up, egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Add to queue", Role::Button);
+        assert!(!offers_removal(&tree), "a Next up row cannot be removed");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+        );
+
+        // The second copy of the first song, at row 2.
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let queued = center(&tree, "Play Queued one", 1);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(queued, egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let remove = accessible_node(&tree, "Remove from queue", Role::Button);
+        app.backend.asked();
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(
+                remove,
+                egui::accesskit::Action::Click,
+                None,
+            )],
+        );
+        assert_eq!(
+            app.backend.asked(),
+            [PlayerCommand::RemoveQueued(vec![(2, track_uri("q1"))])]
+        );
+        app.backend.shutdown();
+    }
+
     /// The update badge stays clear of Search: spelled out in a wide
     /// window, an icon chip with the same accessible name once the queue
     /// panel leaves the bar short of room.

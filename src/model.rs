@@ -827,6 +827,11 @@ pub enum Action {
         items: Vec<PlayableItem>,
         at: usize,
     },
+    /// Take rows out of "Playing next", each named by its index in the
+    /// queue and the song it holds there (rule 11).
+    RemoveFromQueue {
+        rows: Vec<(usize, String)>,
+    },
     /// Set saved state for several songs explicitly.
     SetSavedMany {
         uris: Vec<String>,

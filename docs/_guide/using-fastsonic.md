@@ -178,6 +178,10 @@ edge. **Next up** plays from the album or playlist and takes no drops. Drop on
 the player bar's Queue button to queue at the end, which is the place to drop
 while **Playing next** is empty.
 
+Right-click a row of **Playing next**, or open its **…** menu, and choose
+**Remove from queue** to take out that one row; other copies of the song stay.
+Rows of **Next up** have no such entry.
+
 Local Play and Pause fade smoothly. The visualizers still follow the
 post-equalizer, pre-volume signal, so transport and volume changes do not move
 the picture.
