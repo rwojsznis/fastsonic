@@ -33,7 +33,7 @@ use crate::api::subsonic::{Child, SubsonicClient, convert};
 use super::cache::Cache;
 use super::chain::{Chain, replay_gain};
 use super::decode::{Decoder, Stream};
-use super::output::{Heard, Output, PREFERRED_RATE, TARGET_QUEUE, Token};
+use super::output::{Heard, Maintained, Output, PREFERRED_RATE, TARGET_QUEUE, Token};
 use super::queue::{Additions, Entry, Queue, QueueSnapshot, Rewound, local_track};
 use super::state::{
     EngineEvent, LoadSpec, LocalState, LocalTrack, Notify, Playback, PlayerCommand, RepeatMode,
@@ -275,6 +275,7 @@ impl Worker {
                 break;
             }
             self.follow();
+            self.maintain();
             // The equalizer's filters and the limiter are designed for the
             // device's rate, and the device is allowed to change under
             // them: the system default can move to a 48 kHz output while a
@@ -308,6 +309,71 @@ impl Worker {
             }
         }
         self.output.pause();
+    }
+
+    /// Keeps the device playing under a playing track. Connecting
+    /// headphones, a new default output, a device that went away or a
+    /// stream that stopped asking for sound: the output moves to the one
+    /// to use now and the music carries on. Only a device that will not
+    /// open stops it.
+    fn maintain(&mut self) {
+        if self.state.playback != Playback::Playing {
+            return;
+        }
+        match self.output.maintain() {
+            Ok(Maintained::Unchanged) => {}
+            Ok(Maintained::Reopened(heard)) => self.carry_on(heard),
+            Err(message) => self.fail(message),
+        }
+    }
+
+    /// The device was opened again under a playing track, and the sound
+    /// queued for the old one went with it. The track carries on from where
+    /// the speaker had got to, decoded afresh at the new device's rate, so
+    /// nothing is skipped and nothing plays at the wrong speed.
+    fn carry_on(&mut self, heard: Option<Heard>) {
+        let Some(rate) = self.output.current_rate() else {
+            return;
+        };
+        self.chain.set_rate(rate);
+        if let Some(Prefetch::Ready(ready)) = &mut self.prefetch {
+            ready.decoder.set_out_rate(rate);
+        }
+        // A track joined behind this one is sound from after the jump back,
+        // as with a seek; the ordinary join opens it again.
+        self.open.truncate(1);
+        let Some(current) = self.open.front() else {
+            return;
+        };
+        let at = match heard {
+            Some(heard) if heard.token == current.token => heard.position,
+            Some(_) => Duration::from_millis(u64::from(self.state.position_ms)),
+            // Nothing was heard since the last restart, so nothing was
+            // queued and the decoder is where the speaker is.
+            None => current.fed,
+        };
+        // A reader at the end of its stream cannot always seek back out of
+        // it; see `seek`.
+        if current.drained {
+            let at = at.as_millis().min(u128::from(u32::MAX)) as u32;
+            self.start(true, at);
+            return;
+        }
+        self.restart(true);
+        let current = self.open.front_mut().expect("a track is open");
+        current.decoder.set_out_rate(rate);
+        match current.decoder.seek(at) {
+            Ok(landed) => {
+                current.fed = landed;
+                current.drained = false;
+            }
+            // Played on from where the decoder is, which skips what was
+            // queued but beats stopping.
+            Err(error) => log::warn!("cannot go back to where the speaker was: {error}"),
+        }
+        self.state.position_ms = current.fed.as_millis().min(u128::from(u32::MAX)) as u32;
+        self.state.position_at = Some(Instant::now());
+        self.publish();
     }
 
     /// How long the loop may sleep when there is nothing to decode. A
@@ -584,10 +650,13 @@ impl Worker {
         };
         let Ready {
             song,
-            decoder,
+            mut decoder,
             seam,
             ..
         } = *ready;
+        if let Some(rate) = self.output.current_rate() {
+            decoder.set_out_rate(rate);
+        }
         let token = self.token();
         let gain = self.gain_for(&song);
         self.open.push_back(Open {
@@ -638,9 +707,10 @@ impl Worker {
             }
             _ => {}
         }
-        // The device is open — something is playing — so this neither
-        // opens it nor blocks.
-        let Ok(rate) = self.output.rate() else {
+        // The device is open — something is playing. Asking it for its
+        // rate must not open it again either: a device that moved is
+        // `maintain`'s to open again, keeping the speaker's place.
+        let Some(rate) = self.output.current_rate() else {
             return;
         };
         // Whatever the server has already said about it, so that opening a
@@ -668,7 +738,7 @@ impl Worker {
     }
 
     fn prefetched(&mut self, id: String, opened: Box<Option<Opened>>) {
-        let Some(Opened { song, decoder }) = *opened else {
+        let Some(Opened { song, mut decoder }) = *opened else {
             self.prefetch = Some(Prefetch::Failed(id, Instant::now()));
             return;
         };
@@ -688,6 +758,10 @@ impl Worker {
         self.queue.learn(&song);
         if learned {
             self.publish_queue();
+        }
+        // Opened for the device as it was when it was asked for.
+        if let Some(rate) = self.output.current_rate() {
+            decoder.set_out_rate(rate);
         }
         self.prefetch = Some(Prefetch::Ready(Box::new(Ready {
             id: wanted,
@@ -1109,7 +1183,10 @@ impl Worker {
         self.chain.set_rate(rate);
         self.restart(play);
         let mut decoder = match self.take_ready(&song.id, position_ms) {
-            Some(decoder) => decoder,
+            Some(mut decoder) => {
+                decoder.set_out_rate(rate);
+                decoder
+            }
             None => {
                 let url = match self.client.stream_url(&song.id) {
                     Ok(url) => url,

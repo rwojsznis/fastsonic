@@ -46,6 +46,21 @@ const TRANSPORT_FADE: Duration = Duration::from_millis(50);
 /// step, which clicks when the slider jumps.
 const VOLUME_RAMP: Duration = Duration::from_millis(30);
 
+/// How long a playing stream's clock may stand still before it counts as
+/// stuck: a few times the longest device buffer, and longer than any chunk.
+const STALL: Duration = Duration::from_secs(2);
+
+/// What a look at the device found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Maintained {
+    /// It plays on, or has nothing to play.
+    Unchanged,
+    /// It was opened again, and what was queued went with the old one.
+    /// This is where the speaker had got to, `None` with nothing heard
+    /// since the last [`Output::restart`].
+    Reopened(Option<Heard>),
+}
+
 /// Wakes the engine once the device has made room in a full queue. It is
 /// called on the device's own thread, so it must not wait on anything.
 pub(crate) type Waker = Arc<dyn Fn() + Send + Sync>;
@@ -118,6 +133,8 @@ pub(crate) struct Output {
     playing: bool,
     /// What is in the sink, counted for the engine's wait for room.
     room: Arc<Room>,
+    /// Watches a playing stream for a clock that stands still.
+    stall: Option<Stall>,
 }
 
 impl Output {
@@ -137,6 +154,7 @@ impl Output {
             volume,
             playing: false,
             room: Room::new(on_room),
+            stall: None,
         }
     }
 
@@ -155,11 +173,59 @@ impl Output {
         self.open.as_ref().map(|stream| stream.rate)
     }
 
-    /// Opens the device if it is not open, or if it died since.
+    /// Keeps a playing device playing, for the engine to call every time
+    /// round its loop. The device is opened again when it failed, when the
+    /// system's default output moved (headphones connected, or a new
+    /// default chosen) and Settings names none, or when its clock stood
+    /// still for [`STALL`] while playing: a stream can stop asking for
+    /// sound without reporting an error, and then nothing would ever make
+    /// room in the queue. Only a device that will not open is an error.
+    pub(crate) fn maintain(&mut self) -> Result<Maintained, String> {
+        self.maintain_at(Instant::now())
+    }
+
+    fn maintain_at(&mut self, now: Instant) -> Result<Maintained, String> {
+        if self.open.is_none() {
+            self.stall = None;
+            return Ok(Maintained::Unchanged);
+        }
+        if !self.must_reopen() {
+            if !self.stalled(now) {
+                return Ok(Maintained::Unchanged);
+            }
+            log::warn!("the audio output stopped playing for {STALL:?}; opening it again");
+        }
+        let heard = self.heard();
+        self.open = None;
+        self.stall = None;
+        self.ensure_open()?;
+        Ok(Maintained::Reopened(heard))
+    }
+
+    /// Whether the open stream is meant to be playing and its clock has
+    /// not moved for [`STALL`].
+    fn stalled(&mut self, now: Instant) -> bool {
+        let Some(stream) = &self.open else {
+            return false;
+        };
+        if !self.playing || stream.sink.is_paused() || stream.sink.empty() {
+            self.stall = None;
+            return false;
+        }
+        let progress = (self.room.played(), stream.sink.get_pos());
+        match &mut self.stall {
+            Some(stall) => stall.observe(progress, now),
+            None => {
+                self.stall = Some(Stall::new(progress, now));
+                false
+            }
+        }
+    }
+
+    /// Opens the device if it is not open, or if it died or the default
+    /// moved since.
     fn ensure_open(&mut self) -> Result<&mut Stream, String> {
-        self.follow_default();
-        if self.open.as_ref().is_some_and(Stream::failed) {
-            log::warn!("the audio output stopped working; reopening it");
+        if self.must_reopen() {
             self.open = None;
         }
         if self.open.is_none() {
@@ -177,17 +243,30 @@ impl Output {
         Ok(self.open.as_mut().expect("just opened"))
     }
 
-    /// Moves playback when the system's default output changes, as long as
-    /// Settings did not name a device.
+    /// Whether the open stream has to be opened again: it died, or the
+    /// system's default output moved and Settings did not name a device.
+    fn must_reopen(&mut self) -> bool {
+        let Some(open) = &self.open else {
+            return false;
+        };
+        if open.failed() {
+            log::warn!("the audio output stopped working; reopening it");
+            return true;
+        }
+        self.default_moved()
+    }
+
+    /// Whether the system's default output is no longer the open one, as
+    /// long as Settings did not name a device.
     ///
     /// Windows and macOS need explicit polling; PipeWire and PulseAudio move
     /// streams themselves, and ALSA's answer does not change.
-    fn follow_default(&mut self) {
+    fn default_moved(&mut self) -> bool {
         if cfg!(target_os = "linux") || self.device.is_some() {
-            return;
+            return false;
         }
         let Some(open) = &self.open else {
-            return;
+            return false;
         };
         let watch = self.watch.get_or_insert_with(DefaultWatch::start);
         let current = watch.name();
@@ -196,8 +275,9 @@ impl Output {
                 "the default audio output is now {}; moving playback to it",
                 current.as_deref().unwrap_or("[unknown device]")
             );
-            self.open = None;
+            return true;
         }
+        false
     }
 
     /// Hands one decoded chunk to the device and answers with how long it
@@ -214,7 +294,13 @@ impl Output {
             return Ok(Duration::ZERO);
         }
         let room = Arc::clone(&self.room);
-        let stream = self.ensure_open()?;
+        // An open device is used as it is, even one that failed or that the
+        // default moved away from: `maintain` opens it again and keeps the
+        // speaker's place, where opening it here would skip what is queued.
+        if self.open.is_none() {
+            self.ensure_open()?;
+        }
+        let stream = self.open.as_mut().expect("just opened");
         if !stream.sink.is_paused() {
             stream.resume_device();
         }
@@ -391,6 +477,9 @@ fn settle_pause(stream: &mut Stream) {
 /// it away. The engine waits on its own channel, so the wake is a message.
 struct Room {
     frames: AtomicU64,
+    /// Every frame rodio has let go of, for telling a stream that plays
+    /// from one that stands still.
+    played: AtomicU64,
     /// While the engine waits for room, the level at or below which it is
     /// woken; zero while nothing waits.
     wake_at: AtomicU64,
@@ -401,6 +490,7 @@ impl Room {
     fn new(wake: Waker) -> Arc<Self> {
         Arc::new(Self {
             frames: AtomicU64::new(0),
+            played: AtomicU64::new(0),
             wake_at: AtomicU64::new(0),
             wake,
         })
@@ -408,6 +498,10 @@ impl Room {
 
     fn appended(&self, frames: u64) {
         self.frames.fetch_add(frames, Ordering::Relaxed);
+    }
+
+    fn played(&self) -> u64 {
+        self.played.load(Ordering::Relaxed)
     }
 
     /// Asks to be woken once `refill` frames of what is queued have gone.
@@ -433,6 +527,7 @@ impl Room {
     /// rodio has let go of a chunk: wakes the engine once the queue has
     /// drained to the level it waits for, and only then.
     fn consumed(&self, frames: u64) {
+        self.played.fetch_add(frames, Ordering::Relaxed);
         let left = self
             .frames
             .fetch_sub(frames, Ordering::Relaxed)
@@ -448,6 +543,43 @@ impl Room {
         {
             (self.wake)();
         }
+    }
+}
+
+/// Watches a playing stream for a clock that does not move.
+#[derive(Debug)]
+struct Stall {
+    /// The chunks played out, and how far into the current one.
+    progress: (u64, Duration),
+    /// When `progress` last moved.
+    since: Instant,
+    /// When it was last looked at.
+    seen: Instant,
+}
+
+impl Stall {
+    fn new(progress: (u64, Duration), now: Instant) -> Self {
+        Self {
+            progress,
+            since: now,
+            seen: now,
+        }
+    }
+
+    /// Notes how far the stream has got; `true` once it has not moved for
+    /// [`STALL`].
+    fn observe(&mut self, progress: (u64, Duration), now: Instant) -> bool {
+        // The engine looks far more often than `STALL`, so a gap that long
+        // is time it did not run: the system slept or suspended the app,
+        // and the device had no chance to play either. On Windows `Instant`
+        // counts that time.
+        let asleep = now.duration_since(self.seen) >= STALL;
+        self.seen = now;
+        if progress != self.progress || asleep {
+            *self = Self::new(progress, now);
+            return false;
+        }
+        now.duration_since(self.since) >= STALL
     }
 }
 
@@ -1185,5 +1317,122 @@ mod tests {
         room.disarm();
         drop(chunk);
         assert_eq!(woken.load(Ordering::SeqCst), 0);
+    }
+
+    /// A stream whose clock keeps moving is never stuck however long it
+    /// plays; one that does not move for `STALL` is, and the count starts
+    /// over each time it moves.
+    #[test]
+    fn only_a_stream_that_stops_playing_counts_as_stuck() {
+        let start = Instant::now();
+        let mut stall = Stall::new((0, ms(0)), start);
+        assert!(!stall.observe((0, ms(0)), start + STALL / 2));
+        assert!(!stall.observe((0, ms(10)), start + STALL), "it moved");
+        assert!(!stall.observe((441, ms(0)), start + STALL + STALL / 2));
+        assert!(!stall.observe((441, ms(0)), start + STALL * 2));
+        assert!(stall.observe((441, ms(0)), start + STALL * 2 + STALL / 2));
+        assert!(
+            !stall.observe((882, ms(0)), start + STALL * 3),
+            "moving again"
+        );
+    }
+
+    /// The time a sleeping system stood still is not the device's fault:
+    /// waking up starts the count again, and only a stream that then does
+    /// not move for `STALL` is stuck.
+    #[test]
+    fn a_system_that_slept_is_not_a_stuck_stream() {
+        let start = Instant::now();
+        let woke = start + Duration::from_secs(7);
+        let mut stall = Stall::new((0, ms(0)), start);
+        assert!(!stall.observe((0, ms(0)), start + ms(50)));
+        assert!(!stall.observe((0, ms(0)), woke), "asleep, not stuck");
+        assert!(!stall.observe((0, ms(0)), woke + STALL / 2));
+        assert!(
+            stall.observe((0, ms(0)), woke + STALL),
+            "stuck after waking"
+        );
+    }
+
+    /// A playing output whose device stopped asking for sound, with no
+    /// error to say so, is opened again and says where the speaker had got
+    /// to; a paused one is left alone. Needs an output, so a machine
+    /// without audio has nothing to check.
+    #[test]
+    fn a_stream_that_stands_still_is_opened_again() {
+        let mut output = Output::new(
+            None,
+            crate::sink::DEFAULT_BUFFER_MS,
+            0,
+            Arc::new(|_| {}),
+            Arc::new(|| {}),
+        );
+        let Ok(rate) = output.rate() else {
+            return;
+        };
+        output.play();
+        let silence = vec![0.0; rate as usize / 10 * CHANNELS];
+        for chunk in 0..5 {
+            output.append(&silence, 7, ms(100 * chunk)).unwrap();
+        }
+        // The device stops asking while the sink still means to play.
+        output.open.as_mut().unwrap().rest_device();
+        std::thread::sleep(ms(100));
+        let start = Instant::now();
+        let look = |output: &mut Output, at: Duration| output.maintain_at(start + at).unwrap();
+        assert_eq!(look(&mut output, ms(0)), Maintained::Unchanged);
+        assert_eq!(look(&mut output, STALL / 2), Maintained::Unchanged);
+        match look(&mut output, STALL) {
+            Maintained::Reopened(Some(heard)) => {
+                assert_eq!(heard.token, 7);
+                assert!(heard.position < ms(500));
+            }
+            other => panic!("a stuck stream was not opened again: {other:?}"),
+        }
+        assert!(output.open.is_some());
+        assert_eq!(output.heard(), None, "the new stream starts empty");
+
+        // Paused, a still clock is what it should be.
+        output.pause();
+        output.restart(false);
+        output.append(&silence, 8, ms(0)).unwrap();
+        assert_eq!(look(&mut output, STALL * 2), Maintained::Unchanged);
+        assert_eq!(look(&mut output, STALL * 3), Maintained::Unchanged);
+    }
+
+    /// A stream that reported an error, as cpal does when the device goes
+    /// away or the system invalidates it, is opened again rather than
+    /// stopping the music.
+    #[test]
+    fn a_failed_stream_is_opened_again() {
+        let mut output = Output::new(
+            None,
+            crate::sink::DEFAULT_BUFFER_MS,
+            0,
+            Arc::new(|_| {}),
+            Arc::new(|| {}),
+        );
+        let Ok(rate) = output.rate() else {
+            return;
+        };
+        output.play();
+        let silence = vec![0.0; rate as usize / 10 * CHANNELS];
+        output.append(&silence, 3, ms(1_000)).unwrap();
+        assert_eq!(output.maintain().unwrap(), Maintained::Unchanged);
+        output
+            .open
+            .as_ref()
+            .unwrap()
+            .failed
+            .store(true, Ordering::Relaxed);
+        match output.maintain().unwrap() {
+            Maintained::Reopened(Some(heard)) => {
+                assert_eq!(heard.token, 3);
+                assert!(heard.position >= ms(1_000));
+            }
+            other => panic!("a failed stream was not opened again: {other:?}"),
+        }
+        assert!(!output.open.as_ref().unwrap().failed());
+        output.pause();
     }
 }

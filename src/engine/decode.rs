@@ -328,6 +328,19 @@ impl Decoder {
         }
     }
 
+    /// Decodes to another rate from here on, for a device that was opened
+    /// again at one. What the resampler held back goes with it, so this is
+    /// for a caller about to seek, or one that has not decoded yet.
+    pub(crate) fn set_out_rate(&mut self, rate: u32) {
+        if rate == self.out_rate {
+            return;
+        }
+        self.out_rate = rate;
+        if self.source_rate != 0 {
+            self.resampler = Resampler::new(self.source_rate, rate, CHANNELS);
+        }
+    }
+
     /// Jumps to a point in the track, by HTTP `Range` under the container
     /// (D12), and answers with where it actually landed — a seek lands on
     /// the packet boundary before the time asked for.

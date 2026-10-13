@@ -99,7 +99,13 @@ The audio engine runs outside the UI thread. It reads the HTTP stream through
 a bounded on-disk block cache, decodes and resamples it, applies ReplayGain and
 the equalizer, sends post-EQ/pre-volume samples to the visualisers, then sends
 the volume-adjusted signal to the selected local output device. The queue is
-owned by this engine and does not exist on the server. On Linux, when ALSA
+owned by this engine and does not exist on the server. When no device is
+selected, playback follows the system's default output, so connecting
+headphones moves the music to them. A device that goes away, or a stream that
+stops playing for two seconds without reporting an error (time the computer
+spent asleep does not count), is opened again and the song carries on from
+where it was heard, converted to the new device's rate; only a device that
+will not open stops playback with an error. On Linux, when ALSA
 plays through PulseAudio's plugin, including PipeWire's PulseAudio server, the
 stream is named **Fastsonic** with **Music playback** as its description, so
 mixers and audio processors can identify and route it; explicit

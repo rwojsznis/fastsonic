@@ -93,7 +93,7 @@ impl DeviceStream {
     }
 
     /// Has the device ask for sound again. A device that will not is
-    /// marked `failed`, so the next append reopens the output.
+    /// marked `failed`, so the engine opens the output again.
     pub(crate) fn resume(&mut self, failed: &AtomicBool) {
         if self.running {
             return;
