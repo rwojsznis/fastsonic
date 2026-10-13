@@ -93,10 +93,14 @@ Songs, in the Playlists section. On
 Linux, Follow system reads the light or dark preference from the desktop portal.
 The theme can also be a palette file of your own; see
 [Custom themes](#custom-themes).
-On Windows the main window uses the standard title bar; **Custom title bar**
-(`custom_titlebar`) draws Fastsonic's own title bar and window buttons instead,
-and changing it replaces only the native window. On Windows, **Show in
-taskbar** under Winamp skins (`winamp_show_taskbar`, on by default) decides
+On Windows and Linux the main window uses the desktop's title bar; **Custom
+title bar** (`custom_titlebar`) draws Fastsonic's own title bar and window
+buttons instead, and changing it replaces only the native window. On GNOME
+the buttons follow the desktop's button layout, left or right and only those
+it shows, drawn with its icon theme's pictures; both come from the desktop
+portal, so a Flatpak sees them too. Other Linux desktops get Minimize,
+Maximize and Close on the right. On Windows, **Show in taskbar** under Winamp
+skins (`winamp_show_taskbar`, on by default) decides
 whether the mini player keeps a taskbar button; the main window always keeps
 its own. Linux X11 sessions offer the same switch; Wayland and macOS do not.
 On Linux, **Middle-click autoscroll** (`middle_click_autoscroll`, off by

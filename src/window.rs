@@ -365,14 +365,189 @@ pub fn set_fixed_size(on: bool) {
     FIXED_SIZE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// A button of the custom title bar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowButton {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+/// The custom title bar's buttons on Linux, at each end, in the order the
+/// desktop lays them out.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Debug)]
+pub struct LinuxWindowControls {
+    pub left: Vec<WindowButton>,
+    pub right: Vec<WindowButton>,
+}
+
+/// What the desktop says about the custom title bar: where its buttons go
+/// and the desktop icon theme's pictures for them, as minimize, maximize,
+/// close and restore. A missing picture falls back to the app's own icon.
+#[cfg(target_os = "linux")]
+pub struct LinuxDesktop {
+    pub controls: LinuxWindowControls,
+    pub icons: [Option<Vec<u8>>; 4],
+}
+
+#[cfg(target_os = "linux")]
+static LINUX_DESKTOP: std::sync::OnceLock<LinuxDesktop> = std::sync::OnceLock::new();
+
+/// Starts reading the desktop's title bar preferences off the UI thread, so
+/// they are in by the first frame that draws the custom title bar. Nothing
+/// reads them unless that title bar is chosen.
+#[cfg(target_os = "linux")]
+fn read_linux_desktop_soon() {
+    if LINUX_DESKTOP.get().is_some() {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("fastsonic-window-controls".to_string())
+        .spawn(|| {
+            linux_desktop();
+        });
+    if let Err(error) = spawned {
+        log::warn!("unable to read the desktop's window buttons: {error}");
+    }
+}
+
+/// The desktop's title bar preferences. A frame that asks before the
+/// startup read has finished waits for it, at most about a second.
+#[cfg(target_os = "linux")]
+pub fn linux_desktop() -> &'static LinuxDesktop {
+    LINUX_DESKTOP.get_or_init(read_linux_desktop)
+}
+
+/// GNOME's button layout and icon theme come through the desktop portal,
+/// which answers inside a Flatpak too, where running `gsettings` cannot see
+/// the host's settings. Other desktops draw Minimize, Maximize and Close on
+/// the right.
+#[cfg(target_os = "linux")]
+fn read_linux_desktop() -> LinuxDesktop {
+    let [layout, icon_theme] = crate::appearance::read_strings(
+        [
+            ("org.gnome.desktop.wm.preferences", "button-layout"),
+            ("org.gnome.desktop.interface", "icon-theme"),
+        ],
+        std::time::Duration::from_secs(1),
+    );
+    let controls = if is_gnome() {
+        layout
+            .as_deref()
+            .and_then(parse_linux_controls)
+            .filter(|controls| !controls.left.is_empty() || !controls.right.is_empty())
+            .unwrap_or_else(|| parse_linux_controls(":close").unwrap())
+    } else {
+        parse_linux_controls(":minimize,maximize,close").unwrap()
+    };
+    let icon_theme = icon_theme
+        .map(|theme| theme.trim().trim_matches('\'').to_owned())
+        .filter(|theme| !theme.is_empty() && !theme.contains('/') && theme != "." && theme != "..")
+        .unwrap_or_else(|| "Adwaita".into());
+    LinuxDesktop {
+        controls,
+        icons: linux_window_icons(&icon_theme),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_gnome() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .split(':')
+        .any(|desktop| desktop.eq_ignore_ascii_case("gnome"))
+}
+
+/// The icon theme's symbolic window icons, recoloured white so egui can
+/// tint them: SVG loaders do not apply GTK's symbolic palette.
+#[cfg(target_os = "linux")]
+fn linux_window_icons(theme: &str) -> [Option<Vec<u8>>; 4] {
+    let mut roots = Vec::new();
+    if let Some(dirs) = directories::BaseDirs::new() {
+        roots.push(dirs.data_dir().join("icons"));
+        roots.push(dirs.home_dir().join(".icons"));
+    }
+    roots.extend(
+        std::env::split_paths(
+            &std::env::var_os("XDG_DATA_DIRS")
+                .unwrap_or_else(|| "/usr/local/share:/usr/share".into()),
+        )
+        .map(|root| root.join("icons")),
+    );
+    [
+        "window-minimize-symbolic",
+        "window-maximize-symbolic",
+        "window-close-symbolic",
+        "window-restore-symbolic",
+    ]
+    .map(|name| {
+        for theme in [theme, "Adwaita"] {
+            for root in &roots {
+                for folder in [
+                    "symbolic/ui",
+                    "symbolic/actions",
+                    "scalable/actions",
+                    "16x16/actions",
+                ] {
+                    if let Ok(svg) = std::fs::read_to_string(
+                        root.join(theme).join(folder).join(format!("{name}.svg")),
+                    ) && svg.contains("</svg>")
+                    {
+                        let white = concat!(
+                            "<style>path,rect,circle,ellipse,polygon,polyline",
+                            " { fill: white !important; }</style></svg>",
+                        );
+                        return Some(svg.replace("</svg>", white).into_bytes());
+                    }
+                }
+            }
+        }
+        None
+    })
+}
+
+/// Reads a GNOME `button-layout`: the buttons before the colon go on the
+/// left, those after it on the right, each at most once. The portal gives
+/// it plain; `gsettings` quoted it.
+#[cfg(any(target_os = "linux", test))]
+fn parse_linux_controls(layout: &str) -> Option<LinuxWindowControls> {
+    use WindowButton::*;
+    let layout = layout.trim().trim_matches('\'');
+    let (left, right) = layout.split_once(':')?;
+    let mut seen = Vec::new();
+    let mut buttons = |side: &str| {
+        side.split(',')
+            .filter_map(|name| match name.trim() {
+                "minimize" => Some(Minimize),
+                "maximize" => Some(Maximize),
+                "close" => Some(Close),
+                _ => None,
+            })
+            .filter(|button| {
+                if seen.contains(button) {
+                    false
+                } else {
+                    seen.push(*button);
+                    true
+                }
+            })
+            .collect()
+    };
+    Some(LinuxWindowControls {
+        left: buttons(left),
+        right: buttons(right),
+    })
+}
+
 static CUSTOM_TITLEBAR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether the main window draws its own title bar and window buttons
-/// instead of the platform's frame. Only Windows offers the choice, and it
-/// is off unless the listener turns it on in Settings.
+/// instead of the platform's frame. Windows and Linux offer the choice, and
+/// it is off unless the listener turns it on in Settings.
 pub fn custom_titlebar() -> bool {
     custom_titlebar_for(
-        cfg!(windows),
+        cfg!(any(windows, target_os = "linux")),
         CUSTOM_TITLEBAR.load(std::sync::atomic::Ordering::Relaxed),
     )
 }
@@ -380,10 +555,14 @@ pub fn custom_titlebar() -> bool {
 /// Sets the title bar choice the next main window is created with.
 pub fn set_custom_titlebar(on: bool) {
     CUSTOM_TITLEBAR.store(on, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(target_os = "linux")]
+    if on {
+        read_linux_desktop_soon();
+    }
 }
 
-const fn custom_titlebar_for(on_windows: bool, chosen: bool) -> bool {
-    on_windows && chosen
+const fn custom_titlebar_for(supported: bool, chosen: bool) -> bool {
+    supported && chosen
 }
 
 #[cfg(test)]
@@ -538,11 +717,29 @@ mod tests {
     }
 
     #[test]
-    fn only_windows_draws_its_own_title_bar_and_only_when_chosen() {
+    fn supported_platforms_draw_the_custom_title_bar_only_when_chosen() {
         assert!(custom_titlebar_for(true, true));
         assert!(!custom_titlebar_for(true, false));
         assert!(!custom_titlebar_for(false, true));
         assert!(!custom_titlebar_for(false, false));
+    }
+
+    /// The portal gives GNOME's button layout as a plain string, where
+    /// gsettings quoted it; both read the same, and a side may be empty.
+    #[test]
+    fn gnome_button_layouts_read_with_or_without_quotes() {
+        use WindowButton::*;
+        for layout in ["appmenu:minimize,close", "'appmenu:minimize,close'\n"] {
+            let controls = parse_linux_controls(layout).unwrap();
+            assert!(controls.left.is_empty());
+            assert_eq!(controls.right, [Minimize, Close]);
+        }
+        let controls = parse_linux_controls("close,maximize,close:").unwrap();
+        assert_eq!(controls.left, [Close, Maximize], "each button once");
+        assert!(controls.right.is_empty());
+        let controls = parse_linux_controls(":minimize,maximize,close").unwrap();
+        assert_eq!(controls.right, [Minimize, Maximize, Close]);
+        assert!(parse_linux_controls("close").is_none(), "no side marker");
     }
 
     fn reachable(pos: [f32; 2], scale: f32, area: [f32; 4]) -> bool {

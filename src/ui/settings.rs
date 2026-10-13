@@ -593,12 +593,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 },
             );
         }
-        if cfg!(windows) {
+        if cfg!(any(windows, target_os = "linux")) {
             widgets::setting_row(
                 ui,
                 &palette,
                 "Custom title bar",
-                "Draw Fastsonic's own title bar and window buttons instead of the standard Windows ones.",
+                "Draw Fastsonic's own title bar and window buttons instead of the desktop's.",
                 |ui| {
                     let mut custom = app.settings.custom_titlebar;
                     if widgets::switch(ui, &palette, "Custom title bar", &mut custom).changed() {

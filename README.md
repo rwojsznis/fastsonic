@@ -53,10 +53,11 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   taskbar.
 - A projectM-powered MilkDrop window with optional preset packs.
 - Native window behaviour: on macOS, double-clicking the top bar does what
-  Desktop & Dock asks (Fill, Zoom, Minimize or nothing); on Windows, the
-  standard title bar, or Fastsonic's own if you choose it. In a narrow
-  window, Library, Queue and Lyrics give up width before the top bar's
-  controls run together, and get it back when the window widens.
+  Desktop & Dock asks (Fill, Zoom, Minimize or nothing); on Windows and
+  Linux, the desktop's title bar, or Fastsonic's own if you choose it, with
+  GNOME's button layout on GNOME. In a narrow window, Library, Queue and
+  Lyrics give up width before the top bar's controls run together, and get
+  it back when the window widens.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
   shortcuts, tray/Dock reopening, a Play/Pause, Next and Previous Dock menu
   on macOS, the same three buttons under the taskbar preview on Windows,

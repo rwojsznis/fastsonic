@@ -8,6 +8,9 @@
 //! `org.gnome.desktop.interface enable-animations`. A thread of its own reads
 //! them and follows their change signal, so a slow or absent session bus
 //! never holds up the window.
+//!
+//! The same interface answers other settings, such as GNOME's window button
+//! layout, which a `gsettings` subprocess cannot read from inside a Flatpak.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -79,27 +82,71 @@ impl SystemAppearance {
     }
 }
 
-fn watch(scheme: &AtomicU8, animations: &AtomicU8, wake: &dyn Fn()) -> zbus::Result<()> {
-    let connection = zbus::blocking::Connection::session()?;
-    let proxy = zbus::blocking::Proxy::new(
-        &connection,
+fn settings_proxy(
+    connection: &zbus::blocking::Connection,
+) -> zbus::Result<zbus::blocking::Proxy<'static>> {
+    zbus::blocking::Proxy::new(
+        connection,
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
         "org.freedesktop.portal.Settings",
-    )?;
+    )
+}
+
+/// `ReadOne` arrived in version 2 of the interface; `Read` wraps the same
+/// answer in one more variant.
+fn read(proxy: &zbus::blocking::Proxy<'_>, namespace: &str, key: &str) -> zbus::Result<OwnedValue> {
+    proxy
+        .call("ReadOne", &(namespace, key))
+        .or_else(|_| proxy.call("Read", &(namespace, key)))
+}
+
+/// Reads string settings once, each a `(namespace, key)` pair, and gives up
+/// after `timeout`, so a slow or absent session bus cannot hold up the
+/// caller. An answer is `None` when the portal has no such setting.
+pub fn read_strings<const N: usize>(
+    settings: [(&'static str, &'static str); N],
+    timeout: std::time::Duration,
+) -> [Option<String>; N] {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let spawned = std::thread::Builder::new()
+        .name("fastsonic-desktop-settings".to_string())
+        .spawn(move || {
+            let read_all = || -> zbus::Result<[Option<String>; N]> {
+                let connection = zbus::blocking::Connection::session()?;
+                let proxy = settings_proxy(&connection)?;
+                Ok(settings.map(|(namespace, key)| {
+                    read(&proxy, namespace, key)
+                        .ok()
+                        .as_deref()
+                        .and_then(string)
+                }))
+            };
+            match read_all() {
+                Ok(answers) => {
+                    let _ = sender.send(answers);
+                }
+                Err(error) => log::debug!("the desktop's settings are unavailable: {error}"),
+            }
+        });
+    if let Err(error) = spawned {
+        log::warn!("unable to read the desktop's settings: {error}");
+    }
+    receiver
+        .recv_timeout(timeout)
+        .unwrap_or_else(|_| std::array::from_fn(|_| None))
+}
+
+fn watch(scheme: &AtomicU8, animations: &AtomicU8, wake: &dyn Fn()) -> zbus::Result<()> {
+    let connection = zbus::blocking::Connection::session()?;
+    let proxy = settings_proxy(&connection)?;
     // Subscribe before reading, so a change in between is not missed.
     let changes = proxy.receive_signal("SettingChanged")?;
-    // `ReadOne` arrived in version 2 of the interface; `Read` wraps the
-    // same answer in one more variant.
-    let current: zbus::Result<OwnedValue> = proxy
-        .call("ReadOne", &(NAMESPACE, KEY))
-        .or_else(|_| proxy.call("Read", &(NAMESPACE, KEY)));
+    let current = read(&proxy, NAMESPACE, KEY);
     if let Some(value) = current.ok().as_deref().and_then(color_scheme) {
         publish(scheme, value, wake);
     }
-    let current: zbus::Result<OwnedValue> = proxy
-        .call("ReadOne", &(ANIMATIONS_NAMESPACE, ANIMATIONS_KEY))
-        .or_else(|_| proxy.call("Read", &(ANIMATIONS_NAMESPACE, ANIMATIONS_KEY)));
+    let current = read(&proxy, ANIMATIONS_NAMESPACE, ANIMATIONS_KEY);
     if let Some(enabled) = current.ok().as_deref().and_then(flag) {
         publish_animations(animations, enabled, wake);
     }
@@ -174,6 +221,19 @@ mod tests {
             Some(2)
         );
         assert_eq!(color_scheme(&Value::Str("dark".into())), None);
+    }
+
+    #[test]
+    fn string_settings_are_read_through_either_wrapping() {
+        assert_eq!(
+            string(&Value::Str(":close".into())).as_deref(),
+            Some(":close")
+        );
+        assert_eq!(
+            string(&Value::Value(Box::new(Value::Str("Adwaita".into())))).as_deref(),
+            Some("Adwaita")
+        );
+        assert_eq!(string(&Value::U32(1)), None);
     }
 
     /// Reads the running desktop's portal. Needs a session bus with

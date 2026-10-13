@@ -237,8 +237,8 @@ pub struct Settings {
     pub library_by_you: bool,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
-    /// Windows: draw Fastsonic's own title bar and window buttons instead of
-    /// the standard Windows frame.
+    /// Windows and Linux: draw Fastsonic's own title bar and window buttons
+    /// instead of the desktop's frame.
     pub custom_titlebar: bool,
     /// The Winamp window is open.
     pub winamp_window: bool,
