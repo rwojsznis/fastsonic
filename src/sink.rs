@@ -124,6 +124,31 @@ impl DeviceStream {
     }
 }
 
+/// Keeps COM loaded in the process for as long as it runs.
+///
+/// cpal's WASAPI host caches one device enumerator for the process, made in
+/// the apartment of whichever thread first asked for a device, and every
+/// thread that touches the audio API initializes COM and uninitializes it
+/// when it exits. Once the last of them has, COM unloads the audio DLLs
+/// under that enumerator, and the next device lookup calls into nothing.
+/// The app's window thread keeps COM up while it runs; this holds the
+/// process's multithreaded apartment open so that nothing else has to,
+/// such as a run without a window or a test thread.
+#[cfg(windows)]
+pub(crate) fn hold_com() {
+    static HELD: std::sync::Once = std::sync::Once::new();
+    HELD.call_once(|| {
+        use windows_sys::Win32::System::Com::{CO_MTA_USAGE_COOKIE, CoIncrementMTAUsage};
+        let mut cookie: CO_MTA_USAGE_COOKIE = std::ptr::null_mut();
+        // SAFETY: `cookie` is a valid place for the usage cookie, which is
+        // never handed back: the apartment stays open until the process ends.
+        let result = unsafe { CoIncrementMTAUsage(&mut cookie) };
+        if result < 0 {
+            log::warn!("audio output: COM could not be held open ({result:#x})");
+        }
+    });
+}
+
 /// Builds a stream that plays `source` in the device's sample format, with
 /// silence whenever the mixer has nothing, as rodio's own stream does.
 fn build_stream(

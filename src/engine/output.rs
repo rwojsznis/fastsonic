@@ -145,6 +145,8 @@ impl Output {
         on_error: ErrorHook,
         on_room: Waker,
     ) -> Self {
+        #[cfg(windows)]
+        crate::sink::hold_com();
         Self {
             device,
             buffer_ms,
