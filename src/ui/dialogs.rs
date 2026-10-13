@@ -60,7 +60,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         .wrap(),
                     );
                     ui.add_space(20.0);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    buttons(ui, |ui| {
                         if theme::pill_button(
                             ui,
                             &palette,
@@ -119,7 +119,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         },
                     );
                     ui.add_space(16.0);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    buttons(ui, |ui| {
                         if theme::pill_button(ui, &palette, "Done", true).clicked() {
                             app.actions.push(Action::CloseDialog);
                         }
@@ -131,6 +131,17 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if response.should_close() {
         app.actions.push(Action::CloseDialog);
     }
+}
+
+/// A dialog's button row, right-aligned and only as tall as a button. Every
+/// dialog shares one modal area, and a row given the whole height left over
+/// would keep it as tall as the last, larger dialog.
+fn buttons(ui: &mut egui::Ui, add_buttons: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+        Layout::right_to_left(Align::Center),
+        add_buttons,
+    );
 }
 
 fn text_field(
@@ -201,7 +212,7 @@ fn create_playlist(app: &mut App, ui: &mut egui::Ui) {
     let name_value = name.trim().to_string();
     let public_value = *public;
     let uris = add_uris.clone();
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+    buttons(ui, |ui| {
         if busy {
             theme::spinner(ui, 18.0, palette.accent);
         } else {
@@ -264,7 +275,7 @@ fn edit_playlist(app: &mut App, ui: &mut egui::Ui) {
     let name_value = name.trim().to_string();
     let description_value = description.trim().to_string();
     let public_value = *public;
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+    buttons(ui, |ui| {
         if busy {
             theme::spinner(ui, 18.0, palette.accent);
         } else {
