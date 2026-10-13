@@ -1192,7 +1192,9 @@ impl App {
 
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
-            if self.offline {
+            // Offline, as in demo mode, only colours read from cover art
+            // come through: the backend still reads them there.
+            if self.offline && !matches!(event, Event::Accent { .. }) {
                 continue;
             }
             match event {
@@ -8493,6 +8495,29 @@ mod tests {
             assert_eq!(app.known_album(id).map(|album| album.id.as_str()), Some(id));
         }
         assert!(app.known_album("nowhere").is_none());
+        app.backend.shutdown();
+    }
+
+    /// Demo mode is offline, but it reads cover art and its colours like
+    /// the real app: the page header and the player bar take their tint.
+    /// Anything else an offline backend reports is still dropped.
+    #[test]
+    fn an_offline_app_keeps_the_colours_read_from_cover_art() {
+        let mut app = test_app("offline-accent");
+        app.offline = true;
+        let url = "https://picsum.photos/seed/offline-accent/64/64";
+        app.handle_backend_events(vec![
+            Event::Accent {
+                url: url.into(),
+                color: [200, 40, 40],
+            },
+            Event::Error("from the server".into()),
+        ]);
+        assert_eq!(
+            app.tint_for(Some(url)),
+            Some(app.palette.tint_from_art([200, 40, 40]))
+        );
+        assert!(app.toasts.is_empty(), "nothing else comes through");
         app.backend.shutdown();
     }
 
