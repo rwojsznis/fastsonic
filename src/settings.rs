@@ -226,6 +226,9 @@ pub struct Settings {
     /// local arrangement.
     #[serde(deserialize_with = "known_library_sorts")]
     pub library_sort: std::collections::BTreeMap<LibraryShelf, LibrarySort>,
+    /// The Playlists section shows only the signed-in account's own
+    /// playlists, beside Liked Songs.
+    pub library_by_you: bool,
     /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
     pub zoom: f32,
     /// Windows: draw Fastsonic's own title bar and window buttons instead of
@@ -319,6 +322,7 @@ impl Default for Settings {
             liked_songs_pinned: true,
             sidebar_order: Vec::new(),
             library_sort: std::collections::BTreeMap::new(),
+            library_by_you: false,
             zoom: 1.0,
             custom_titlebar: false,
             winamp_window: false,
@@ -760,6 +764,20 @@ mod tests {
             settings.library_sort.into_iter().collect::<Vec<_>>(),
             [(LibraryShelf::Artists, LibrarySort::Name)]
         );
+    }
+
+    #[test]
+    fn library_by_you_round_trips_and_older_settings_show_every_playlist() {
+        let older: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!older.library_by_you);
+        let settings = Settings {
+            library_by_you: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains(r#""library_by_you":true"#), "{json}");
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(restored.library_by_you);
     }
 
     #[test]

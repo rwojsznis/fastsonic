@@ -139,6 +139,13 @@ playlist's context menu. Any order but **Library order** loads the rest of the
 section in the background; a page that fails stops that, and choosing the
 order again retries it.
 
+**By You**, beside the order under Playlists, shows only the playlists your
+account owns, with Liked Songs. Other users' playlists the server shares with
+you are hidden, pinned ones too. Search, the chosen order and dragging still
+work; a drag while some playlists are hidden keeps them in the custom order.
+The choice is remembered, and it needs nothing from the server: every playlist
+already names its owner. Turn it off to see the whole shelf again.
+
 Liked Songs starts pinned at the top. Drag it between pins to choose its
 place, or below them to unpin it and put it in **Custom order**; other pins
 can sit above it. Its right-click menu also offers **Unpin** and **Pin to

@@ -127,7 +127,6 @@ fn sort_menu(app: &mut App, ui: &mut egui::Ui, shelf: Filter, selected: LibraryS
             && !(*sort == LibrarySort::Local && app.settings.sidebar_order.is_empty())
     })
     .collect();
-    ui.add_space(4.0);
     let response = ui.add(
         egui::Button::image_and_text(
             Icon::ChevronDown.image(app.palette.text, 15.0),
@@ -212,6 +211,29 @@ fn order_entries(app: &App, sort: LibrarySort, entries: &mut [Entry]) {
     let pins = app.settings.library_pins();
     let ranks = first_ranks(pins.iter().map(String::as_str));
     entries.sort_by_cached_key(|entry| rank_of(&ranks, entry.ordering_key()));
+}
+
+/// Liked Songs and the playlists the search and By You let through, in
+/// the server's order. By You keeps the signed-in account's own playlists
+/// and hides the rest, pins too; Liked Songs is always the account's.
+fn playlist_rows(app: &App, needle: &str, entries: &mut Vec<Entry>) {
+    let liked = liked_entry(app);
+    if needle.is_empty() || liked.name.to_lowercase().contains(needle) {
+        entries.push(liked);
+    }
+    let Some(playlists) = app.library.playlists.get() else {
+        return;
+    };
+    let user_id = app.user_id().filter(|id| !id.is_empty());
+    for (index, playlist) in playlists.iter().enumerate() {
+        if app.settings.library_by_you && !user_id.is_some_and(|id| playlist.owned_by(id)) {
+            continue;
+        }
+        if !needle.is_empty() && !playlist.name.to_lowercase().contains(needle) {
+            continue;
+        }
+        entries.push(playlist_entry(playlist, index, user_id.unwrap_or("")));
+    }
 }
 
 fn playlist_entry(playlist: &crate::api::models::Playlist, index: usize, user_id: &str) -> Entry {
@@ -794,7 +816,25 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         }
     });
     let sort = selected_sort(app, filter);
-    sort_menu(app, ui, filter, sort);
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(|ui| {
+        sort_menu(app, ui, filter, sort);
+        if filter == Filter::Playlists {
+            let by_you = app.settings.library_by_you;
+            let response = theme::soft_button(ui, &palette, None, "By You", by_you);
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    by_you,
+                    "By You",
+                )
+            });
+            if response.clicked() {
+                app.actions.push(Action::SetLibraryByYou(!by_you));
+            }
+        }
+    });
     ui.data_mut(|data| {
         data.insert_temp(filter_id, filter);
         data.insert_temp(show_search_id, show_search);
@@ -842,26 +882,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     }
 
     let needle = app.library.filter.trim().to_lowercase();
-    let user_id = app.user_id().unwrap_or("").to_string();
     let mut entries: Vec<Entry> = Vec::new();
     let mut loading = false;
     let mut error: Option<String> = None;
     let mut more_page: Option<Page> = None;
     match filter {
         Filter::Playlists => {
-            let liked = liked_entry(app);
-            if needle.is_empty() || liked.name.to_lowercase().contains(&needle) {
-                entries.push(liked);
-            }
+            playlist_rows(app, &needle, &mut entries);
             match &app.library.playlists {
-                Loadable::Loaded(playlists) => {
-                    for (index, playlist) in playlists.iter().enumerate() {
-                        if !needle.is_empty() && !playlist.name.to_lowercase().contains(&needle) {
-                            continue;
-                        }
-                        entries.push(playlist_entry(playlist, index, &user_id));
-                    }
-                }
+                Loadable::Loaded(_) => {}
                 Loadable::Loading | Loadable::NotLoaded => loading = true,
                 Loadable::Failed(message) => error = Some(message.clone()),
             }
@@ -1840,6 +1869,115 @@ mod ordering_tests {
             .iter()
             .map(|entry| entry.uri.rsplit(':').next().unwrap())
             .collect()
+    }
+
+    /// The signed-in account owns `a` and `c`; `b` is someone else's
+    /// collaborative playlist and `d` names no owner.
+    fn ownership_app(name: &str) -> App {
+        let mut app = app(name);
+        let id = app.user_id().unwrap().to_string();
+        let playlists = app.library.playlists.get_mut().unwrap();
+        playlists[0].owner.id = Some(id.clone());
+        playlists[1].owner.id = Some("someone-else".into());
+        playlists[1].collaborative = true;
+        playlists[2].owner.id = Some(id);
+        app
+    }
+
+    /// The rows the shelf draws: filtered, ordered and pinned.
+    fn shown(app: &App, needle: &str) -> Vec<Entry> {
+        let mut entries = Vec::new();
+        playlist_rows(app, needle, &mut entries);
+        order_entries(app, selected_sort(app, Filter::Playlists), &mut entries);
+        entries
+    }
+
+    #[test]
+    fn by_you_keeps_the_accounts_playlists_with_search_sort_and_pins() {
+        let mut app = ownership_app("by-you");
+        app.settings.sidebar_order = [uri("b"), uri("c"), uri("a"), uri("d")].to_vec();
+        app.settings.pinned_contexts = [uri("b"), uri("a")].to_vec();
+        app.apply(Action::SetLibraryByYou(true), &egui::Context::default());
+        assert!(app.settings.library_by_you);
+        // Liked Songs stays pinned first; the pinned `b` is someone else's.
+        assert_eq!(ids(&shown(&app, "")), ["", "a", "c"]);
+        let c = shown(&app, "")
+            .into_iter()
+            .find(|entry| entry.uri == uri("c"))
+            .unwrap();
+        assert_eq!(c.playlist_index, Some(2), "the server's place is kept");
+        assert!(c.owned);
+        assert_eq!(ids(&shown(&app, "alpha")), ["c"]);
+        assert!(shown(&app, "no match").is_empty());
+
+        app.settings.pinned_contexts.clear();
+        app.settings.liked_songs_pinned = false;
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Name);
+        assert_eq!(
+            ids(&shown(&app, "")),
+            ["c", "", "a"],
+            "alpha, Liked Songs, Zebra"
+        );
+
+        app.apply(Action::SetLibraryByYou(false), &egui::Context::default());
+        assert_eq!(shown(&app, "").len(), 5);
+        assert_eq!(
+            app.settings.sidebar_order,
+            [uri("b"), uri("c"), uri("a"), uri("d")],
+            "the saved arrangement is untouched"
+        );
+        assert_eq!(selected_sort(&app, Filter::Playlists), LibrarySort::Name);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn by_you_follows_the_signed_in_account_and_never_matches_a_missing_owner() {
+        let mut app = ownership_app("by-you-account");
+        app.settings.library_by_you = true;
+        app.user.as_mut().unwrap().id = "someone-else".into();
+        assert_eq!(ids(&shown(&app, "alpha")), ["b"]);
+        app.user = None;
+        assert!(shown(&app, "").iter().all(|entry| entry.liked));
+        app.user = Some(crate::api::models::User::default());
+        app.library.playlists.get_mut().unwrap()[3].owner.id = Some(String::new());
+        assert!(shown(&app, "beta").is_empty(), "an empty name owns nothing");
+        app.backend.shutdown();
+    }
+
+    /// A drag while By You hides rows still saves the whole arrangement,
+    /// hidden playlists included.
+    #[test]
+    fn dragging_while_by_you_hides_rows_keeps_them_in_the_custom_order() {
+        let mut app = ownership_app("by-you-drag");
+        app.settings.pinned_contexts.clear();
+        app.settings.liked_songs_pinned = false;
+        app.settings.library_by_you = true;
+        app.settings
+            .library_sort
+            .insert(Filter::Playlists, LibrarySort::Name);
+        let entries = shown(&app, "");
+        assert_eq!(ids(&entries), ["c", "", "a"]);
+        drop_playlist_row(&mut app, &entries, 0, 0, &uri("a"));
+        apply_actions(&mut app);
+        assert_eq!(selected_sort(&app, Filter::Playlists), LibrarySort::Local);
+        assert_eq!(ids(&shown(&app, "")), ["a", "c", ""]);
+        assert_eq!(
+            app.settings.sidebar_order,
+            [
+                uri("b"),
+                uri("a"),
+                uri("c"),
+                uri("d"),
+                LIKED_SONGS_KEY.into()
+            ]
+        );
+        app.settings.library_by_you = false;
+        let all = shown(&app, "");
+        assert_eq!(all.len(), 5);
+        assert!(["b", "d"].iter().all(|id| ids(&all).contains(id)));
+        app.backend.shutdown();
     }
 
     /// A grid card asks for the 300-pixel card cover, which a page header

@@ -917,6 +917,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     380.0
                 };
             }
+            "library-by-you" => app.settings.library_by_you = true,
             "queue" => app.show_queue_panel = true,
             "playing-next" => {
                 app.show_queue_panel = true;
@@ -4582,6 +4583,54 @@ mod tests {
             egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
             egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
         )
+    }
+
+    /// By You hides the other account's playlist from the sidebar and keeps
+    /// Liked Songs and this account's own; it is offered only beside the
+    /// Playlists order and survives a trip to another section.
+    #[test]
+    fn by_you_hides_other_accounts_playlists_and_survives_switching_sections() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let in_sidebar = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.role() == Role::Button
+                    && node.label() == Some(label)
+                    && node.bounds().is_some_and(|bounds| bounds.x0 < 250.0)
+            })
+        };
+        let click = |ctx: &egui::Context, app: &mut App, label: &str| {
+            let tree = accessible_frame(ctx, app, vec![]);
+            let target = accessible_node(&tree, label, Role::Button);
+            accessible_frame(
+                ctx,
+                app,
+                vec![accessible_action(target, AccessibleAction::Click, None)],
+            );
+            accessible_frame(ctx, app, vec![])
+        };
+        let (ctx, mut app) = accessible_app("by-you");
+        app.settings.art_expanded = false;
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(in_sidebar(&tree, "Everything ambient"));
+        assert!(!app.settings.library_by_you);
+
+        let tree = click(&ctx, &mut app, "By You");
+        assert!(app.settings.library_by_you);
+        assert!(in_sidebar(&tree, "Liked Songs"));
+        assert!(in_sidebar(&tree, "Late night focus"));
+        assert!(!in_sidebar(&tree, "Everything ambient"));
+
+        let tree = click(&ctx, &mut app, "Albums");
+        assert!(!in_sidebar(&tree, "By You"), "albums have no owner");
+        let tree = click(&ctx, &mut app, "Playlists");
+        assert!(app.settings.library_by_you);
+        assert!(!in_sidebar(&tree, "Everything ambient"));
+
+        let tree = click(&ctx, &mut app, "By You");
+        assert!(!app.settings.library_by_you);
+        assert!(in_sidebar(&tree, "Everything ambient"));
+        app.backend.shutdown();
     }
 
     /// Liked Songs drags like a playlist: below the pins it unpins and takes

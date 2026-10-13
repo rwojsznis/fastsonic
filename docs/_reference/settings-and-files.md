@@ -80,7 +80,9 @@ chosen, and `pinned_contexts` the pins, in order. Both name Liked Songs by
 its context URI, `sonic:collection:songs`. `liked_songs_pinned` (on by
 default) keeps Liked Songs among the pins; an older file places it first
 until it is moved. `sidebar_grid` (off by default, so older files keep the
-list) shows the Library as cover cards instead of rows. On
+list) shows the Library as cover cards instead of rows. `library_by_you` (off
+by default) keeps only the signed-in account's own playlists, and Liked
+Songs, in the Playlists section. On
 Linux, Follow system reads the light or dark preference from the desktop portal.
 The theme can also be a palette file of your own; see
 [Custom themes](#custom-themes).
@@ -247,7 +249,8 @@ data and no server connection. `--demo-page` opens a named page;
 right-to-left titles, `signed-out` and `connecting`, for the sign-in card,
 `library-list`, `library-list-narrow`, `library-list-wide`, `library-grid`,
 `library-grid-narrow` and `library-grid-wide`, for the Library as rows or
-cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed, and
+cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed,
+`library-by-you`, for the playlists with **By You** on, and
 `collection-loading`, for a playlist, album or artist page still waiting for
 its details); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a
