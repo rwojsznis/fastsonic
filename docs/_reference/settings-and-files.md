@@ -29,8 +29,17 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 
 The session is saved shortly after it changes, including when a new song
 starts, and every 30 seconds while music plays, so a crash or a power cut
-resumes close to where you were. `history.json` is replaced whole, through a
-temporary file, and on Linux and macOS only your account can read it.
+resumes close to where you were.
+
+Settings, the session, the play history, the credential and the playlist
+cache's files are never rewritten in place. Each is written to a temporary
+file beside it (a hidden `.<name>.<number>.tmp`), flushed to the disk, and
+then moved over the old file, so a crash or a power cut leaves the old
+contents or the new ones, never half of either; a write that fails removes
+its temporary file and leaves the old file as it was. On Linux and macOS,
+`history.json` and `credentials.json` are written readable by your account
+only.
+
 The session and the play history are also written just before the computer
 sleeps (Linux and Windows) and when you sign out or shut down (Windows). On
 Linux, Fastsonic takes a short logind "delay" lock for this, listed by
@@ -69,7 +78,8 @@ otherwise the cache is dropped and the songs load from the server.
 
 Clearing caches never signs you out. `credentials.json` contains a salted
 Subsonic token, not the password, plus a short-lived Navidrome session when
-available. Treat it like a password and do not share it. Settings → Storage
+available. Treat it like a password and do not share it; on Linux and macOS
+Fastsonic writes it readable by your account only. Settings → Storage
 shows the exact paths and provides cache/history controls.
 
 ## Important settings

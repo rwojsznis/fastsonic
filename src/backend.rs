@@ -1631,16 +1631,11 @@ impl StoredSession {
         (!stored.credentials.is_empty()).then_some(stored)
     }
 
-    /// Written whole and moved into place, so an interrupted write cannot
-    /// leave half a credential behind.
+    /// Replaced whole, so an interrupted write cannot leave half a
+    /// credential behind, and readable by its owner only (Unix).
     fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let text = serde_json::to_string(self)?;
-        let temporary = path.with_extension("json.tmp");
-        std::fs::write(&temporary, text)?;
-        std::fs::rename(temporary, path)
+        crate::util::write_private(path, text)
     }
 
     fn remove(path: &std::path::Path) {
@@ -1673,23 +1668,11 @@ fn write_cached_playlist_file(
 ) -> std::io::Result<()> {
     use std::io::Write;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension("json.tmp");
-    let file = std::fs::File::create(&temporary)?;
-    let result = (|| {
+    crate::util::write_with(path, crate::util::Access::Default, |file| {
         let mut writer = std::io::BufWriter::new(file);
         serde_json::to_writer(&mut writer, cached).map_err(std::io::Error::other)?;
-        writer.flush()?;
-        // Windows requires the temporary file to be closed before replacement.
-        drop(writer);
-        crate::util::replace_file(&temporary, path)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
+        writer.flush()
+    })
 }
 
 /// Reads a playlist's cache through a buffer on the file worker, without
@@ -1740,7 +1723,7 @@ mod tests {
             .unwrap();
         assert_eq!(read.snapshot, "s1");
         assert_eq!(read.items, items);
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(&dir).is_empty());
 
         // A directory where the file should go cannot be replaced.
         let blocked = dir.join("blocked.json");
@@ -1753,7 +1736,7 @@ mod tests {
             },
         ));
         assert!(failed.is_err());
-        assert!(!blocked.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(&dir).is_empty());
         assert!(
             runtime
                 .block_on(read_cached_playlist(dir.join("missing.json")))

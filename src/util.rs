@@ -203,21 +203,141 @@ pub fn strip_html(text: &str) -> String {
         .replace("&gt;", ">")
 }
 
-/// Atomically replaces `path` with `temporary` on the current platform.
-#[cfg(not(windows))]
-pub(crate) fn replace_file(
-    temporary: &std::path::Path,
+/// Who may read a file [`write_with`] replaces.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Access {
+    /// The system's default for a new file.
+    #[default]
+    Default,
+    /// Its owner only (0600 on Unix). Windows keeps a user's profile
+    /// private already, so there it is the same as `Default`.
+    Private,
+}
+
+/// Replaces `path` with `contents`, creating its folder if needed. See
+/// [`write_with`].
+pub(crate) fn write_file(
     path: &std::path::Path,
+    contents: impl AsRef<[u8]>,
 ) -> std::io::Result<()> {
+    write_with(path, Access::Default, |file| {
+        std::io::Write::write_all(file, contents.as_ref())
+    })
+}
+
+/// Replaces `path` with `contents` only its owner may read.
+pub(crate) fn write_private(
+    path: &std::path::Path,
+    contents: impl AsRef<[u8]>,
+) -> std::io::Result<()> {
+    write_with(path, Access::Private, |file| {
+        std::io::Write::write_all(file, contents.as_ref())
+    })
+}
+
+/// Replaces `path` with what `fill` writes into a fresh file, so a reader,
+/// or the next start after a crash or a power cut, sees the old contents
+/// or the new ones and never part of either.
+///
+/// The new file is written beside the target under a name no other write
+/// uses, in this process or another, synced to the disk before it moves
+/// over the target (written through on Windows), and then the folder is
+/// synced so the move itself lasts (Unix). If anything fails, `path` keeps
+/// its old contents and the temporary file is removed. Syncing can take a
+/// while on a busy disk, so large or frequent writes belong off the UI
+/// thread.
+pub(crate) fn write_with(
+    path: &std::path::Path,
+    access: Access,
+    fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let folder = match path.parent() {
+        Some(folder) if !folder.as_os_str().is_empty() => folder,
+        _ => std::path::Path::new("."),
+    };
+    std::fs::create_dir_all(folder)?;
+    let temporary = temporary_path(path);
+    let result = (|| {
+        let mut file = create_new(&temporary, access)?;
+        fill(&mut file)?;
+        std::io::Write::flush(&mut file)?;
+        // The contents reach the disk before the move, or a crash just after
+        // it could leave the new name pointing at nothing.
+        file.sync_all()?;
+        // Windows moves only a closed file.
+        drop(file);
+        replace_file(&temporary, path)?;
+        sync_folder(folder)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+/// A name beside `path` that no other write uses at the same time:
+/// `.<name>.<pid>.<n>.tmp`, hidden from a folder listing while it lives.
+fn temporary_path(path: &std::path::Path) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()))
+}
+
+/// A new file, never one already there, so the write cannot go through a
+/// link someone left at the temporary name.
+fn create_new(path: &std::path::Path, access: Access) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if access == Access::Private {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = access;
+    options.open(path)
+}
+
+/// Makes the move itself durable: on Unix a rename lives in the folder,
+/// which has to reach the disk too. Windows's write-through move covers it.
+#[cfg(unix)]
+fn sync_folder(folder: &std::path::Path) -> std::io::Result<()> {
+    std::fs::File::open(folder)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_folder(_folder: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// The temporary files a replacement left in `dir`, which a finished or
+/// failed one never does.
+#[cfg(test)]
+pub(crate) fn temporary_files(dir: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.ends_with(".tmp"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Moves `temporary` over `path` in one step.
+#[cfg(not(windows))]
+fn replace_file(temporary: &std::path::Path, path: &std::path::Path) -> std::io::Result<()> {
     std::fs::rename(temporary, path)
 }
 
-/// Atomically replaces `path` with `temporary` on Windows.
+/// Moves `temporary` over `path` in one step, written through to the disk.
 #[cfg(windows)]
-pub(crate) fn replace_file(
-    temporary: &std::path::Path,
-    path: &std::path::Path,
-) -> std::io::Result<()> {
+fn replace_file(temporary: &std::path::Path, path: &std::path::Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
@@ -242,6 +362,81 @@ pub(crate) fn replace_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "fastsonic-write-{name}-{}-{:016x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ))
+    }
+
+    #[test]
+    fn a_file_is_written_and_then_replaced_whole() {
+        let dir = scratch("whole");
+        let path = dir.join("nested/settings.json");
+        write_file(&path, "first").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+        write_file(&path, "second, longer").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second, longer");
+        write_file(&path, "3").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "3", "no tail left");
+        assert!(temporary_files(path.parent().unwrap()).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_write_keeps_the_old_contents_and_leaves_nothing_behind() {
+        let dir = scratch("failed");
+        let path = dir.join("session.json");
+        write_file(&path, "kept").unwrap();
+        let failed = write_with(&path, Access::Default, |file| {
+            std::io::Write::write_all(file, b"half")?;
+            Err(std::io::Error::other("the encoder gave up"))
+        });
+        assert_eq!(failed.unwrap_err().to_string(), "the encoder gave up");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "kept");
+        assert!(temporary_files(&dir).is_empty());
+
+        // A folder where the file should be cannot be replaced.
+        let blocked = dir.join("blocked.json");
+        std::fs::create_dir_all(blocked.join("inside")).unwrap();
+        assert!(write_file(&blocked, "new").is_err());
+        assert!(temporary_files(&dir).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn writes_at_the_same_time_never_share_a_temporary_file() {
+        let path = std::path::Path::new("/x/settings.json");
+        let (a, b) = (temporary_path(path), temporary_path(path));
+        assert_ne!(a, b);
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with(".settings.json.") && name.ends_with(".tmp"));
+        assert_eq!(a.parent(), path.parent(), "beside the file, on its disk");
+        assert_eq!(
+            temporary_path(std::path::Path::new("x")).parent(),
+            Some(std::path::Path::new("")),
+            "a bare name is written in the current folder"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_file_is_readable_by_its_owner_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("private");
+        let path = dir.join("credentials.json");
+        // Over a file others could read, as an older version wrote it.
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&path, "secret").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn durations() {

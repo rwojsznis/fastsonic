@@ -395,9 +395,6 @@ impl Settings {
     }
 
     pub fn save(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         let text = match serde_json::to_string_pretty(self) {
             Ok(text) => text,
             Err(error) => {
@@ -405,10 +402,7 @@ impl Settings {
                 return;
             }
         };
-        let temporary = path.with_extension("json.tmp");
-        let written = std::fs::write(&temporary, text)
-            .and_then(|()| crate::util::replace_file(&temporary, path));
-        if let Err(error) = written {
+        if let Err(error) = crate::util::write_file(path, text) {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
     }
@@ -925,9 +919,6 @@ impl SessionState {
     }
 
     pub fn save(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         let text = match serde_json::to_string(self) {
             Ok(text) => text,
             Err(error) => {
@@ -935,10 +926,7 @@ impl SessionState {
                 return;
             }
         };
-        let temporary = path.with_extension("json.tmp");
-        let written = std::fs::write(&temporary, text)
-            .and_then(|()| crate::util::replace_file(&temporary, path));
-        if let Err(error) = written {
+        if let Err(error) = crate::util::write_file(path, text) {
             log::warn!("unable to save session to {}: {error}", path.display());
         }
     }
@@ -968,7 +956,7 @@ mod session_tests {
             SessionState::load(&path).last_page.as_deref(),
             Some("liked")
         );
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(crate::util::temporary_files(&root).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 }

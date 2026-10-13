@@ -232,19 +232,7 @@ fn install_bundled(directory: &Path) -> std::io::Result<()> {
 /// Writes `name` in `directory` whole or not at all, through a temporary
 /// file that is never a link.
 fn write_new(directory: &Path, name: &str, contents: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    let temporary = directory.join(format!(".{name}.tmp"));
-    let _ = std::fs::remove_file(&temporary);
-    let written = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .and_then(|mut file| file.write_all(contents.as_bytes()))
-        .and_then(|()| crate::util::replace_file(&temporary, &directory.join(name)));
-    if written.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    written
+    crate::util::write_file(&directory.join(name), contents)
 }
 
 #[derive(Default)]
