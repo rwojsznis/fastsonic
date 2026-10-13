@@ -222,6 +222,23 @@ Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
 while music plays), **Next**, and **Previous**, above the standard Dock items.
 They keep working while the window is closed to the menu bar.
 
+## MacBook notch
+
+On a Mac whose display has a notch, turn on **MacBook notch widget** under
+Settings → Playback on this computer. While Fastsonic is in the background,
+behind another app, minimized or closed to the menu bar, rest the pointer on
+the notch and a card drops out of it with the cover, the song and artist,
+the elapsed and total time over a seek bar, and the heart, Shuffle,
+Previous, Play/Pause, Next and Repeat. Drag or click the bar to seek; the
+song moves there when you let go. Click anywhere else on the card, or on the
+notch itself, to bring the window back. Move the pointer away and the card
+folds back into the notch.
+
+Clicking the card does not bring Fastsonic to the front, so pausing from the
+notch leaves the app you were using where it was. The card stays away while
+Fastsonic's window is in front, and while no display has a notch, such as a
+MacBook closed on an external monitor. It is off by default.
+
 ## Windows taskbar controls
 
 Hovering Fastsonic's taskbar button offers **Previous**, **Play/Pause**, and

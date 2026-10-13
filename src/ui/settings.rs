@@ -257,6 +257,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        #[cfg(target_os = "macos")]
+        widgets::setting_row(
+            ui,
+            &palette,
+            "MacBook notch widget",
+            "While Fastsonic is in the background, hover over the notch to see what is playing and control it.",
+            |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "MacBook notch widget",
+                    &mut app.settings.mac_notch_widget,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            },
+        );
         widgets::setting_row(
             ui,
             &palette,

@@ -210,6 +210,9 @@ pub struct Settings {
     pub playback_authorized: bool,
     /// Closing the window hides to the tray and keeps the music playing.
     pub keep_playing_in_background: bool,
+    /// macOS: hovering over a MacBook's notch while Fastsonic is in the
+    /// background shows what is playing, with the player bar's controls.
+    pub mac_notch_widget: bool,
     /// Ask GitHub once a day whether a newer release exists.
     pub check_for_updates: bool,
     /// Context URIs pinned to the top of the sidebar, Liked Songs' among
@@ -317,6 +320,7 @@ impl Default for Settings {
             show_shortcut_hints: true,
             playback_authorized: false,
             keep_playing_in_background: true,
+            mac_notch_widget: false,
             check_for_updates: true,
             pinned_contexts: Vec::new(),
             liked_songs_pinned: true,
@@ -465,6 +469,17 @@ mod tests {
         assert_eq!(old.home, super::HomeSettings::default());
         assert!(old.home.most_played.visible);
         assert_eq!(old.volume, 12345);
+    }
+
+    #[test]
+    fn the_notch_card_is_off_in_older_files_and_stays_on_once_chosen() {
+        let older: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!older.mac_notch_widget);
+        let chosen: Settings = serde_json::from_str(r#"{"mac_notch_widget":true}"#).unwrap();
+        assert!(chosen.mac_notch_widget);
+        let restored: Settings =
+            serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
+        assert!(restored.mac_notch_widget);
     }
 
     #[test]

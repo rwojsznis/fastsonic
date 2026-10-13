@@ -101,7 +101,13 @@ default) lets a middle click on a list scroll it as the pointer moves; it
 starts off because Linux desktops usually paste the primary selection on
 middle click, and older settings files read it as off. Windows always
 autoscrolls and macOS never does, so neither shows the switch.
-Close
+On macOS,
+**MacBook notch widget** (`mac_notch_widget`, off by default, and off in an
+older settings file) shows a Now Playing card under the notch of a notched
+display while Fastsonic is in the background; see
+[MacBook notch](../_guide/using-fastsonic.md#macbook-notch). Its cover is
+the one the system's media controls are handed, so it adds no request to the
+server. Close
 to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer
 either way, including when the version installed is the current one; on macOS

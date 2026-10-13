@@ -150,6 +150,9 @@ pub struct App {
     control_commands: Option<std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>>>,
     /// Now-playing snapshot for the control channel.
     control_now_playing: Option<std::sync::Arc<std::sync::Mutex<String>>>,
+    /// Clicks on the MacBook notch's card, read every pass with or without
+    /// a window.
+    pub(crate) notch: crate::notch::NotchLink,
     /// Sample data is loaded; server requests are disabled.
     pub offline: bool,
     pub palette: Palette,
@@ -502,6 +505,10 @@ impl App {
             switch_intent: false,
             control_commands: None,
             control_now_playing: None,
+            notch: {
+                let wake = waker.clone();
+                crate::notch::NotchLink::new(move || wake.wake())
+            },
             offline: false,
             palette,
             window_level_supported: true,
@@ -671,6 +678,9 @@ impl App {
         self.wants_show = false;
         self.switch_intent = false;
         self.winamp_level_reassert = 0;
+        // Nothing of the notch card's is carried from one event loop into
+        // the next; the next pass makes a fresh one if it is still wanted.
+        crate::notch::shutdown();
         // A new window starts titled "Fastsonic"; name the playing song
         // again rather than trust what the replaced window was told.
         self.window_title.clear();
@@ -760,6 +770,7 @@ impl App {
         if let Some(tray) = &mut self.tray {
             tray.hidden();
         }
+        crate::notch::shutdown();
     }
 
     /// Whether closing the window keeps the app in the tray rather than
@@ -2168,6 +2179,13 @@ impl App {
                 MenuCommand::Previous => self.actions.push(Action::Previous),
                 _ => {}
             }
+        }
+    }
+
+    /// Clicks on the MacBook notch's card, read with or without a window.
+    fn handle_notch_commands(&mut self) {
+        for command in self.notch.drain() {
+            self.actions.push(command.action());
         }
     }
 
@@ -5376,6 +5394,7 @@ impl App {
         self.handle_tray();
         #[cfg(target_os = "macos")]
         self.handle_dock_menu();
+        self.handle_notch_commands();
         self.tick(ctx);
         self.note_listening();
         // MilkDrop runs in a child process and can outlive the main window.
@@ -5385,6 +5404,8 @@ impl App {
         self.apply_actions(ctx);
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
+        #[cfg(target_os = "macos")]
+        self.sync_notch(ctx);
         self.schedule_next_pass(ctx);
     }
 
@@ -5405,6 +5426,44 @@ impl App {
         if crate::motion::reduced(ctx) != self.motion.reduced() {
             crate::motion::apply(ctx, self.motion.reduced());
         }
+    }
+
+    /// Keeps the MacBook notch's card showing what plays, while Fastsonic
+    /// is in the background: closed to the tray, minimized, or behind
+    /// another app.
+    #[cfg(target_os = "macos")]
+    fn sync_notch(&mut self, ctx: &egui::Context) {
+        if !self.settings.mac_notch_widget {
+            crate::notch::sync(&self.notch, false, true, None);
+            return;
+        }
+        let window_background = self.window_hidden
+            || ctx.input(|input| {
+                input.viewport().minimized.unwrap_or(false)
+                    || !input.viewport().focused.unwrap_or(true)
+            });
+        let track = self.now_playing().map(|now| {
+            let art_path = now
+                .art_url
+                .as_deref()
+                .or(now.art_small.as_deref())
+                .and_then(|url| self.media_art_file(ctx, url));
+            let accent = self.now_playing_tint().unwrap_or(self.palette.accent);
+            crate::notch::NotchTrack {
+                saved: self.is_saved(&now.uri).unwrap_or(false),
+                uri: now.uri,
+                title: now.title,
+                artist: now.subtitle,
+                playing: now.playing,
+                duration_ms: now.duration_ms,
+                position_ms: now.position_ms,
+                art_path,
+                shuffle: now.shuffle,
+                repeat: now.repeat,
+                accent: [accent.r(), accent.g(), accent.b()],
+            }
+        });
+        crate::notch::sync(&self.notch, true, window_background, track.as_ref());
     }
 
     /// Asks for the next pass that playback, pending plays and polling need.
@@ -5794,6 +5853,7 @@ impl App {
 
     /// Final teardown at real quit.
     pub fn shutdown(&mut self) {
+        crate::notch::shutdown();
         self.save_state();
         self.backend.shutdown();
     }
@@ -9258,6 +9318,47 @@ mod tests {
             [Action::TogglePlay, Action::Next, Action::Previous]
         ));
         assert!(mac_menu::drain_dock_commands().is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Every click on the notch's card is the action the player bar's own
+    /// control sends, in the order they were made.
+    #[test]
+    fn notch_clicks_become_the_player_bars_actions() {
+        use crate::notch::NotchCommand;
+        let mut app = headless_app();
+        app.notch.push(NotchCommand::PlayPause);
+        app.notch.push(NotchCommand::Next);
+        app.notch
+            .push(NotchCommand::ToggleSaved("sonic:track:a".into()));
+        app.notch.push(NotchCommand::ShowWindow);
+        app.actions.clear();
+        app.handle_notch_commands();
+        assert!(matches!(
+            app.actions.as_slice(),
+            [
+                Action::TogglePlay,
+                Action::Next,
+                Action::ToggleSaved(uri),
+                Action::ShowWindow,
+            ] if uri == "sonic:track:a"
+        ));
+        assert!(app.notch.drain().is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Closed to the tray there is no window to draw a frame, only the
+    /// background pass, and it reads the card's clicks: a click on the card
+    /// asks the outer loop for the window back.
+    #[test]
+    fn a_notch_click_is_answered_from_the_tray() {
+        use crate::notch::NotchCommand;
+        let mut app = headless_app();
+        app.window_gone();
+        app.notch.push(NotchCommand::ShowWindow);
+        app.background_frame(&egui::Context::default());
+        assert!(app.notch.drain().is_empty());
+        assert!(app.wants_show, "the window is asked back");
         app.backend.shutdown();
     }
 

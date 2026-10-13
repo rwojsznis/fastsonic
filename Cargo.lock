@@ -1559,6 +1559,7 @@ dependencies = [
  "rand 0.9.5",
  "raw-window-handle",
  "reqwest",
+ "resvg",
  "rodio",
  "rustls",
  "serde",

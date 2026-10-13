@@ -582,6 +582,14 @@ impl Icon {
             .map_or("", |(_, uri, _)| *uri)
     }
 
+    /// The icon's SVG source, for a surface egui does not draw.
+    pub fn svg(self) -> &'static [u8] {
+        ICONS
+            .iter()
+            .find(|(icon, _, _)| *icon == self)
+            .map_or(&[], |(_, _, bytes)| *bytes)
+    }
+
     pub fn image(self, color: Color32, size: f32) -> egui::Image<'static> {
         egui::Image::new(self.uri())
             .tint(color)

@@ -124,9 +124,14 @@ objc2 = { version = "0.6", features = ["exception"] }
 # NSWindow and NSUserDefaults answer a title-bar double-click the way the
 # Desktop & Dock setting asks (src/window.rs). NSWorkspace, with its
 # NSAccessibility methods, answers whether Reduce motion is on
-# (src/motion.rs).
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSUserDefaults"] }
+# (src/motion.rs). The panel, views, controls and drawing are the
+# MacBook notch's Now Playing card (src/mac_notch.rs).
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSAccessibilityProtocols", "NSAnimation", "NSAnimationContext", "NSApplication", "NSBezierPath", "NSButton", "NSCell", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSImageCell", "NSImageView", "NSMenu", "NSMenuItem", "NSPanel", "NSParagraphStyle", "NSResponder", "NSRunningApplication", "NSScreen", "NSText", "NSTextField", "NSTrackingArea", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDate", "NSGeometry", "NSObjCRuntime", "NSRunLoop", "NSString", "NSUserDefaults"] }
+# The notch card's icons are the app's own SVGs, drawn to PNG for AppKit,
+# which reads SVG only on recent releases. Already compiled for egui_extras'
+# SVG loader, so this adds no code to the build.
+resvg = { version = "0.45", default-features = false }
 
 # AccessKit connects egui's control names, states, and actions to native
 # screen readers.
