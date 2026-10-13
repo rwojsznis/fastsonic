@@ -112,6 +112,12 @@ mixers and audio processors can identify and route it; explicit
 `PULSE_PROP_application.name` and `PULSE_PROP_stream.description` values take
 precedence. PipeWire's own ALSA plugin names the stream after the program.
 
+On macOS, playback declares a user-initiated activity while a song plays or
+loads, so App Nap does not slow the engine down when another application
+covers Fastsonic. Pausing, stopping, an output error or signing out releases
+it. The activity permits idle system sleep and does not keep the display
+awake.
+
 ## Other outbound traffic
 
 - When the lyrics panel is open and the server has no lyrics, Fastsonic sends

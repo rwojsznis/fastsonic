@@ -140,6 +140,8 @@ pub struct App {
     tray: Option<TrayService>,
     /// The system's power and session state.
     power: crate::power::Power,
+    /// Keeps playback out of App Nap while it plays or loads (macOS).
+    playback_activity: Option<crate::power::Activity>,
     /// What the app may spend on drawing, from the power state and the
     /// window's; worked out in each logic pass.
     pub budget: crate::power::Budget,
@@ -511,6 +513,7 @@ impl App {
             media_art: None,
             tray,
             power,
+            playback_activity: None,
             budget: crate::power::Budget::default(),
             window_hidden: false,
             hide_intent: false,
@@ -5486,7 +5489,8 @@ impl App {
     }
 
     /// Follows the system's power and session state: works out the budget
-    /// for drawing, and saves before the system sleeps or the session ends.
+    /// for drawing, keeps playback out of App Nap, and saves before the
+    /// system sleeps or the session ends.
     fn sync_power(&mut self, ctx: &egui::Context) {
         let shown =
             !self.window_hidden && !ctx.input(|input| input.viewport().minimized.unwrap_or(false));
@@ -5497,6 +5501,12 @@ impl App {
             self.budget = budget;
             self.power
                 .set_background(budget == crate::power::Budget::Background);
+        }
+        if crate::power::playback_needs_activity(&self.local) {
+            self.playback_activity
+                .get_or_insert_with(|| crate::power::Activity::begin("Playing music"));
+        } else {
+            self.playback_activity = None;
         }
         for event in self.power.events() {
             use crate::power::Event;
@@ -10235,6 +10245,25 @@ mod tests {
             assert_eq!(history.plays().len(), 1);
             let _ = std::fs::remove_dir_all(app.dirs.state.parent().unwrap());
         }
+    }
+
+    /// One App Nap activity is held while playback plays, and let go once
+    /// it pauses.
+    #[test]
+    fn playback_holds_one_activity_while_it_plays() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_none());
+        app.local.connected = true;
+        app.local.playback = Playback::Playing;
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_some());
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_some(), "the same one, kept");
+        app.local.playback = Playback::Paused;
+        app.sync_power(&ctx);
+        assert!(app.playback_activity.is_none());
     }
 
     /// A window in the tray, minimised, behind the lock screen or on a

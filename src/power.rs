@@ -329,6 +329,58 @@ impl Power {
     }
 }
 
+/// Keeps the app's work out of App Nap on macOS while it is held, and ends
+/// when dropped.
+///
+/// macOS slows down an app whose windows are covered, hidden or on another
+/// space while another app is in front: its timers fire late and its
+/// threads get less time. Playback holds one while it plays or loads, and
+/// drops it on pause, stop or an output error, so a paused app naps again.
+/// It asks for a user-initiated activity that still lets the system sleep
+/// when idle and the display turn off: it does not keep the Mac awake.
+/// Linux and Windows have no App Nap, and there it does nothing.
+/// <https://developer.apple.com/documentation/foundation/processinfo/activityoptions/userinitiatedallowingidlesystemsleep>
+#[must_use = "the activity ends when it is dropped"]
+pub struct Activity {
+    #[cfg(target_os = "macos")]
+    _token: macos::Activity,
+}
+
+impl Activity {
+    /// Begins an activity. `reason` is what the system shows for it, in
+    /// `pmset -g assertions` say.
+    pub fn begin(reason: &str) -> Self {
+        #[cfg(target_os = "macos")]
+        {
+            Self {
+                _token: macos::Activity::begin(reason),
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = reason;
+            Self {}
+        }
+    }
+}
+
+impl std::fmt::Debug for Activity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Activity")
+    }
+}
+
+/// Whether local playback is doing work the user is waiting for, which
+/// macOS must not slow down with App Nap while another app is in front:
+/// playing or loading on an engine with a server. Pause, stop, an output
+/// error and signing out all let the app nap again.
+pub fn playback_needs_activity(local: &crate::engine::LocalState) -> bool {
+    use crate::engine::Playback;
+    local.connected
+        && local.error.is_none()
+        && matches!(local.playback, Playback::Playing | Playback::Loading)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -474,5 +526,52 @@ mod tests {
     fn events_read_plainly_in_the_log() {
         let event = Event::Suspending(Ack::default());
         assert_eq!(format!("{event:?}"), "Suspending(Ack)");
+        assert_eq!(format!("{:?}", Activity::begin("test")), "Activity");
+    }
+
+    /// Beginning and ending activities, one inside another, as playback
+    /// starts and stops. On macOS this asks NSProcessInfo; elsewhere it does
+    /// nothing.
+    #[test]
+    fn activities_begin_and_end() {
+        let outer = Activity::begin("Playing audio");
+        let inner = Activity::begin("Loading a track");
+        drop(inner);
+        drop(outer);
+    }
+
+    /// The app holds both in state that may move between threads.
+    #[test]
+    fn power_and_activities_can_move_between_threads() {
+        fn send_and_sync<T: Send + Sync>() {}
+        send_and_sync::<Power>();
+        send_and_sync::<Activity>();
+        send_and_sync::<Ack>();
+    }
+
+    /// Playback holds off App Nap while it plays or loads, and lets go on
+    /// pause, stop, an output error or signing out.
+    #[test]
+    fn only_playback_at_work_needs_an_activity() {
+        use crate::engine::{LocalState, Playback};
+        let mut local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            ..LocalState::default()
+        };
+        assert!(playback_needs_activity(&local));
+        local.playback = Playback::Loading;
+        assert!(playback_needs_activity(&local));
+        for playback in [Playback::Paused, Playback::Stopped] {
+            local.playback = playback;
+            assert!(!playback_needs_activity(&local));
+        }
+        local.playback = Playback::Playing;
+        local.error = Some("output unavailable".into());
+        assert!(!playback_needs_activity(&local));
+        local.error = None;
+        local.connected = false;
+        assert!(!playback_needs_activity(&local));
+        assert!(!playback_needs_activity(&LocalState::default()));
     }
 }
