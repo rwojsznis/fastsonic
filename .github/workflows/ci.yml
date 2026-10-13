@@ -136,3 +136,14 @@ jobs:
           $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
           & $iscc "/DVersion=$version" "/DArch=$arch" "/DBinary=$PWD\target\debug\fastsonic.exe" "/DOutputDir=$env:RUNNER_TEMP\fastsonic-installer-check" packaging\windows\fastsonic.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Installs and uninstalls throwaway copies under their own identity,
+      # with a stand-in executable running from inside and outside them.
+      - name: Windows uninstaller
+        if: runner.os == 'Windows' && runner.arch == 'X64'
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          python packaging\windows\test-uninstall.py $iscc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -9,6 +9,11 @@ signed, so Gatekeeper and SmartScreen will both object on first open; the
 release notes say what to do about it. There is no Homebrew tap and no AUR
 package.
 
+Uninstalling on Windows while the installed copy runs stops before removing
+anything and offers **Retry**, **Close Fastsonic** or **Cancel**. Close
+Fastsonic ends that copy at once, never a portable one elsewhere. A silent
+uninstall leaves everything in place instead.
+
 Fastsonic draws its window with OpenGL 2.0 or newer, which the graphics
 driver of any current PC or Mac provides. A virtual machine or remote session
 without a graphics driver, such as Windows on the Microsoft Basic Display
