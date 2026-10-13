@@ -1919,6 +1919,61 @@ mod tests {
         ]
     }
 
+    /// A click on the player bar's empty space switches the visualizer,
+    /// unless that has been turned off in Settings; the play button keeps
+    /// its own click either way.
+    #[test]
+    fn clicking_the_empty_player_bar_switches_the_visualizer_unless_turned_off() {
+        let (ctx, mut app) = accessible_app("player-bar-click");
+        let view = crate::ui::player_bar::show;
+        let cycled = |app: &App| {
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CyclePlayerBarVis))
+        };
+        // The empty margin beside the cover.
+        let empty = egui::pos2(6.0, 796.0);
+        let play = egui::pos2(640.0, 800.0 - crate::theme::PLAYER_BAR_HEIGHT / 2.0 - 10.0);
+        let run = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| view(app, ui),
+            );
+            output.textures_delta.clear();
+        };
+        for clicks in [true, false] {
+            app.settings.player_bar_vis_click = clicks;
+            run(&mut app, vec![]);
+            app.actions.clear();
+            run(&mut app, pointer_click(empty, egui::PointerButton::Primary));
+            assert_eq!(cycled(&app), clicks, "clicks {clicks}");
+            for _ in 0..30 {
+                run(&mut app, vec![]);
+            }
+            app.actions.clear();
+            run(&mut app, pointer_click(play, egui::PointerButton::Primary));
+            assert!(!cycled(&app), "the play button is still the play button");
+            assert!(
+                app.actions
+                    .iter()
+                    .any(|action| matches!(action, Action::TogglePlay)),
+                "clicks {clicks}: {:?}",
+                app.actions
+            );
+            for _ in 0..30 {
+                run(&mut app, vec![]);
+            }
+        }
+        app.backend.shutdown();
+    }
+
     /// The empty space's tooltip belongs to the empty space: once shown, it
     /// closes when the pointer moves onto a control drawn over the bar.
     #[cfg(feature = "demo")]

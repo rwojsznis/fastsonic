@@ -205,7 +205,8 @@ signal, so transport and volume changes do not move the picture.
 
 Settings → Appearance → **Player bar visualizer** offers a spectrum or waveform
 behind the controls. It is off by default. Click empty space on the player bar
-to cycle through spectrum, waveform, and off.
+to cycle through spectrum, waveform, and off; turn off **Click player bar to
+change visualizer** just below it if those clicks change it by accident.
 
 ## Less motion
 

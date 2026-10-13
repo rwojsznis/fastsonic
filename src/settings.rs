@@ -184,6 +184,9 @@ pub struct Settings {
     /// Tint the interface with the colour of the playing album's art.
     pub accent_from_art: bool,
     pub player_bar_vis: PlayerBarVis,
+    /// A click on the player bar's empty space moves to the next
+    /// visualizer mode.
+    pub player_bar_vis_click: bool,
     /// Last local volume, 0..=65535.
     pub volume: u16,
     /// Whether the library sidebar is visible.
@@ -306,6 +309,7 @@ impl Default for Settings {
             custom_theme_cache: None,
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
+            player_bar_vis_click: true,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
             sidebar_visible: true,
             art_expanded: false,
@@ -487,6 +491,17 @@ mod tests {
         use super::PlayerBarVis;
         let settings: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(settings.player_bar_vis, PlayerBarVis::Off);
+        assert!(
+            settings.player_bar_vis_click,
+            "an older file keeps clicks on"
+        );
+        let disabled = Settings {
+            player_bar_vis_click: false,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&disabled).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(!restored.player_bar_vis_click);
         let spectrum: Settings = serde_json::from_str(r#"{"player_bar_vis":"spectrum"}"#).unwrap();
         assert_eq!(spectrum.player_bar_vis, PlayerBarVis::Spectrum);
         assert_eq!(PlayerBarVis::Off.next(), PlayerBarVis::Spectrum);

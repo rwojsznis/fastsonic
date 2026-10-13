@@ -490,6 +490,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
+            "Click player bar to change visualizer",
+            "Let a click on the player bar's empty space switch the visualizer.",
+            |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Click player bar to change visualizer",
+                    &mut app.settings.player_bar_vis_click,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
             "Compact library sidebar",
             "Show names without covers in the sidebar.",
             |ui| {

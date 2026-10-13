@@ -65,23 +65,27 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .request_repaint_after(crate::window::animation_repaint_delay(VIS_FRAME));
             }
             // Its empty space is the visualizer's control, as Winamp's
-            // visualizer was: a click moves to the next mode. The controls
-            // drawn after it take their own clicks.
-            let empty = ui.interact(
-                behind,
-                ui.id().with("player-bar-visualizer"),
-                Sense::click(),
-            );
-            // An open tooltip stays while the pointer is inside its widget's
-            // rect, and this one spans the bar: offer it only while the empty
-            // space itself is hovered, not the controls over it.
-            let empty = if empty.hovered() {
-                empty.on_hover_text_at_pointer("Click to change the visualizer")
-            } else {
-                empty
-            };
-            if empty.clicked() {
-                app.actions.push(Action::CyclePlayerBarVis);
+            // visualizer was: a click moves to the next mode, unless that
+            // has been turned off. The controls drawn after it take their
+            // own clicks.
+            if app.settings.player_bar_vis_click {
+                let empty = ui.interact(
+                    behind,
+                    ui.id().with("player-bar-visualizer"),
+                    Sense::click(),
+                );
+                // An open tooltip stays while the pointer is inside its
+                // widget's rect, and this one spans the bar: offer it only
+                // while the empty space itself is hovered, not the controls
+                // over it.
+                let empty = if empty.hovered() {
+                    empty.on_hover_text_at_pointer("Click to change the visualizer")
+                } else {
+                    empty
+                };
+                if empty.clicked() {
+                    app.actions.push(Action::CyclePlayerBarVis);
+                }
             }
             ui.painter().hline(
                 rect.x_range(),

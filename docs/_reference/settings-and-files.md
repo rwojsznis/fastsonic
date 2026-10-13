@@ -73,7 +73,10 @@ transcoded, and there is no autoplay source after a context ends.
 
 Interface settings cover theme, album-art accents, compact rows, shortcut
 hints, sidebar state, zoom, player bar visualizer, Winamp skin/random
-selection/windows/equalizer, and MilkDrop. The sidebar's Library keeps
+selection/windows/equalizer, and MilkDrop. `player_bar_vis_click` (on by
+default, so older files keep it) lets a click on the player bar's empty space
+cycle `player_bar_vis` through `off`, `spectrum` and `waveform`. The sidebar's
+Library keeps
 `library_sort`, the order chosen for each section (`playlists`, `albums`,
 `artists`), as one of `library`, `recently_played`, `name`, `creator`,
 `recently_added` or `local` where the section supports it; a section missing
