@@ -699,7 +699,11 @@ impl MiniWindow {
     fn wanted(app: &app::App) -> Option<Self> {
         app.settings.winamp_window.then(|| Self {
             size: fastsonic::ui::winamp::initial_size(&app.settings),
-            position: app.winamp.restore_pos,
+            // AppKit opens a borderless window wherever it is told, even on
+            // a display unplugged since; Windows checks later, in App::attach.
+            position: app.winamp.restore_pos.filter(|&pos| {
+                !cfg!(target_os = "macos") || fastsonic::window::can_restore(pos, 1.0)
+            }),
             on_top: app.settings.winamp_on_top,
             taskbar: app.settings.winamp_show_taskbar,
             storage_path: app.dirs.cache.join("winamp.ron"),

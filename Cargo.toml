@@ -122,7 +122,8 @@ souvlaki = { version = "0.8", default-features = false }
 # exception instead of letting it abort the process.
 objc2 = { version = "0.6", features = ["exception"] }
 # NSWindow and NSUserDefaults answer a title-bar double-click the way the
-# Desktop & Dock setting asks (src/window.rs). NSWorkspace, with its
+# Desktop & Dock setting asks, and NSScreen which displays a saved window
+# position is still on (src/window.rs). NSWorkspace, with its
 # NSAccessibility methods, answers whether Reduce motion is on
 # (src/motion.rs). The panel, views, controls and drawing are the
 # MacBook notch's Now Playing card (src/mac_notch.rs).
