@@ -13,7 +13,7 @@
 //! - Windows: Energy Saver or battery saver, the power source, the console
 //!   display, sleep and wake, the network's reach and cost, the session lock
 //!   and the end of the session.
-//! - macOS: Low Power Mode.
+//! - macOS: Low Power Mode, and whether the internet can be reached.
 //!
 //! What a platform does not report keeps the default, which is the
 //! unconstrained case, so nothing is ever held back because a platform
@@ -60,11 +60,12 @@ pub struct Conditions {
     /// The session is locked, or switched away from or disconnected
     /// (Windows).
     pub locked: bool,
-    /// The system reports a way to the internet (Windows).
+    /// The system reports a way to the internet (Windows and macOS).
     ///
     /// Windows's connectivity hint can say there is no internet behind a
     /// proxy or a captive network that the app reaches anyway, so it is a
-    /// reason to wait, never to give up.
+    /// reason to wait, never to give up, and the app follows it on macOS
+    /// only.
     pub online: bool,
     /// The connection is metered or charged by use, roaming, or over its
     /// data limit (Windows).
@@ -242,8 +243,8 @@ impl Shared {
 /// Watches the system's power and session state for the app.
 ///
 /// Readers run on threads of their own (Linux, the Windows session window)
-/// or on the system's own threads (Windows callbacks), so a slow or absent
-/// service never holds up the app.
+/// or on the system's own threads (Windows callbacks, macOS's main dispatch
+/// queue), so a slow or absent service never holds up the app.
 pub struct Power {
     shared: Arc<Shared>,
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]

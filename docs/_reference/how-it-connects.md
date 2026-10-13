@@ -32,7 +32,9 @@ cached under an opaque `sonic:art:` key rather than a credential-bearing URL.
 The desktop's media controls get the playing song's cover as a file from that
 cache, never a URL: when a song starts, its full-size cover is downloaded once
 if nothing on screen has fetched it yet, and Linux MPRIS hands the desktop a
-`file://` path.
+`file://` path. On a connection Windows reports as metered (charged by use,
+roaming, or over its data limit), the controls go without that cover rather
+than download one for every song, and fetch it once the connection is not.
 
 ## Server requests
 
@@ -125,7 +127,13 @@ awake.
   [LRCLIB](https://lrclib.net). Lyrics are cached locally for a month.
 - If update checks are enabled, Fastsonic asks GitHub's API once a day whether
   a newer release exists. **Check for updates** asks the same question once,
-  whether or not the daily check is on.
+  whether or not the daily check is on. Fastsonic never downloads an update
+  itself. On a connection Windows reports as metered, the daily check waits
+  for one that is not; on macOS it also waits while the system reports no way
+  to the internet. Fastsonic asks macOS about the internet as a whole rather
+  than about a host, so that look sends nothing over the network. A check by
+  hand always runs, and the daily one goes ahead on its own once the
+  connection changes.
 - Settings can download optional MilkDrop preset packs from their documented
   upstream sources.
 

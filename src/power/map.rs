@@ -8,6 +8,21 @@ pub(super) fn saves(profile: &str) -> bool {
     profile == "power-saver"
 }
 
+/// `kSCNetworkReachabilityFlagsReachable` (SCNetworkReachability.h).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const REACHABLE: u32 = 1 << 1;
+/// `kSCNetworkReachabilityFlagsConnectionRequired`: a connection, such as a
+/// VPN or a dial-up link, has to be made first.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const CONNECTION_REQUIRED: u32 = 1 << 2;
+
+/// Whether SCNetworkReachability's flags say the internet can be reached
+/// now (macOS).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(super) fn reachable(flags: u32) -> bool {
+    flags & REACHABLE != 0 && flags & CONNECTION_REQUIRED == 0
+}
+
 /// The session changes `WM_WTSSESSION_CHANGE` reports in its `wParam`
 /// (WinUser.h), kept here so the session's state is read the same way in
 /// every platform's tests. The Windows tests check them against windows-sys.
@@ -124,6 +139,20 @@ mod tests {
         assert!(saves("power-saver"));
         assert!(!saves("balanced"));
         assert!(!saves("performance"));
+    }
+
+    #[test]
+    fn reachable_needs_a_route_and_no_connection_to_make_first() {
+        assert!(reachable(REACHABLE));
+        assert!(!reachable(0), "no route");
+        assert!(
+            !reachable(REACHABLE | CONNECTION_REQUIRED),
+            "a VPN or a dial-up link still to connect"
+        );
+        // kSCNetworkReachabilityFlagsIsDirect (1 << 17) and
+        // kSCNetworkReachabilityFlagsIsLocalAddress (1 << 16) say nothing
+        // about whether the internet is there.
+        assert!(reachable(REACHABLE | 1 << 17 | 1 << 16));
     }
 
     #[test]

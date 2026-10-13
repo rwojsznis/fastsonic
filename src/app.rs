@@ -148,6 +148,11 @@ pub struct App {
     tray: Option<TrayService>,
     /// The system's power and session state.
     power: crate::power::Power,
+    /// Whether the system's word on reaching the internet holds back the
+    /// daily update check. macOS only: Windows's connectivity hint can say
+    /// "no internet" on networks where GitHub still answers (a proxy, a
+    /// blocked probe), and Linux reports nothing.
+    follows_reachability: bool,
     /// Keeps playback out of App Nap while it plays or loads (macOS).
     playback_activity: Option<crate::power::Activity>,
     /// What the app may spend on drawing, from the power state and the
@@ -521,6 +526,7 @@ impl App {
             media_art: None,
             tray,
             power,
+            follows_reachability: cfg!(target_os = "macos"),
             playback_activity: None,
             budget: crate::power::Budget::default(),
             window_hidden: false,
@@ -1887,8 +1893,11 @@ impl App {
         self.toasts
             .retain(|toast| toast.created.elapsed() < TOAST_LIFETIME);
 
+        // Not on a metered connection or without internet: the check waits
+        // for a connection that will do, and checking by hand still works.
         if self.settings.check_for_updates
             && !self.offline
+            && !self.downloads_wait()
             && self
                 .last_update_check
                 .is_none_or(|at| at.elapsed() >= crate::updates::CHECK_INTERVAL)
@@ -2342,8 +2351,12 @@ impl App {
                 self.media_art = Some((url.to_owned(), file.clone()));
                 Some(file)
             }
+            // On a metered connection the controls go without the large
+            // cover rather than download one for every song.
             None => {
-                self.backend.art().prefetch(ctx, url);
+                if !self.metered() {
+                    self.backend.art().prefetch(ctx, url);
+                }
                 None
             }
         }
@@ -5504,6 +5517,21 @@ impl App {
         if close_requested && !self.quit_requested && !self.switch_intent && hides_to_tray {
             self.hide_intent = true;
         }
+    }
+
+    /// Whether the system reports the connection as metered or charged by
+    /// use, so automatic downloads wait.
+    fn metered(&self) -> bool {
+        self.power.conditions().metered
+    }
+
+    /// Whether automatic downloads wait: on a metered connection, or while
+    /// the system reports no way to the internet, where the daily check
+    /// would only fail. That report counts only where the app follows it
+    /// (macOS).
+    fn downloads_wait(&self) -> bool {
+        let conditions = self.power.conditions();
+        conditions.metered || (self.follows_reachability && !conditions.online)
     }
 
     /// Follows the system's power and session state: works out the budget
@@ -10358,6 +10386,80 @@ mod tests {
 
         app.settings.milkdrop_open = true;
         assert_eq!(app.headless_wait(), HEADLESS_TICK);
+    }
+
+    /// Changes the conditions as the power reader would.
+    fn change_power(app: &App, change: impl FnOnce(&mut crate::power::Conditions)) {
+        let mut conditions = app.power.conditions();
+        change(&mut conditions);
+        app.power.set_conditions(conditions);
+    }
+
+    /// On a metered connection the media controls go without the large
+    /// cover rather than download one for every song, and fetch it once
+    /// the connection is not.
+    #[test]
+    fn a_metered_connection_downloads_no_cover_for_the_controls() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let url = "sonic:art:640:metered";
+        change_power(&app, |conditions| conditions.metered = true);
+        assert_eq!(app.media_art_file(&ctx, url), None);
+        assert!(
+            app.backend
+                .art()
+                .prefetch(&ctx, "sonic:art:640:metered-probe"),
+            "the loader takes requests"
+        );
+        change_power(&app, |conditions| conditions.metered = false);
+        assert_eq!(app.media_art_file(&ctx, url), None);
+        assert!(
+            !app.backend.art().prefetch(&ctx, url),
+            "an unmetered connection should have started the download"
+        );
+    }
+
+    /// The daily update check waits for a connection that is not metered,
+    /// and, where the app follows the system's word on it, for the internet.
+    /// Where it does not, a "no internet" hint holds nothing back.
+    #[test]
+    fn a_metered_connection_puts_off_the_update_check() {
+        for (metered, online, follows, checked, why) in [
+            (false, true, true, true, "not checked on a free network"),
+            (true, true, false, false, "checked on a metered network"),
+            (false, false, true, false, "checked without internet"),
+            (
+                false,
+                false,
+                false,
+                true,
+                "held by a hint it does not follow",
+            ),
+        ] {
+            let mut app = headless_app();
+            app.settings.check_for_updates = true;
+            app.last_update_check = None;
+            app.follows_reachability = follows;
+            change_power(&app, |conditions| {
+                conditions.metered = metered;
+                conditions.online = online;
+            });
+            let ctx = egui::Context::default();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.tick(ui.ctx());
+            });
+            output.textures_delta.clear();
+            assert_eq!(app.last_update_check.is_some(), checked, "{why}");
+        }
+    }
+
+    /// A check by hand runs whatever the connection.
+    #[test]
+    fn a_manual_update_check_runs_on_a_metered_connection() {
+        let mut app = headless_app();
+        change_power(&app, |conditions| conditions.metered = true);
+        app.check_for_updates(true);
+        assert!(app.update_checking);
     }
 
     /// One App Nap activity is held while playback plays, and let go once
