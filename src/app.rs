@@ -177,8 +177,6 @@ pub struct App {
     /// should be written shortly, not only at exit.
     pub session_dirty: bool,
     last_session_save: Instant,
-    /// The saved zoom has been applied to the context once.
-    zoom_applied: bool,
     /// Frames left to re-send the Winamp window's always-on-top level after the
     /// window opens. X11 window managers drop `_NET_WM_STATE_ABOVE` set before
     /// the window is mapped, so the creation-time level does not stick; a level
@@ -523,7 +521,6 @@ impl App {
             local: LocalState::default(),
             session_dirty: false,
             last_session_save: Instant::now(),
-            zoom_applied: false,
             winamp_level_reassert: 0,
             // Filled in below, from what the last session left (rule 9).
             queue: Queue::default(),
@@ -1850,19 +1847,14 @@ impl App {
                 ctx.request_repaint();
             }
         }
-        if !self.zoom_applied {
-            self.zoom_applied = true;
-            let zoom = self.settings.zoom.clamp(0.5, 2.5);
-            if (zoom - 1.0).abs() > 0.001 {
-                ctx.set_zoom_factor(zoom);
-            }
-        } else {
-            let zoom = ctx.zoom_factor();
-            if (zoom - self.settings.zoom).abs() > 0.001 {
-                // Ctrl+plus/minus zoomed; remembered for the next start.
-                self.settings.zoom = zoom;
-                self.settings_dirty = true;
-            }
+        // The zoom is the main window's: a pass without a window, or in the
+        // mini player at its own scale, neither applies nor saves it. Each
+        // new main window takes the saved zoom; Ctrl+plus/minus is
+        // remembered for the next start.
+        let main_window = !self.window_hidden && !self.settings.winamp_window;
+        if main_window && let Some(zoom) = crate::window::keep_zoom(ctx, self.settings.zoom) {
+            self.settings.zoom = zoom;
+            self.settings_dirty = true;
         }
         self.toasts
             .retain(|toast| toast.created.elapsed() < TOAST_LIFETIME);
@@ -9700,6 +9692,29 @@ mod tests {
         );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
+    /// The zoom belongs to the main window: a pass without a window, as in
+    /// the tray, or in the mini player at its own scale, neither applies
+    /// the saved zoom nor saves its own 1 over it.
+    #[test]
+    fn only_the_main_window_applies_and_saves_the_zoom() {
+        for (hidden, mini, applied) in [(false, false, 1.5), (true, false, 1.0), (false, true, 1.0)]
+        {
+            let mut app = headless_app();
+            app.settings.check_for_updates = false;
+            app.settings.zoom = 1.5;
+            app.window_hidden = hidden;
+            app.settings.winamp_window = mini;
+            let ctx = egui::Context::default();
+            for _ in 0..2 {
+                let mut output = ctx.run_ui(Default::default(), |ui| app.tick(ui.ctx()));
+                output.textures_delta.clear();
+            }
+            assert_eq!(app.settings.zoom, 1.5, "hidden {hidden}, mini {mini}");
+            assert_eq!(ctx.zoom_factor(), applied, "hidden {hidden}, mini {mini}");
+            app.backend.shutdown();
+        }
     }
 
     /// Closing hides to the tray only when the tray can take the app, and

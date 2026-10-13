@@ -421,6 +421,36 @@ pub fn set_fixed_size(on: bool) {
     FIXED_SIZE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The range a saved zoom is held to, as the Settings control offers it.
+const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.5;
+
+/// Gives this window the interface zoom kept in the settings, and returns
+/// the zoom to save once the listener changes it (Ctrl and plus or minus).
+///
+/// Call it on every pass of the main window. A new window has a new egui
+/// context: the first call on it applies `saved`, even over a zoom egui's
+/// restored memory carried, so the settings are the one place the zoom is
+/// kept. Every call returns `Some(zoom)` while the window's zoom differs
+/// from `saved`, including a `saved` out of range, applied as the nearest
+/// usable zoom. The mini player has a scale of its own and does not call it.
+pub fn keep_zoom(ctx: &egui::Context, saved: f32) -> Option<f32> {
+    let applied = egui::Id::new("fastsonic-zoom-applied");
+    let zoom = if ctx.data(|data| data.get_temp::<bool>(applied).unwrap_or(false)) {
+        ctx.zoom_factor()
+    } else {
+        ctx.data_mut(|data| data.insert_temp(applied, true));
+        // egui takes a new zoom at the start of the next pass.
+        let zoom = if saved.is_finite() {
+            saved.clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end())
+        } else {
+            1.0
+        };
+        ctx.set_zoom_factor(zoom);
+        zoom
+    };
+    (saved.is_nan() || (zoom - saved).abs() > 0.001).then_some(zoom)
+}
+
 /// A button of the custom title bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowButton {
@@ -769,6 +799,61 @@ mod tests {
                 action,
                 "{preference:?}, legacy minimize {legacy}"
             );
+        }
+    }
+
+    /// One pass of a window that keeps the saved zoom, with what it returned.
+    fn zoom_pass(ctx: &egui::Context, saved: f32) -> Option<f32> {
+        ctx.begin_pass(egui::RawInput::default());
+        let kept = keep_zoom(ctx, saved);
+        ctx.end_pass().textures_delta.clear();
+        kept
+    }
+
+    #[test]
+    fn each_new_window_takes_the_saved_zoom() {
+        for _ in 0..2 {
+            let ctx = egui::Context::default();
+            assert_eq!(zoom_pass(&ctx, 1.5), None);
+            assert_eq!(zoom_pass(&ctx, 1.5), None, "nothing to save");
+            assert_eq!(ctx.zoom_factor(), 1.5);
+        }
+    }
+
+    /// egui's saved memory carries a zoom of its own; the settings win.
+    #[test]
+    fn a_zoom_restored_with_eguis_memory_gives_way_to_the_saved_one() {
+        for (remembered, saved) in [(1.5, 1.0), (1.0, 1.25)] {
+            let ctx = egui::Context::default();
+            ctx.set_zoom_factor(remembered);
+            assert_eq!(zoom_pass(&ctx, saved), None, "{remembered} over {saved}");
+            assert_eq!(zoom_pass(&ctx, saved), None, "{remembered} over {saved}");
+            assert_eq!(ctx.zoom_factor(), saved);
+        }
+    }
+
+    #[test]
+    fn a_zoom_the_listener_picks_is_returned_until_it_is_saved() {
+        let ctx = egui::Context::default();
+        zoom_pass(&ctx, 1.25);
+        ctx.set_zoom_factor(1.5);
+        assert_eq!(zoom_pass(&ctx, 1.25), Some(1.5));
+        assert_eq!(zoom_pass(&ctx, 1.5), None);
+        assert_eq!(ctx.zoom_factor(), 1.5, "applied once, never forced back");
+    }
+
+    #[test]
+    fn an_unusable_saved_zoom_is_held_to_a_usable_one() {
+        for (saved, applied) in [
+            (f32::NAN, 1.0),
+            (f32::INFINITY, 1.0),
+            (0.0, 0.5),
+            (40.0, 2.5),
+        ] {
+            let ctx = egui::Context::default();
+            assert_eq!(zoom_pass(&ctx, saved), Some(applied), "{saved}");
+            assert_eq!(zoom_pass(&ctx, applied), None);
+            assert_eq!(ctx.zoom_factor(), applied, "{saved}");
         }
     }
 
