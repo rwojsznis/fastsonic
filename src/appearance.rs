@@ -209,6 +209,15 @@ fn color_scheme(value: &Value<'_>) -> Option<u32> {
     }
 }
 
+/// Unwraps the text from the one or two variants it arrives in.
+fn string(value: &Value<'_>) -> Option<String> {
+    match value {
+        Value::Str(text) => Some(text.as_str().to_owned()),
+        Value::Value(inner) => string(inner),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
