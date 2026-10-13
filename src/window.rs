@@ -354,6 +354,91 @@ pub fn minimize_window(ctx: &egui::Context) {
     let _ = ctx;
 }
 
+/// Brings the open window forward.
+///
+/// A minimized window has to be restored before it can be focused: Focus
+/// alone leaves it in the Dock, and the platform draws no frames while it
+/// is down there, so nothing arrives to ask a second time. Wayland drops a
+/// window's own request for focus, but niri focuses a window when asked
+/// through its command line tool, switching to its workspace; that is asked
+/// first, off the UI thread, and the window asks for itself only when niri
+/// cannot.
+pub fn raise_window(ctx: &egui::Context) {
+    #[cfg(target_os = "linux")]
+    if under_niri(std::env::var_os("NIRI_SOCKET")) {
+        let window = ctx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("fastsonic-raise".to_string())
+            .spawn(move || {
+                if !niri::focus(std::process::id()) {
+                    restore_and_focus(&window);
+                }
+            });
+        if spawned.is_err() {
+            restore_and_focus(ctx);
+        }
+        return;
+    }
+    restore_and_focus(ctx);
+}
+
+fn restore_and_focus(ctx: &egui::Context) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+}
+
+/// Whether `NIRI_SOCKET` names niri's socket. An empty value counts as
+/// unset.
+#[cfg(any(target_os = "linux", test))]
+fn under_niri(socket: Option<std::ffi::OsString>) -> bool {
+    socket.is_some_and(|socket| !socket.is_empty())
+}
+
+#[cfg(target_os = "linux")]
+mod niri {
+    use std::process::{Command, Stdio};
+
+    /// Asks niri to focus the window of process `pid`: `niri msg --json
+    /// windows` finds it, `niri msg action focus-window --id` focuses it.
+    /// `false` when `niri` is missing (a Flatpak sandbox) or fails.
+    pub(super) fn focus(pid: u32) -> bool {
+        let Ok(windows) = Command::new("niri")
+            .args(["msg", "--json", "windows"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        else {
+            return false;
+        };
+        let Some(id) = windows
+            .status
+            .success()
+            .then(|| super::niri_window_id(&windows.stdout, pid))
+            .flatten()
+        else {
+            return false;
+        };
+        Command::new("niri")
+            .args(["msg", "action", "focus-window", "--id", &id.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+}
+
+/// The id of the window owned by process `pid` in `niri msg --json windows`.
+#[cfg(any(target_os = "linux", test))]
+fn niri_window_id(json: &[u8], pid: u32) -> Option<u64> {
+    let windows: serde_json::Value = serde_json::from_slice(json).ok()?;
+    windows
+        .as_array()?
+        .iter()
+        .find(|window| window["pid"].as_u64() == Some(u64::from(pid)))?["id"]
+        .as_u64()
+}
+
 /// Whether windows wait for the display before swapping buffers. Without it
 /// every input event draws a frame at once: moving the pointer over the
 /// window cost about 1.6 cores on Windows, against 0.35 with it (upstream
@@ -800,6 +885,25 @@ mod tests {
                 "{preference:?}, legacy minimize {legacy}"
             );
         }
+    }
+
+    #[test]
+    fn niri_window_id_finds_the_window_of_this_process() {
+        let json = br#"[{"id":7,"pid":100},{"id":226,"pid":16363},{"id":9,"pid":null}]"#;
+        assert_eq!(niri_window_id(json, 16363), Some(226));
+        assert_eq!(niri_window_id(json, 1), None);
+        assert_eq!(niri_window_id(b"not json", 1), None);
+        assert_eq!(niri_window_id(br#"{"Err":"no"}"#, 100), None);
+        let full = br#"[{"id":12,"title":"Fastsonic","app_id":"fastsonic","pid":4242,
+            "workspace_id":3,"is_focused":false,"is_floating":false,"is_urgent":false}]"#;
+        assert_eq!(niri_window_id(full, 4242), Some(12));
+    }
+
+    #[test]
+    fn niri_is_found_by_its_socket() {
+        assert!(under_niri(Some("/run/user/1000/niri.sock".into())));
+        assert!(!under_niri(Some("".into())));
+        assert!(!under_niri(None));
     }
 
     /// One pass of a window that keeps the saved zoom, with what it returned.

@@ -91,6 +91,9 @@ features; Navidrome-only personalisation sections may be empty.
 
 - Closing the window keeps music playing from the system tray by default.
   Reopen it from the tray or Dock, and quit from the tray menu or Ctrl+Q.
+  Show on an open window brings it forward; Wayland compositors refuse
+  that to the app itself, except niri, which Fastsonic asks through
+  `niri msg` to focus the window and switch to its workspace.
 - Space plays and pauses—even when a row or button has focus—Ctrl+F or `/`
   searches, and `Q` opens the queue. Text fields keep Space for typing.
   Ctrl+/ shows every shortcut. On macOS, Cmd replaces Ctrl.

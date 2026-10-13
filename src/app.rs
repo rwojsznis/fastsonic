@@ -4910,12 +4910,7 @@ impl App {
                     // No window exists; the outer loop creates one.
                     self.wants_show = true;
                 } else {
-                    // A minimized window has to be restored before it can be
-                    // focused: Focus alone leaves it in the Dock, and the
-                    // platform draws no frames while it is down there, so
-                    // nothing arrives to ask a second time.
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    crate::window::raise_window(ctx);
                 }
             }
             Action::HideWindow => {
