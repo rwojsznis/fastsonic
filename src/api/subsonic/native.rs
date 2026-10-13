@@ -89,7 +89,8 @@ impl std::fmt::Debug for NativeSession {
 }
 
 /// What `POST /auth/login` gives back: everything needed for both APIs.
-#[derive(Clone, Debug, Default, Deserialize)]
+/// No `Debug`: it holds the JWT and the Subsonic token in the clear.
+#[derive(Clone, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct LoginAnswer {
     token: String,
