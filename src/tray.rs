@@ -160,8 +160,12 @@ impl TrayService {
     pub fn hidden(&mut self) {}
 }
 
-/// Waits while the app lives in the tray without a window. Linux has
-/// nothing to pump here: the tray and MPRIS run on their own threads.
-pub fn idle(duration: Duration) {
-    std::thread::sleep(duration);
+/// Waits while the app lives in the tray without a window, for up to
+/// `duration` or until something wakes the app. Linux has nothing to pump
+/// here: the tray and MPRIS run on their own threads.
+pub fn idle(duration: Duration, waker: &crate::backend::Waker) {
+    waker.wait(duration);
 }
+
+/// Nothing to interrupt: [`idle`] waits on the waker itself.
+pub fn interrupt_idle() {}

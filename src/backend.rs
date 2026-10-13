@@ -496,28 +496,63 @@ pub enum LocalPlayback {
     Failed(String),
 }
 
-/// Wakes whichever window currently exists, if any.
+/// Wakes whichever window currently exists, or the loop that runs the app
+/// in the tray while none does.
 ///
 /// Background services (the runtime, MPRIS, the tray) outlive individual
 /// windows: the window is destroyed when it closes to the tray and created
 /// again on demand. They therefore hold this handle instead of an
 /// `egui::Context`.
 #[derive(Clone, Default)]
-pub struct Waker(Arc<std::sync::Mutex<Option<egui::Context>>>);
+pub struct Waker(Arc<WakerShared>);
+
+#[derive(Default)]
+struct WakerShared {
+    ctx: std::sync::Mutex<Option<egui::Context>>,
+    /// Whether a wake came since the tray loop last looked.
+    rung: std::sync::Mutex<bool>,
+    bell: std::sync::Condvar,
+}
 
 impl Waker {
     pub fn attach(&self, ctx: &egui::Context) {
-        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some(ctx.clone());
+        *self.0.ctx.lock().unwrap_or_else(|p| p.into_inner()) = Some(ctx.clone());
     }
 
     pub fn detach(&self) {
-        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *self.0.ctx.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
     pub fn wake(&self) {
-        if let Some(ctx) = self.0.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+        if let Some(ctx) = self
+            .0
+            .ctx
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
             ctx.request_repaint();
         }
+        *self.0.rung.lock().unwrap_or_else(|p| p.into_inner()) = true;
+        self.0.bell.notify_all();
+        crate::tray::interrupt_idle();
+    }
+
+    /// Takes a wake that came since the last look, if one did.
+    pub fn take(&self) -> bool {
+        std::mem::take(&mut *self.0.rung.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    /// Waits up to `timeout` for a wake, or none at all if one already
+    /// came since the last look. Returns whether one came.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let rung = self.0.rung.lock().unwrap_or_else(|p| p.into_inner());
+        let (mut rung, _) = self
+            .0
+            .bell
+            .wait_timeout_while(rung, timeout, |rung| !*rung)
+            .unwrap_or_else(|p| p.into_inner());
+        std::mem::take(&mut *rung)
     }
 }
 
@@ -1725,6 +1760,33 @@ mod tests {
                 .is_err()
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The tray loop sleeps until something wakes the app: at once for a
+    /// wake that came before it looked, early for one that comes while it
+    /// waits, and the whole time for none.
+    #[test]
+    fn a_wake_ends_the_tray_loops_wait() {
+        let waker = Waker::default();
+        waker.wake();
+        let started = std::time::Instant::now();
+        assert!(waker.wait(Duration::from_secs(30)), "an earlier wake");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(!waker.take(), "each wake is taken once");
+
+        let ringer = waker.clone();
+        let ring = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            ringer.wake();
+        });
+        let started = std::time::Instant::now();
+        assert!(waker.wait(Duration::from_secs(30)));
+        assert!(started.elapsed() < Duration::from_secs(10), "woken early");
+        ring.join().unwrap();
+
+        let started = std::time::Instant::now();
+        assert!(!waker.wait(Duration::from_millis(30)));
+        assert!(started.elapsed() >= Duration::from_millis(25));
     }
 
     fn playing(uri: &str, position_ms: u32) -> LocalState {

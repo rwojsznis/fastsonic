@@ -29,6 +29,12 @@ use crate::tray::{TrayCommand, TrayService};
 use crate::util;
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
+/// The longest the app sleeps in the tray with nothing due, so the timers
+/// in `tick` (saving, eviction, the update check) keep running.
+const HEADLESS_SLEEP: Duration = Duration::from_secs(2);
+/// How often the app looks at MilkDrop's window from the tray: it outlives
+/// the main window, and its keys arrive through a pipe that wakes nothing.
+const HEADLESS_TICK: Duration = Duration::from_millis(150);
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
@@ -5527,13 +5533,35 @@ impl App {
     /// hidden, minimised or occluded window but still runs its logic, so
     /// a hidden window keeps polling and keeps media controls current.
     fn schedule_next_pass(&self, ctx: &egui::Context) {
-        let playing = self.now_playing().is_some_and(|now| now.playing);
-        if playing {
-            ctx.request_repaint_after(Duration::from_millis(250));
+        if let Some(due) = self.next_pass() {
+            ctx.request_repaint_after(due);
         }
-        if self.any_play_pending() {
-            ctx.request_repaint_after(Duration::from_millis(120));
+    }
+
+    /// The soonest that playback or a pending play needs the logic to run
+    /// again, if either does.
+    fn next_pass(&self) -> Option<Duration> {
+        let playing = self
+            .now_playing()
+            .is_some_and(|now| now.playing)
+            .then_some(Duration::from_millis(250));
+        let pending = self
+            .any_play_pending()
+            .then_some(Duration::from_millis(120));
+        [playing, pending].into_iter().flatten().min()
+    }
+
+    /// How long the tray loop may sleep after this pass: until the next
+    /// pass is due, and never longer than `HEADLESS_SLEEP`. MilkDrop's
+    /// window outlives the main one and is looked at every
+    /// `HEADLESS_TICK`. Tray clicks, media keys and backend events wake
+    /// the loop at once.
+    pub fn headless_wait(&self) -> Duration {
+        if self.settings.milkdrop_open {
+            return HEADLESS_TICK;
         }
+        self.next_pass()
+            .map_or(HEADLESS_SLEEP, |due| due.min(HEADLESS_SLEEP))
     }
 
     /// Records a track after enough active listening time.
@@ -10245,6 +10273,25 @@ mod tests {
             assert_eq!(history.plays().len(), 1);
             let _ = std::fs::remove_dir_all(app.dirs.state.parent().unwrap());
         }
+    }
+
+    /// In the tray the app sleeps as long as nothing is due: until the next
+    /// progress update while music plays, and a short tick while MilkDrop's
+    /// window is open.
+    #[test]
+    fn the_tray_sleeps_until_something_is_due() {
+        let mut app = headless_app();
+        assert_eq!(app.headless_wait(), HEADLESS_SLEEP);
+
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        assert_eq!(app.headless_wait(), Duration::from_millis(250));
+
+        app.settings.milkdrop_open = true;
+        assert_eq!(app.headless_wait(), HEADLESS_TICK);
     }
 
     /// One App Nap activity is held while playback plays, and let go once

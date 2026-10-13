@@ -231,21 +231,30 @@ impl TrayService {
     pub fn hidden(&mut self) {}
 }
 
-/// Waits while the app lives in the tray without a window. Windows has
-/// nothing to pump here: the item runs on its own thread.
+/// Waits while the app lives in the tray without a window, for up to
+/// `duration` or until something wakes the app. Windows has nothing to
+/// pump here: the item runs on its own thread.
 #[cfg(windows)]
-pub fn idle(duration: Duration) {
-    std::thread::sleep(duration);
+pub fn idle(duration: Duration, waker: &crate::backend::Waker) {
+    waker.wait(duration);
 }
+
+/// Nothing to interrupt: [`idle`] waits on the waker itself.
+#[cfg(windows)]
+pub fn interrupt_idle() {}
 
 #[cfg(target_os = "macos")]
 mod host {
     use std::cell::RefCell;
     use std::ffi::CString;
 
+    use std::sync::atomic::{AtomicPtr, Ordering};
+
+    use objc2::encode::Encoding;
+    use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject, Bool, MethodImplementation, Sel};
-    use objc2::{Encode, MainThreadMarker, sel};
-    use objc2_app_kit::{NSApplication, NSEventMask};
+    use objc2::{Encode, MainThreadMarker, msg_send, sel};
+    use objc2_app_kit::{NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType};
     use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
 
     use super::*;
@@ -357,18 +366,44 @@ mod host {
         app.activateIgnoringOtherApps(true);
     }
 
-    /// Runs the application's event loop for `duration`, so the status
-    /// item and the media controls keep answering without a window.
-    pub fn pump(duration: Duration) {
+    /// The application while the tray loop waits on its events, for a wake
+    /// from another thread to post an event to; null otherwise. It is the
+    /// process's one NSApplication, which lives as long as the process.
+    static IDLE_APP: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
+
+    /// The subtype of the application-defined event a wake posts, so the
+    /// pump knows its own and sends it nowhere.
+    const WAKE_SUBTYPE: i16 = 0x4653;
+
+    /// `NSPoint`, for the one message that takes one; objc2-foundation
+    /// has it only behind a feature this crate does not otherwise need.
+    #[repr(C)]
+    struct Point {
+        x: f64,
+        y: f64,
+    }
+
+    // SAFETY: the layout and encoding of CGPoint, two doubles.
+    unsafe impl Encode for Point {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    /// Runs the application's event loop for up to `duration`, so the
+    /// status item and the media controls keep answering without a window,
+    /// and returns as soon as something wakes the app.
+    pub fn pump(duration: Duration, waker: &crate::backend::Waker) {
         let Some(mtm) = MainThreadMarker::new() else {
-            std::thread::sleep(duration);
+            waker.wait(duration);
             return;
         };
         let app = NSApplication::sharedApplication(mtm);
         let deadline = NSDate::dateWithTimeIntervalSinceNow(duration.as_secs_f64());
         // Safety: reading an extern static AppKit defines and never changes.
         let mode = unsafe { NSDefaultRunLoopMode };
-        loop {
+        // Published before the first look, so a wake that comes after the
+        // look finds somewhere to post its event.
+        IDLE_APP.store(Retained::as_ptr(&app).cast_mut().cast(), Ordering::SeqCst);
+        while !waker.take() {
             let event = app.nextEventMatchingMask_untilDate_inMode_dequeue(
                 NSEventMask::Any,
                 Some(&deadline),
@@ -376,8 +411,48 @@ mod host {
                 true,
             );
             match event {
+                Some(event) if is_wake(&event) => {}
                 Some(event) => app.sendEvent(&event),
                 None => break,
+            }
+        }
+        IDLE_APP.store(std::ptr::null_mut(), Ordering::SeqCst);
+    }
+
+    fn is_wake(event: &NSEvent) -> bool {
+        // Asking another type of event for its subtype raises.
+        event.r#type() == NSEventType::ApplicationDefined && event.subtype().0 == WAKE_SUBTYPE
+    }
+
+    /// Ends the wait for the next event in [`pump`], from any thread, by
+    /// posting an application-defined event, which AppKit allows from any
+    /// thread. Nothing is posted while no pump is waiting.
+    pub fn interrupt() {
+        let app = IDLE_APP.load(Ordering::SeqCst);
+        if app.is_null() {
+            return;
+        }
+        let point = Point { x: 0.0, y: 0.0 };
+        let none: *const AnyObject = std::ptr::null();
+        // SAFETY: the arguments match
+        // otherEventWithType:location:modifierFlags:timestamp:windowNumber:
+        // context:subtype:data1:data2:, whose context must be nil, and the
+        // application is the process's own, which is never released.
+        unsafe {
+            let event: Option<Retained<NSEvent>> = msg_send![
+                AnyClass::get(c"NSEvent").expect("AppKit is loaded"),
+                otherEventWithType: NSEventType::ApplicationDefined,
+                location: point,
+                modifierFlags: NSEventModifierFlags(0),
+                timestamp: 0.0f64,
+                windowNumber: 0isize,
+                context: none,
+                subtype: WAKE_SUBTYPE,
+                data1: 0isize,
+                data2: 0isize
+            ];
+            if let Some(event) = event {
+                let _: () = msg_send![app, postEvent: &*event, atStart: false];
             }
         }
     }
@@ -432,10 +507,16 @@ impl TrayService {
 }
 
 /// Waits while the app lives in the tray without a window, keeping AppKit
-/// served meanwhile.
+/// served meanwhile, for up to `duration` or until something wakes the app.
 #[cfg(target_os = "macos")]
-pub fn idle(duration: Duration) {
-    host::pump(duration);
+pub fn idle(duration: Duration, waker: &crate::backend::Waker) {
+    host::pump(duration, waker);
+}
+
+/// Ends [`idle`]'s wait for AppKit's next event, from any thread.
+#[cfg(target_os = "macos")]
+pub fn interrupt_idle() {
+    host::interrupt();
 }
 
 #[cfg(all(test, target_os = "macos"))]

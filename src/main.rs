@@ -516,8 +516,10 @@ fn main() -> eframe::Result<()> {
                 {
                     fastsonic::mac_touchbar_crash_guard::install();
                     fastsonic::mac_menu::init();
-                    let ctx = cc.egui_ctx.clone();
-                    fastsonic::mac_menu::set_waker(move || ctx.request_repaint());
+                    // The backend's waker, so a Dock menu pick also wakes
+                    // the app while it lives in the menu bar.
+                    let wake = creator_waker.clone();
+                    fastsonic::mac_menu::set_waker(move || wake.wake());
                 }
                 {
                     use raw_window_handle::HasDisplayHandle;
@@ -607,16 +609,19 @@ fn main() -> eframe::Result<()> {
             .as_mut()
             .expect("application state present")
             .window_gone();
+        // Each pass sleeps until something is due, and tray clicks, media
+        // keys and the backend's events wake it at once.
         loop {
-            {
+            let wait = {
                 let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
                 let app = guard.as_mut().expect("application state present");
                 app.background_frame(&headless);
                 if app.quit_requested || app.wants_show {
                     break;
                 }
-            }
-            fastsonic::tray::idle(std::time::Duration::from_millis(150));
+                app.headless_wait()
+            };
+            fastsonic::tray::idle(wait, &waker);
         }
         let quit = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
