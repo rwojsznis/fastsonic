@@ -33,6 +33,10 @@ remains of it is the packaging artwork, which is still upstream's.
   `src/app.rs`; do not mutate application state from inside a borrowed view.
 - Network and playback work belongs on the runtime in `src/backend.rs` or on
   the audio thread in `src/engine/`, never as blocking work on the UI thread.
+- File writes that wait for the disk (anything through `util::write_with`)
+  never run on the UI thread: encode there and hand the bytes to the app's
+  writer in `src/file_writer.rs`. The guard in `write_with` panics on the UI
+  thread in debug builds.
 - Keep platform integrations behind target-specific modules or `cfg` blocks.
   A fix for one platform must keep the other two targets compiling.
 - Settings and state files must remain readable, backward compatible, and
