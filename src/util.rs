@@ -205,7 +205,7 @@ pub fn strip_html(text: &str) -> String {
 
 /// Who may read a file [`write_with`] replaces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Access {
+pub enum Access {
     /// The system's default for a new file.
     #[default]
     Default,
@@ -216,20 +216,14 @@ pub(crate) enum Access {
 
 /// Replaces `path` with `contents`, creating its folder if needed. See
 /// [`write_with`].
-pub(crate) fn write_file(
-    path: &std::path::Path,
-    contents: impl AsRef<[u8]>,
-) -> std::io::Result<()> {
+pub fn write_file(path: &std::path::Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
     write_with(path, Access::Default, |file| {
         std::io::Write::write_all(file, contents.as_ref())
     })
 }
 
 /// Replaces `path` with `contents` only its owner may read.
-pub(crate) fn write_private(
-    path: &std::path::Path,
-    contents: impl AsRef<[u8]>,
-) -> std::io::Result<()> {
+pub fn write_private(path: &std::path::Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
     write_with(path, Access::Private, |file| {
         std::io::Write::write_all(file, contents.as_ref())
     })
@@ -244,9 +238,9 @@ pub(crate) fn write_private(
 /// over the target (written through on Windows), and then the folder is
 /// synced so the move itself lasts (Unix). If anything fails, `path` keeps
 /// its old contents and the temporary file is removed. Syncing can take a
-/// while on a busy disk, so large or frequent writes belong off the UI
-/// thread.
-pub(crate) fn write_with(
+/// while on a busy disk, so the UI thread hands its writes to a
+/// [`crate::file_writer::FileWriter`] instead.
+pub fn write_with(
     path: &std::path::Path,
     access: Access,
     fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,

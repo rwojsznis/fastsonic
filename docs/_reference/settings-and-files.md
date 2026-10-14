@@ -40,10 +40,16 @@ its temporary file and leaves the old file as it was. On Linux and macOS,
 `history.json` and `credentials.json` are written readable by your account
 only.
 
+Settings, the session and the play history are written on a thread of their
+own, so a slow disk never stops the window; a newer save of a file still
+waiting to be written replaces it. Quitting waits up to four seconds for what
+is still on its way to the disk.
+
 The session and the play history are also written just before the computer
-sleeps (Linux and Windows) and when you sign out or shut down (Windows). On
-Linux, Fastsonic takes a short logind "delay" lock for this, listed by
-`systemd-inhibit --list`; inside Flatpak it needs
+sleeps (Linux and Windows) and when you sign out or shut down (Windows),
+waiting up to a second and a half for the disk, within the time the system
+is held back. On Linux, Fastsonic takes a short logind "delay" lock for this,
+listed by `systemd-inhibit --list`; inside Flatpak it needs
 `--system-talk-name=org.freedesktop.login1`.
 
 `session.json` also keeps the window's size and position. A window left

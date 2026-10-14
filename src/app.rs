@@ -29,6 +29,11 @@ use crate::tray::{TrayCommand, TrayService};
 use crate::util;
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
+/// How long a suspend or the end of the session waits for pending file
+/// writes. The power readers hold the system back for 1.5 s before a
+/// suspend (3 s at the end of a session), so a longer wait would only
+/// answer after the system has gone ahead without us.
+const SUSPEND_FLUSH_TIMEOUT: Duration = Duration::from_millis(1500);
 /// How old the saved resume point may grow while music plays.
 const SESSION_REFRESH: Duration = Duration::from_secs(30);
 /// The longest the app sleeps in the tray with nothing due, so the timers
@@ -233,6 +238,8 @@ pub struct App {
     pub home: HomeData,
     /// Local play history. See [`crate::history`].
     pub plays: crate::history::History,
+    /// Writes settings, session and history off the UI thread.
+    files: crate::file_writer::FileWriter,
     /// Current track timing used to decide when a play counts.
     listening: Option<Listening>,
     pub recents: crate::model::CursorList<crate::api::models::PlayHistory>,
@@ -568,6 +575,7 @@ impl App {
             library: Library::default(),
             home: HomeData::default(),
             plays,
+            files: crate::file_writer::FileWriter::new(),
             listening: None,
             recents: crate::model::CursorList::default(),
             recents_view: Vec::new(),
@@ -2156,7 +2164,13 @@ impl App {
             // Demo data must never overwrite the person's real preferences.
             return;
         }
-        self.settings.save(&self.dirs.settings_file());
+        if let Some(text) = self.settings.encode() {
+            self.files.write(
+                &self.dirs.settings_file(),
+                text,
+                crate::file_writer::Access::Default,
+            );
+        }
     }
 
     /// Lists the themes folder off this thread: at launch, when Settings
@@ -5586,6 +5600,10 @@ impl App {
                 Event::Suspending(ack) | Event::EndingSession(ack) => {
                     self.save_state();
                     self.save_plays();
+                    // The system may stop for good after this: the writes
+                    // reach the disk before it is told to go ahead, within
+                    // the time the system is held for.
+                    self.files.flush(SUSPEND_FLUSH_TIMEOUT);
                     ack.done();
                 }
                 Event::Resumed => {}
@@ -5688,7 +5706,7 @@ impl App {
         if self.offline {
             return;
         }
-        self.plays.save(&self.dirs.history_file());
+        self.plays.save(&self.files, &self.dirs.history_file());
     }
 
     /// Keeps the current track in the window and taskbar title (#94).
@@ -5955,7 +5973,7 @@ impl App {
             self.resume_position_ms = now.position_ms;
         }
         if !self.offline {
-            SessionState {
+            let session = SessionState {
                 last_page: Some(self.page().encode()),
                 recent_contexts: self.recent_contexts.clone(),
                 last_context: self.resume_context.clone(),
@@ -5987,15 +6005,28 @@ impl App {
                         maximized: self.lyrics_restore_maximized,
                     }
                 }),
+            };
+            if let Some(text) = session.encode() {
+                self.files.write(
+                    &self.dirs.session_file(),
+                    text,
+                    crate::file_writer::Access::Default,
+                );
             }
-            .save(&self.dirs.session_file());
         }
+    }
+
+    /// Waits, for a bounded time, until every handed-over file write is on
+    /// the disk. Exit calls it; nothing else should. A timeout is logged.
+    pub fn flush_files(&self) -> bool {
+        self.files.flush(crate::file_writer::FLUSH_TIMEOUT)
     }
 
     /// Final teardown at real quit.
     pub fn shutdown(&mut self) {
         crate::notch::shutdown();
         self.save_state();
+        self.flush_files();
         self.backend.shutdown();
     }
 }
@@ -7098,6 +7129,7 @@ mod tests {
         app.on_now_playing_changed();
         assert_eq!(app.resume_position_ms, 19_566);
         app.save_session();
+        app.flush_files();
         assert_eq!(
             app.resume_position_ms, 19_566,
             "closing again must not lose the position"
@@ -8390,6 +8422,7 @@ mod tests {
         expected.accent = egui::Color32::from_rgb(0x8c, 0x3f, 0xa5);
         assert_eq!(app.palette, expected);
         app.save_settings();
+        app.flush_files();
         let accepted = Settings::load(&app.dirs.settings_file());
         assert!(accepted.custom_theme_cache.is_some());
 
@@ -8425,6 +8458,7 @@ mod tests {
             let detail = restored.custom_themes.detail(Some("local.json"));
             assert!(detail.contains("last colours stay"), "{detail}");
             restored.save_settings();
+            restored.flush_files();
             assert_eq!(Settings::load(&restored.dirs.settings_file()), accepted);
         }
         std::fs::remove_dir_all(app.dirs.config.parent().unwrap()).unwrap();
@@ -8943,6 +8977,7 @@ mod tests {
         app.manual_queue = vec!["sonic:track:b".into()];
         app.queue = loaded_queue("sonic:track:a", &["sonic:track:b", "sonic:track:ctx1"]);
         app.save_session();
+        app.flush_files();
 
         let options = AppOptions {
             media_controls: false,
@@ -9010,6 +9045,7 @@ mod tests {
             "the album playing is the one the engine says it is playing"
         );
         app.save_session();
+        app.flush_files();
 
         let options = AppOptions {
             media_controls: false,
@@ -9836,6 +9872,7 @@ mod tests {
         app.lyrics_fullscreen = Some(false);
         app.lyrics_restore_maximized = true;
         app.save_session();
+        app.flush_files();
         let session = SessionState::load(&app.dirs.session_file());
         assert_eq!(
             session.lyrics_fullscreen_from,
@@ -9847,6 +9884,7 @@ mod tests {
 
         app.lyrics_fullscreen = None;
         app.save_session();
+        app.flush_files();
         let text = std::fs::read_to_string(app.dirs.session_file()).unwrap();
         assert!(!text.contains("lyrics_fullscreen_from"));
         assert_eq!(

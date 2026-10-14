@@ -11,6 +11,7 @@ pub mod bidi;
 pub mod demo;
 pub mod engine;
 pub mod eq;
+pub mod file_writer;
 pub mod history;
 pub mod images;
 pub mod limiter;
