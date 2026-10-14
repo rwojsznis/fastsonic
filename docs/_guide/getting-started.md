@@ -108,6 +108,7 @@ features; Navidrome-only personalisation sections may be empty.
 Choose the microphone button in the player bar, or press **L**, to open lyrics.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to seek there. The expand
-button opens the full-screen view; press **Esc** or choose the shrink button to
-return to the previous window mode. In a wide window, the cover sits beside
-the lyrics; a song with no words shows its cover alone.
+button, or **F** when no text field has focus, opens the full-screen view;
+press **F** or **Esc**, or choose the shrink button, to return to the previous
+window mode. In a wide window, the cover sits beside the lyrics; a song with no
+words shows its cover alone.

@@ -19,6 +19,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     // A focused song row still takes Ctrl+arrow to change songs; a text
     // field uses those keys to move its caret.
     let editing_text = ctx.text_edit_focused();
+    // F is the lyrics panel's expand button, which only the signed-in main
+    // window has; it leaves full screen again wherever it was entered.
+    let lyrics_fullscreen = if app.lyrics_fullscreen.is_some() {
+        Some(false)
+    } else if !app.settings.winamp_window && app.is_connected() && app.user.is_some() {
+        Some(true)
+    } else {
+        None
+    };
     let mut actions = Vec::new();
     ctx.input_mut(|input| {
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
@@ -123,6 +132,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
+            if let Some(enter) = lyrics_fullscreen {
+                key(Modifiers::NONE, Key::F, Action::SetLyricsFullscreen(enter));
+            }
         }
     });
     if !typing
@@ -191,6 +203,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("R", "Cycle repeat"),
     ("Q", "Show the queue"),
     ("L", "Show the lyrics"),
+    ("F", "Full screen lyrics"),
     ("Esc", "Lyrics: leave full screen"),
     (
         "Shift+↑  /  Shift+↓",
@@ -503,6 +516,109 @@ mod tests {
             app.actions.as_slice(),
             [Action::ToggleSaved(uri)] if *uri == expected
         ));
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// F is the lyrics panel's expand button: it fills the screen with the
+    /// lyrics and leaves again, where that panel can be, and never while a
+    /// text field is being typed into. Ctrl+F (Cmd+F) still searches.
+    #[test]
+    fn f_enters_and_leaves_full_screen_lyrics_where_the_expand_button_is() {
+        let root = std::env::temp_dir().join(format!(
+            "fastsonic-lyrics-shortcut-test-{}",
+            std::process::id()
+        ));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        crate::demo::populate(&mut app);
+
+        // The modifiers as the platform reports its command key.
+        let command = if cfg!(target_os = "macos") {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let ctx = egui::Context::default();
+        let field = egui::Id::new("lyrics-shortcut-field");
+        let mut text = String::new();
+        let mut frame = |app: &mut App, events: Vec<egui::Event>| {
+            app.actions.clear();
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                handle(app, ui.ctx());
+                ui.add(egui::TextEdit::singleline(&mut text).id(field));
+            });
+            output.textures_delta.clear();
+            format!("{:?}", app.actions)
+        };
+        let f = |modifiers: Modifiers| {
+            vec![egui::Event::Key {
+                key: Key::F,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }]
+        };
+
+        assert_eq!(
+            frame(&mut app, f(command)),
+            format!("{:?}", [Action::FocusSearch]),
+            "the search shortcut is not taken by plain F"
+        );
+        assert_eq!(
+            frame(&mut app, f(Modifiers::NONE)),
+            format!("{:?}", [Action::SetLyricsFullscreen(true)]),
+            "F enters lyrics full screen"
+        );
+        app.lyrics_fullscreen = Some(false);
+        assert_eq!(
+            frame(&mut app, f(Modifiers::NONE)),
+            format!("{:?}", [Action::SetLyricsFullscreen(false)]),
+            "F leaves lyrics full screen"
+        );
+        app.lyrics_fullscreen = None;
+
+        ctx.memory_mut(|memory| memory.request_focus(field));
+        frame(&mut app, vec![]);
+        assert!(ctx.text_edit_focused());
+        assert_eq!(
+            frame(&mut app, f(Modifiers::NONE)),
+            "[]",
+            "F is the field's to type"
+        );
+        ctx.memory_mut(|memory| memory.surrender_focus(field));
+
+        app.settings.winamp_window = true;
+        assert_eq!(
+            frame(&mut app, f(Modifiers::NONE)),
+            "[]",
+            "the mini player has no lyrics panel"
+        );
+        app.settings.winamp_window = false;
+        app.auth = crate::backend::AuthStatus::SignedOut;
+        app.user = None;
+        assert_eq!(
+            frame(&mut app, f(Modifiers::NONE)),
+            "[]",
+            "the sign-in screen has no lyrics panel"
+        );
         app.backend.shutdown();
         let _ = std::fs::remove_dir_all(root);
     }
