@@ -351,7 +351,9 @@ impl Child {
             return;
         };
         let folder = self.args.presets.clone();
-        self.presets.refresh(&folder);
+        // Drawn every frame, so a finished listing is picked up without a
+        // wake.
+        self.presets.refresh(&folder, None);
         if self.presets.current().is_none() && self.presets.count() > 0 {
             self.presets.next(false);
         }

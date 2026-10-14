@@ -856,7 +856,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             },
         );
         let folder = app.dirs.milkdrop_dir();
-        app.winamp.presets.refresh(&folder);
+        app.winamp.presets.refresh(&folder, Some(ui.ctx().clone()));
         let count = app.winamp.presets.count();
         let downloading = app.winamp.presets.downloading();
         widgets::setting_row(

@@ -5202,9 +5202,8 @@ impl App {
                     // which hardly answers the music; fetch the packs in the
                     // background and the window fills up on its own.
                     let folder = self.dirs.milkdrop_dir();
-                    self.winamp.presets.refresh(&folder);
-                    if self.winamp.presets.count() == 0
-                        && self.winamp.presets.downloading().is_none()
+                    if self.winamp.presets.downloading().is_none()
+                        && !crate::milkdrop::has_presets(&folder)
                     {
                         self.winamp.presets.download_missing(folder, ctx.clone());
                         self.toast("Downloading MilkDrop preset packs");
