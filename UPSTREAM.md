@@ -441,3 +441,60 @@ Declined:
 - Website, README, docs assets and repository policy (`457cb4a`, `34802e2`,
   `2590e33`, `92f0787`, `9e358bb`, `2010588`, `a6dc07b`, `6009eff`,
   `3813fa8`) and the release itself (`36964f1`).
+
+## Sync through upstream 0.13.2
+
+`upstream/v0.13.2` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+
+Taken and adapted to Fastsonic:
+
+- Saving: settings, the session and the history written off the UI thread
+  by a file writer of the fork's own over `util::write_with` (`68160c5`,
+  with `1735974`'s test flushes); a durable write on the UI thread refused,
+  checked inside `util::write_with` itself (`4b2305f`); exit waiting 4 s
+  and a suspend 1.5 s for pending writes (`71591cf`), and a flush that runs
+  out of time logged (the behaviour of `cca1a82`); the rule in AGENTS.md
+  (`e7ffe5f`).
+- Stalls: an update of 250 ms or more logged, at most every ten seconds
+  (`3fec863`, in the shape `8eef692` gave it, kept beside the fork's
+  `Shell`).
+- Visualisers and MilkDrop: a frame rate for the player bar and mini
+  player visualisers (`96b1188`; Uncapped keeps the fork's full-rate
+  request on Wayland, where vsync is off); Windows's 0 or 1 Hz hardware
+  default ignored as a screen rate, and a frame rate learned from it
+  forgotten (`82bc064`); the screen's rate asked of the window's monitor
+  (`9270fc4`); presets listed off the UI thread (`c7d5dd8`).
+- Interface: a `tint` palette colour and a header wash that scrolls with
+  the page (`ecba317`); F for full-screen lyrics (`96827d4`), only where
+  the expand button is, so not in the Winamp mini player or before
+  signing in.
+- Windows: the missing-OpenGL message on every build, pointing x64 at the
+  getting-started guide (`01f7fb5`, `46ddcf3`); the main thread's window
+  messages answered while the app waits in the tray, so Windows no longer
+  calls it hung (fastframe 0.6.0's `99c53b6` and `d673207`, which upstream
+  took in `8ec9775`), in `tray_native`'s idle.
+- Flatpak: the Freedesktop 25.08 runtime (`8c4d87c`).
+
+Already true here, or not applicable:
+
+- Task Manager's name (`2ac8aad`): the fork's FileDescription already says
+  Fastsonic.
+- Local persistence for Windows grants (`bddf1cd`): the fork keeps its one
+  credential in a file, not the Credential Manager.
+- Cards taking the 640 pixel artwork (`173566d`): Spotify's renditions;
+  covers here are asked for at their drawn size.
+
+Declined:
+
+- Spotify: genuine Cast devices (`6ddcceb`, `228002d`), playlist order read
+  again on return (`e77ceb7`), the playback callback port (`fc9a8e2`) and
+  retrying the saved playback grant (`bf9d916`).
+- The fastframe crates (`cca1a82`, `8eef692`, `433bcd3`, and `8ec9775`
+  beyond the tray fix taken above).
+- Translations (`db1d60a`, `03a505a`, `7ec5de7`).
+- The Windows Installer package's update leftovers (`38f05db`, `f833832`,
+  `c6aabc7`): the fork ships no MSI and its update check downloads nothing.
+- Repository policy (`18562a5`), the website (`f911ff7`, `0c9a989`) and
+  the releases themselves (`30307eb`, `2c0f545`).
