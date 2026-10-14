@@ -389,13 +389,30 @@ impl Settings {
                 // A file edited in Notepad or Windows PowerShell can start with
                 // a byte order mark, which JSON does not allow.
                 let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-                serde_json::from_str(text).unwrap_or_else(|error| {
+                let mut settings: Self = serde_json::from_str(text).unwrap_or_else(|error| {
                     log::warn!("settings at {} are unreadable: {error}", path.display());
                     Self::default()
-                })
+                });
+                settings.forget_unusable_screen_rate();
+                settings
             }
             Err(_) => Self::default(),
         }
+    }
+
+    /// Forgets the frame rate an earlier version set from Windows's 1 Hz
+    /// "hardware default", taken then as MilkDrop's first screen rate, and
+    /// that screen rate with it, so MilkDrop's next real report is learned
+    /// as the first. A frame rate chosen since, or learned from a real
+    /// screen before, stays, and so does the 1 Hz beside it, which no dial
+    /// shows and the next real report replaces.
+    pub(crate) fn forget_unusable_screen_rate(&mut self) {
+        let hz = self.milkdrop_screen_hz;
+        if hz == 0 || crate::milkdrop::is_screen_rate(hz) || self.milkdrop_fps != hz {
+            return;
+        }
+        self.milkdrop_fps = crate::milkdrop::DEFAULT_FPS;
+        self.milkdrop_screen_hz = 0;
     }
 
     pub fn save(&self, path: &Path) {
@@ -531,6 +548,35 @@ mod tests {
             milkdrop_only.visualizer_fps, 60,
             "MilkDrop's rate is its own"
         );
+    }
+
+    /// Earlier versions kept Windows's 1 Hz "hardware default" as MilkDrop's
+    /// screen rate and, the first time, as its frame rate. Loading forgets
+    /// both, and leaves a frame rate chosen since, and a real rate, alone.
+    #[test]
+    fn a_saved_hardware_default_screen_rate_is_forgotten() {
+        let dir =
+            std::env::temp_dir().join(format!("fastsonic-screen-default-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("settings.json");
+        let load = |text: &str| {
+            std::fs::write(&path, text).unwrap();
+            let settings = Settings::load(&path);
+            (settings.milkdrop_screen_hz, settings.milkdrop_fps)
+        };
+        let learned = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":1}"#);
+        let chosen = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":30}"#);
+        let sixty = load(r#"{"milkdrop_screen_hz":1,"milkdrop_fps":60}"#);
+        let real = load(r#"{"milkdrop_screen_hz":144,"milkdrop_fps":144}"#);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(learned, (0, crate::milkdrop::DEFAULT_FPS));
+        assert_eq!(chosen, (1, 30), "their rate stands");
+        assert_eq!(
+            sixty,
+            (1, 60),
+            "a chosen 60 is not taken for the default, which a real report would replace"
+        );
+        assert_eq!(real, (144, 144), "a real rate stays");
     }
 
     #[test]

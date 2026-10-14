@@ -925,8 +925,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Frame rate",
             &match screen_hz {
-                0 => "Lower rates use fewer resources. Uncapped draws as fast as possible."
-                    .to_string(),
+                hz if !crate::milkdrop::is_screen_rate(hz) => {
+                    "Lower rates use fewer resources. Uncapped draws as fast as possible."
+                        .to_string()
+                }
                 hz => format!(
                     "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. Uncapped draws as fast as possible."
                 ),
