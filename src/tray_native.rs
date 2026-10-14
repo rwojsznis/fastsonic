@@ -232,16 +232,175 @@ impl TrayService {
 }
 
 /// Waits while the app lives in the tray without a window, for up to
-/// `duration` or until something wakes the app. Windows has nothing to
-/// pump here: the item runs on its own thread.
+/// `duration` or until something wakes the app, answering the main
+/// thread's window messages meanwhile.
+///
+/// The item runs on its own thread, but eframe keeps winit's event loop
+/// between windows, and winit's event-target window, visible on purpose,
+/// lives on this thread for the whole run. Windows calls a thread that
+/// leaves a window's messages for five seconds hung (`IsHungAppWindow`,
+/// "Not responding" in Task Manager); winit buffers what reaches that
+/// window until the next window's loop runs.
 #[cfg(windows)]
 pub fn idle(duration: Duration, waker: &crate::backend::Waker) {
-    waker.wait(duration);
+    messages::idle(duration, waker);
 }
 
-/// Nothing to interrupt: [`idle`] waits on the waker itself.
+/// Ends [`idle`]'s wait for the thread's next message, from any thread.
 #[cfg(windows)]
-pub fn interrupt_idle() {}
+pub fn interrupt_idle() {
+    messages::interrupt();
+}
+
+#[cfg(windows)]
+mod messages {
+    use std::sync::OnceLock;
+    use std::time::{Duration, Instant};
+
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::Threading::{CreateEventW, SetEvent};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE,
+        PeekMessageW, PostQuitMessage, QS_ALLINPUT, TranslateMessage, WM_QUIT,
+    };
+
+    /// The auto-reset event a wake sets, so the wait for messages also ends
+    /// on a wake. Created once and kept for the life of the process.
+    struct Event(HANDLE);
+
+    // SAFETY: an event handle may be waited on and set from any thread.
+    unsafe impl Send for Event {}
+    // SAFETY: as above; the handle is never closed.
+    unsafe impl Sync for Event {}
+
+    static WAKE: OnceLock<Option<Event>> = OnceLock::new();
+
+    fn wake_event() -> Option<&'static Event> {
+        WAKE.get_or_init(|| {
+            // SAFETY: no security attributes and no name; an auto-reset event
+            // that starts unset.
+            let handle = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
+            (!handle.is_null()).then_some(Event(handle))
+        })
+        .as_ref()
+    }
+
+    pub(super) fn interrupt() {
+        if let Some(Some(event)) = WAKE.get() {
+            // SAFETY: the handle is a live event, never closed.
+            unsafe { SetEvent(event.0) };
+        }
+    }
+
+    pub(super) fn idle(duration: Duration, waker: &crate::backend::Waker) {
+        // Made before the first look at the waker, so a wake after that look
+        // sets it and ends the wait below.
+        let event = wake_event();
+        let started = Instant::now();
+        loop {
+            if waker.take() {
+                return;
+            }
+            let left = duration.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return;
+            }
+            // Rounded up, so a sub-millisecond rest waits rather than spins.
+            let millis = u32::try_from(left.as_micros().div_ceil(1000)).unwrap_or(u32::MAX - 1);
+            let handles = event.map(|event| event.0);
+            // SAFETY: `handles` holds at most one live event handle and
+            // outlives the call, which returns on a message, the event or the
+            // timeout.
+            unsafe {
+                MsgWaitForMultipleObjectsEx(
+                    u32::from(handles.is_some()),
+                    handles
+                        .as_ref()
+                        .map_or(std::ptr::null(), std::ptr::from_ref),
+                    millis,
+                    QS_ALLINPUT,
+                    MWMO_INPUTAVAILABLE,
+                );
+            }
+            if !dispatch() {
+                return;
+            }
+        }
+    }
+
+    /// Answers every message waiting for this thread. `false` when one was
+    /// a quit, which is put back for the next window's loop.
+    fn dispatch() -> bool {
+        // SAFETY: an all-zero MSG is a valid value for PeekMessageW to fill.
+        let mut message: MSG = unsafe { std::mem::zeroed() };
+        // SAFETY: `message` outlives each call; a null window takes every
+        // message for this thread.
+        while unsafe { PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_REMOVE) } != 0 {
+            if message.message == WM_QUIT {
+                // SAFETY: posts WM_QUIT to this thread with the same code.
+                unsafe { PostQuitMessage(message.wParam as i32) };
+                return false;
+            }
+            // SAFETY: `message` came from PeekMessageW just now.
+            unsafe {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        true
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            PM_NOREMOVE, PostThreadMessageW, WM_APP,
+        };
+
+        fn peek(kind: u32, remove: bool) -> Option<MSG> {
+            // SAFETY: an all-zero MSG is a valid value for PeekMessageW to fill.
+            let mut message: MSG = unsafe { std::mem::zeroed() };
+            let flags = if remove { PM_REMOVE } else { PM_NOREMOVE };
+            // SAFETY: `message` outlives the call, which looks at `kind` only.
+            let found =
+                unsafe { PeekMessageW(&mut message, std::ptr::null_mut(), kind, kind, flags) };
+            (found != 0).then_some(message)
+        }
+
+        /// Idling answers the thread's messages, so Windows never calls an app
+        /// in the tray hung, leaves a quit for the next window's loop, and
+        /// ends at once on a wake. One test, since the wake event is shared.
+        #[test]
+        fn idling_answers_the_threads_messages_keeps_a_quit_and_ends_on_a_wake() {
+            let waker = crate::backend::Waker::default();
+            // Gives the thread its message queue.
+            assert!(peek(WM_APP + 2, false).is_none());
+            // SAFETY: posts a message with no data to this thread.
+            assert_ne!(
+                unsafe { PostThreadMessageW(GetCurrentThreadId(), WM_APP + 2, 0, 0) },
+                0
+            );
+            idle(Duration::from_millis(50), &waker);
+            assert!(peek(WM_APP + 2, false).is_none(), "answered");
+
+            // SAFETY: posts WM_QUIT to this thread.
+            unsafe { PostQuitMessage(3) };
+            idle(Duration::from_millis(50), &waker);
+            assert_eq!(peek(WM_QUIT, true).expect("the quit is kept").wParam, 3);
+
+            let other = waker.clone();
+            let ringer = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                other.wake();
+            });
+            let started = Instant::now();
+            idle(Duration::from_secs(10), &waker);
+            assert!(started.elapsed() < Duration::from_secs(5), "woken");
+            ringer.join().expect("the ringer finished");
+        }
+    }
+}
 
 #[cfg(target_os = "macos")]
 mod host {
