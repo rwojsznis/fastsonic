@@ -93,6 +93,7 @@ pub(crate) fn parse_palette(text: &str) -> Result<Palette, String> {
             "warning" => &mut palette.warning,
             "overlay" => &mut palette.overlay,
             "shadow" => &mut palette.shadow,
+            "tint" => &mut palette.tint,
             _ => return Err(format!("unknown colour {name:?}")),
         };
         *field = color;
@@ -115,7 +116,7 @@ fn parse_color(value: &str) -> Option<Color32> {
     ))
 }
 
-// A palette has sixteen colours. These limits also bound the directory work
+// A palette has seventeen colours. These limits also bound the directory work
 // and the diagnostics, not just the bytes read from one file. Never recurse.
 const MAX_FILE_BYTES: u64 = 64 * 1024;
 const MAX_DIRECTORY_ENTRIES: usize = 512;
@@ -556,6 +557,18 @@ mod tests {
         );
     }
 
+    /// A file written before `tint` existed still reads, and its pages
+    /// keep the plain window.
+    #[test]
+    fn a_palette_without_a_tint_washes_nothing() {
+        assert_eq!(Palette::dark().tint, Color32::TRANSPARENT);
+        assert_eq!(Palette::light().tint, Color32::TRANSPARENT);
+        let older = parse_palette(r##"{"base":"light","colors":{"accent":"#8c3fa5"}}"##).unwrap();
+        assert_eq!(older.tint, Color32::TRANSPARENT);
+        let tinted = parse_palette(r##"{"colors":{"tint":"#00000018"}}"##).unwrap();
+        assert_eq!(tinted.tint, Color32::from_black_alpha(0x18));
+    }
+
     #[test]
     fn every_colour_can_be_set() {
         let names = [
@@ -575,6 +588,7 @@ mod tests {
             "warning",
             "overlay",
             "shadow",
+            "tint",
         ];
         let colors: Vec<String> = names
             .iter()
@@ -599,6 +613,7 @@ mod tests {
             palette.warning,
             palette.overlay,
             palette.shadow,
+            palette.tint,
         ];
         for (index, color) in set.into_iter().enumerate() {
             assert_eq!(

@@ -3771,6 +3771,93 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A palette's tint washes the top of a page that art does not colour,
+    /// with Colour from album art off too, and leaves with the header as
+    /// the page scrolls instead of staying behind the songs.
+    #[test]
+    fn a_palettes_tint_washes_the_header_and_scrolls_away_with_it() {
+        let (ctx, mut app) = accessible_app("palette-tint-wash");
+        let mut palette = crate::theme::Palette::dark();
+        palette.tint = egui::Color32::from_rgba_unmultiplied(0x12, 0x34, 0x56, 0x30);
+        app.settings.custom_theme = Some("tinted.json".into());
+        app.settings.custom_theme_cache = Some(crate::theme::custom::CustomTheme {
+            filename: "tinted.json".into(),
+            palette,
+        });
+        app.settings.accent_from_art = false;
+        app.show_queue_panel = false;
+        app.show_lyrics_panel = false;
+        app.open(Page::Playlist("pl1".into()));
+        // Long enough to scroll.
+        let list = &mut app.playlist_pages.get_mut("pl1").unwrap().items;
+        let songs = list.items.len();
+        while list.items.len() < 40 {
+            let again = list.items[list.items.len() % songs].clone();
+            list.items.push(again);
+        }
+        list.revision += 1;
+
+        let mut time = 0.0;
+        let mut wash_top = |app: &mut App, events: Vec<egui::Event>| {
+            time += 1.0 / 60.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 700.0),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output
+                .shapes
+                .iter()
+                .find_map(|clipped| match &clipped.shape {
+                    egui::Shape::Mesh(mesh) => mesh
+                        .vertices
+                        .first()
+                        .filter(|vertex| vertex.color == palette.tint)
+                        .map(|vertex| vertex.pos.y),
+                    _ => None,
+                })
+        };
+        wash_top(&mut app, vec![]);
+        let unscrolled = wash_top(&mut app, vec![]).expect("the palette's wash");
+        for _ in 0..30 {
+            wash_top(
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(760.0, 400.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -40.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        let scrolled = wash_top(&mut app, vec![]).expect("still the palette's wash");
+        assert!(
+            scrolled < unscrolled - 100.0,
+            "the wash left with the header: {unscrolled} then {scrolled}"
+        );
+
+        app.settings.accent_from_art = true;
+        app.open(Page::LikedSongs);
+        wash_top(&mut app, vec![]);
+        assert_eq!(
+            wash_top(&mut app, vec![]),
+            None,
+            "a colour from art wins over the palette's"
+        );
+        app.backend.shutdown();
+    }
+
     /// A toggle that is on stays green under the pointer: the header's
     /// shuffle and saved buttons, a liked song's heart on its row and in the
     /// player bar. Turning white or black on hover made a click look as if

@@ -226,6 +226,14 @@ of them:
 | `warning` | Warnings |
 | `overlay` | Menus, dialogs and notifications |
 | `shadow` | The shadow under menus and dialogs, usually with alpha |
+| `tint` | The wash at the top of a page that album art does not colour |
+
+`tint` is the colour the top of a page fades from when album art does not
+colour it: with **Colour from album art** off, or when neither the page nor
+the playing song has a cover to take a colour from. Its alpha is the
+strength, so `#00000018` is a faint dark wash and `#ffffff20` a faint light
+one. Leave it out for a plain page, as every bundled palette does. Like a
+cover's colour, the wash scrolls away with the top of the page.
 
 **Colour from album art** tints pages with the playing cover over any theme;
 turn it off to keep a palette's colours everywhere.

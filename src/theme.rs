@@ -27,6 +27,10 @@ pub struct Palette {
     pub warning: Color32,
     pub overlay: Color32,
     pub shadow: Color32,
+    /// The colour a page's header fades from when album art does not tint
+    /// it; its alpha is the strength. Transparent leaves the plain window.
+    #[serde(default)]
+    pub tint: Color32,
 }
 
 impl Palette {
@@ -49,6 +53,7 @@ impl Palette {
             warning: Color32::from_rgb(0xf2, 0xb8, 0x5c),
             overlay: Color32::from_rgb(0x22, 0x27, 0x2e),
             shadow: Color32::from_black_alpha(140),
+            tint: Color32::TRANSPARENT,
         }
     }
 
@@ -71,6 +76,7 @@ impl Palette {
             warning: Color32::from_rgb(0xb8, 0x7a, 0x14),
             overlay: Color32::from_rgb(0xff, 0xff, 0xff),
             shadow: Color32::from_black_alpha(50),
+            tint: Color32::TRANSPARENT,
         }
     }
 

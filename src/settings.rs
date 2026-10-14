@@ -592,6 +592,15 @@ mod tests {
         assert_eq!(restored, settings);
         assert_eq!(restored.cached_palette(), Some(palette));
 
+        // A cache saved before palettes had a tint is still the palette.
+        let mut older = serde_json::to_value(&settings).unwrap();
+        let cached = older["custom_theme_cache"]["palette"]
+            .as_object_mut()
+            .unwrap();
+        assert!(cached.remove("tint").is_some());
+        let restored: Settings = serde_json::from_value(older).unwrap();
+        assert_eq!(restored.cached_palette(), Some(palette));
+
         let mut damaged = serde_json::to_value(&settings).unwrap();
         damaged["custom_theme_cache"] = serde_json::json!({"palette": "broken"});
         damaged["audio_cache_mb"] = 777.into();

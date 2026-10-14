@@ -12,4 +12,5 @@ Carmine Paolino, the author of Fastpotify, under the MIT License. The notice is
 in [`THIRD-PARTY.md`](../../THIRD-PARTY.md).
 
 Each sets the fourteen colours a palette usually changes and inherits
-`overlay` and `shadow` from its `base`, in the format described in the guide.
+`overlay`, `shadow` and `tint` from its `base`, in the format described in the
+guide.
