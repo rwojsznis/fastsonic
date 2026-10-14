@@ -207,6 +207,10 @@ Settings → Appearance → **Player bar visualizer** offers a spectrum or wavef
 behind the controls. It is off by default. Click empty space on the player bar
 to cycle through spectrum, waveform, and off; turn off **Click player bar to
 change visualizer** just below it if those clicks change it by accident.
+**Frame rate** under that sets how often it and the mini player's analyser
+draw: 30, 60 (the default), your screen's rate once MilkDrop has seen it, or
+Uncapped, which follows the display. A lower rate uses less power. MilkDrop
+has a frame rate of its own.
 
 ## Less motion
 
@@ -225,10 +229,11 @@ GNOME's switch as it changes; other desktops that do not publish it keep
 Fastsonic's animations.
 
 The visualizers, the player bar's and the Winamp window's alike, draw at half
-their rate while Fastsonic's window is out of focus or the system saves energy
-(Energy Saver or battery saver on Windows, Low Power Mode on macOS, the
-power-saver profile on Linux), and not at all while nobody can see the window:
-minimised, closed to the tray, with the display off or the screen locked.
+their frame rate while Fastsonic's window is out of focus or the system saves
+energy (Energy Saver or battery saver on Windows, Low Power Mode on macOS, the
+power-saver profile on Linux), at most 30 frames a second while it saves
+energy, and not at all while nobody can see the window: minimised, closed to
+the tray, with the display off or the screen locked.
 
 ## macOS Dock menu
 

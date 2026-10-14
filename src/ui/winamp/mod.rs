@@ -375,11 +375,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
 
-    // The visualiser wants a frame every 60th of a second while it moves;
+    // The visualiser wants a frame at the chosen rate while it moves;
     // otherwise the marquee steps and the time ticks, and while paused the
     // time blinks.
     if vis_moving {
-        crate::theme::visualiser_frame(&ctx, app.budget);
+        crate::theme::visualiser_frame(&ctx, app.visualiser_fps());
     } else if now.is_some() {
         ctx.request_repaint_after(Duration::from_millis(220));
     }

@@ -946,24 +946,60 @@ pub fn repaint_after(ctx: &egui::Context, interval: std::time::Duration) {
     ctx.request_repaint_after(interval + std::time::Duration::from_secs_f32(predicted));
 }
 
-/// How often a moving visualiser is drawn: sixty times a second, as Winamp
-/// drew its analyser.
-const VISUALISER_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
+/// The frame an uncapped visualiser asks for where nothing paces it: sixty
+/// times a second, as Winamp drew its analyser.
+const UNPACED_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
 
-/// Asks for a moving visualiser's next frame within `budget`: as designed,
-/// at half rate when out of focus or saving energy, and none when nobody
-/// can see it.
-pub fn visualiser_frame(ctx: &egui::Context, budget: crate::power::Budget) {
-    use crate::power::Budget;
-    match budget {
+/// Asks for a moving visualiser's next frame at `rate` frames a second, from
+/// [`crate::power::visualiser_fps`]: 0 is the display's own rate, and `None`
+/// asks for nothing, since nobody can see it.
+pub fn visualiser_frame(ctx: &egui::Context, rate: Option<u32>) {
+    let Some(rate) = rate else {
+        return;
+    };
+    if rate == 0 {
         // egui subtracts one predicted frame from delayed repaints; the
         // display supplies it through the vsync swap, or, without vsync,
-        // `animation_repaint_delay` asks for it.
-        Budget::Normal => {
-            ctx.request_repaint_after(crate::window::animation_repaint_delay(VISUALISER_FRAME));
-        }
-        Budget::Saver => repaint_after(ctx, VISUALISER_FRAME * 2),
-        Budget::Background => {}
+        // `animation_repaint_delay` asks for it so nothing spins.
+        ctx.request_repaint_after(crate::window::animation_repaint_delay(UNPACED_FRAME));
+        return;
+    }
+    let interval = 1.0 / f64::from(rate);
+    let id = egui::Id::new("visualiser-frame-due");
+    let now = ctx.input(|input| input.time);
+    let pass = ctx.cumulative_pass_nr();
+    let (mut due, seen) = ctx
+        .data(|data| data.get_temp::<(f64, u64)>(id))
+        .unwrap_or((now, u64::MAX));
+    // Count each pass once, however many visualisers it draws.
+    if seen != pass {
+        due = next_beat(due, now, interval);
+    }
+    ctx.data_mut(|data| data.insert_temp(id, (due, pass)));
+    let wait = due - now;
+    if wait <= 0.0 {
+        ctx.request_repaint();
+    } else {
+        repaint_after(ctx, std::time::Duration::from_secs_f64(wait));
+    }
+}
+
+/// When the frame after one drawn at `now` is due, when this one was `due`.
+///
+/// Frames are due on a fixed beat, each one interval after the last was due
+/// rather than after it was drawn, so a rate the display does not divide
+/// evenly (60 on a 144 Hz screen) still averages out to the rate asked for,
+/// and a rate equal to the display's does not slip to every other refresh.
+/// A frame up to a millisecond early counts as on time; one drawn before
+/// that (something else asked for it) keeps the beat; and after a pause
+/// the beat starts again from now rather than rushing to catch up.
+fn next_beat(due: f64, now: f64, interval: f64) -> f64 {
+    if now + 0.001 < due {
+        due
+    } else if now - due > interval {
+        now + interval
+    } else {
+        due + interval
     }
 }
 
@@ -1262,9 +1298,55 @@ mod tests {
         ctx.set_request_repaint_callback(move |_| {
             seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         });
-        visualiser_frame(&ctx, crate::power::Budget::Background);
+        visualiser_frame(&ctx, None);
         assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 0);
-        visualiser_frame(&ctx, crate::power::Budget::Saver);
+        visualiser_frame(&ctx, Some(30));
         assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    /// Frames drawn in one second of a display refreshing `hz` times, when
+    /// the visualiser asks for `rate`: each frame lands on the first refresh
+    /// at or after it is due.
+    fn frames_in_a_second(hz: u32, rate: u32) -> u32 {
+        let refresh = 1.0 / f64::from(hz);
+        let interval = 1.0 / f64::from(rate);
+        let mut due = 0.0;
+        let mut drawn = 0;
+        for tick in 0..hz {
+            let now = f64::from(tick) * refresh;
+            if now + 0.001 >= due {
+                drawn += 1;
+                due = next_beat(due, now, interval);
+            }
+        }
+        drawn
+    }
+
+    /// The beat holds the rate asked for whether or not the display divides
+    /// it, and a rate equal to the display's draws every refresh.
+    #[test]
+    fn the_visualiser_keeps_its_beat_on_any_display() {
+        assert_eq!(frames_in_a_second(144, 144), 144, "no slipped refreshes");
+        assert_eq!(frames_in_a_second(60, 60), 60);
+        assert_eq!(frames_in_a_second(144, 72), 72);
+        let sixty = frames_in_a_second(144, 60);
+        assert!((59..=61).contains(&sixty), "60 on 144 Hz drew {sixty}");
+        let thirty = frames_in_a_second(165, 30);
+        assert!((29..=31).contains(&thirty), "30 on 165 Hz drew {thirty}");
+        assert_eq!(frames_in_a_second(60, 144), 60, "never above the display");
+    }
+
+    /// A frame something else asked for keeps the beat, and a pause starts
+    /// it again from now instead of rushing frames to catch up.
+    #[test]
+    fn the_visualiser_beat_ignores_extra_frames_and_restarts_after_a_pause() {
+        let interval = 1.0 / 60.0;
+        assert_eq!(next_beat(1.0, 0.99, interval), 1.0, "early frame");
+        assert_eq!(next_beat(1.0, 1.0, interval), 1.0 + interval);
+        assert_eq!(
+            next_beat(1.0, 5.0, interval),
+            5.0 + interval,
+            "after a pause"
+        );
     }
 }

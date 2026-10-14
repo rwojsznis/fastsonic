@@ -124,6 +124,67 @@ fn setting_slider<N: egui::emath::Numeric>(
     .inner
 }
 
+/// A frame-rate dial: 30, 60, the screen's rate once known, the current rate
+/// and Uncapped. Returns the rate a move lands on.
+fn frame_rate_dial(ui: &mut egui::Ui, palette: &Palette, screen_hz: u32, fps: u32) -> Option<u32> {
+    // The dial stops at the rates worth having and passes
+    // through nothing in between, the way a gear lever does.
+    let stops = crate::milkdrop::fps_stops(screen_hz, fps);
+    let last = stops.len().saturating_sub(1);
+    let mut at = stops.iter().position(|rate| *rate == fps).unwrap_or(1);
+    let labels: Vec<String> = stops
+        .iter()
+        .map(|rate| crate::milkdrop::fps_label(*rate, screen_hz))
+        .collect();
+    let typed = stops.clone();
+    let changed = setting_slider(
+        ui,
+        palette,
+        &mut at,
+        0..=last,
+        |slider| slider.step_by(1.0),
+        // A drag moves one stop every twenty points.
+        |value| {
+            value
+                .speed(0.05)
+                .custom_formatter(move |value, _| {
+                    labels
+                        .get((value.round().max(0.0) as usize).min(labels.len() - 1))
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .custom_parser(move |text| {
+                    // A rate typed in lands on the nearest stop, since
+                    // the stops are all this dial can hold.
+                    let text = text.trim().to_lowercase();
+                    if text.starts_with("un") {
+                        return Some(typed.len().saturating_sub(1) as f64);
+                    }
+                    let wanted: u32 = text
+                        .trim_end_matches("fps")
+                        .trim()
+                        .split(',')
+                        .next()?
+                        .trim()
+                        .parse()
+                        .ok()?;
+                    typed
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, rate)| **rate > 0)
+                        .min_by_key(|(_, rate)| rate.abs_diff(wanted))
+                        .map(|(index, _)| index as f64)
+                })
+        },
+    )
+    .changed();
+    if changed {
+        stops.get(at).copied()
+    } else {
+        None
+    }
+}
+
 fn section(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -508,6 +569,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
+            "Frame rate",
+            "How often the player bar and mini player visualizers draw. Lower rates use fewer resources. MilkDrop has its own.",
+            |ui| {
+                if let Some(rate) = frame_rate_dial(
+                    ui,
+                    &palette,
+                    app.settings.milkdrop_screen_hz,
+                    app.settings.visualizer_fps,
+                ) {
+                    app.settings.visualizer_fps = rate;
+                    changed = true;
+                }
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
             "Compact library sidebar",
             "Show names without covers in the sidebar.",
             |ui| {
@@ -854,61 +932,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ),
             },
             |ui| {
-                let fps = app.settings.milkdrop_fps;
-                // The dial stops at the rates worth having and passes
-                // through nothing in between, the way a gear lever does.
-                let stops = crate::milkdrop::fps_stops(screen_hz, fps);
-                let last = stops.len().saturating_sub(1);
-                let mut at = stops.iter().position(|rate| *rate == fps).unwrap_or(1);
-                let labels: Vec<String> = stops
-                    .iter()
-                    .map(|rate| crate::milkdrop::fps_label(*rate, screen_hz))
-                    .collect();
-                let shown = labels.clone();
-                let typed = stops.clone();
-                let changed = setting_slider(
-                    ui,
-                    &palette,
-                    &mut at,
-                    0..=last,
-                    |slider| slider.step_by(1.0),
-                    // A drag moves one stop every twenty points.
-                    |value| {
-                        value
-                            .speed(0.05)
-                            .custom_formatter(move |value, _| {
-                                shown
-                                    .get((value.round().max(0.0) as usize).min(shown.len() - 1))
-                                    .cloned()
-                                    .unwrap_or_default()
-                            })
-                            .custom_parser(move |text| {
-                                // A rate typed in lands on the nearest stop, since
-                                // the stops are all this dial can hold.
-                                let text = text.trim().to_lowercase();
-                                if text.starts_with("un") {
-                                    return Some(typed.len().saturating_sub(1) as f64);
-                                }
-                                let wanted: u32 = text
-                                    .trim_end_matches("fps")
-                                    .trim()
-                                    .split(',')
-                                    .next()?
-                                    .trim()
-                                    .parse()
-                                    .ok()?;
-                                typed
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, rate)| **rate > 0)
-                                    .min_by_key(|(_, rate)| rate.abs_diff(wanted))
-                                    .map(|(index, _)| index as f64)
-                            })
-                    },
-                )
-                .changed();
-                if changed && let Some(rate) = stops.get(at) {
-                    app.actions.push(Action::SetMilkdropFps(*rate));
+                if let Some(rate) =
+                    frame_rate_dial(ui, &palette, screen_hz, app.settings.milkdrop_fps)
+                {
+                    app.actions.push(Action::SetMilkdropFps(rate));
                 }
             },
         );

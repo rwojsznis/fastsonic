@@ -2037,6 +2037,17 @@ impl App {
         }
     }
 
+    /// How many frames a second the player bar's and mini player's
+    /// visualizers draw now, from the user's rate and the power budget;
+    /// `None` draws none.
+    pub fn visualiser_fps(&self) -> Option<u32> {
+        crate::power::visualiser_fps(
+            self.budget,
+            self.power.conditions(),
+            self.settings.visualizer_fps,
+        )
+    }
+
     /// Records the MilkDrop screen refresh rate and uses it as the initial FPS.
     /// Later screen changes do not override a configured FPS.
     #[cfg(feature = "milkdrop")]
