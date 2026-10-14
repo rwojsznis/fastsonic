@@ -17,8 +17,9 @@ uninstall leaves everything in place instead.
 Fastsonic draws its window with OpenGL 2.0 or newer, which the graphics
 driver of any current PC or Mac provides. A virtual machine or remote session
 without a graphics driver, such as Windows on the Microsoft Basic Display
-Adapter, may not offer it, and Fastsonic then exits at startup; install the
-machine's graphics driver or enable GPU acceleration for the virtual machine.
+Adapter, may not offer it; Fastsonic then cannot open its window and says
+so in a message that links to this page. Install the machine's graphics
+driver or enable GPU acceleration for the virtual machine.
 Snapdragon PCs running Windows on ARM have no OpenGL in their graphics
 driver; Windows provides it through Microsoft's OpenCL, OpenGL & Vulkan
 Compatibility Pack from the Microsoft Store, and when it is missing

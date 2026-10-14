@@ -573,7 +573,7 @@ fn main() -> eframe::Result<()> {
         // log file is where a report of a window that never opened starts.
         .inspect_err(|error| {
             log::error!("Native window failed: {error}");
-            #[cfg(all(windows, target_arch = "aarch64"))]
+            #[cfg(windows)]
             if matches!(
                 error,
                 eframe::Error::Glutin(_)
