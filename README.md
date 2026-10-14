@@ -40,14 +40,17 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   asks for [less motion](docs/_guide/using-fastsonic.md#less-motion).
 - [Custom themes](docs/_reference/settings-and-files.md#custom-themes): JSON
   colour palettes in a `themes` folder, picked in Settings after the built-in
-  themes and applied at once. Eight (Catppuccin, Nord, Rose Pine, Tokyo Night
-  and others) are put there on first start, as files to use, change or delete.
+  themes and applied at once, with an optional `tint` that washes page
+  headers when album art doesn't. Eight (Catppuccin, Nord, Rose Pine, Tokyo
+  Night and others) are put there on first start, as files to use, change or
+  delete.
 - System font fallbacks for titles in scripts Inter does not cover, and for
   the styled, circled and Javanese letters people put in names; Arabic is
   enlarged to read as large as the Latin text around it, and Windows prefers
   its interface fonts for Arabic, Hebrew, Thai, and Indic scripts.
 - A player-bar spectrum or waveform that follows post-EQ sound and stays
-  lively at zero volume, off by default. Click empty bar space to cycle modes.
+  lively at zero volume, off by default. Click empty bar space to cycle modes;
+  it draws at 30 or 60 frames a second, the screen's rate, or uncapped.
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
   oscilloscope, equalizer, and playlist; on Windows and X11 it can leave the
   taskbar.
@@ -74,8 +77,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   click usually pastes there. See
   [autoscroll](docs/_guide/using-fastsonic.md#middle-click-autoscroll).
 - Synced lyrics in a side panel or full-screen view, with line seeking and
-  automatic following. Full screen places a large cover beside the lyrics in
-  wide windows, or centres it when there are no words.
+  automatic following. Full screen, also on **F**, places a large cover
+  beside the lyrics in wide windows, or centres it when there are no words.
 
 Fastsonic plays only on single computer. It does not provide Spotify Connect,
 Subsonic jukebox mode, podcasts, offline sync, multiple server profiles, or a
