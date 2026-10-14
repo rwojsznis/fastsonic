@@ -292,7 +292,9 @@ still refresh in the background, so this changes only what is drawn.
 
 `fastsonic -v` logs more from the audio engine and server API client. Attach
 `fastsonic.log` to bug reports and `panic.log` after a crash; credential values
-are redacted.
+are redacted. A window that stops responding for a quarter of a second or more
+is logged as a warning with how long it stalled, at most once every ten
+seconds, the next warning counting the stalls in between.
 
 On Linux, control the running player over MPRIS, for example:
 

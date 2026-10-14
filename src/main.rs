@@ -570,6 +570,7 @@ fn main() -> eframe::Result<()> {
                     thumbbar,
                     #[cfg(feature = "demo")]
                     shot: creator_shot.clone(),
+                    stalls: StallWatch::default(),
                 }))
             }),
         )
@@ -875,6 +876,88 @@ struct Shell {
     /// A pending `--demo-shot` capture, if this is a screenshot run.
     #[cfg(feature = "demo")]
     shot: Option<Shot>,
+    /// Logs a warning when an update freezes the window.
+    stalls: StallWatch,
+}
+
+/// An update (logic and drawing) this long freezes the window visibly.
+const STALL: std::time::Duration = std::time::Duration::from_millis(250);
+/// At most one stall warning in this long; the next counts the rest.
+const STALL_WARNING_GAP: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Notices UI updates slow enough to freeze the window, so a freeze shows
+/// in the log with how long it lasted.
+#[derive(Default)]
+struct StallWatch {
+    /// The first update builds fonts and textures; it is not a freeze.
+    started: bool,
+    /// How long this pass's logic took, until its drawing adds to it.
+    logic_took: Option<std::time::Duration>,
+    warned_at: Option<std::time::Instant>,
+    /// Stalls since the last warning that it did not report.
+    unreported: u32,
+}
+
+impl StallWatch {
+    /// Runs one pass's logic, timed.
+    fn logic(&mut self, run: impl FnOnce()) {
+        let started = std::time::Instant::now();
+        run();
+        let warning = self.logic_ran(started.elapsed(), std::time::Instant::now());
+        Self::log(warning);
+    }
+
+    /// Runs one pass's drawing, timed together with the logic before it.
+    fn ui(&mut self, run: impl FnOnce()) {
+        let started = std::time::Instant::now();
+        run();
+        let warning = self.drawn(started.elapsed(), std::time::Instant::now());
+        Self::log(warning);
+    }
+
+    /// Notes a logic pass that took `took`. Its drawing adds to it; a pass
+    /// before it that drew nothing (a hidden window) was a whole update.
+    fn logic_ran(&mut self, took: std::time::Duration, now: std::time::Instant) -> Option<String> {
+        let undrawn = self.logic_took.replace(took)?;
+        self.finished(undrawn, now)
+    }
+
+    /// Notes a drawing that took `took`, which ends the update.
+    fn drawn(&mut self, took: std::time::Duration, now: std::time::Instant) -> Option<String> {
+        let logic = self.logic_took.take().unwrap_or_default();
+        self.finished(logic + took, now)
+    }
+
+    /// The warning to log for an update that took `took`, if any.
+    fn finished(&mut self, took: std::time::Duration, now: std::time::Instant) -> Option<String> {
+        if !std::mem::replace(&mut self.started, true) || took < STALL {
+            return None;
+        }
+        if self
+            .warned_at
+            .is_some_and(|at| now.duration_since(at) < STALL_WARNING_GAP)
+        {
+            self.unreported += 1;
+            return None;
+        }
+        self.warned_at = Some(now);
+        let mut warning = format!(
+            "the window stalled for {} ms in one update",
+            took.as_millis()
+        );
+        match std::mem::take(&mut self.unreported) {
+            0 => {}
+            1 => warning.push_str(" (and once more since the last warning)"),
+            more => warning.push_str(&format!(" (and {more} more times since the last warning)")),
+        }
+        Some(warning)
+    }
+
+    fn log(warning: Option<String>) {
+        if let Some(warning) = warning {
+            log::warn!("{warning}");
+        }
+    }
 }
 
 /// A screenshot the window still owes us.
@@ -960,14 +1043,9 @@ impl Shell {
             .and_then(fastsonic::milkdrop::screen_hz)
             .unwrap_or(0);
     }
-}
 
-impl eframe::App for Shell {
-    fn persist_egui_memory(&self) -> bool {
-        self.persist_memory
-    }
-
-    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    /// One pass of the window's logic, run under the stall watch.
+    fn run_logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.recovery_passes > 0 {
             self.recovery_passes -= 1;
             fastsonic::window::recover_offscreen(ctx, frame);
@@ -1052,13 +1130,33 @@ impl eframe::App for Shell {
         self.drive_shot(ctx);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    /// One pass of the window's drawing, run under the stall watch.
+    fn draw(&mut self, ui: &mut egui::Ui) {
         if let Some(app) = self.app.as_mut() {
             app.frame_ui(ui);
             #[cfg(windows)]
             self.thumbbar
                 .sync(app.thumb_state(ui.ctx().system_theme() != Some(egui::Theme::Light)));
         }
+    }
+}
+
+impl eframe::App for Shell {
+    fn persist_egui_memory(&self) -> bool {
+        self.persist_memory
+    }
+
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Taken out for the pass, so the logic can borrow the whole shell.
+        let mut stalls = std::mem::take(&mut self.stalls);
+        stalls.logic(|| self.run_logic(ctx, frame));
+        self.stalls = stalls;
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let mut stalls = std::mem::take(&mut self.stalls);
+        stalls.ui(|| self.draw(ui));
+        self.stalls = stalls;
     }
 
     /// The mini player's window is see-through where the skin leaves it
@@ -1104,6 +1202,75 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod native_window_tests {
     use super::*;
+
+    /// A slow update is logged with its length, once per stall, and a
+    /// burst of stalls makes one warning that counts the rest.
+    #[test]
+    fn a_stalled_update_is_logged_once_with_its_length() {
+        use std::time::{Duration, Instant};
+        let mut watch = StallWatch::default();
+        let start = Instant::now();
+        assert_eq!(
+            watch.finished(Duration::from_secs(2), start),
+            None,
+            "the first update sets the window up"
+        );
+        assert_eq!(watch.finished(Duration::from_millis(16), start), None);
+        assert_eq!(
+            watch
+                .finished(Duration::from_millis(1200), start)
+                .as_deref(),
+            Some("the window stalled for 1200 ms in one update")
+        );
+        let soon = start + Duration::from_secs(1);
+        assert_eq!(watch.finished(Duration::from_millis(400), soon), None);
+        assert_eq!(watch.finished(Duration::from_millis(300), soon), None);
+        let later = start + STALL_WARNING_GAP;
+        assert_eq!(
+            watch.finished(Duration::from_millis(900), later).as_deref(),
+            Some(
+                "the window stalled for 900 ms in one update (and 2 more times since the last warning)"
+            )
+        );
+        assert_eq!(
+            watch
+                .finished(Duration::from_millis(300), later + STALL_WARNING_GAP)
+                .as_deref(),
+            Some("the window stalled for 300 ms in one update"),
+            "a warning counts only the stalls since the one before"
+        );
+    }
+
+    /// An update is its logic and its drawing together; a logic pass that
+    /// draws nothing, as a hidden window's does, is an update of its own.
+    #[test]
+    fn an_update_counts_its_logic_and_its_drawing() {
+        use std::time::{Duration, Instant};
+        let mut watch = StallWatch::default();
+        let start = Instant::now();
+        let ms = Duration::from_millis;
+        assert_eq!(watch.logic_ran(ms(10), start), None);
+        assert_eq!(watch.drawn(ms(400), start), None, "the first update");
+
+        assert_eq!(watch.logic_ran(ms(150), start), None);
+        assert_eq!(
+            watch.drawn(ms(150), start).as_deref(),
+            Some("the window stalled for 300 ms in one update")
+        );
+
+        let later = start + STALL_WARNING_GAP;
+        assert_eq!(
+            watch.logic_ran(ms(260), later),
+            None,
+            "its drawing may follow"
+        );
+        assert_eq!(
+            watch.logic_ran(ms(5), later).as_deref(),
+            Some("the window stalled for 260 ms in one update"),
+            "the hidden window's pass drew nothing"
+        );
+        assert_eq!(watch.drawn(ms(5), later), None, "10 ms in all");
+    }
 
     /// A reader that closes the pipe early ends the command quietly.
     #[cfg(not(target_os = "linux"))]
