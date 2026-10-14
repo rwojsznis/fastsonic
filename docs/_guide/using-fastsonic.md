@@ -208,7 +208,7 @@ behind the controls. It is off by default. Click empty space on the player bar
 to cycle through spectrum, waveform, and off; turn off **Click player bar to
 change visualizer** just below it if those clicks change it by accident.
 **Frame rate** under that sets how often it and the mini player's analyser
-draw: 30, 60 (the default), your screen's rate once MilkDrop has seen it, or
+draw: 30, 60 (the default), the rate of the screen showing the window, or
 Uncapped, which follows the display. A lower rate uses less power. MilkDrop
 has a frame rate of its own.
 

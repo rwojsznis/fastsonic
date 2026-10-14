@@ -61,6 +61,13 @@ pub fn fps_label(rate: u32, screen: u32) -> String {
     }
 }
 
+/// A screen's refresh rate in whole hertz, from the millihertz a monitor
+/// reports, when it is a rate at all (see [`is_screen_rate`]).
+pub fn screen_hz(millihertz: u32) -> Option<u32> {
+    let hz = (f64::from(millihertz) / 1000.0).round() as u32;
+    is_screen_rate(hz).then_some(hz)
+}
+
 /// The window's size when it first opens, in logical points.
 pub const DEFAULT_SIZE: [f32; 2] = [640.0, 480.0];
 /// The smallest the window may be dragged.
@@ -450,6 +457,19 @@ mod tests {
         assert_eq!(fps_label(0, 144), "Uncapped");
         assert_eq!(fps_label(144, 144), "144 fps, your screen");
         assert_eq!(fps_label(30, 144), "30 fps");
+    }
+
+    /// A monitor's millihertz round to the hertz the dial shows, the default
+    /// Windows reports instead of a rate is no rate at all, and a screen
+    /// faster than the dial goes keeps its rate.
+    #[test]
+    fn a_screen_reports_its_rate_in_millihertz() {
+        assert_eq!(screen_hz(59_940), Some(60));
+        assert_eq!(screen_hz(143_981), Some(144));
+        assert_eq!(screen_hz(164_000), Some(164));
+        assert_eq!(screen_hz(0), None);
+        assert_eq!(screen_hz(1_000), None, "Windows's hardware default");
+        assert_eq!(screen_hz(480_000), Some(480), "faster than the dial goes");
     }
 
     /// R switches between random and the folder's own order; in order,

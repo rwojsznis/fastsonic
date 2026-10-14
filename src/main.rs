@@ -562,6 +562,7 @@ fn main() -> eframe::Result<()> {
                     slot: std::sync::Arc::clone(&creator_slot),
                     persist_memory,
                     recovery_passes: OFFSCREEN_RECOVERY_PASSES,
+                    screen_asked: None,
                     #[cfg(windows)]
                     thumbbar,
                     #[cfg(feature = "demo")]
@@ -863,6 +864,9 @@ struct Shell {
     /// The first passes left to move a window that opened on no monitor
     /// back onto one.
     recovery_passes: u8,
+    /// Where the window was when it last asked its monitor's refresh rate,
+    /// and when.
+    screen_asked: Option<(Option<egui::Rect>, std::time::Instant)>,
     #[cfg(windows)]
     thumbbar: fastsonic::thumbbar::ThumbBar,
     /// A pending `--demo-shot` capture, if this is a screenshot run.
@@ -927,6 +931,34 @@ impl Shell {
     }
 }
 
+impl Shell {
+    /// Asks the monitor showing the window how often it refreshes, for the
+    /// visualizers' frame-rate dial: whenever the window moves, and
+    /// otherwise once a second, as a display can change its mode in place
+    /// and Wayland names the monitor only once the window is on it. A
+    /// monitor with no usable answer clears the window's rate rather than
+    /// keeping the last screen's, so the dial falls back to MilkDrop's.
+    fn read_screen_hz(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let Some(app) = self.app.as_mut() else {
+            return;
+        };
+        let place = ctx.input(|input| input.viewport().outer_rect);
+        if let Some((asked, when)) = self.screen_asked
+            && asked == place
+            && when.elapsed() < std::time::Duration::from_secs(1)
+        {
+            return;
+        }
+        self.screen_asked = Some((place, std::time::Instant::now()));
+        app.screen_hz = frame
+            .winit_window()
+            .and_then(|window| window.current_monitor())
+            .and_then(|monitor| monitor.refresh_rate_millihertz())
+            .and_then(fastsonic::milkdrop::screen_hz)
+            .unwrap_or(0);
+    }
+}
+
 impl eframe::App for Shell {
     fn persist_egui_memory(&self) -> bool {
         self.persist_memory
@@ -940,6 +972,7 @@ impl eframe::App for Shell {
                 ctx.request_repaint();
             }
         }
+        self.read_screen_hz(ctx, frame);
         if let Some(app) = self.app.as_mut() {
             #[cfg(target_os = "macos")]
             for command in fastsonic::mac_menu::drain_commands() {

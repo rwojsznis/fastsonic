@@ -103,10 +103,12 @@ cycle `player_bar_vis` through `off`, `spectrum` and `waveform`.
 `visualizer_fps` (60 by default) is how many frames a second the player bar's
 visualizer and the mini player's analyser draw; `0` is uncapped, every
 refresh of the display, or 60 a second on Wayland, where the window does not
-wait for the display. It is halved
-while the window is out of focus or the system saves energy, held to at most
-30 while the system saves energy, and no frames are drawn while nobody can
-see the window. MilkDrop keeps `milkdrop_fps`. The interface
+wait for the display. It is halved while the window is out of focus or the
+system saves energy, held to at most 30 while the system saves energy, and no
+frames are drawn while nobody can see the window. The screen rate its dial
+offers is asked of the monitor showing the window and is not saved; until
+that monitor has answered, the rate MilkDrop's window last reported
+(`milkdrop_screen_hz`) stands in. The interface
 zoom (`zoom`) belongs to the main window: each main window opens at it, and
 the mini player keeps its own scale. MilkDrop's frame rate (`milkdrop_fps`,
 `0` for uncapped) is held to at most 30 while the system saves energy, and to

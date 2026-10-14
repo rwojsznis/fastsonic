@@ -575,7 +575,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 if let Some(rate) = frame_rate_dial(
                     ui,
                     &palette,
-                    app.settings.milkdrop_screen_hz,
+                    app.visualiser_screen_hz(),
                     app.settings.visualizer_fps,
                 ) {
                     app.settings.visualizer_fps = rate;
