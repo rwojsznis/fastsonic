@@ -432,6 +432,9 @@ fn main() -> eframe::Result<()> {
     }
     #[cfg(windows)]
     let desktop_surfaces = options.media_controls;
+    // This thread builds the app, draws every window and runs the tray's
+    // passes between them: it must never wait for the disk.
+    fastsonic::util::mark_ui_thread();
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, options);
     app.custom_themes.install_bundled_palettes();

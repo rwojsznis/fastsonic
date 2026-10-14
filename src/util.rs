@@ -203,6 +203,36 @@ pub fn strip_html(text: &str) -> String {
         .replace("&gt;", ">")
 }
 
+thread_local! {
+    static UI_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the calling thread as the one that draws the window. Durable
+/// writes on it are refused from then on; it hands them to a
+/// [`crate::file_writer::FileWriter`] instead.
+pub fn mark_ui_thread() {
+    UI_THREAD.with(|ui| ui.set(true));
+}
+
+/// A durable write on the UI thread stops the window until the disk
+/// answers. A debug or test build panics, so such a write fails the tests
+/// instead of shipping; a release build logs it and still writes, rather
+/// than lose what was saved.
+fn refuse_ui_thread(path: &std::path::Path) {
+    if !UI_THREAD.with(std::cell::Cell::get) {
+        return;
+    }
+    let message = format!(
+        "{} was written on the UI thread, which then waits for the disk; \
+         hand it to the file writer",
+        path.display()
+    );
+    if cfg!(debug_assertions) {
+        panic!("{message}");
+    }
+    log::error!("{message}");
+}
+
 /// Who may read a file [`write_with`] replaces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Access {
@@ -239,12 +269,14 @@ pub fn write_private(path: &std::path::Path, contents: impl AsRef<[u8]>) -> std:
 /// synced so the move itself lasts (Unix). If anything fails, `path` keeps
 /// its old contents and the temporary file is removed. Syncing can take a
 /// while on a busy disk, so the UI thread hands its writes to a
-/// [`crate::file_writer::FileWriter`] instead.
+/// [`crate::file_writer::FileWriter`] instead, and is refused here once
+/// [`mark_ui_thread`] has marked it.
 pub fn write_with(
     path: &std::path::Path,
     access: Access,
     fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
+    refuse_ui_thread(path);
     let folder = match path.parent() {
         Some(folder) if !folder.as_os_str().is_empty() => folder,
         _ => std::path::Path::new("."),
@@ -413,6 +445,29 @@ mod tests {
             Some(std::path::Path::new("")),
             "a bare name is written in the current folder"
         );
+    }
+
+    /// A durable write on the UI thread fails tests, so a save that would
+    /// freeze the window cannot come back unnoticed.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "UI thread")]
+    fn the_ui_thread_cannot_wait_for_the_disk() {
+        mark_ui_thread();
+        let _ = write_file(&scratch("ui-thread").join("settings.json"), "{}");
+    }
+
+    /// A release build logs the mistake but still writes, rather than lose
+    /// what was saved.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn a_release_build_still_writes_on_the_ui_thread() {
+        mark_ui_thread();
+        let dir = scratch("ui-thread");
+        let path = dir.join("settings.json");
+        write_file(&path, "{}").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[cfg(unix)]

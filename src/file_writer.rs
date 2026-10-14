@@ -12,6 +12,11 @@
 //! contents go to the disk. [`FileWriter::flush`] waits, for a bounded
 //! time, until everything handed over is written: before the app exits and
 //! before the system suspends.
+//!
+//! Every durable write goes through [`crate::util::write_with`], which
+//! refuses the thread [`crate::util::mark_ui_thread`] marked: a debug or
+//! test build panics, and a release build logs an error (and still writes,
+//! rather than lose what was saved).
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -309,6 +314,19 @@ mod tests {
         assert!(writer.flush(Duration::from_secs(10)));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
         assert!(crate::util::temporary_files(path.parent().unwrap()).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The UI thread hands its writes over instead, and they still land.
+    #[test]
+    fn the_ui_thread_writes_through_the_writer() {
+        crate::util::mark_ui_thread();
+        let dir = scratch();
+        let path = dir.join("settings.json");
+        let writer = FileWriter::new();
+        writer.write(&path, "{}", Access::Default);
+        assert!(writer.flush(Duration::from_secs(10)));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

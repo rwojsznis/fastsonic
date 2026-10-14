@@ -10373,11 +10373,46 @@ mod tests {
         app
     }
 
+    /// Settings, session and history saved on the UI thread are handed to
+    /// the file writer: the thread never waits for the disk (which panics
+    /// in tests), and everything is on the disk after a flush.
+    #[test]
+    fn saving_from_the_ui_thread_never_waits_for_the_disk() {
+        let mut app = test_app("saves-off-the-ui-thread");
+        crate::util::mark_ui_thread();
+        app.settings.theme = ThemeChoice::Light;
+        app.plays.record(
+            Track {
+                uri: "sonic:track:a".into(),
+                ..Track::default()
+            },
+            jiff::Timestamp::now(),
+        );
+        app.save_state();
+        app.save_plays();
+        assert!(app.flush_files());
+        assert_eq!(
+            Settings::load(&app.dirs.settings_file()).theme,
+            ThemeChoice::Light
+        );
+        assert!(app.dirs.session_file().exists());
+        assert_eq!(
+            crate::history::History::load(&app.dirs.history_file())
+                .plays()
+                .len(),
+            1
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(app.dirs.config.parent().unwrap());
+    }
+
     /// Before the system sleeps or the session ends, the session and the
     /// play history reach the disk, and only then is the system let go.
     #[test]
     fn the_system_going_to_sleep_saves_the_session_and_the_history() {
         use crate::power::{Ack, Event};
+        // Power events are handled in the logic pass, on the UI thread.
+        crate::util::mark_ui_thread();
         for make in [Event::Suspending, Event::EndingSession] {
             let mut app = headless_app();
             let ctx = egui::Context::default();
