@@ -1880,12 +1880,19 @@ mod tests {
         events: Vec<egui::Event>,
         view: fn(&mut App, &mut egui::Ui),
     ) -> Vec<(String, egui::Rect)> {
+        view_frame_sized(ctx, app, events, view, egui::vec2(1280.0, 2200.0))
+    }
+
+    fn view_frame_sized(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+        view: fn(&mut App, &mut egui::Ui),
+        size: egui::Vec2,
+    ) -> Vec<(String, egui::Rect)> {
         let mut output = ctx.run_ui(
             egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1280.0, 2200.0),
-                )),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
                 events,
                 ..Default::default()
             },
@@ -4931,6 +4938,59 @@ mod tests {
         assert!(matches!(app.auth, AuthStatus::Connecting) && app.user.is_none());
         view_frame(&ctx, &mut app, vec![], whole);
         app.backend.shutdown();
+    }
+
+    /// A window shorter than the card scrolls it, and the version follows the
+    /// card instead of being drawn over it.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_short_window_scrolls_the_sign_in_card_instead_of_covering_it() {
+        fn whole(app: &mut App, ui: &mut egui::Ui) {
+            app.frame_ui(ui);
+        }
+        let (ctx, mut app) = accessible_app("sign-in-short");
+        apply_flags(&mut app, None, Some("sign-in-headers"));
+        let size = egui::vec2(900.0, 520.0);
+        view_frame_sized(&ctx, &mut app, vec![], whole, size);
+        let painted = view_frame_sized(&ctx, &mut app, vec![], whole, size);
+        let version = format!("Fastsonic {}", env!("CARGO_PKG_VERSION"));
+        let find = |painted: &[(String, egui::Rect)], wanted: &str| {
+            painted
+                .iter()
+                .find(|(text, _)| text.starts_with(wanted))
+                .map(|(_, rect)| *rect)
+        };
+        let title = painted
+            .iter()
+            .find(|(text, _)| text == "Fastsonic")
+            .map(|(_, rect)| *rect)
+            .expect("the card's title");
+        assert!(title.top() > 0.0, "the card starts inside the window");
+        assert!(
+            find(&painted, &version).is_none(),
+            "the version waits below the card rather than over it"
+        );
+
+        let wheel = vec![
+            egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -2000.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+        let mut painted = view_frame_sized(&ctx, &mut app, wheel, whole, size);
+        for _ in 0..30 {
+            painted = view_frame_sized(&ctx, &mut app, vec![], whole, size);
+        }
+        let note = find(&painted, "Your password").expect("the card's last line");
+        let version = find(&painted, &version).expect("the version, scrolled to");
+        assert!(
+            version.top() > note.bottom(),
+            "the version follows the card"
+        );
+        assert!(version.bottom() <= size.y, "and the scroll reaches it");
     }
 
     /// `--demo-show sign-in-headers` opens the box under the password; folded

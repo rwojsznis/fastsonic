@@ -13,6 +13,7 @@
 //! apart (`ApiError::Network`, `NotSubsonic`, `Unauthorized`) and the message
 //! it produces is shown as it stands.
 
+use egui::scroll_area::ScrollSource;
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Stroke, Vec2};
 
 use crate::app::App;
@@ -20,9 +21,13 @@ use crate::backend::AuthStatus;
 use crate::model::Action;
 use crate::theme;
 
-const CARD_HEIGHT: f32 = 450.0;
-/// Room for the headers' box and the line under it.
-const HEADERS_CARD_HEIGHT: f32 = 580.0;
+const CARD_WIDTH: f32 = 440.0;
+/// The card's height before it has been drawn once; after that its drawn
+/// height places it.
+const CARD_HEIGHT: f32 = 576.0;
+const HEADERS_CARD_HEIGHT: f32 = 686.0;
+/// The least room kept above the card and below the version.
+const EDGE: f32 = 24.0;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
     let palette = app.palette;
@@ -46,100 +51,135 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             super::titlebar_drag(ui, drag_rect);
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
-            let card_width = 440.0;
-            let card_height = if app.server_headers_open {
+            let card_id = ui.id().with("sign-in card height");
+            let estimate = if app.server_headers_open {
                 HEADERS_CARD_HEIGHT
             } else {
                 CARD_HEIGHT
             };
-            let card = egui::Rect::from_center_size(
-                rect.center() - Vec2::new(0.0, 20.0),
-                Vec2::new(card_width, card_height),
+            let card_height = ui
+                .ctx()
+                .data(|data| data.get_temp::<f32>(card_id))
+                .unwrap_or(estimate);
+            // A window too short for the card scrolls it rather than draw the
+            // version over it. Dragging the background moves the window, so
+            // only the wheel and the bar scroll.
+            egui::ScrollArea::vertical()
+                .auto_shrink(false)
+                .scroll_source(ScrollSource::MOUSE_WHEEL | ScrollSource::SCROLL_BAR)
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let room = rect.height();
+                    let version_font = theme::regular(11.5);
+                    let version_height = ui.fonts_mut(|fonts| fonts.row_height(&version_font));
+                    let top = ((room - card_height) / 2.0 - 20.0).max(EDGE);
+                    ui.add_space(top);
+                    let card = egui::Rect::from_min_size(
+                        egui::pos2(rect.center().x - CARD_WIDTH / 2.0, ui.cursor().top()),
+                        Vec2::new(CARD_WIDTH, card_height),
+                    );
+                    let drawn = ui
+                        .scope_builder(
+                            egui::UiBuilder::new()
+                                .max_rect(card)
+                                .layout(Layout::top_down(Align::Center)),
+                            |ui| card_contents(app, ui, connecting),
+                        )
+                        .response
+                        .rect
+                        .height();
+                    if (drawn - card_height).abs() > 0.5 {
+                        ui.ctx().data_mut(|data| data.insert_temp(card_id, drawn));
+                        ui.ctx().request_repaint();
+                    }
+                    ui.add_space((room - top - drawn - version_height - EDGE).max(EDGE));
+                    ui.vertical_centered(|ui| {
+                        theme::text(
+                            ui,
+                            format!("Fastsonic {}", env!("CARGO_PKG_VERSION")),
+                            version_font,
+                            palette.dim,
+                        );
+                    });
+                    ui.add_space(EDGE);
+                });
+        });
+}
+
+/// The card: the logo, then the form or, while connecting, a spinner.
+fn card_contents(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
+    let palette = app.palette;
+    Frame::new()
+        .fill(palette.panel)
+        .stroke(Stroke::new(1.0, palette.outline))
+        .corner_radius(CornerRadius::same(theme::RADIUS + 8))
+        .inner_margin(Margin::same(36))
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 16],
+            blur: 48,
+            spread: 0,
+            color: palette.shadow,
+        })
+        .show(ui, |ui| {
+            ui.set_width(CARD_WIDTH - 72.0);
+            ui.spacing_mut().item_spacing.y = 8.0;
+            let (logo, _) = ui.allocate_exact_size(Vec2::splat(64.0), egui::Sense::hover());
+            theme::logo(ui, logo.center(), 64.0, palette.accent, palette.on_accent);
+            ui.add_space(4.0);
+            theme::text(ui, "Fastsonic", theme::bold(28.0), palette.text);
+            theme::text(
+                ui,
+                "A native client for your own music server.",
+                theme::regular(13.5),
+                palette.secondary,
             );
-            let mut card_ui = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(card)
-                    .layout(Layout::top_down(Align::Center)),
-            );
-            Frame::new()
-                .fill(palette.panel)
-                .stroke(Stroke::new(1.0, palette.outline))
-                .corner_radius(CornerRadius::same(theme::RADIUS + 8))
-                .inner_margin(Margin::same(36))
-                .shadow(egui::epaint::Shadow {
-                    offset: [0, 16],
-                    blur: 48,
-                    spread: 0,
-                    color: palette.shadow,
-                })
-                .show(&mut card_ui, |ui| {
-                    ui.set_width(card_width - 72.0);
-                    ui.spacing_mut().item_spacing.y = 8.0;
-                    let (logo, _) = ui.allocate_exact_size(Vec2::splat(64.0), egui::Sense::hover());
-                    theme::logo(ui, logo.center(), 64.0, palette.accent, palette.on_accent);
-                    ui.add_space(4.0);
-                    theme::text(ui, "Fastsonic", theme::bold(28.0), palette.text);
+            ui.add_space(16.0);
+            if connecting {
+                ui.horizontal(|ui| {
+                    ui.add_space((ui.available_width() - 200.0).max(0.0) / 2.0);
+                    theme::spinner(ui, 18.0, palette.accent);
                     theme::text(
                         ui,
-                        "A native client for your own music server.",
-                        theme::regular(13.5),
-                        palette.secondary,
-                    );
-                    ui.add_space(16.0);
-                    if connecting {
-                        ui.horizontal(|ui| {
-                            ui.add_space((ui.available_width() - 200.0).max(0.0) / 2.0);
-                            theme::spinner(ui, 18.0, palette.accent);
-                            theme::text(
-                                ui,
-                                "Connecting to your server…",
-                                theme::medium(14.0),
-                                palette.text,
-                            );
-                        });
-                        ui.add_space(14.0);
-                        if theme::pill_button(ui, &palette, "Cancel", false).clicked() {
-                            app.actions.push(Action::CancelSignIn);
-                        }
-                        return;
-                    }
-                    let submitted = form(app, ui);
-                    if let AuthStatus::Failed(message) = &app.auth {
-                        let message = message.clone();
-                        ui.add_space(10.0);
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(message)
-                                    .font(theme::regular(13.0))
-                                    .color(palette.danger),
-                            )
-                            .wrap(),
-                        );
-                    }
-                    ui.add_space(14.0);
-                    let ready = !app.server.trim().is_empty() && !app.server_user.trim().is_empty();
-                    let pressed = big_button(ui, app, "Connect", ready);
-                    if ready && (submitted || pressed) {
-                        app.actions.push(Action::SignIn);
-                    }
-                    ui.add_space(8.0);
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(
-                                "Your password is used once to sign in and is never saved.",
-                            )
-                            .font(theme::regular(12.0))
-                            .color(palette.secondary),
-                        )
-                        .wrap(),
+                        "Connecting to your server…",
+                        theme::medium(14.0),
+                        palette.text,
                     );
                 });
-            ui.painter().text(
-                egui::pos2(rect.center().x, rect.bottom() - 24.0),
-                egui::Align2::CENTER_BOTTOM,
-                format!("Fastsonic {}", env!("CARGO_PKG_VERSION")),
-                theme::regular(11.5),
-                palette.dim,
+                ui.add_space(14.0);
+                if theme::pill_button(ui, &palette, "Cancel", false).clicked() {
+                    app.actions.push(Action::CancelSignIn);
+                }
+                return;
+            }
+            let submitted = form(app, ui);
+            if let AuthStatus::Failed(message) = &app.auth {
+                let message = message.clone();
+                ui.add_space(10.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(message)
+                            .font(theme::regular(13.0))
+                            .color(palette.danger),
+                    )
+                    .wrap(),
+                );
+            }
+            ui.add_space(14.0);
+            let ready = !app.server.trim().is_empty() && !app.server_user.trim().is_empty();
+            let pressed = big_button(ui, app, "Connect", ready);
+            if ready && (submitted || pressed) {
+                app.actions.push(Action::SignIn);
+            }
+            ui.add_space(8.0);
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(
+                        "Your password is used once to sign in and is never saved.",
+                    )
+                    .font(theme::regular(12.0))
+                    .color(palette.secondary),
+                )
+                .wrap(),
             );
         });
 }
