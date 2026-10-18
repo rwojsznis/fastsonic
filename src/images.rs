@@ -631,7 +631,7 @@ impl Inner {
             Some(bytes) if !bytes.is_empty() => Arc::from(bytes),
             _ => {
                 let url = self.resolve(uri)?;
-                let response = self
+                let mut response = self
                     .request(&url)
                     .send()
                     .await
@@ -645,12 +645,24 @@ impl Inner {
                     .and_then(|value| value.to_str().ok())
                     .unwrap_or_default()
                     .to_string();
-                let bytes = response
-                    .bytes()
-                    .await
-                    .map_err(|error| without_credentials(error).to_string())?;
-                if bytes.len() > MAX_ART_BYTES {
+                // Refuse oversized artwork as it arrives, not once it is all
+                // in memory.
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > MAX_ART_BYTES as u64)
+                {
                     return Err("artwork is too large".to_string());
+                }
+                let mut bytes = Vec::new();
+                while let Some(chunk) = response
+                    .chunk()
+                    .await
+                    .map_err(|error| without_credentials(error).to_string())?
+                {
+                    if bytes.len() + chunk.len() > MAX_ART_BYTES {
+                        return Err("artwork is too large".to_string());
+                    }
+                    bytes.extend_from_slice(&chunk);
                 }
                 if !looks_like_image(&content_type, &bytes) {
                     // An error envelope where a cover should be. Say so, and
@@ -1800,6 +1812,72 @@ mod tests {
         assert_eq!(loader.cached_file(url), Some(path));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Without a declared length the body runs until the connection closes.
+    async fn serve_artwork(
+        bytes: Vec<u8>,
+        declare_length: bool,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/cover", listener.local_addr().unwrap());
+        let length = if declare_length {
+            format!("Content-Length: {}\r\n", bytes.len())
+        } else {
+            String::new()
+        };
+        let header = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\n{length}Connection: close\r\n\r\n"
+        );
+        let server = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_secs(10), async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(socket.read_u8().await.unwrap());
+                    assert!(request.len() < 8192);
+                }
+                socket.write_all(header.as_bytes()).await.unwrap();
+                // A client that refuses the body hangs up partway through.
+                let _ = socket.write_all(&bytes).await;
+            })
+            .await
+            .expect("the artwork request completes");
+        });
+        (url, server)
+    }
+
+    #[test]
+    fn oversized_artwork_is_refused_as_it_arrives_and_never_cached() {
+        let dir =
+            std::env::temp_dir().join(format!("fastsonic-art-oversized-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let client = || {
+            crate::http_client_builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap()
+        };
+        let loader = ArtLoader::new(client(), client(), runtime.handle().clone(), dir.clone());
+        runtime.block_on(async {
+            for declare_length in [true, false] {
+                let (url, server) = serve_artwork(vec![1; MAX_ART_BYTES + 1], declare_length).await;
+                let error = loader.fetch(&url).await.unwrap_err();
+                assert_eq!(error, "artwork is too large", "declared: {declare_length}");
+                server.await.unwrap();
+            }
+        });
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
