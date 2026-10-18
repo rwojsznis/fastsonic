@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, ETAG, LAST_MODIFIED, RANGE};
 use symphonia::core::io::MediaSource;
 
-use crate::api::subsonic::auth;
+use crate::api::subsonic::{auth, headers};
 
 /// How much of a range-ignoring server's answer is skipped over before
 /// giving up on the seek. A tenth of a typical album track.
@@ -134,7 +134,14 @@ impl HttpSource {
         log::debug!("GET from byte {}", self.pos);
         let response = request
             .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|error| io::Error::other(auth::without_credentials(error)))?;
+        // The engine's client stops at a redirect off the server, and the
+        // redirect's own body is no song.
+        if let Some(message) = headers::gate(response.status(), response.headers()) {
+            return Err(io::Error::other(message));
+        }
+        let response = response
+            .error_for_status()
             .map_err(|error| io::Error::other(auth::without_credentials(error)))?;
         self.stats.gets.fetch_add(1, Ordering::Relaxed);
 
@@ -268,5 +275,31 @@ mod tests {
         // `is_seekable` answers no rather than guessing.
         assert_eq!(content_range_total("bytes 100-199/*"), None);
         assert_eq!(content_range_total(""), None);
+    }
+
+    /// The engine's client stops at a gate's redirect; what it stopped at
+    /// is the reason the song does not play, not something to decode.
+    #[test]
+    fn a_gate_in_front_of_the_stream_is_an_error_that_names_it() {
+        use crate::api::subsonic::headers::{
+            redirect_policy,
+            tests::{Listener, reply},
+        };
+        let server = Listener::new("127.0.0.1", |_| {
+            reply(
+                "302 Found",
+                "Location: https://team.cloudflareaccess.com/cdn-cgi/access/login/x\r\n",
+                "<html>sign in</html>",
+            )
+        });
+        let http = crate::blocking_http_client_builder()
+            .redirect(redirect_policy())
+            .build()
+            .unwrap();
+        let url = format!("{}/rest/stream.view?id=1", server.base);
+        let error = HttpSource::new(http, url, Arc::default())
+            .err()
+            .expect("a sign-in page is no stream");
+        assert!(error.to_string().contains("Cloudflare Access"), "{error}");
     }
 }

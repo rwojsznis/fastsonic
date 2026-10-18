@@ -151,6 +151,13 @@ impl Engine {
         notify: Notify,
     ) -> Result<Self> {
         let credentials = client.credentials();
+        // Every request this engine makes is a stream from the server, so
+        // the server's extra headers go on all of them. New ones come with
+        // a new engine.
+        let headers = credentials
+            .as_ref()
+            .map(|credentials| credentials.headers.map())
+            .unwrap_or_default();
         let state = Arc::new(Mutex::new(LocalState {
             volume: config.initial_volume,
             connected: credentials.is_some(),
@@ -182,6 +189,8 @@ impl Engine {
             .spawn(move || {
                 let http = crate::blocking_http_client_builder()
                     .connect_timeout(CONNECT_TIMEOUT)
+                    .redirect(crate::api::subsonic::headers::redirect_policy())
+                    .default_headers(headers)
                     .build();
                 let http = match http {
                     Ok(http) => {

@@ -1073,6 +1073,16 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.auth = AuthStatus::Connecting;
                 app.user = None;
             }
+            "sign-in-headers" => {
+                app.auth = AuthStatus::SignedOut;
+                app.user = None;
+                app.server = "https://music.example".into();
+                app.server_user = "demo".into();
+                app.server_headers = "CF-Access-Client-Id: 1a2b3c.access\n\
+                                      CF-Access-Client-Secret: demo-secret"
+                    .into();
+                app.server_headers_open = true;
+            }
             "scripts" => {
                 let titles = [
                     ("\u{591c}\u{306b}\u{99c6}\u{3051}\u{308b}", "YOASOBI"),
@@ -4916,9 +4926,47 @@ mod tests {
         assert!(painted.iter().any(|(text, _)| text == "Connect"));
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         accessible_node(&tree, "Connect", egui::accesskit::Role::Button);
+        assert!(painted.iter().any(|(text, _)| text == "Extra headers…"));
         apply_flags(&mut app, None, Some("connecting"));
         assert!(matches!(app.auth, AuthStatus::Connecting) && app.user.is_none());
         view_frame(&ctx, &mut app, vec![], whole);
+        app.backend.shutdown();
+    }
+
+    /// `--demo-show sign-in-headers` opens the box under the password; folded
+    /// again, the link still says how many headers it holds.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_sign_in_card_holds_extra_headers() {
+        fn whole(app: &mut App, ui: &mut egui::Ui) {
+            app.frame_ui(ui);
+        }
+        let (ctx, mut app) = accessible_app("sign-in-headers");
+        apply_flags(&mut app, None, Some("sign-in-headers"));
+        view_frame(&ctx, &mut app, vec![], whole);
+        let painted = view_frame(&ctx, &mut app, vec![], whole);
+        let shown = |painted: &[(String, egui::Rect)], wanted: &str| {
+            painted.iter().any(|(text, _)| text.contains(wanted))
+        };
+        assert!(shown(&painted, "Hide extra headers"));
+        assert!(shown(&painted, "CF-Access-Client-Secret"));
+        let connect = painted
+            .iter()
+            .find(|(text, _)| text == "Connect")
+            .map(|(_, rect)| *rect)
+            .expect("the button");
+        let note = painted
+            .iter()
+            .find(|(text, _)| text.contains("nowhere else"))
+            .map(|(_, rect)| *rect)
+            .expect("where the headers go");
+        assert!(note.bottom() < connect.top(), "the note sits above Connect");
+
+        app.server_headers_open = false;
+        view_frame(&ctx, &mut app, vec![], whole);
+        let painted = view_frame(&ctx, &mut app, vec![], whole);
+        assert!(shown(&painted, "Extra headers (2)"));
+        assert!(!shown(&painted, "CF-Access-Client-Secret"));
         app.backend.shutdown();
     }
 

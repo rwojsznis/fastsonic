@@ -23,7 +23,7 @@ use crate::api::NetActivity;
 use crate::api::models::*;
 use crate::api::subsonic::{
     ApiError, Credentials, NativeClient, NativeError, NativeSession, Report, Scrobbler,
-    SubsonicClient, convert,
+    ServerHeaders, SubsonicClient, auth::normalize_server, convert,
 };
 use crate::engine::{Engine, EngineConfig, EngineEvent, LocalState, PlayerCommand, QueueSnapshot};
 use crate::images::{ArtLoader, accent_color};
@@ -89,6 +89,10 @@ pub struct SignInRequest {
     pub server: String,
     pub username: String,
     pub password: Option<String>,
+    /// What a gate in front of the server wants, as the form holds it. Used
+    /// with a stored credential too, so a corrected token can be retried
+    /// without the password.
+    pub headers: ServerHeaders,
 }
 
 impl std::fmt::Debug for SignInRequest {
@@ -98,6 +102,7 @@ impl std::fmt::Debug for SignInRequest {
             .field("server", &self.server)
             .field("username", &self.username)
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("headers", &self.headers)
             .finish()
     }
 }
@@ -479,6 +484,7 @@ pub enum Event {
     KnownServer {
         server: String,
         username: String,
+        headers: ServerHeaders,
         account: String,
     },
 }
@@ -590,7 +596,20 @@ impl Backend {
             .timeout(Duration::from_secs(30))
             .build()
             .expect("unable to build the HTTP client");
-        let art = ArtLoader::new(http.clone(), runtime.handle().clone(), dirs.art_cache_dir());
+        // The server's requests carry its extra headers, so they go through
+        // a client that follows no redirect to another host with them.
+        let server_http = crate::http_client_builder()
+            .user_agent(concat!("fastsonic/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(30))
+            .redirect(crate::api::subsonic::headers::redirect_policy())
+            .build()
+            .expect("unable to build the HTTP client");
+        let art = ArtLoader::new(
+            http.clone(),
+            server_http.clone(),
+            runtime.handle().clone(),
+            dirs.art_cache_dir(),
+        );
         let activity = Arc::new(NetActivity::default());
 
         let worker_activity = Arc::clone(&activity);
@@ -604,6 +623,7 @@ impl Backend {
                         dirs,
                         engine_config,
                         http,
+                        server_http,
                         worker_art,
                         worker_activity,
                         event_tx,
@@ -709,7 +729,9 @@ impl Backend {
 struct Worker {
     dirs: AppDirs,
     engine_config: EngineConfig,
+    /// For LRCLIB and GitHub. Nothing the server's headers go with.
     http: reqwest::Client,
+    server_http: reqwest::Client,
     client: Arc<SubsonicClient>,
     native: Arc<NativeClient>,
     background_api: Arc<tokio::sync::Semaphore>,
@@ -731,6 +753,7 @@ impl Worker {
         dirs: AppDirs,
         engine_config: EngineConfig,
         http: reqwest::Client,
+        server_http: reqwest::Client,
         art: ArtLoader,
         activity: Arc<NetActivity>,
         events: std::sync::mpsc::Sender<Event>,
@@ -741,13 +764,14 @@ impl Worker {
             dirs,
             engine_config,
             client: Arc::new(SubsonicClient::new(
-                http.clone(),
+                server_http.clone(),
                 Arc::clone(&activity),
                 SEARCH_LIMIT,
             )),
-            native: Arc::new(NativeClient::new(http.clone(), activity)),
+            native: Arc::new(NativeClient::new(server_http.clone(), activity)),
             background_api: Arc::new(tokio::sync::Semaphore::new(4)),
             http,
+            server_http,
             art,
             events,
             commands,
@@ -821,6 +845,7 @@ impl Worker {
         self.emit(Event::KnownServer {
             server: stored.credentials.server.clone(),
             username: stored.credentials.username.clone(),
+            headers: stored.credentials.headers.clone(),
             account: account_key(&stored.credentials),
         });
         self.emit(Event::Auth(AuthStatus::Connecting));
@@ -855,6 +880,7 @@ impl Worker {
             .set_credentials(Some(stored.credentials.clone()));
         self.art.set_credentials(Some(stored.credentials.clone()));
         self.native.set_session(stored.session.clone());
+        self.native.set_headers(stored.credentials.headers.clone());
     }
 
     /// Exchanges the password for the pair that is kept, or tries the stored
@@ -876,13 +902,15 @@ impl Worker {
         }
         self.signing_in = true;
         self.emit(Event::Auth(AuthStatus::Connecting));
+        // Only for the account it was stored for: the form's headers go with
+        // it, and they are for the server typed in beside them.
         let stored = (request.password.is_none())
             .then(|| StoredSession::load(&self.dirs.credentials_file()))
-            .flatten();
-        let http = self.http.clone();
+            .flatten()
+            .filter(|stored| stored.is_for(&request.server, &request.username));
         let activity = self.client.activity();
         let client = Arc::new(SubsonicClient::new(
-            http.clone(),
+            self.server_http.clone(),
             activity,
             PLAYLIST_PAGE_SIZE,
         ));
@@ -893,7 +921,12 @@ impl Worker {
         tokio::spawn(async move {
             let (credentials, session, mut error) = match &request.password {
                 Some(password) => match native
-                    .sign_in(&request.server, &request.username, password)
+                    .sign_in(
+                        &request.server,
+                        &request.username,
+                        password,
+                        &request.headers,
+                    )
                     .await
                 {
                     Ok(signed) => (signed.credentials, Some(signed.session), None),
@@ -902,7 +935,8 @@ impl Worker {
                     // speaks the protocol, so carry on with a pair derived
                     // here and say what will be missing.
                     Err(NativeError::NotNavidrome) => (
-                        Credentials::from_password(&request.server, &request.username, password),
+                        Credentials::from_password(&request.server, &request.username, password)
+                            .with_headers(request.headers.clone()),
                         None,
                         Some(
                             "This server has no listening history to read, so Home's \
@@ -918,7 +952,11 @@ impl Worker {
                     }
                 },
                 None => match stored {
-                    Some(stored) => (stored.credentials, stored.session, None),
+                    Some(stored) => (
+                        stored.credentials.with_headers(request.headers.clone()),
+                        stored.session,
+                        None,
+                    ),
                     None => {
                         let _ = events.send(Event::Auth(AuthStatus::Failed(
                             "Enter the password for this server".into(),
@@ -959,6 +997,12 @@ impl Worker {
             credentials: outcome.credentials,
             session: outcome.session,
         };
+        // A running engine reads its stream with the headers it started
+        // with, so new ones mean a new engine.
+        let headers_changed = self
+            .client
+            .credentials()
+            .is_some_and(|before| before.headers != stored.credentials.headers);
         if let Err(error) = stored.save(&self.dirs.credentials_file()) {
             log::warn!("unable to remember the sign-in: {error}");
         }
@@ -973,6 +1017,7 @@ impl Worker {
         self.emit(Event::KnownServer {
             server: stored.credentials.server.clone(),
             username: stored.credentials.username.clone(),
+            headers: stored.credentials.headers.clone(),
             account: account_key(&stored.credentials),
         });
         self.emit(Event::Auth(AuthStatus::Connected { username }));
@@ -980,7 +1025,11 @@ impl Worker {
         if let Some(message) = outcome.error {
             self.emit(Event::Error(message));
         }
-        self.start_engine();
+        if headers_changed && self.engine.is_some() {
+            self.restart_engine();
+        } else {
+            self.start_engine();
+        }
     }
 
     fn sign_out(&mut self) {
@@ -991,6 +1040,7 @@ impl Worker {
         self.account = None;
         self.client.set_credentials(None);
         self.native.set_session(None);
+        self.native.set_headers(ServerHeaders::default());
         self.art.set_credentials(None);
         StoredSession::remove(&self.dirs.credentials_file());
         self.emit(Event::Playback(LocalPlayback::Unavailable));
@@ -1216,9 +1266,7 @@ impl Worker {
             if let ApiResponse::Me(Err(error)) = &response
                 && error.is_auth()
             {
-                let _ = events.send(Event::Auth(AuthStatus::Failed(
-                    "The server no longer accepts this sign-in. Sign in again.".into(),
-                )));
+                let _ = events.send(Event::Auth(AuthStatus::Failed(error.sign_in_lost())));
             }
             let _ = events.send(Event::Api(Box::new(response)));
             waker.wake();
@@ -1631,6 +1679,14 @@ impl StoredSession {
         (!stored.credentials.is_empty()).then_some(stored)
     }
 
+    /// Whether this is the account the form names. Retrying without the
+    /// password sends the form's headers with it, and they belong to the
+    /// server typed in beside them.
+    fn is_for(&self, server: &str, username: &str) -> bool {
+        self.credentials.server == normalize_server(server)
+            && self.credentials.username == username.trim()
+    }
+
     /// Replaced whole, so an interrupted write cannot leave half a
     /// credential behind, and readable by its owner only (Unix).
     fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
@@ -1690,6 +1746,19 @@ async fn read_cached_playlist(path: std::path::PathBuf) -> std::io::Result<Cache
 mod tests {
     use super::*;
     use crate::engine::{LocalTrack, Playback};
+
+    #[test]
+    fn a_stored_sign_in_is_retried_only_for_the_account_it_was_for() {
+        let stored = StoredSession {
+            credentials: Credentials::from_pair("https://a.example", "me", "s", "t"),
+            session: None,
+        };
+        assert!(stored.is_for("https://a.example/", " me "));
+        assert!(!stored.is_for("https://b.example", "me"));
+        assert!(!stored.is_for("https://a.example", "someone-else"));
+        // A bare host is the `http://` one, which is another address.
+        assert!(!stored.is_for("a.example", "me"));
+    }
 
     /// A playlist's cache comes back as it went in, repeated rows included,
     /// and a failed replacement keeps the old file and leaves no temporary.

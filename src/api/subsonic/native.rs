@@ -39,6 +39,7 @@ use crate::api::models::{Album, Artist, ArtistRef, Track};
 
 use super::auth::{Credentials, normalize_server};
 use super::convert;
+use super::headers::{self, ServerHeaders};
 
 /// Navidrome's re-issued token comes back in this header, on every call.
 const TOKEN_HEADER: &str = "x-nd-authorization";
@@ -113,6 +114,9 @@ pub struct SignIn {
 pub struct NativeClient {
     http: reqwest::Client,
     session: Mutex<Option<NativeSession>>,
+    /// The gate's headers, which the session's server is behind as much as
+    /// the Subsonic credential's is.
+    headers: Mutex<ServerHeaders>,
     activity: Arc<NetActivity>,
 }
 
@@ -121,12 +125,21 @@ impl NativeClient {
         Self {
             http,
             session: Mutex::new(None),
+            headers: Mutex::default(),
             activity,
         }
     }
 
     pub fn set_session(&self, session: Option<NativeSession>) {
         *self.session.lock().unwrap_or_else(|p| p.into_inner()) = session;
+    }
+
+    pub fn set_headers(&self, headers: ServerHeaders) {
+        *self.headers.lock().unwrap_or_else(|p| p.into_inner()) = headers;
+    }
+
+    fn headers(&self) -> reqwest::header::HeaderMap {
+        self.headers.lock().unwrap_or_else(|p| p.into_inner()).map()
     }
 
     pub fn session(&self) -> Option<NativeSession> {
@@ -144,18 +157,29 @@ impl NativeClient {
     }
 
     /// Exchanges the password for both credentials. The one call in the app
-    /// that a password passes through.
-    pub async fn sign_in(&self, server: &str, username: &str, password: &str) -> Result<SignIn> {
+    /// that a password passes through. `headers` are the gate's, sent with
+    /// it and kept in the credential it returns.
+    pub async fn sign_in(
+        &self,
+        server: &str,
+        username: &str,
+        password: &str,
+        headers: &ServerHeaders,
+    ) -> Result<SignIn> {
         let server = normalize_server(server);
         let response = self
             .http
             .post(format!("{server}/auth/login"))
+            .headers(headers.map())
             .json(&serde_json::json!({ "username": username, "password": password }))
             .send()
             .await
             .map_err(|error| NativeError::Network(error.to_string()))?;
 
         let status = response.status();
+        if let Some(message) = headers::gate(status, response.headers()) {
+            return Err(NativeError::Rejected(message));
+        }
         let body = response
             .text()
             .await
@@ -181,7 +205,8 @@ impl NativeClient {
                 username,
                 &answer.subsonic_salt,
                 &answer.subsonic_token,
-            ),
+            )
+            .with_headers(headers.clone()),
             session: NativeSession {
                 server,
                 token: answer.token,
@@ -207,6 +232,7 @@ impl NativeClient {
         let response = self
             .http
             .get(format!("{}/api/{path}", session.server))
+            .headers(self.headers())
             .header(TOKEN_HEADER, format!("Bearer {}", session.token))
             .query(params)
             .send()
@@ -227,6 +253,9 @@ impl NativeClient {
         }
 
         let status = response.status();
+        if let Some(message) = headers::gate(status, response.headers()) {
+            return Err(NativeError::Rejected(message));
+        }
         if status == reqwest::StatusCode::UNAUTHORIZED {
             // Twenty-four hours since the last sign-in, or a server that
             // never issued this token. Either way there is no way back

@@ -16,6 +16,8 @@ use md5::{Digest, Md5};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use super::headers::{ServerHeaders, same_origin};
+
 /// The query parameters whose values are credentials, in any URL this app
 /// builds: the salted token, its salt, a plaintext password (which this
 /// client never sends, but a hand-built URL might), and an OpenSubsonic API
@@ -30,6 +32,10 @@ pub struct Credentials {
     pub username: String,
     pub salt: String,
     pub token: String,
+    /// What a gate in front of the server wants on every request. Absent
+    /// from a file written before there were any.
+    #[serde(default, skip_serializing_if = "ServerHeaders::is_empty")]
+    pub headers: ServerHeaders,
 }
 
 impl Credentials {
@@ -43,6 +49,7 @@ impl Credentials {
             username: username.to_string(),
             salt,
             token,
+            headers: ServerHeaders::default(),
         }
     }
 
@@ -55,7 +62,18 @@ impl Credentials {
             username: username.to_string(),
             salt: salt.to_string(),
             token: token.to_string(),
+            headers: ServerHeaders::default(),
         }
+    }
+
+    pub fn with_headers(self, headers: ServerHeaders) -> Self {
+        Self { headers, ..self }
+    }
+
+    /// Whether `url` is on this server rather than on some other host: the
+    /// one place its extra headers may go.
+    pub fn serves(&self, url: &str) -> bool {
+        same_origin(&self.server, url)
     }
 
     /// The authentication half of every request's query string.
@@ -81,6 +99,7 @@ impl std::fmt::Debug for Credentials {
             .field("username", &self.username)
             .field("salt", &"<redacted>")
             .field("token", &"<redacted>")
+            .field("headers", &self.headers)
             .finish()
     }
 }
@@ -228,6 +247,41 @@ mod tests {
         let printed = format!("{credentials:?}");
         assert!(!printed.contains("fastsonic") || printed.contains("<redacted>"));
         assert!(!printed.contains(&credentials.token));
+    }
+
+    #[test]
+    fn a_credential_saved_before_extra_headers_still_reads() {
+        let old = r#"{"server":"http://host","username":"u","salt":"s","token":"t"}"#;
+        let credentials: Credentials = serde_json::from_str(old).unwrap();
+        assert!(credentials.headers.is_empty());
+        // And one without any is written as it always was.
+        assert_eq!(serde_json::to_string(&credentials).unwrap(), old);
+    }
+
+    #[test]
+    fn extra_headers_are_kept_and_printed_by_name_only() {
+        let headers = super::super::headers::tests::token();
+        let credentials =
+            Credentials::from_pair("https://music.example", "u", "s", "t").with_headers(headers);
+        let stored = serde_json::to_string(&credentials).unwrap();
+        let back: Credentials = serde_json::from_str(&stored).unwrap();
+        assert_eq!(back, credentials);
+        let printed = format!("{credentials:?}");
+        assert!(printed.contains("CF-Access-Client-Secret"), "{printed}");
+        assert!(!printed.contains("s3cret"), "{printed}");
+    }
+
+    #[test]
+    fn only_the_server_is_served() {
+        let credentials = Credentials::from_pair("https://music.example", "u", "s", "t");
+        assert!(credentials.serves("https://music.example/share/img/abc?size=600"));
+        for elsewhere in [
+            "https://lrclib.net/api/get",
+            "https://lastfm.freetls.fastly.net/i/u/300x300/a.png",
+            "http://music.example/rest/ping.view",
+        ] {
+            assert!(!credentials.serves(elsewhere), "{elsewhere}");
+        }
     }
 
     #[test]

@@ -3,6 +3,8 @@
 //! A form, where there used to be a browser. Three fields and a button: the
 //! server's address, the account on it, and the password — which is sent
 //! once, exchanged for a salted token, and never written anywhere (D10).
+//! Under them, folded away, the extra headers a gate in front of the server
+//! may want, such as a Cloudflare Access service token.
 //!
 //! The errors are the interesting part. A self-hosted server fails in ways
 //! a hosted one cannot, and each of them wants a different next step: a host
@@ -17,6 +19,10 @@ use crate::app::App;
 use crate::backend::AuthStatus;
 use crate::model::Action;
 use crate::theme;
+
+const CARD_HEIGHT: f32 = 450.0;
+/// Room for the headers' box and the line under it.
+const HEADERS_CARD_HEIGHT: f32 = 580.0;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
     let palette = app.palette;
@@ -41,7 +47,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
             let card_width = 440.0;
-            let card_height = 430.0;
+            let card_height = if app.server_headers_open {
+                HEADERS_CARD_HEIGHT
+            } else {
+                CARD_HEIGHT
+            };
             let card = egui::Rect::from_center_size(
                 rect.center() - Vec2::new(0.0, 20.0),
                 Vec2::new(card_width, card_height),
@@ -135,14 +145,60 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
         });
 }
 
-/// The three fields. Returns whether Enter was pressed in one of them, so
-/// that the form submits the way every other form does.
+/// The three fields, and the headers under them. Returns whether Enter was
+/// pressed in one of the fields, so that the form submits the way every
+/// other form does; in the headers' box Enter starts the next line.
 fn form(app: &mut App, ui: &mut egui::Ui) -> bool {
     let mut submitted = false;
     submitted |= field(app, ui, "Server address", Field::Server);
     submitted |= field(app, ui, "Username", Field::Username);
     submitted |= field(app, ui, "Password", Field::Password);
+    headers(app, ui);
     submitted
+}
+
+/// A link that opens a box for the headers. Folded by default because most
+/// servers have no gate, and it says how many there are while folded so a
+/// saved token is not a secret kept from its owner.
+fn headers(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    ui.with_layout(Layout::top_down(Align::Min), |ui| {
+        let count = app
+            .server_headers
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+        let label = match (app.server_headers_open, count) {
+            (true, _) => "Hide extra headers".to_string(),
+            (false, 0) => "Extra headers…".to_string(),
+            (false, count) => format!("Extra headers ({count})"),
+        };
+        if theme::link(ui, label, theme::medium(12.0), palette.accent).clicked() {
+            app.server_headers_open = !app.server_headers_open;
+        }
+        if !app.server_headers_open {
+            return;
+        }
+        ui.add_space(2.0);
+        let edit = egui::TextEdit::multiline(&mut app.server_headers)
+            .desired_width(f32::INFINITY)
+            .desired_rows(3)
+            .margin(Margin::symmetric(10, 8))
+            .font(theme::regular(13.0))
+            .hint_text("CF-Access-Client-Id: …\nCF-Access-Client-Secret: …");
+        super::widgets::text_edit(ui, edit);
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(
+                    "One Name: value a line, sent with every request to this server and \
+                     nowhere else. Kept with the sign-in until you sign out.",
+                )
+                .font(theme::regular(12.0))
+                .color(palette.secondary),
+            )
+            .wrap(),
+        );
+    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

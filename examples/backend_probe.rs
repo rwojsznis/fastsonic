@@ -68,6 +68,7 @@ fn main() -> anyhow::Result<()> {
         server: server.clone(),
         username: username.clone(),
         password: Some(password.clone()),
+        headers: Default::default(),
     })));
     let connected = loop {
         match probe.next_auth()? {
@@ -592,6 +593,7 @@ fn main() -> anyhow::Result<()> {
         server: server.clone(),
         username: username.clone(),
         password: Some(password.clone()),
+        headers: Default::default(),
     })));
     loop {
         if matches!(probe.next_playback()?, LocalPlayback::Ready) {

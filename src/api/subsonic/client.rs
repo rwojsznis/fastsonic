@@ -28,6 +28,7 @@ use tokio::sync::Semaphore;
 
 use super::auth::{self, Credentials};
 use super::calls::StarredCache;
+use super::headers;
 use crate::api::activity::{ActivityGuard, NetActivity};
 
 /// The protocol version this client claims. 1.16.1 is the last Subsonic
@@ -65,6 +66,10 @@ pub enum ApiError {
     /// than a broken server.
     #[error("{0} does not answer as a Subsonic server")]
     NotSubsonic(String),
+    /// A gate in front of the server turned the request away before the
+    /// server saw it: Cloudflare Access without its token, most often.
+    #[error("{0}")]
+    Gate(String),
     #[error("network error: {0}")]
     Network(String),
     #[error("unexpected response from the server: {0}")]
@@ -83,7 +88,20 @@ impl ApiError {
     /// Whether the credential is the problem, so the caller knows to send
     /// the user back to the sign-in screen rather than retry.
     pub fn is_auth(&self) -> bool {
-        matches!(self, Self::NotSignedIn | Self::Unauthorized(_))
+        matches!(
+            self,
+            Self::NotSignedIn | Self::Unauthorized(_) | Self::Gate(_)
+        )
+    }
+
+    /// What to tell someone whose sign-in stopped working: a gate's own
+    /// words when it was the gate, since signing in again with the same
+    /// password would not get past it.
+    pub fn sign_in_lost(&self) -> String {
+        match self {
+            Self::Gate(message) => message.clone(),
+            _ => "The server no longer accepts this sign-in. Sign in again.".to_string(),
+        }
     }
 
     /// Whether the thing asked for is simply not there, which several
@@ -238,8 +256,9 @@ impl SubsonicClient {
                 .post(format!("{}/rest/{endpoint}.view", credentials.server))
                 .form(&form_body(&credentials, params)),
         };
-        let response = request.send().await?;
+        let response = request.headers(credentials.headers.map()).send().await?;
         let status = response.status();
+        let gate = headers::gate(status, response.headers());
         let content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -255,6 +274,9 @@ impl SubsonicClient {
             started.elapsed().as_millis()
         );
 
+        if let Some(message) = gate {
+            return Err(ApiError::Gate(message));
+        }
         if !status.is_success() || !looks_like_json(&content_type, &body) {
             // A `404` with `404 page not found` is what an endpoint this
             // server does not have looks like — and what any non-Subsonic
@@ -483,6 +505,17 @@ mod tests {
         let error = parse_envelope(body).unwrap_err();
         assert!(error.is_auth(), "{error:?}");
         assert_eq!(error.to_string(), "Wrong username or password");
+    }
+
+    #[test]
+    fn a_lost_sign_in_says_what_a_gate_said() {
+        let gate = ApiError::Gate("Cloudflare refused the request (HTTP 403).".into());
+        assert_eq!(
+            gate.sign_in_lost(),
+            "Cloudflare refused the request (HTTP 403)."
+        );
+        let refused = ApiError::Unauthorized("Wrong username or password".into());
+        assert!(refused.sign_in_lost().contains("Sign in again"));
     }
 
     #[test]

@@ -34,6 +34,9 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   repeat, ReplayGain normalisation, a ten-band equalizer, and a bounded
   on-disk audio cache.
 - Restores the last track, position, context, and manually queued songs.
+- Servers behind Cloudflare Access or another gate: [extra
+  headers](docs/_reference/how-it-connects.md#extra-headers) such as a service
+  token are sent with every request to the server, and to no other host.
 - Light, dark, and system themes, following the system by default, with
   optional album-art colour that fades between songs. On Linux, the system
   theme follows the desktop portal. The interface keeps still when the system

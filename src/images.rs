@@ -181,7 +181,12 @@ struct Inner {
     /// Kept apart from `entries`, which drops a request's entry to reload
     /// its bytes, so a texture is never forgotten while it is still held.
     textures: Mutex<Copies>,
+    /// For artwork on any other host: an artist image the server only
+    /// names. It never carries the server's extra headers.
     http: reqwest::Client,
+    /// For artwork on the server, with its extra headers, and no redirect
+    /// off it (`api::subsonic::headers`).
+    server_http: reqwest::Client,
     runtime: tokio::runtime::Handle,
     cache_dir: PathBuf,
     /// Needed to turn a `sonic:art:` request into a `getCoverArt` URL.
@@ -195,13 +200,19 @@ pub struct ArtLoader {
 }
 
 impl ArtLoader {
-    pub fn new(http: reqwest::Client, runtime: tokio::runtime::Handle, cache_dir: PathBuf) -> Self {
+    pub fn new(
+        http: reqwest::Client,
+        server_http: reqwest::Client,
+        runtime: tokio::runtime::Handle,
+        cache_dir: PathBuf,
+    ) -> Self {
         let _ = std::fs::create_dir_all(&cache_dir);
         Self {
             inner: Arc::new(Inner {
                 entries: Mutex::new(HashMap::new()),
                 textures: Mutex::new(HashMap::new()),
                 http,
+                server_http,
                 runtime,
                 cache_dir,
                 credentials: Mutex::new(None),
@@ -580,6 +591,20 @@ impl Inner {
         Ok(url)
     }
 
+    /// A request on the server goes out with its extra headers, through the
+    /// client that keeps them there; one anywhere else goes without.
+    fn request(&self, url: &str) -> reqwest::RequestBuilder {
+        let credentials = self
+            .credentials
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        match credentials.filter(|credentials| credentials.serves(url)) {
+            Some(credentials) => self.server_http.get(url).headers(credentials.headers.map()),
+            None => self.http.get(url),
+        }
+    }
+
     async fn fetch(self: &Arc<Self>, uri: &str) -> Result<Arc<[u8]>, String> {
         if let Some(Entry::Ready {
             bytes: Some(bytes), ..
@@ -607,8 +632,7 @@ impl Inner {
             _ => {
                 let url = self.resolve(uri)?;
                 let response = self
-                    .http
-                    .get(&url)
+                    .request(&url)
                     .send()
                     .await
                     .map_err(|error| without_credentials(error).to_string())?;
@@ -1395,6 +1419,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         ArtLoader::new(
             crate::http_client_builder().build().unwrap(),
+            crate::http_client_builder().build().unwrap(),
             runtime.handle().clone(),
             dir,
         )
@@ -1757,6 +1782,7 @@ mod tests {
             .expect("a runtime to hand the loader");
         let loader = ArtLoader::new(
             reqwest::Client::new(),
+            reqwest::Client::new(),
             runtime.handle().clone(),
             dir.clone(),
         );
@@ -1856,6 +1882,7 @@ mod tests {
     fn loader() -> ArtLoader {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let loader = ArtLoader::new(
+            crate::http_client_builder().build().unwrap(),
             crate::http_client_builder().build().unwrap(),
             runtime.handle().clone(),
             std::env::temp_dir().join("fastsonic-art-test"),
@@ -2041,6 +2068,7 @@ mod tests {
             .build()
             .expect("a runtime for eviction");
         let loader = ArtLoader::new(
+            reqwest::Client::new(),
             reqwest::Client::new(),
             runtime.handle().clone(),
             dir.clone(),
@@ -2705,6 +2733,7 @@ mod tests {
             .build()
             .expect("a runtime for disk reload");
         let loader = ArtLoader::new(
+            reqwest::Client::new(),
             reqwest::Client::new(),
             runtime.handle().clone(),
             dir.clone(),

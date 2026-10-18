@@ -11,6 +11,7 @@ use crate::api::models::{
     Album, Artist, ArtistRef, Image, PlayableItem, Playlist, Queue, Starred, Track, User,
     pick_image,
 };
+use crate::api::subsonic::ServerHeaders;
 use crate::api::subsonic::convert::{self, COLLECTION_URI, Kind};
 use crate::backend::{
     ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, LyricsRequest,
@@ -341,6 +342,11 @@ pub struct App {
     pub server: String,
     pub server_user: String,
     pub server_password: String,
+    /// The gate's extra headers, one `Name: value` a line. They come back
+    /// with the first two, because they are kept with the credential.
+    pub server_headers: String,
+    /// Whether the form shows the box for them.
+    pub server_headers_open: bool,
     /// Which account's files on disk belong to this session — the playlist
     /// cache's directory, and the check that a cached answer is this
     /// account's.
@@ -640,6 +646,8 @@ impl App {
             server: String::new(),
             server_user: String::new(),
             server_password: String::new(),
+            server_headers: String::new(),
+            server_headers_open: false,
             account_id: None,
             audio_cache,
             pending_local_volume: None,
@@ -1338,10 +1346,12 @@ impl App {
                 Event::KnownServer {
                     server,
                     username,
+                    headers,
                     account,
                 } => {
                     self.server = server;
                     self.server_user = username;
+                    self.server_headers = headers.to_text();
                     self.account_id = Some(account);
                 }
                 Event::Queue(queue) => self.handle_queue(*queue),
@@ -1571,14 +1581,27 @@ impl App {
     /// Signs in with what the form holds. The password goes to the backend
     /// once and is dropped here the moment it does; an empty one means "try
     /// the credential already stored", which is how a server that was
-    /// unreachable at startup is retried.
+    /// unreachable at startup is retried. Extra headers that do not read as
+    /// headers stop it here, with the password still in its box.
     fn sign_in(&mut self) {
+        let headers = match ServerHeaders::parse(&self.server_headers).and_then(|headers| {
+            crate::api::subsonic::headers::check_transport(&self.server, &headers)?;
+            Ok(headers)
+        }) {
+            Ok(headers) => headers,
+            Err(message) => {
+                self.auth = AuthStatus::Failed(message);
+                self.server_headers_open = true;
+                return;
+            }
+        };
         let password = std::mem::take(&mut self.server_password);
         self.backend
             .send(Command::SignIn(Box::new(crate::backend::SignInRequest {
                 server: self.server.trim().to_string(),
                 username: self.server_user.trim().to_string(),
                 password: (!password.is_empty()).then_some(password),
+                headers,
             })));
     }
 
@@ -3117,9 +3140,7 @@ impl App {
                 }
                 Err(error) => {
                     if error.is_auth() {
-                        self.auth = AuthStatus::Failed(
-                            "The server no longer accepts this sign-in. Sign in again.".into(),
-                        );
+                        self.auth = AuthStatus::Failed(error.sign_in_lost());
                     } else {
                         self.toast_error(format!("Couldn't load your profile: {error}"));
                     }
@@ -4850,6 +4871,10 @@ impl App {
             }
             Action::SignOut => {
                 self.backend.send(Command::SignOut);
+                // They were the signed-out server's, and must not go with
+                // the next one typed in.
+                self.server_headers.clear();
+                self.server_headers_open = false;
                 self.history = vec![Page::Home];
                 self.history_index = 0;
             }
@@ -8734,6 +8759,54 @@ mod tests {
                 tray: false,
             },
         )
+    }
+
+    /// Extra headers that do not read as headers are the form's to fix:
+    /// nothing is sent, the box opens on the problem, and the password the
+    /// user typed is still there to send once it is fixed.
+    #[test]
+    fn headers_that_do_not_read_stop_the_sign_in_at_the_form() {
+        let mut app = test_app("sign-in-bad-headers");
+        app.server = "https://music.example".into();
+        app.server_user = "u".into();
+        app.server_password = "hunter2".into();
+        app.server_headers = "CF-Access-Client-Id: id\nthe-secret-on-its-own".into();
+        app.sign_in();
+        let AuthStatus::Failed(message) = &app.auth else {
+            panic!("the sign-in went ahead: {:?}", app.auth);
+        };
+        assert!(message.contains("line 2"), "{message}");
+        assert!(!message.contains("the-secret-on-its-own"), "{message}");
+        assert!(app.server_headers_open);
+        assert_eq!(app.server_password, "hunter2");
+
+        // Readable headers are still refused on a plain-HTTP address, where
+        // they would cross the network for anyone to read.
+        app.server = "music.example".into();
+        app.server_headers = "CF-Access-Client-Secret: s3cret".into();
+        app.sign_in();
+        assert!(
+            matches!(&app.auth, AuthStatus::Failed(message) if message.contains("HTTPS")),
+            "{:?}",
+            app.auth
+        );
+        assert_eq!(app.server_password, "hunter2");
+        app.backend.shutdown();
+    }
+
+    /// Signing out forgets the headers with the rest of the sign-in, so the
+    /// next server typed in is not sent the last one's secret.
+    #[test]
+    fn signing_out_forgets_the_extra_headers() {
+        let mut app = test_app("sign-out-headers");
+        app.backend.set_offline(true);
+        app.server_headers = "CF-Access-Client-Secret: s3cret".into();
+        app.server_headers_open = true;
+        app.actions.push(Action::SignOut);
+        app.apply_actions(&egui::Context::default());
+        assert!(app.server_headers.is_empty());
+        assert!(!app.server_headers_open);
+        app.backend.shutdown();
     }
 
     /// A window reopened from the tray draws with a new context, which
