@@ -288,6 +288,14 @@ pub(crate) mod tests {
                         head.push(byte[0]);
                     }
                     let head = String::from_utf8_lossy(&head).to_ascii_lowercase();
+                    // Windows resets a socket closed with unread bytes, and
+                    // the client can see the reset before the reply.
+                    let length = head
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .and_then(|value| value.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    let _ = stream.read_exact(&mut vec![0; length]);
                     let reply = answer(&head);
                     seen.lock().unwrap().push(head);
                     let _ = stream.write_all(reply.as_bytes());
