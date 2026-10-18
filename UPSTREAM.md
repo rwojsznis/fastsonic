@@ -498,3 +498,27 @@ Declined:
   `c6aabc7`): the fork ships no MSI and its update check downloads nothing.
 - Repository policy (`18562a5`), the website (`f911ff7`, `0c9a989`) and
   the releases themselves (`30307eb`, `2c0f545`).
+
+## Sync through upstream 0.13.3
+
+`upstream/v0.13.3` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+
+Taken and adapted to Fastsonic:
+
+- MilkDrop: preset pack entries written only under a plain file name, so
+  `C:x.milk` cannot leave the presets folder on Windows (`34aa7df`); the
+  libprojectM length check on HLSL identifiers (`6a60c30`'s projectm-sys
+  revision), which the fork's `respect-cmake-generator` branch now builds.
+- Artwork refused by its declared length or as soon as it passes the
+  limit, rather than once it is all in memory, and a stored zip entry
+  held to the size it declares (`f70a58a`), in the fork's fetch, which
+  sends the server's extra headers and checks the content type.
+
+Declined:
+
+- Spotify: the sign-in redirect listener's limits (`b60ea01`; Subsonic
+  sign-in has no browser redirect) and the librespot fixes (`6a60c30`
+  beyond projectM).
+- The website (`677dbf6`) and the release itself (`a4c1b3e`).
