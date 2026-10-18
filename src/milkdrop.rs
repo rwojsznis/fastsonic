@@ -406,6 +406,16 @@ pub fn is_preset(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("milk"))
 }
 
+/// A name that stays in the folder it is joined to on every platform: one
+/// ordinary component, without the drive prefix (`C:x.milk`) or stream
+/// suffix that a colon means on Windows.
+fn is_plain_file_name(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+        && !name.contains(':')
+}
+
 /// Downloads a pack and unpacks its presets into the folder, flat, since
 /// the packs keep theirs in folders by style and the names do not clash.
 /// Returns how many were written.
@@ -434,7 +444,7 @@ pub fn unpack_presets(zip: &[u8], folder: &Path) -> Result<usize, String> {
             continue;
         }
         let file_name = entry.base_name();
-        if file_name.is_empty() || !is_preset(Path::new(file_name)) {
+        if !is_plain_file_name(file_name) || !is_preset(Path::new(file_name)) {
             continue;
         }
         let bytes = archive.read(entry).map_err(|error| error.to_string())?;
@@ -657,5 +667,26 @@ mod tests {
         names.sort();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(names, ["One.milk", "Two.milk"]);
+    }
+
+    #[test]
+    fn a_pack_cannot_name_a_file_outside_its_folder() {
+        for name in [
+            "C:Evil.milk",
+            "pack/D:Evil.milk",
+            "Good.milk:stream.milk",
+            "..",
+        ] {
+            assert!(!is_plain_file_name(name), "{name}");
+        }
+        assert!(is_plain_file_name("Good One.milk"));
+        let dir = temp_dir("milkdrop-confined");
+        let zip = crate::skin::zip::write(&[
+            ("pack/C:Evil.milk", b"[preset00]".as_slice(), false),
+            ("pack/Good.milk", b"[preset00]".as_slice(), false),
+        ]);
+        let written = unpack_presets(&zip, &dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(written, Ok(1));
     }
 }
