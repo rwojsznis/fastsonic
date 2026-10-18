@@ -126,8 +126,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(
-                                "Your password is sent to this server once, in exchange for a \
-                                 token. Fastsonic never stores it.",
+                                "Your password is used once to sign in and is never saved.",
                             )
                             .font(theme::regular(12.0))
                             .color(palette.secondary),
@@ -190,8 +189,8 @@ fn headers(app: &mut App, ui: &mut egui::Ui) {
         ui.add(
             egui::Label::new(
                 egui::RichText::new(
-                    "One Name: value a line, sent with every request to this server and \
-                     nowhere else. Kept with the sign-in until you sign out.",
+                    "One header per line, as Name: value. They're sent only to this \
+                     server and kept until you sign out.",
                 )
                 .font(theme::regular(12.0))
                 .color(palette.secondary),

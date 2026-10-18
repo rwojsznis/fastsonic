@@ -4957,7 +4957,7 @@ mod tests {
             .expect("the button");
         let note = painted
             .iter()
-            .find(|(text, _)| text.contains("nowhere else"))
+            .find(|(text, _)| text.contains("sent only to this"))
             .map(|(_, rect)| *rect)
             .expect("where the headers go");
         assert!(note.bottom() < connect.top(), "the note sits above Connect");
