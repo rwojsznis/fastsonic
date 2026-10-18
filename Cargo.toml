@@ -211,6 +211,8 @@ opt-level = 0
 # projectm-sys 1.2.2 hardcodes the Visual Studio 17 2022 CMake generator,
 # which GitHub's windows-latest images no longer carry; the fork lets an
 # explicit CMAKE_GENERATOR win, and asks vcpkg for the target's architecture
-# so libprojectM links for Windows on ARM. Drop when upstream takes the change.
+# so libprojectM links for Windows on ARM. Its libprojectM comes from
+# crmne/projectm's spotifast branch, which adds a length check on HLSL
+# identifiers. Drop each when upstream releases it.
 [patch.crates-io]
 projectm-sys = { git = "https://github.com/crmne/projectm-rs", branch = "respect-cmake-generator" }
