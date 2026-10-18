@@ -6,6 +6,7 @@
 //! |---|---|
 //! | `types` | the server's response shapes, vendored |
 //! | `auth` | the salted-token credential, and the redaction rule |
+//! | `headers` | what a gate in front of the server asks for, and where it goes |
 //! | `client` | the transport: one envelope, one error mapping |
 //! | `calls` | one method per endpoint, then the calls the app makes |
 //! | `convert` | adapters into the app's own `api::models` vocabulary (D5) |
@@ -20,6 +21,7 @@ pub mod auth;
 pub mod calls;
 pub mod client;
 pub mod convert;
+pub mod headers;
 #[cfg(test)]
 mod live;
 pub mod native;
@@ -28,6 +30,7 @@ pub mod types;
 
 pub use auth::{Credentials, redacted};
 pub use client::{ApiError, SubsonicClient};
+pub use headers::ServerHeaders;
 pub use native::{NativeClient, NativeError, NativeSession, SignIn};
 pub use scrobble::{Report, Scrobbler};
 pub use types::*;

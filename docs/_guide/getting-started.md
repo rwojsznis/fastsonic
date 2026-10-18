@@ -84,6 +84,20 @@ password. A bare host is treated as `http://`; HTTPS certificates must be
 trusted by the operating system. See [How It Connects](../_reference/how-it-connects.md) for
 the exact network and credential behavior.
 
+If the server sits behind a gate such as Cloudflare Access, choose **Extra
+headers…** under the password and enter the headers it wants, one
+`Name: value` a line. For Cloudflare Access, create a service token, allow it
+in a Service Auth policy on the application, and enter both of its headers:
+
+```
+CF-Access-Client-Id: <client id>.access
+CF-Access-Client-Secret: <client secret>
+```
+
+The headers are sent with every request to the server and to no other host,
+and are kept with the sign-in until you sign out. The server address must
+start with `https://` for them to be sent.
+
 Fastsonic supports Navidrome 0.51.0 and newer. Other compatible
 Subsonic/OpenSubsonic servers can provide the core library and playback
 features; Navidrome-only personalisation sections may be empty.

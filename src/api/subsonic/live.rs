@@ -701,6 +701,7 @@ async fn cover_art_is_fetched_and_a_missing_one_is_not_cached_as_a_picture() {
     let _ = std::fs::remove_dir_all(&cache);
     let loader = crate::images::ArtLoader::new(
         crate::http_client_builder().build().unwrap(),
+        crate::http_client_builder().build().unwrap(),
         tokio::runtime::Handle::current(),
         cache.clone(),
     );
@@ -753,7 +754,7 @@ async fn signing_in_yields_a_credential_that_is_not_the_password() {
     // md5(password + salt), and it authenticates /rest/ on its own.
     let (server, username, password) = credentials_from_env();
     let signed_in = native()
-        .sign_in(&server, &username, &password)
+        .sign_in(&server, &username, &password, &Default::default())
         .await
         .unwrap();
 
@@ -774,7 +775,7 @@ async fn a_wrong_password_is_refused_and_a_plain_subsonic_server_has_no_native_a
     let (server, username, _) = credentials_from_env();
     let native = native();
     let error = native
-        .sign_in(&server, &username, "not-the-password")
+        .sign_in(&server, &username, "not-the-password", &Default::default())
         .await
         .unwrap_err();
     assert!(
@@ -786,7 +787,12 @@ async fn a_wrong_password_is_refused_and_a_plain_subsonic_server_has_no_native_a
     // The Subsonic endpoint root is not /auth/login: standing in for a
     // server that speaks Subsonic and nothing else.
     let error = native
-        .sign_in(&format!("{server}/rest"), &username, "x")
+        .sign_in(
+            &format!("{server}/rest"),
+            &username,
+            "x",
+            &Default::default(),
+        )
         .await
         .unwrap_err();
     assert!(error.is_unavailable(), "{error:?}");
@@ -797,7 +803,10 @@ async fn a_wrong_password_is_refused_and_a_plain_subsonic_server_has_no_native_a
 async fn the_native_api_answers_the_three_questions_subsonic_cannot() {
     let (server, username, password) = credentials_from_env();
     let native = native();
-    let signed_in = native.sign_in(&server, &username, &password).await.unwrap();
+    let signed_in = native
+        .sign_in(&server, &username, &password, &Default::default())
+        .await
+        .unwrap();
     native.set_session(Some(signed_in.session));
     assert!(native.available());
 

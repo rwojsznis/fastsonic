@@ -25,6 +25,46 @@ An empty password field retries the stored Subsonic credential, which is
 useful after a server was temporarily unreachable. Signing out removes both
 stored credentials.
 
+## Extra headers
+
+A server behind a gate, such as Cloudflare Access or a proxy that asks for
+basic authentication, can be given extra headers on the sign-in screen under
+**Extra headers…**, one `Name: value` a line: for Cloudflare Access, a
+service token's `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Headers
+the transport sets itself (`Host`, `Content-Length`, `Content-Type`,
+`Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Range`,
+`Accept-Encoding`) and Navidrome's `X-ND-Authorization` are refused. So is
+an `http://` address with extra headers, a bare host included, because they
+would cross the network readable; only this computer's own address
+(`localhost`, `127.0.0.1`, `::1`) is allowed over `http://`.
+
+They go with every request to the server: the login, Subsonic calls,
+Navidrome's own API, artwork, and the audio stream. A request goes to the
+server when its scheme, host and port are the server's, so an artist image the
+server names on its own host gets them, and LRCLIB, GitHub, an artist image on
+another host and the MilkDrop preset downloads do not. The requests that carry
+them follow a redirect only to the same scheme, host and port, or from
+`http` to `https` on the same host between the default ports 80 and 443; a
+redirect anywhere else, another port on the same host and a drop from `https`
+back to `http` included, is not followed and is shown as an error, so the
+headers cannot be carried to another service. This rule applies to every
+server request, with or without extra headers.
+
+When the gate turns a request away, the error says so instead of calling the
+server something other than a music server: a redirect to Cloudflare Access's
+sign-in page, a redirect to any other host, or Cloudflare refusing with
+HTTP 403. The sign-in screen shows that message, also when the gate starts
+refusing while the app runs; correct the headers under **Extra headers** and
+press **Connect**. An empty password retries the stored credential with the
+corrected headers, but only for the server address and username it was
+stored for; another address or account needs its password.
+
+The headers are stored with the Subsonic credential in `credentials.json`,
+never logged, and shown in logs and diagnostics by name only. Signing out
+removes them with the rest, from the file and from the sign-in form. Signing in again with different headers while
+the audio engine runs restarts it with the new ones, and the queue is picked
+up again at the same spot, as after a change to an audio setting.
+
 Every Subsonic request carries the username, salt, and token. Fastsonic strips
 credential query parameters and authorization headers from logs, from the
 network errors it logs and shows, and from the panic log. Artwork is

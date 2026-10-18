@@ -1073,6 +1073,16 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.auth = AuthStatus::Connecting;
                 app.user = None;
             }
+            "sign-in-headers" => {
+                app.auth = AuthStatus::SignedOut;
+                app.user = None;
+                app.server = "https://music.example".into();
+                app.server_user = "demo".into();
+                app.server_headers = "CF-Access-Client-Id: 1a2b3c.access\n\
+                                      CF-Access-Client-Secret: demo-secret"
+                    .into();
+                app.server_headers_open = true;
+            }
             "scripts" => {
                 let titles = [
                     ("\u{591c}\u{306b}\u{99c6}\u{3051}\u{308b}", "YOASOBI"),
@@ -1870,12 +1880,19 @@ mod tests {
         events: Vec<egui::Event>,
         view: fn(&mut App, &mut egui::Ui),
     ) -> Vec<(String, egui::Rect)> {
+        view_frame_sized(ctx, app, events, view, egui::vec2(1280.0, 2200.0))
+    }
+
+    fn view_frame_sized(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+        view: fn(&mut App, &mut egui::Ui),
+        size: egui::Vec2,
+    ) -> Vec<(String, egui::Rect)> {
         let mut output = ctx.run_ui(
             egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1280.0, 2200.0),
-                )),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
                 events,
                 ..Default::default()
             },
@@ -4916,9 +4933,100 @@ mod tests {
         assert!(painted.iter().any(|(text, _)| text == "Connect"));
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         accessible_node(&tree, "Connect", egui::accesskit::Role::Button);
+        assert!(painted.iter().any(|(text, _)| text == "Extra headers…"));
         apply_flags(&mut app, None, Some("connecting"));
         assert!(matches!(app.auth, AuthStatus::Connecting) && app.user.is_none());
         view_frame(&ctx, &mut app, vec![], whole);
+        app.backend.shutdown();
+    }
+
+    /// A window shorter than the card scrolls it, and the version follows the
+    /// card instead of being drawn over it.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_short_window_scrolls_the_sign_in_card_instead_of_covering_it() {
+        fn whole(app: &mut App, ui: &mut egui::Ui) {
+            app.frame_ui(ui);
+        }
+        let (ctx, mut app) = accessible_app("sign-in-short");
+        apply_flags(&mut app, None, Some("sign-in-headers"));
+        let size = egui::vec2(900.0, 520.0);
+        view_frame_sized(&ctx, &mut app, vec![], whole, size);
+        let painted = view_frame_sized(&ctx, &mut app, vec![], whole, size);
+        let version = format!("Fastsonic {}", env!("CARGO_PKG_VERSION"));
+        let find = |painted: &[(String, egui::Rect)], wanted: &str| {
+            painted
+                .iter()
+                .find(|(text, _)| text.starts_with(wanted))
+                .map(|(_, rect)| *rect)
+        };
+        let title = painted
+            .iter()
+            .find(|(text, _)| text == "Fastsonic")
+            .map(|(_, rect)| *rect)
+            .expect("the card's title");
+        assert!(title.top() > 0.0, "the card starts inside the window");
+        assert!(
+            find(&painted, &version).is_none(),
+            "the version waits below the card rather than over it"
+        );
+
+        let wheel = vec![
+            egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -2000.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+        let mut painted = view_frame_sized(&ctx, &mut app, wheel, whole, size);
+        for _ in 0..30 {
+            painted = view_frame_sized(&ctx, &mut app, vec![], whole, size);
+        }
+        let note = find(&painted, "Your password").expect("the card's last line");
+        let version = find(&painted, &version).expect("the version, scrolled to");
+        assert!(
+            version.top() > note.bottom(),
+            "the version follows the card"
+        );
+        assert!(version.bottom() <= size.y, "and the scroll reaches it");
+    }
+
+    /// `--demo-show sign-in-headers` opens the box under the password; folded
+    /// again, the link still says how many headers it holds.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_sign_in_card_holds_extra_headers() {
+        fn whole(app: &mut App, ui: &mut egui::Ui) {
+            app.frame_ui(ui);
+        }
+        let (ctx, mut app) = accessible_app("sign-in-headers");
+        apply_flags(&mut app, None, Some("sign-in-headers"));
+        view_frame(&ctx, &mut app, vec![], whole);
+        let painted = view_frame(&ctx, &mut app, vec![], whole);
+        let shown = |painted: &[(String, egui::Rect)], wanted: &str| {
+            painted.iter().any(|(text, _)| text.contains(wanted))
+        };
+        assert!(shown(&painted, "Hide extra headers"));
+        assert!(shown(&painted, "CF-Access-Client-Secret"));
+        let connect = painted
+            .iter()
+            .find(|(text, _)| text == "Connect")
+            .map(|(_, rect)| *rect)
+            .expect("the button");
+        let note = painted
+            .iter()
+            .find(|(text, _)| text.contains("sent only to this"))
+            .map(|(_, rect)| *rect)
+            .expect("where the headers go");
+        assert!(note.bottom() < connect.top(), "the note sits above Connect");
+
+        app.server_headers_open = false;
+        view_frame(&ctx, &mut app, vec![], whole);
+        let painted = view_frame(&ctx, &mut app, vec![], whole);
+        assert!(shown(&painted, "Extra headers (2)"));
+        assert!(!shown(&painted, "CF-Access-Client-Secret"));
         app.backend.shutdown();
     }
 

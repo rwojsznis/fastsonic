@@ -84,7 +84,8 @@ otherwise the cache is dropped and the songs load from the server.
 
 Clearing caches never signs you out. `credentials.json` contains a salted
 Subsonic token, not the password, plus a short-lived Navidrome session when
-available. Treat it like a password and do not share it; on Linux and macOS
+available, and any [extra headers](how-it-connects.md#extra-headers) entered
+at sign-in, such as a Cloudflare Access service token. Treat it like a password and do not share it; on Linux and macOS
 Fastsonic writes it readable by your account only. Settings → Storage
 shows the exact paths and provides cache/history controls.
 
@@ -329,6 +330,7 @@ Builds made with `--features demo` accept `--demo` for deterministic sample
 data and no server connection. `--demo-page` opens a named page;
 `--demo-show` adds comma-separated panels or states (among them `rtl`, for
 right-to-left titles, `signed-out` and `connecting`, for the sign-in card,
+`sign-in-headers`, for the sign-in card with extra headers open,
 `library-list`, `library-list-narrow`, `library-list-wide`, `library-grid`,
 `library-grid-narrow` and `library-grid-wide`, for the Library as rows or
 cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed,
