@@ -303,9 +303,11 @@ the tray, with the display off or the screen locked.
 
 ## macOS menu bar and Dock menu
 
-Fastsonic's menu-bar icon shows or hides the window, controls playback and
-quits. It stays in the menu bar with the main window open, with the Winamp
-mini player, and after closing the window to the menu bar.
+Click Fastsonic's menu-bar icon to open its menu. From there you can show or
+hide the window, control playback, or quit Fastsonic. The menu opens from
+either a primary or secondary click, as other macOS menu-bar items do. It
+stays in the menu bar with the main window open, with the Winamp mini
+player, and after closing the window to the menu bar.
 
 Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
 while music plays), **Next**, and **Previous**, above the standard Dock items.

@@ -48,15 +48,19 @@ fn play_pause_label(playing: bool) -> &'static str {
     if playing { "Pause" } else { "Play" }
 }
 
-fn left_click(sender: &Sender<TrayCommand>, wake: &Wake, on_windows: bool) {
-    // Each release of a Windows double-click arrives separately, possibly
-    // on opposite sides of window creation. Both must ask to show it.
-    let command = if on_windows {
-        TrayCommand::Show
-    } else {
-        TrayCommand::ShowHide
-    };
-    if sender.send(command).is_ok() {
+/// What a primary click on the icon asks for, or `None` where it opens the
+/// menu. A macOS menu-bar item opens its menu on either click, as the
+/// others in the menu bar do. Each release of a Windows double-click
+/// arrives separately, possibly on opposite sides of window creation, so
+/// both must ask to show the window rather than toggle it.
+fn left_click_command(on_macos: bool) -> Option<TrayCommand> {
+    (!on_macos).then_some(TrayCommand::Show)
+}
+
+fn left_click(sender: &Sender<TrayCommand>, wake: &Wake, on_macos: bool) {
+    if let Some(command) = left_click_command(on_macos)
+        && sender.send(command).is_ok()
+    {
         wake();
     }
 }
@@ -92,10 +96,10 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
         .with_icon(icon)
         .with_tooltip("Fastsonic")
         .with_menu(Box::new(menu));
-    // A Windows click raises the window; macOS keeps its visibility toggle.
-    // Both platforms keep the menu on right click.
-    #[cfg(any(windows, target_os = "macos"))]
-    let builder = builder.with_menu_on_left_click(false);
+    // A Windows click raises the window and the menu waits for a right
+    // click (#310); a macOS menu-bar item opens its menu on either click.
+    let builder =
+        builder.with_menu_on_left_click(left_click_command(cfg!(target_os = "macos")).is_none());
     #[cfg(target_os = "macos")]
     let builder = builder.with_icon_as_template(true);
     let icon = builder.build()?;
@@ -116,7 +120,7 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
             ..
         } = event
         {
-            left_click(&sender, &wake, cfg!(windows));
+            left_click(&sender, &wake, cfg!(target_os = "macos"));
         }
     }));
 
@@ -792,22 +796,31 @@ mod click_tests {
         assert!(!life.tray());
     }
 
+    /// Both releases of a Windows double-click ask to show the window, so
+    /// the second cannot hide it again; a macOS click opens the menu and
+    /// asks for nothing else, so a pick in it does not also toggle the
+    /// window.
     #[test]
-    fn both_windows_double_click_releases_request_show_and_wake_the_app() {
+    fn windows_clicks_show_the_window_and_macos_clicks_open_the_menu() {
         let (sender, commands) = std::sync::mpsc::channel();
         let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter = Arc::clone(&count);
         let wake: Wake = Arc::new(move || {
             counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         });
-        left_click(&sender, &wake, true);
-        left_click(&sender, &wake, true);
+        left_click(&sender, &wake, false);
+        left_click(&sender, &wake, false);
         assert_eq!(
             commands.try_iter().collect::<Vec<_>>(),
             vec![TrayCommand::Show, TrayCommand::Show]
         );
         assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
-        left_click(&sender, &wake, false);
-        assert_eq!(commands.try_recv(), Ok(TrayCommand::ShowHide));
+        left_click(&sender, &wake, true);
+        assert_eq!(
+            commands.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(left_click_command(true), None, "the menu opens instead");
     }
 }
