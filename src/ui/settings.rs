@@ -202,7 +202,14 @@ fn section(
         )
         .stroke(Stroke::new(1.0, palette.outline))
         .corner_radius(CornerRadius::same(theme::RADIUS + 2))
-        .inner_margin(Margin::symmetric(20, 16))
+        // Every row leaves 10 points below itself for the next one, so the
+        // bottom margin is that much less than the top one.
+        .inner_margin(Margin {
+            left: 20,
+            right: 20,
+            top: 16,
+            bottom: 6,
+        })
         .show(ui, |ui| {
             ui.set_width(ui.available_width().min(760.0));
             add_contents(ui);
@@ -253,6 +260,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
         });
+        ui.add_space(10.0);
     });
 
     section(ui, &palette, "Playback on this computer", |ui| {
@@ -469,6 +477,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 theme::subtle(ui, &palette, "Playback settings applied.");
             }
         });
+        ui.add_space(10.0);
     });
 
     section(ui, &palette, "Appearance", |ui| {
@@ -1004,6 +1013,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
         });
+        ui.add_space(10.0);
     });
 
     section(ui, &palette, "Storage", |ui| {
@@ -1117,6 +1127,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .open_url(egui::OpenUrl::new_tab(env!("CARGO_PKG_REPOSITORY")));
             }
         });
+        ui.add_space(10.0);
     });
 
     ui.data_mut(|data| data.insert_temp(dirty_id, playback_dirty));
