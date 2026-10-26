@@ -150,6 +150,12 @@ impl WinampState {
         chosen.clamp(1, MAX_SCALE)
     }
 
+    /// The size the D button steps to: every size, 1x to 4x, and round.
+    /// 1x is the skin pixel for pixel on a display without scaling.
+    pub fn next_scale(scale: u32) -> u32 {
+        if scale >= MAX_SCALE { 1 } else { scale + 1 }
+    }
+
     pub fn is_loading(&self) -> bool {
         self.loading.is_some()
     }
@@ -425,6 +431,12 @@ mod tests {
         assert_eq!(WinampState::scale(&settings, 2.0), 1);
         settings.skin_scale = Some(9);
         assert_eq!(WinampState::scale(&settings, 1.0), MAX_SCALE);
+    }
+
+    #[test]
+    fn d_steps_through_every_size_and_back_to_1x() {
+        let steps: Vec<u32> = (1..=MAX_SCALE).map(WinampState::next_scale).collect();
+        assert_eq!(steps, [2, 3, 4, 1]);
     }
 
     #[test]

@@ -26,8 +26,8 @@ specific skin turns Random off.
 
 The mini player uses whole-number scaling to keep pixels sharp. Right-click
 the title bar, or click **O**, to choose 1x to 4x and set always-on-top. **D**
-toggles double size and **A** toggles always-on-top. Fastsonic remembers the
-window position.
+steps through the sizes, 1x to 4x, and **A** toggles always-on-top. Fastsonic
+remembers the window position.
 
 On Windows and in Linux X11 sessions, turn off **Show in taskbar** under
 **Settings > Winamp skins**, or in the **O** menu, to drop the mini player's

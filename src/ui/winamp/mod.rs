@@ -887,8 +887,6 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         }
         app.actions.push(Action::ToggleWinampWindow);
     }
-    // D goes round the sizes worth having on today's displays, 2x to 4x;
-    // 1x is in the menu for whoever wants it.
     let scale = WinampState::scale(&app.settings, view.ui.ctx().pixels_per_point());
     if view
         .lamp_button(
@@ -897,14 +895,10 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
             scale >= 2,
             "clutter-d",
         )
-        .on_hover_text("Size: 2x, 3x, 4x")
+        .on_hover_text("Size: 1x, 2x, 3x, 4x")
         .clicked()
     {
-        let next = if scale >= MAX_SCALE {
-            2
-        } else {
-            scale.max(1) + 1
-        };
+        let next = WinampState::next_scale(scale);
         app.actions.push(Action::SetSkinScale(next as u8));
     }
     // V opened Winamp's visualisation menu; this one has the display's
