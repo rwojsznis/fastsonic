@@ -158,11 +158,14 @@ pub(crate) fn yielding_panel(
     let (min, max) = range.into_inner();
     let max = max.min(room).max(min);
     let width = chosen.clamp(min, max);
-    // egui remembers the width the panel last drew at, a clamped one too.
-    // Hand it back the chosen width whenever there is room for more.
+    // egui remembers the width the panel last drew at. While nobody drags
+    // its handle, hand it back the chosen width, either way: a resize made
+    // elsewhere (the fullscreen queue column shares the queue width) shows
+    // here too, and the panel never writes a stale width back over it.
     let id = Id::new(id);
-    if let Some(mut state) = egui::containers::panel::PanelState::load(ctx, id)
-        && state.outer_rect.width() + 0.5 < width
+    if !ctx.is_being_dragged(id.with("__resize"))
+        && let Some(mut state) = egui::containers::panel::PanelState::load(ctx, id)
+        && (state.outer_rect.width() - width).abs() > 0.5
     {
         state.outer_rect.set_width(width);
         ctx.data_mut(|data| data.insert_persisted(id, state));
@@ -173,10 +176,15 @@ pub(crate) fn yielding_panel(
     }
 }
 
+/// Whether the listener is dragging this panel's resize handle right now.
+pub(crate) fn panel_dragged(ctx: &Context, id: &str) -> bool {
+    ctx.is_being_dragged(Id::new(id).with("__resize"))
+}
+
 /// Whether a panel's new width is one the listener chose: it moved while
 /// not held back by the page, or by their own drag.
 pub(crate) fn panel_width_chosen(ctx: &Context, id: &str, fit: &PanelFit) -> bool {
-    !fit.yielding || ctx.is_being_dragged(Id::new(id).with("__resize"))
+    !fit.yielding || panel_dragged(ctx, id)
 }
 
 /// The image a library grid card is drawn from, when an item offers several

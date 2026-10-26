@@ -1234,6 +1234,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             _ => {}
         }
     }
+    // Surfaces set the panel flags directly, past the toggles that keep one
+    // side panel at a time: the queue wins, as entering full screen has it.
+    if app.show_queue_panel {
+        app.show_lyrics_panel = false;
+    }
 }
 
 /// A session picked up where the last one left off, before a first press:
@@ -3554,6 +3559,31 @@ mod tests {
         let first = app.library.playlists.get().unwrap()[0].id.clone();
         assert_eq!(tiles[1], Page::Playlist(first));
         app.backend.shutdown();
+    }
+
+    /// Surfaces set in any order never leave both side panels open: the
+    /// queue wins, and in full-screen lyrics it is the queue column.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn demo_surfaces_keep_a_single_panel() {
+        for (index, show) in [
+            "lyrics,queue",
+            "queue,lyrics",
+            "lyrics-fullscreen,queue",
+            "queue,lyrics-fullscreen",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (_ctx, mut app) = accessible_app(&format!("single-panel-{index}"));
+            apply_flags(&mut app, None, Some(show));
+            assert!(
+                !(app.show_queue_panel && app.show_lyrics_panel),
+                "{show} leaves both panels open"
+            );
+            assert!(app.show_queue_panel, "{show} keeps the queue");
+            app.backend.shutdown();
+        }
     }
 
     /// The rolled-up player keeps the real analyser and its repaint cadence

@@ -138,4 +138,7 @@ choose **Follow** to resume it, or choose a line to seek there. The expand
 button, or **F** when no text field has focus, opens the full-screen view;
 press **F** or **Esc**, or choose the shrink button, to return to the previous
 window mode. In a wide window, the cover sits beside the lyrics; a song with no
-words shows its cover alone.
+words shows its cover alone. There, **Q** shows or hides the queue as a column
+on the right without leaving full screen, and a Queue panel open when you
+enter becomes that column. Drag the column's left edge to resize it; the Queue
+panel keeps the width you choose.
