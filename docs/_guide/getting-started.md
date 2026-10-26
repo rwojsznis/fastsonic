@@ -111,6 +111,9 @@ features; Navidrome-only personalisation sections may be empty.
   Reopen it from the tray or Dock, and quit from the tray menu or Ctrl+Q.
   On macOS, Settings can also keep Fastsonic out of the Dock, in the menu
   bar only.
+- Fastsonic can start with your computer. Under **Settings > Playback on
+  this computer**, **Start with your computer** opens it when you log in,
+  **With the window** or quietly **In the tray**.
 - The tray icon can match your panel. On Linux and Windows, **Settings >
   Playback on this computer > Tray icon** shows it in colour, white or
   black. The macOS menu bar already draws it black or white to match itself.

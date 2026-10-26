@@ -133,9 +133,10 @@ objc2 = { version = "0.6", features = ["exception"] }
 # (src/motion.rs). The panel, views, controls and drawing are the
 # MacBook notch's Now Playing card (src/mac_notch.rs). NSProcessInfo reads
 # Low Power Mode (src/power/macos.rs). NSBundle tells a run outside the app
-# bundle, which gets the packaged Dock icon (src/mac_dock.rs).
+# bundle, which gets the packaged Dock icon (src/mac_dock.rs) and cannot be
+# a login item; NSError is why a login item was refused (src/autostart).
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSAccessibilityProtocols", "NSAnimation", "NSAnimationContext", "NSApplication", "NSBezierPath", "NSButton", "NSCell", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSImageCell", "NSImageView", "NSMenu", "NSMenuItem", "NSPanel", "NSParagraphStyle", "NSResponder", "NSRunningApplication", "NSScreen", "NSText", "NSTextField", "NSTrackingArea", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSData", "NSDate", "NSGeometry", "NSObjCRuntime", "NSProcessInfo", "NSRunLoop", "NSString", "NSUserDefaults"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSData", "NSDate", "NSError", "NSGeometry", "NSObjCRuntime", "NSProcessInfo", "NSRunLoop", "NSString", "NSUserDefaults"] }
 # How the first window's event loop launches the app: out of the Dock when
 # Settings keeps it there (src/main.rs). The version eframe already
 # compiles, named here for its macOS builder extension.

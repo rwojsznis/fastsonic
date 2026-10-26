@@ -24,6 +24,12 @@ chmod 755 "$app/Contents/MacOS/fastsonic"
 build="${version%%-*}"
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" "$here/Info.plist" \
     > "$app/Contents/Info.plist"
+# Starting in the menu bar at login: a login item cannot pass --start-hidden,
+# so SMAppService registers this agent from the bundle instead. Its name is
+# the bundle identifier's, which Info.plist sets.
+identifier=io.github.rwojsznis.fastsonic
+mkdir -p "$app/Contents/Library/LaunchAgents"
+cp "$here/autostart.plist" "$app/Contents/Library/LaunchAgents/$identifier.autostart.plist"
 
 iconset="$(mktemp -d)/fastsonic.iconset"
 mkdir -p "$iconset"

@@ -572,6 +572,8 @@ fn history(songs: &[Track]) -> Vec<PlayHistory> {
 pub fn populate(app: &mut App) {
     app.backend.set_offline(true);
     app.offline = true;
+    // A demo never reads the real login registration; it shows the row.
+    app.autostart.state = Some(crate::autostart::State::Off);
     // Screenshots look the same whatever the desktop prefers; `light` asks
     // for the other theme.
     app.settings.theme = crate::settings::ThemeChoice::Dark;
@@ -1063,6 +1065,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "art" => app.settings.art_expanded = true,
             "small" => app.settings.skin_scale = Some(1),
             "taskbar" => app.taskbar_hiding_supported = true,
+            "start-in-tray" => {
+                app.autostart.state =
+                    Some(crate::autostart::State::On(crate::autostart::Start::Hidden));
+            }
             "compact" => {
                 app.settings.sidebar_compact = true;
                 app.settings.tracklist_compact = true;
@@ -7572,6 +7578,52 @@ mod tests {
         assert!(
             !app.dirs.themes_dir().exists(),
             "drawing cannot open or create folders"
+        );
+    }
+
+    /// Settings offers Off, the window and the tray for a start at login,
+    /// and a pick is an action; a run that cannot register shows no row.
+    #[test]
+    fn start_with_computer_offers_three_choices_and_asks_for_the_pick() {
+        use crate::autostart::{Start, State};
+        let (ctx, mut app) = accessible_app("start-with-computer");
+        app.backend.shutdown();
+        let view = crate::ui::settings::show;
+        for _ in 0..3 {
+            view_frame(&ctx, &mut app, vec![], view);
+        }
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        sidebar_text(&painted, "Start with your computer");
+        sidebar_text(&painted, "With the window");
+        let tray = sidebar_text(&painted, "In the tray").center();
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(tray, egui::PointerButton::Primary),
+            view,
+        );
+        assert!(matches!(
+            app.actions.as_slice(),
+            [Action::SetStartWithComputer(Some(Start::Hidden))]
+        ));
+        app.actions.clear();
+
+        // Off keeps the tray out of reach: the row says the window opens.
+        app.autostart.state = Some(State::On(Start::Hidden));
+        app.settings.keep_playing_in_background = false;
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert!(painted.iter().any(|(text, _)| {
+            text.starts_with(
+                "Starting in the tray needs Keep music playing when the window closes.",
+            )
+        }));
+
+        app.autostart.state = Some(State::Unsupported);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert!(
+            !painted.iter().any(|(text, _)| text == "In the tray"),
+            "nothing to offer where nothing can be registered"
         );
     }
 }

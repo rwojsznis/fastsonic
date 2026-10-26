@@ -45,6 +45,10 @@ const HEADLESS_SLEEP: Duration = Duration::from_secs(2);
 /// How often the app looks at MilkDrop's window from the tray: it outlives
 /// the main window, and its keys arrive through a pipe that wakes nothing.
 const HEADLESS_TICK: Duration = Duration::from_millis(150);
+/// How long a start in the tray waits for a panel to show the tray item
+/// before it opens the window. GNOME's AppIndicator extension, for one,
+/// loads after the session's autostart apps.
+const TRAY_WAIT: Duration = Duration::from_secs(30);
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
@@ -166,6 +170,20 @@ pub struct App {
     /// every frame, so the answer is kept until the artwork changes.
     media_art: Option<(String, PathBuf)>,
     tray: Option<TrayService>,
+    /// A start in the tray's deadline for a panel to show the tray item:
+    /// a start at login can beat the desktop's tray host, and without one
+    /// by then the window opens, since nothing else could bring it back.
+    tray_wait: Option<Instant>,
+    /// macOS: this run starts in the menu bar, so its first window, which
+    /// AppKit needs to launch the app, closes itself unseen at once.
+    #[cfg(target_os = "macos")]
+    hidden_start: bool,
+    /// What the system has registered to start Fastsonic at login, for
+    /// Settings' Start with your computer.
+    pub autostart: crate::autostart::Registration,
+    /// Whether this run reads and changes the real login registration.
+    /// Tests and demo runs leave it alone.
+    autostart_live: bool,
     /// The system's power and session state.
     power: crate::power::Power,
     /// Whether the system's word on reaching the internet holds back the
@@ -584,6 +602,11 @@ impl App {
             system_appearance,
             media_art: None,
             tray,
+            tray_wait: None,
+            #[cfg(target_os = "macos")]
+            hidden_start: false,
+            autostart: crate::autostart::Registration::default(),
+            autostart_live: false,
             power,
             follows_reachability: cfg!(target_os = "macos"),
             playback_activity: None,
@@ -793,8 +816,19 @@ impl App {
         {
             self.dock_icon_shown = None;
         }
+        // A window is here, so a start in the tray's wait for a panel is over.
+        self.tray_wait = None;
+        #[cfg(target_os = "macos")]
+        let hidden_start = std::mem::take(&mut self.hidden_start);
+        #[cfg(not(target_os = "macos"))]
+        let hidden_start = false;
         if let Some(tray) = &mut self.tray {
-            tray.attach();
+            // A start in the menu bar leaves the app where the login put it,
+            // in the background.
+            tray.attach(!hidden_start);
+        }
+        if hidden_start {
+            self.actions.push(Action::HideWindow);
         }
         // eframe restores the full screen fullscreen lyrics left behind when
         // the app closed in them, without the lyrics. The mode they came
@@ -880,7 +914,107 @@ impl App {
     /// Whether closing the window keeps the app in the tray rather than
     /// quitting.
     pub fn hides_to_tray(&self) -> bool {
-        self.tray.is_some() && self.settings.keep_playing_in_background
+        self.tray.as_ref().is_some_and(TrayService::is_shown)
+            && self.settings.keep_playing_in_background
+    }
+
+    /// A start at login in the tray (`--start-hidden`). Without a tray, or
+    /// with "Keep music playing when the window closes" off, closing the
+    /// window would quit, so nothing could bring a hidden one back: the
+    /// window opens instead, and the answer is `false`.
+    ///
+    /// On Linux and Windows the app then runs without a window from the
+    /// start, and a tray no panel shows yet gets `TRAY_WAIT` to appear.
+    /// macOS needs a window to launch the app at all, so the first one is
+    /// made unseen and closes itself to the menu bar on its first pass.
+    pub fn start_hidden(&mut self) -> bool {
+        if self.tray.is_none() || !self.settings.keep_playing_in_background {
+            log::info!("starting with the window: nothing would keep Fastsonic in the tray");
+            return false;
+        }
+        self.begin_hidden_start(Instant::now());
+        true
+    }
+
+    fn begin_hidden_start(&mut self, now: Instant) {
+        #[cfg(target_os = "macos")]
+        {
+            self.hidden_start = true;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.window_hidden = true;
+        }
+        if !self.tray.as_ref().is_some_and(TrayService::is_shown) {
+            self.tray_wait = Some(now + TRAY_WAIT);
+        }
+    }
+
+    /// Whether the first window is the unseen one a start in the menu bar
+    /// launches the app with (macOS).
+    pub fn starts_hidden(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.hidden_start
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    }
+
+    /// Ends a start in the tray's wait for a panel: a panel showing the
+    /// tray item keeps the window hidden, and none by the deadline shows
+    /// it.
+    fn check_tray_wait(&mut self, now: Instant, tray_shown: bool) {
+        let Some(deadline) = self.tray_wait else {
+            return;
+        };
+        if tray_shown {
+            self.tray_wait = None;
+        } else if now >= deadline {
+            log::info!("no panel showed the tray item; showing the window");
+            self.tray_wait = None;
+            self.wants_show = true;
+        }
+    }
+
+    /// Reads and changes the real login registration from now on, starting
+    /// with a read for the Settings row; the answer comes from the
+    /// backend's runtime.
+    pub fn use_login_registration(&mut self) {
+        self.autostart_live = true;
+        self.refresh_autostart();
+    }
+
+    /// Reads the login registration again, so a change made in the system's
+    /// own settings shows, unless a change of ours is on its way.
+    pub fn refresh_autostart(&mut self) {
+        let request = self.autostart.read();
+        self.send_autostart(request);
+    }
+
+    fn send_autostart(&mut self, request: Option<crate::autostart::Request>) {
+        if let Some(request) = request
+            && self.autostart_live
+        {
+            self.backend.send(Command::Autostart(request));
+        }
+    }
+
+    /// Takes the registration's answer, then sends the person's newer pick
+    /// if one came while it was on its way.
+    fn on_autostart(
+        &mut self,
+        request: crate::autostart::Request,
+        result: Result<crate::autostart::State, String>,
+    ) {
+        let answered = self.autostart.answered(request, result);
+        if let Some(error) = answered.failed {
+            log::warn!("couldn't change how Fastsonic starts at login: {error}");
+            self.toast_error("Couldn't change how Fastsonic starts with your computer.");
+        }
+        self.send_autostart(answered.next);
     }
 
     // ---- derived state -----------------------------------------------------
@@ -1482,6 +1616,7 @@ impl App {
                     self.account_id = Some(account);
                 }
                 Event::Queue(queue) => self.handle_queue(*queue),
+                Event::Autostart { request, result } => self.on_autostart(request, result),
                 Event::UpdateChecked { manual, result } => {
                     self.update_checking = false;
                     match result {
@@ -2910,7 +3045,8 @@ impl App {
             Page::Radio(seed) => self.load_radio(&seed),
             // The queue page has nothing to load: the engine's last word
             // on the queue is already here.
-            Page::Queue | Page::Settings => {}
+            Page::Queue => {}
+            Page::Settings => self.refresh_autostart(),
         }
     }
 
@@ -5371,6 +5507,10 @@ impl App {
             }
             Action::ReloadThemes => self.load_custom_themes(),
             Action::OpenThemesFolder => self.open_folder(self.dirs.themes_dir()),
+            Action::SetStartWithComputer(start) => {
+                let request = self.autostart.choose(start);
+                self.send_autostart(request);
+            }
             Action::RestartEngine => {
                 self.save_settings();
                 let config = engine_config(
@@ -5946,6 +6086,8 @@ impl App {
         self.sync_motion(ctx);
         self.sync_power(ctx);
         self.handle_tray();
+        let tray_shown = self.tray.as_ref().is_some_and(TrayService::is_shown);
+        self.check_tray_wait(Instant::now(), tray_shown);
         #[cfg(target_os = "macos")]
         self.handle_dock_menu();
         self.handle_notch_commands();
@@ -11259,6 +11401,61 @@ mod tests {
             assert_eq!(ctx.zoom_factor(), applied, "hidden {hidden}, mini {mini}");
             app.backend.shutdown();
         }
+    }
+
+    /// No tray, or closing set to quit: a start in the tray opens the
+    /// window, since nothing could bring a hidden one back.
+    #[test]
+    fn a_hidden_start_without_a_way_back_opens_the_window() {
+        let mut app = headless_app();
+        assert!(app.tray.is_none());
+        assert!(!app.start_hidden());
+        assert!(!app.window_hidden);
+        assert!(!app.starts_hidden());
+        app.backend.shutdown();
+    }
+
+    /// A tray no panel shows yet may only be early at login; with none by
+    /// the deadline the window opens, since nothing could bring it back.
+    #[test]
+    fn a_hidden_start_waits_for_a_panel_then_shows_the_window() {
+        let mut app = headless_app();
+        let started = Instant::now();
+        app.tray_wait = Some(started + TRAY_WAIT);
+        app.check_tray_wait(started + Duration::from_secs(5), false);
+        assert!(!app.wants_show, "still early");
+        app.check_tray_wait(started + TRAY_WAIT, false);
+        assert!(app.wants_show, "no panel came");
+        assert_eq!(app.tray_wait, None);
+
+        app.wants_show = false;
+        app.tray_wait = Some(started + TRAY_WAIT);
+        app.check_tray_wait(started + Duration::from_secs(5), true);
+        assert_eq!(app.tray_wait, None, "a panel shows the item");
+        app.check_tray_wait(started + TRAY_WAIT, false);
+        assert!(!app.wants_show);
+        app.backend.shutdown();
+    }
+
+    /// A pick shows at once; a refusal (the Flatpak portal, a missing
+    /// agent) puts back what the system has and says so. A run that does
+    /// not use the real registration never sends it anything.
+    #[test]
+    fn a_failed_start_with_computer_shows_the_systems_state_again() {
+        use crate::autostart::{Request, Start, State};
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.autostart.state = Some(State::Off);
+        app.apply(Action::SetStartWithComputer(Some(Start::Window)), &ctx);
+        assert_eq!(app.autostart.shown(), Some(Start::Window), "shown at once");
+        app.on_autostart(Request::Set(Some(Start::Window)), Err("not allowed".into()));
+        assert_eq!(app.autostart.shown(), None);
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("starts with your computer"))
+        );
+        app.backend.shutdown();
     }
 
     /// Closing hides to the tray only when the tray can take the app, and

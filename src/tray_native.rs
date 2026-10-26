@@ -269,8 +269,13 @@ impl TrayService {
         }
     }
 
+    /// Whether the taskbar shows the item, which it does once it exists.
+    pub fn is_shown(&self) -> bool {
+        true
+    }
+
     /// Nothing to do: the item lives on its own thread from the start.
-    pub fn attach(&mut self) {}
+    pub fn attach(&mut self, _activate: bool) {}
 
     /// Nothing to do either; see `attach`.
     pub fn hidden(&mut self) {}
@@ -745,16 +750,22 @@ impl TrayService {
     /// on one of the two bars.
     pub fn set_icon_colour(&mut self, _colour: crate::settings::TrayIcon) {}
 
-    /// A window exists: make the item if this is the first one and bring the
-    /// application forward.
-    pub fn attach(&mut self) {
+    /// Whether the menu bar will show the item: it is made with the first
+    /// window, which every run has.
+    pub fn is_shown(&self) -> bool {
+        true
+    }
+
+    /// A window exists: make the item if this is the first one and, when
+    /// `activate`, bring the application forward.
+    pub fn attach(&mut self, activate: bool) {
         if let Some((sender, wake)) = self.pending.take() {
             host::create(sender, wake, self.playing);
         }
         if self.life.window() {
             host::renew();
         }
-        if host::exists() {
+        if activate && host::exists() {
             host::activate();
         }
     }

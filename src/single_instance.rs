@@ -195,8 +195,26 @@ fn send_to(port: u16, verb: &str) -> std::io::Result<Reply> {
     }
 }
 
+/// What a launch asks of the copy already running: to show its window, or
+/// for a hidden start (at login, in the tray) a read it answers without
+/// coming forward.
 #[cfg(not(target_os = "linux"))]
-pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
+fn launch_request(hidden: bool) -> &'static str {
+    if hidden { "nowplaying" } else { "show" }
+}
+
+/// Whether the copy on `port` answered a launch as Fastsonic, which then
+/// shows its window unless the launch is `hidden`.
+#[cfg(not(target_os = "linux"))]
+fn surface(port: u16, hidden: bool) -> bool {
+    send_to(port, launch_request(hidden))
+        .is_ok_and(|reply| matches!(reply, Reply::Ok | Reply::NowPlaying(_)))
+}
+
+/// Claims the running-instance role, or asks the copy that has it to come
+/// forward. A `hidden` start leaves the running one where it is.
+#[cfg(not(target_os = "linux"))]
+pub fn acquire(waker: &crate::backend::Waker, hidden: bool) -> Outcome {
     use std::net::{Ipv4Addr, TcpListener};
     use std::sync::{Arc, Mutex};
 
@@ -209,8 +227,7 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
         Ok(listener) => listener,
         Err(_) => {
             // Raise the existing instance only if the port answers as Fastsonic.
-            let answered = send("show").is_ok_and(|reply| matches!(reply, Reply::Ok));
-            if answered {
+            if surface(INSTANCE_PORT, hidden) {
                 return Outcome::Surfaced;
             }
             log::warn!("port {INSTANCE_PORT} is busy but not with Fastsonic; running unguarded");
@@ -365,8 +382,10 @@ fn read_line(stream: &mut std::net::TcpStream) -> Option<String> {
     String::from_utf8(line.to_vec()).ok()
 }
 
+/// Claims the running-instance role, or asks the copy that has it to come
+/// forward. A `hidden` start leaves the running one where it is.
 #[cfg(target_os = "linux")]
-pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
+pub fn acquire(waker: &crate::backend::Waker, hidden: bool) -> Outcome {
     use mpris_server::zbus::blocking::Connection;
     use mpris_server::zbus::fdo::{RequestNameFlags, RequestNameReply};
 
@@ -400,7 +419,7 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
             Outcome::Only(guard(Some(connection)))
         }
         Ok(_) | Err(mpris_server::zbus::Error::NameTaken) => {
-            if !raise_running_instance(&connection) {
+            if !hidden && !raise_running_instance(&connection) {
                 log::warn!(
                     "Fastsonic is already running but did not answer; not starting a second copy"
                 );
@@ -773,6 +792,39 @@ mod tests {
 
         drop(served);
     }
+
+    /// A start at login in the tray that finds Fastsonic running (the
+    /// person opened it first) ends without bringing it forward; any other
+    /// launch asks for its window.
+    #[test]
+    fn a_hidden_second_launch_leaves_the_first_where_it_is() {
+        use std::net::{Ipv4Addr, TcpListener};
+        use std::sync::{Arc, Mutex};
+
+        // #given
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a loopback port");
+        let port = listener.local_addr().expect("a bound address").port();
+        let commands: Arc<Mutex<Vec<ControlCommand>>> = Default::default();
+        let served = {
+            let commands = Arc::clone(&commands);
+            let now_playing = Arc::new(Mutex::new(NOTHING_PLAYING.to_owned()));
+            let waker = crate::backend::Waker::default();
+            std::thread::spawn(move || serve(listener, &commands, &now_playing, &waker))
+        };
+
+        // #when
+        let hidden = surface(port, true);
+
+        // #then
+        assert!(hidden, "it is Fastsonic, so this launch ends");
+        assert!(commands.lock().expect("the queue").is_empty());
+        assert!(surface(port, false));
+        assert_eq!(
+            *commands.lock().expect("the queue"),
+            vec![ControlCommand::Show]
+        );
+        drop(served);
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -813,7 +865,7 @@ mod linux_tests {
             return;
         }
         assert!(toggle_saved().is_err(), "nothing is running yet");
-        let Outcome::Only(guard) = acquire(&Default::default()) else {
+        let Outcome::Only(guard) = acquire(&Default::default(), false) else {
             panic!("the first instance holds the name");
         };
         toggle_saved().unwrap();

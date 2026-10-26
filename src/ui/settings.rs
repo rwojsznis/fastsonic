@@ -362,6 +362,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 },
             );
         }
+        // Offered once the system has said what it has registered, and only
+        // where something can be.
+        if app.autostart.available() {
+            start_with_computer_row(app, ui, &palette);
+        }
         // Applied by the app's next pass (App::sync_dock_icon).
         #[cfg(target_os = "macos")]
         widgets::setting_row(
@@ -1229,6 +1234,65 @@ const RELEASE_NOTES_URL: &str = concat!(
 
 /// The Theme picker, wide enough for most palette names.
 const THEME_PICKER_WIDTH: f32 = 200.0;
+
+/// The choices for starting with the computer, in reading order.
+fn start_with_computer_choices() -> [(Option<crate::autostart::Start>, &'static str); 3] {
+    use crate::autostart::Start;
+    [
+        (None, "Off"),
+        (Some(Start::Window), "With the window"),
+        (Some(Start::Hidden), "In the tray"),
+    ]
+}
+
+/// What the row says under its title: how to finish a registration the
+/// system holds for approval, why a start in the tray opens the window
+/// while nothing keeps Fastsonic there, or what the choices do.
+fn start_with_computer_detail(
+    state: Option<crate::autostart::State>,
+    choice: Option<crate::autostart::Start>,
+    keeps_running: bool,
+) -> &'static str {
+    use crate::autostart::{Start, State};
+    if matches!(state, Some(State::NeedsApproval(_))) && choice.is_some() {
+        "Allow Fastsonic in System Settings, General, Login Items."
+    } else if choice == Some(Start::Hidden) && !keeps_running {
+        "Starting in the tray needs Keep music playing when the window closes. Until then, the window opens."
+    } else {
+        "Open Fastsonic when you log in, with its window or in the tray."
+    }
+}
+
+/// Start with your computer: a pick shows at once and goes to the system,
+/// whose own record is what the row shows after (App::refresh_autostart).
+fn start_with_computer_row(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
+    let current = app.autostart.shown();
+    let detail = start_with_computer_detail(
+        app.autostart.state,
+        current,
+        app.settings.keep_playing_in_background,
+    );
+    let options = start_with_computer_choices();
+    let width = choices_width(ui, options.map(|(_, label)| label));
+    widgets::setting_row_sized(
+        ui,
+        palette,
+        "Start with your computer",
+        detail,
+        width,
+        |ui| {
+            // Laid right to left, so the last choice goes first.
+            choices(ui, width, options.len(), |ui, index| {
+                let (start, label) = options[options.len() - 1 - index];
+                if theme::soft_button(ui, palette, None, label, current == start).clicked()
+                    && current != start
+                {
+                    app.actions.push(Action::SetStartWithComputer(start));
+                }
+            });
+        },
+    );
+}
 
 /// What an icon adds to a `soft_button`'s width.
 const SOFT_BUTTON_ICON: f32 = 15.0 + 6.0;

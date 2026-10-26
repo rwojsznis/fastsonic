@@ -441,6 +441,10 @@ pub enum Command {
         snapshot: String,
         items: Vec<PlaylistItem>,
     },
+    /// Read or change the login registration, off the UI thread: it reads
+    /// and writes a file, the registry or D-Bus, and the Flatpak portal may
+    /// ask the person first.
+    Autostart(crate::autostart::Request),
 }
 
 /// What a sign-in attempt produced, on its way back to the command loop.
@@ -484,6 +488,12 @@ pub enum Event {
     Lyrics {
         uri: String,
         result: Result<Option<crate::lyrics::Lyrics>, String>,
+    },
+    /// The login registration after `request`: what the system has now, or
+    /// why the change failed.
+    Autostart {
+        request: crate::autostart::Request,
+        result: Result<crate::autostart::State, String>,
     },
     /// A playlist's items as last cached, with the snapshot they belong to.
     PlaylistCache {
@@ -837,6 +847,15 @@ impl Worker {
                     snapshot,
                     items,
                 } => self.store_playlist_cache(id, snapshot, items),
+                Command::Autostart(request) => {
+                    let events = self.events.clone();
+                    let waker = self.waker.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let result = request.run();
+                        let _ = events.send(Event::Autostart { request, result });
+                        waker.wake();
+                    });
+                }
             }
         }
         if let Some(engine) = self.engine.take() {

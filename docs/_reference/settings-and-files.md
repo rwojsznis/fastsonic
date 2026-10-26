@@ -27,6 +27,19 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 `%LOCALAPPDATA%\\github.rwojsznis\\fastsonic\\data`, and caches use the sibling
 `cache` directory.
 
+Starting with your computer (Settings → Playback on this computer) is kept
+where each system keeps it, not in `settings.json`:
+
+| Platform | Where |
+| --- | --- |
+| Linux | `~/.config/autostart/fastsonic.desktop` (`$XDG_CONFIG_HOME/autostart`), which runs `fastsonic`, with `--start-hidden` for the tray |
+| Flatpak | Registered through the desktop's background portal; Fastsonic keeps a copy of what it asked for in `~/.var/app/io.github.rwojsznis.Fastsonic/config/autostart/fastsonic.desktop` |
+| macOS 13 and later | Login Items: Fastsonic itself to open with the window, or the `io.github.rwojsznis.fastsonic.autostart` agent inside the app, which opens it with `--start-hidden` |
+| Windows | The `Fastsonic` value under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` |
+
+Deleting the entry turns it off. Uninstalling Fastsonic does not remove the
+Linux or Windows entry; choose **Off** first.
+
 The session is saved shortly after it changes, including when a new song
 starts, and every 30 seconds while music plays, so a crash or a power cut
 resumes close to where you were. It keeps the shuffle and repeat modes too,
@@ -327,6 +340,12 @@ still refresh in the background, so this changes only what is drawn.
 
 ## Command line
 
+`fastsonic --start-hidden` starts in the tray, without a window: it is what
+**Start with your computer → In the tray** runs at login. Without the tray,
+or with **Keep music playing when the window closes** off, the window opens
+anyway, and on Linux it also opens when no panel shows the tray icon within
+30 seconds. When Fastsonic is already running, it stays as it is.
+
 `fastsonic -v` logs more from the audio engine and server API client. Attach
 `fastsonic.log` to bug reports and `panic.log` after a crash; credential values
 are redacted. A window that stops responding for a quarter of a second or more
@@ -377,9 +396,11 @@ none,
 its details, `home-loading`, for Home while its shelves are still loading,
 `system-light` and `system-dark`, for Follow system with Catppuccin Latte
 and Catppuccin as the light and dark mode themes, on a desktop fixed light
-or dark on Linux and as the system is elsewhere, and `eq-user-presets`, for
-a saved equalizer preset in use); and `--demo-shot <PATH>`
+or dark on Linux and as the system is elsewhere, `eq-user-presets`, for a
+saved equalizer preset in use, and `start-in-tray`, for **Start with your
+computer** set to **In the tray**); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a
 profile of its own under the system temporary directory, so it never reads the
 saved sign-in, never contacts your server, and leaves your settings, session,
-history, caches and log alone.
+history, caches and log alone. It never reads or changes the real login
+entry either.

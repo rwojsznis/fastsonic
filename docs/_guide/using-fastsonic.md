@@ -301,6 +301,33 @@ power-saver profile on Linux), at most 30 frames a second while it saves
 energy, and not at all while nobody can see the window: minimised, closed to
 the tray, with the display off or the screen locked.
 
+## Starting with your computer
+
+**Settings → Playback on this computer → Start with your computer** opens
+Fastsonic when you log in. **With the window** opens it as you would; **In
+the tray** starts it without a window, ready for media keys and the tray
+icon. **Off** leaves your login alone.
+
+The setting is your system's own list of what starts at login, read back each
+time Settings opens, so turning Fastsonic off there (System Settings on macOS,
+Task Manager's Startup apps on Windows, your desktop's autostart settings on
+Linux) shows here too.
+
+- **In the tray** needs **Keep music playing when the window closes**:
+  without it nothing could bring a hidden window back, so the window opens
+  instead and the row says so. On Linux the window also opens when no panel
+  shows the tray icon within 30 seconds of logging in; a panel that comes
+  later still gets the icon, and closing the window keeps Fastsonic in the
+  tray only while a panel shows it.
+- **macOS** asks you to allow it in **System Settings → General → Login
+  Items** when it holds the item for approval; the row says so until then.
+  It needs macOS 13 or later and the app from the disk image, not a build run
+  through Cargo.
+- **Flatpak** asks the desktop's background portal, which may ask you first.
+  A change made later in the desktop's own settings is not seen by Fastsonic.
+- If Fastsonic is already running when the login entry runs, nothing
+  happens: it stays where it is.
+
 ## macOS menu bar and Dock menu
 
 Click Fastsonic's menu-bar icon to open its menu. From there you can show or

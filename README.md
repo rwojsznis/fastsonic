@@ -67,7 +67,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   Lyrics give up width before the top bar's controls run together, and get
   it back when the window widens.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
-  shortcuts, tray/Dock reopening, a Play/Pause, Next and Previous Dock menu
+  shortcuts, starting with your computer, with the window or in the tray,
+  tray/Dock reopening, a Play/Pause, Next and Previous Dock menu
   on macOS, where Fastsonic can also live in the menu bar alone, the same
   three buttons under the taskbar preview on Windows,
   and single-instance behavior. On a MacBook with a notch, an optional

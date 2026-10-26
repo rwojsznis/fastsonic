@@ -119,6 +119,26 @@ pub fn skip_x11_taskbar(window: raw_window_handle::RawWindowHandle) {
     }
 }
 
+/// Makes a macOS window that is never to be seen fully transparent and deaf
+/// to the pointer, so that eframe's showing it after its first frame shows
+/// nothing: the window a start in the menu bar launches AppKit with. Any
+/// other handle is left alone.
+#[cfg(target_os = "macos")]
+pub fn conceal(window: raw_window_handle::RawWindowHandle) {
+    use objc2_app_kit::{NSView, NSWindow};
+    let raw_window_handle::RawWindowHandle::AppKit(handle) = window else {
+        return;
+    };
+    // SAFETY: winit hands over the content view of a live window, on the
+    // main thread, where the app creator runs.
+    let view: &NSView = unsafe { handle.ns_view.cast().as_ref() };
+    if let Some(window) = view.window() {
+        let window: &NSWindow = &window;
+        window.setAlphaValue(0.0);
+        window.setIgnoresMouseEvents(true);
+    }
+}
+
 #[cfg(target_os = "linux")]
 mod x11 {
     use x11rb::connection::Connection;

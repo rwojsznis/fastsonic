@@ -18,6 +18,12 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
+    /// Start in the tray, without a window, as Start with your computer's
+    /// In the tray does. Without the tray, or with "Keep music playing when
+    /// the window closes" off, the window opens anyway.
+    #[arg(long)]
+    start_hidden: bool,
+
     /// Start with sample data and no server connection (for screenshots).
     #[cfg(feature = "demo")]
     #[arg(long)]
@@ -33,7 +39,7 @@ struct Cli {
     /// `focus`, `resume`, `lyrics`, `lyrics-fullscreen`, `player-bar-spectrum`,
     /// `player-bar-waveform`, `scripts`, `rtl`, `signed-out`, `connecting`, `library-list` and
     /// `library-grid` (each also `-narrow` or `-wide`), `collection-loading`,
-    /// and the Winamp ones.
+    /// `start-in-tray`, and the Winamp ones.
     #[cfg(feature = "demo")]
     #[arg(long)]
     demo_show: Option<String>,
@@ -425,8 +431,12 @@ fn main() -> eframe::Result<()> {
     #[cfg(not(feature = "demo"))]
     let guarded = true;
     let instance = if guarded {
-        match single_instance::acquire(&waker) {
+        match single_instance::acquire(&waker, cli.start_hidden) {
             single_instance::Outcome::Only(guard) => Some(guard),
+            single_instance::Outcome::Surfaced if cli.start_hidden => {
+                log::info!("Fastsonic is already running");
+                return Ok(());
+            }
             single_instance::Outcome::Surfaced => {
                 log::info!("Fastsonic is already running; asked it to show its window");
                 return Ok(());
@@ -464,6 +474,17 @@ fn main() -> eframe::Result<()> {
         fastsonic::demo::populate(&mut app);
         fastsonic::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
     }
+    // A demo never reads or changes the real login registration.
+    #[cfg(feature = "demo")]
+    let real = !demo;
+    #[cfg(not(feature = "demo"))]
+    let real = true;
+    if real {
+        app.use_login_registration();
+    }
+    // A start at login in the tray. The app opens the window itself when
+    // nothing would keep it in the tray.
+    let start_hidden = start_hidden(cli.start_hidden, real) && app.start_hidden();
     #[cfg(feature = "demo")]
     let shot = cli.demo_shot.clone().map(|path| Shot {
         path,
@@ -478,7 +499,14 @@ fn main() -> eframe::Result<()> {
     let demo_storage = app.dirs.cache.join("demo-window.ron");
     let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(app)));
 
+    // Linux and Windows need no window to start in the tray, so the app
+    // goes there straight away. macOS needs one to launch the app at all,
+    // so its first window is made unseen and closes itself to the menu bar.
+    let quit_at_once = !cfg!(target_os = "macos") && start_hidden && stay_in_tray(&slot, &waker);
     loop {
+        if quit_at_once {
+            break;
+        }
         let creator_slot = std::sync::Arc::clone(&slot);
         let creator_waker = waker.clone();
         #[cfg(feature = "demo")]
@@ -506,7 +534,7 @@ fn main() -> eframe::Result<()> {
         let options = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
             let app = guard.as_ref().expect("application state present");
-            launch_options(options, !app.shows_in_dock_at_launch())
+            launch_options(options, !app.shows_in_dock_at_launch(), app.starts_hidden())
         };
         let persist_memory = options.persist_window;
         #[cfg(target_os = "linux")]
@@ -547,6 +575,14 @@ fn main() -> eframe::Result<()> {
                     // the app while it lives in the menu bar.
                     let wake = creator_waker.clone();
                     fastsonic::mac_menu::set_waker(move || wake.wake());
+                    // The window a start in the menu bar launches the app
+                    // with is never seen; its first pass closes it.
+                    if app.starts_hidden() {
+                        use raw_window_handle::HasWindowHandle;
+                        if let Ok(handle) = cc.window_handle() {
+                            fastsonic::window::conceal(handle.as_raw());
+                        }
+                    }
                 }
                 {
                     use raw_window_handle::HasDisplayHandle;
@@ -630,36 +666,7 @@ fn main() -> eframe::Result<()> {
             break;
         }
 
-        // Tray life: no window, but audio, MPRIS, the tray, and polling all
-        // keep running until Show or Quit.
-        let headless = egui::Context::default();
-        slot.lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_mut()
-            .expect("application state present")
-            .window_gone();
-        // Each pass sleeps until something is due, and tray clicks, media
-        // keys and the backend's events wake it at once.
-        loop {
-            let wait = {
-                let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-                let app = guard.as_mut().expect("application state present");
-                headless_pass(&headless, |ctx| app.background_frame(ctx));
-                if app.quit_requested || app.wants_show {
-                    break;
-                }
-                app.headless_wait()
-            };
-            fastsonic::tray::idle(wait, &waker);
-        }
-        let quit = {
-            let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-            guard
-                .as_ref()
-                .expect("application state present")
-                .quit_requested
-        };
-        if quit {
+        if stay_in_tray(&slot, &waker) {
             break;
         }
     }
@@ -668,6 +675,40 @@ fn main() -> eframe::Result<()> {
         app.shutdown();
     }
     Ok(())
+}
+
+/// Tray life: no window, but audio, MPRIS, the tray, and polling all keep
+/// running until Show or Quit. Whether it ended in Quit.
+fn stay_in_tray(slot: &std::sync::Mutex<Option<app::App>>, waker: &backend::Waker) -> bool {
+    let headless = egui::Context::default();
+    slot.lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_mut()
+        .expect("application state present")
+        .window_gone();
+    // Each pass sleeps until something is due, and tray clicks, media keys
+    // and the backend's events wake it at once.
+    loop {
+        let wait = {
+            let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
+            let app = guard.as_mut().expect("application state present");
+            headless_pass(&headless, |ctx| app.background_frame(ctx));
+            if app.quit_requested {
+                return true;
+            }
+            if app.wants_show {
+                return false;
+            }
+            app.headless_wait()
+        };
+        fastsonic::tray::idle(wait, waker);
+    }
+}
+
+/// Whether the first window waits in the tray: asked for (a start at login
+/// in the tray), and not a demo, which shows itself.
+fn start_hidden(requested: bool, real: bool) -> bool {
+    requested && real
 }
 
 /// Runs one tick in the tray as an egui pass on the windowless context.
@@ -773,14 +814,20 @@ fn mini_creation_position(position: Option<[f32; 2]>, on_windows: bool) -> Optio
 /// this then. `accessory` starts it out of the Dock, as Settings can ask:
 /// a packaged app would otherwise show in the Dock until the window's
 /// first pass took it out, and winit puts a run outside a bundle there
-/// as it launches.
+/// as it launches. `background` leaves the app behind the one in front, as
+/// a start in the menu bar at login asks.
 #[cfg(target_os = "macos")]
-fn launch_options(mut options: eframe::NativeOptions, accessory: bool) -> eframe::NativeOptions {
+fn launch_options(
+    mut options: eframe::NativeOptions,
+    accessory: bool,
+    background: bool,
+) -> eframe::NativeOptions {
     use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
     options.event_loop_builder = Some(Box::new(move |builder| {
         if accessory {
             builder.with_activation_policy(ActivationPolicy::Accessory);
         }
+        builder.with_activate_ignoring_other_apps(!background);
     }));
     options
 }
@@ -1421,8 +1468,8 @@ mod native_window_tests {
     #[test]
     fn a_launch_out_of_the_dock_asks_the_event_loop() {
         let mut builder = winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event();
-        for accessory in [false, true] {
-            let options = launch_options(native_options(false, None, None), accessory);
+        for (accessory, background) in [(false, false), (true, false), (false, true)] {
+            let options = launch_options(native_options(false, None, None), accessory, background);
             let hook = options.event_loop_builder.expect("a hook for the loop");
             hook(&mut builder);
         }
@@ -1570,6 +1617,27 @@ mod native_window_tests {
     fn only_windows_removes_the_native_frame() {
         assert!(!main_window_decorated(true));
         assert!(main_window_decorated(false));
+    }
+
+    /// The login entry's `--start-hidden` starts in the tray, except in a
+    /// demo, which shows itself.
+    #[test]
+    fn a_start_at_login_in_the_tray_waits_unless_it_is_a_demo() {
+        let launch = Cli::try_parse_from(["fastsonic", "--start-hidden"]).expect("it parses");
+        assert!(launch.start_hidden);
+        assert!(
+            !Cli::try_parse_from(["fastsonic"])
+                .expect("it parses")
+                .start_hidden
+        );
+        assert_eq!(
+            fastsonic::autostart::START_HIDDEN,
+            "--start-hidden",
+            "the argument the login entry passes"
+        );
+        assert!(start_hidden(true, true));
+        assert!(!start_hidden(false, true));
+        assert!(!start_hidden(true, false), "a demo shows itself");
     }
 
     /// `play-search` takes its words unquoted, a song by default, and

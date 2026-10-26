@@ -7,6 +7,7 @@
 //! present, spawning fails and the app simply quits on close as before.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
@@ -27,6 +28,8 @@ struct FastTray {
     wake: Arc<dyn Fn() + Send + Sync>,
     playing: bool,
     colour: crate::settings::TrayIcon,
+    /// Whether a panel's status-notifier watcher has the item.
+    shown: Arc<AtomicBool>,
 }
 
 impl FastTray {
@@ -64,6 +67,22 @@ impl ksni::Tray for FastTray {
 
     fn activate(&mut self, _x: i32, _y: i32) {
         self.send(TrayCommand::ShowHide);
+    }
+
+    /// A panel came, after none at the start or after the last one went:
+    /// ksni registers the item with it.
+    fn watcher_online(&self) {
+        self.shown.store(true, Ordering::SeqCst);
+        (self.wake)();
+    }
+
+    /// No panel shows the item (yet): ksni keeps it and registers it when
+    /// one comes.
+    fn watcher_offline(&self, reason: ksni::OfflineReason) -> bool {
+        log::info!("no panel shows the tray item: {reason:?}");
+        self.shown.store(false, Ordering::SeqCst);
+        (self.wake)();
+        true
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -114,29 +133,43 @@ pub struct TrayService {
     commands: Receiver<TrayCommand>,
     playing: bool,
     colour: crate::settings::TrayIcon,
+    shown: Arc<AtomicBool>,
 }
 
 impl TrayService {
-    /// Registers the tray item. `None` when no status-notifier host exists.
+    /// Registers the tray item. `None` without a session bus. A panel that
+    /// is not there yet, as at login, may come later: ksni registers the
+    /// item with it then, and [`is_shown`](Self::is_shown) says whether one
+    /// has it.
     pub fn spawn(wake: impl Fn() + Send + Sync + 'static) -> Option<Self> {
         let (sender, commands) = std::sync::mpsc::channel();
+        let shown = Arc::new(AtomicBool::new(true));
         let tray = FastTray {
             commands: sender,
             wake: Arc::new(wake),
             playing: false,
             colour: crate::settings::TrayIcon::Colour,
+            shown: Arc::clone(&shown),
         };
         // Flatpak allows talking to the watcher, but not owning ksni's
         // generated StatusNotifierItem name. Register the unique connection
         // name instead, as ksni requires for sandboxed applications.
         let flatpak = std::path::Path::new("/.flatpak-info").exists()
             || std::env::var_os("FLATPAK_ID").is_some();
-        match tray.disable_dbus_name(flatpak).spawn() {
+        // Without a watcher yet, the registration is tried again when one
+        // comes; ksni says so through `watcher_offline` before `spawn`
+        // returns.
+        match tray
+            .disable_dbus_name(flatpak)
+            .assume_sni_available(true)
+            .spawn()
+        {
             Ok(handle) => Some(Self {
                 handle,
                 commands,
                 playing: false,
                 colour: crate::settings::TrayIcon::Colour,
+                shown,
             }),
             Err(error) => {
                 log::info!("no system tray available: {error}");
@@ -166,8 +199,14 @@ impl TrayService {
         }
     }
 
+    /// Whether a panel shows the item, so closing the window can hide it
+    /// there.
+    pub fn is_shown(&self) -> bool {
+        self.shown.load(Ordering::SeqCst)
+    }
+
     /// Nothing to do: the item lives on its own thread from the start.
-    pub fn attach(&mut self) {}
+    pub fn attach(&mut self, _activate: bool) {}
 
     /// Nothing to do either; see `attach`.
     pub fn hidden(&mut self) {}

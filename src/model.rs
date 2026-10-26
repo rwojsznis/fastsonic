@@ -1016,6 +1016,8 @@ pub enum Action {
     /// colours if its file changed.
     ReloadThemes,
     OpenThemesFolder,
+    /// Start Fastsonic when the person logs in, this way, or not at all.
+    SetStartWithComputer(Option<crate::autostart::Start>),
     /// Choose how one Library section is ordered.
     SetLibrarySort {
         shelf: crate::settings::LibraryShelf,
