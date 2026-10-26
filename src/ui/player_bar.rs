@@ -467,7 +467,6 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let text_left = cover_rect.right() + 12.0;
     let text_width = (region.right() - text_left - heart_width).max(40.0);
     let text_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
-    let info_response = ui.interact(text_rect, egui::Id::new("now-playing-info"), drag_sense);
     let mut text_ui = ui.new_child(
         UiBuilder::new()
             .max_rect(text_rect)
@@ -475,35 +474,50 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     );
     text_ui.set_clip_rect(text_rect.intersect(ui.clip_rect()));
     text_ui.spacing_mut().item_spacing.y = 2.0;
-    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text);
+    // The words take their own clicks, drags and menu, each as wide as it
+    // is drawn; the space around them is the visualizer's, as the rest of
+    // the bar's empty space is.
+    let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text)
+        .interact(drag_sense);
     if title_response.clicked()
         && let Some(id) = &now.album_id
     {
         app.actions.push(Action::Open(Page::Album(id.clone())));
     }
+    let mut responses = vec![cover_response, title_response];
     text_ui.horizontal_top(|ui| {
-        if !now.artists.is_empty() {
-            super::widgets::artist_links(
-                ui,
-                app,
-                &now.artists,
-                theme::regular(12.0),
-                palette.secondary,
-            );
+        ui.spacing_mut().item_spacing.x = 0.0;
+        for (index, artist) in now.artists.iter().enumerate() {
+            if index > 0 {
+                theme::text(ui, ", ", theme::regular(12.0), palette.secondary);
+            }
+            let response = if artist.id.is_some() {
+                theme::link(ui, &artist.name, theme::regular(12.0), palette.secondary)
+            } else {
+                theme::text(ui, &artist.name, theme::regular(12.0), palette.secondary)
+            }
+            .interact(drag_sense);
+            if response.clicked()
+                && let Some(id) = &artist.id
+            {
+                app.actions.push(Action::Open(Page::Artist(id.clone())));
+            }
+            responses.push(response);
         }
     });
-    if (cover_response.drag_started_by(egui::PointerButton::Primary)
-        || info_response.drag_started_by(egui::PointerButton::Primary))
+    if responses
+        .iter()
+        .any(|response| response.drag_started_by(egui::PointerButton::Primary))
         && let Some(item) = &song
     {
         egui::DragAndDrop::set_payload(ui.ctx(), DragTrack::song(item, None));
     }
 
     // The playing thing answers the same right-click menu as a table row,
-    // from the cover, the empty space around the words, or the words.
+    // from the cover or the words.
     if let Some(item) = song {
         let context = app.editable_context_playlist();
-        for response in [&cover_response, &info_response, &title_response] {
+        for response in &responses {
             egui::Popup::context_menu(response)
                 .frame(super::widgets::menu_frame(&palette))
                 .show(|ui| super::widgets::item_menu(ui, app, &item, context.as_ref(), None));

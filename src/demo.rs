@@ -2223,6 +2223,73 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Beside an artist line shorter than the title, the player bar's empty
+    /// space is the visualizer's control, and the words keep their links.
+    #[test]
+    fn a_click_beside_the_playing_artist_changes_the_visualizer() {
+        use crate::engine::{LocalState, LocalTrack, Playback};
+        let (ctx, mut app) = accessible_app("player-bar-beside-artist");
+        app.settings.player_bar_vis_click = true;
+        let title = "A song with a rather long title";
+        let mut cached = app.track_cache["trk0"].clone();
+        cached.name = title.into();
+        cached.artists = vec![ArtistRef {
+            id: Some("short".into()),
+            name: "Abba".into(),
+            uri: Some(artist_uri("short")),
+        }];
+        app.track_cache.insert("trk0".into(), cached);
+        app.local = LocalState {
+            playback: Playback::Playing,
+            track: Some(LocalTrack {
+                uri: track_uri("trk0"),
+                title: title.into(),
+                artists: vec!["Abba".into()],
+                duration_ms: 200_000,
+                ..LocalTrack::default()
+            }),
+            ..LocalState::default()
+        };
+        let view = crate::ui::player_bar::show;
+        let size = egui::vec2(1280.0, 800.0);
+        view_frame_sized(&ctx, &mut app, vec![], view, size);
+        let text = view_frame_sized(&ctx, &mut app, vec![], view, size);
+        let rect = |label: &str| text.iter().find(|(text, _)| text == label).unwrap().1;
+        let title = rect(title);
+        let artist = rect("Abba");
+        assert!(title.right() > artist.right() + 40.0);
+
+        app.actions.clear();
+        let beside = egui::pos2((artist.right() + title.right()) / 2.0, artist.center().y);
+        view_frame_sized(
+            &ctx,
+            &mut app,
+            pointer_click(beside, egui::PointerButton::Primary),
+            view,
+            size,
+        );
+        assert!(
+            matches!(app.actions.as_slice(), [Action::CyclePlayerBarVis]),
+            "{:?}",
+            app.actions
+        );
+
+        app.actions.clear();
+        view_frame_sized(
+            &ctx,
+            &mut app,
+            pointer_click(artist.center(), egui::PointerButton::Primary),
+            view,
+            size,
+        );
+        assert!(
+            matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if id == "short"),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn the_liked_songs_menu_is_as_narrow_as_the_other_menus() {
         use egui::accesskit::Role;
