@@ -865,9 +865,11 @@ impl SubsonicClient {
             Some((convert::Kind::Track, id)) => {
                 let (song, similar) =
                     tokio::join!(self.get_song(id), self.similar_songs(id, count));
-                let song = convert::track(&song?);
+                let song = song?;
+                let songs = seed_first(&song, similar?, RADIO_SIZE);
+                let song = convert::track(&song);
                 let images = song.album.map(|album| album.images).unwrap_or_default();
-                (song.name, images, similar?)
+                (song.name, images, songs)
             }
             Some((convert::Kind::Album, id)) => {
                 let (album, similar) =
@@ -1007,6 +1009,21 @@ fn playlist_seeds<'a>(
     let missing = wanted.saturating_sub(seeds.len());
     seeds.extend(rest.into_iter().take(missing));
     seeds
+}
+
+/// A song radio: the seed once, first, then the server's similar songs in
+/// their order, at most `cap` in all. The server may leave the seed out or
+/// put it anywhere, and a radio that never plays its own song is a strange
+/// one. With no similar songs there is no radio, and the seed alone is not
+/// one either.
+fn seed_first(seed: &Child, similar: Vec<Child>, cap: usize) -> Vec<Child> {
+    if similar.iter().all(|song| song.id == seed.id) {
+        return Vec::new();
+    }
+    std::iter::once(seed.clone())
+        .chain(similar.into_iter().filter(|song| song.id != seed.id))
+        .take(cap)
+        .collect()
 }
 
 /// One list from several, a song from each in turn, without repeats and at
@@ -1298,6 +1315,27 @@ mod tests {
         assert_eq!(picked.len(), 5);
         assert_eq!(playlist_seeds(&playlist[..2], 5, &mut rng).len(), 2);
         assert!(playlist_seeds(&[], 5, &mut rng).is_empty());
+    }
+
+    #[test]
+    fn a_song_radio_starts_with_its_seed_once() {
+        let seed = by("seed", "s");
+        let similar = vec![by("a", "x"), by("seed", "s"), by("b", "y")];
+        assert_eq!(
+            song_ids(&seed_first(&seed, similar.clone(), 50)),
+            ["seed", "a", "b"]
+        );
+        assert_eq!(
+            song_ids(&seed_first(&seed, vec![by("a", "x")], 50)),
+            ["seed", "a"],
+            "a mix without its seed still starts with it"
+        );
+        assert_eq!(song_ids(&seed_first(&seed, similar, 2)), ["seed", "a"]);
+        assert!(seed_first(&seed, Vec::new(), 50).is_empty());
+        assert!(
+            seed_first(&seed, vec![by("seed", "s")], 50).is_empty(),
+            "the seed alone is no radio"
+        );
     }
 
     #[test]

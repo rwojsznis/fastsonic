@@ -121,7 +121,8 @@ middle click. macOS keeps its existing middle-click behaviour.
 **Go to song radio** in a song's menu opens a page of songs your server picks
 to go with it, without starting playback. Playlist, album, and artist menus,
 including the **…** menu on their pages, have **Go to playlist radio**, **Go
-to album radio**, and **Go to artist radio**.
+to album radio**, and **Go to artist radio**. A song's radio starts with the
+song itself, once, followed by the server's picks in its order.
 
 The server picks afresh each time it is asked, so the page keeps the songs it
 shows: **Play** and a double-clicked row play those songs, in the order shown,

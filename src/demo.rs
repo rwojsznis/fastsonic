@@ -683,18 +683,21 @@ pub fn populate(app: &mut App) {
 
     // Radio pages. A song's and a playlist's, as a server with a Last.fm
     // key answers them, and `art0`'s from a bare server, where
-    // `getSimilarSongs2` answers `{}` as it does for every artist.
-    for (seed, name, images, first) in [
+    // `getSimilarSongs2` answers `{}` as it does for every artist. A song
+    // radio starts with the song it is based on.
+    for (seed, name, images, seed_song, first) in [
         (
             track_uri("trk0"),
             &songs[0].name,
             songs[0].album.as_ref().map(|album| album.images.clone()),
+            songs.first(),
             1,
         ),
         (
             playlist_uri("pl1"),
             &playlists[1].name,
             Some(playlists[1].images.clone()),
+            None,
             8,
         ),
     ] {
@@ -702,10 +705,9 @@ pub fn populate(app: &mut App) {
             seed,
             RadioPage {
                 songs: Loadable::Loaded(
-                    songs
-                        .iter()
-                        .skip(first)
-                        .step_by(2)
+                    seed_song
+                        .into_iter()
+                        .chain(songs.iter().skip(first).step_by(2))
                         .take(30)
                         .cloned()
                         .collect(),
