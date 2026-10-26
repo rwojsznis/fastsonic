@@ -559,6 +559,11 @@ fn loose_match(left: &str, right: &str) -> bool {
 /// same words repeat; tags such as `[ar:...]` carry no digits and are
 /// skipped. The result is sorted by time.
 pub fn parse_lrc(text: &str) -> Vec<Line> {
+    // An `.lrc` file saved on Windows often starts with a byte order mark,
+    // which LRCLIB keeps when it is uploaded. U+FEFF is not whitespace, so
+    // `trim_start` would leave it in front of the first stamp and lose that
+    // line.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut lines = Vec::new();
     for raw in text.lines() {
         let mut rest = raw.trim_start();
@@ -788,6 +793,16 @@ mod tests {
         assert_eq!(lines[0].text, "Early");
         assert_eq!(lines[2].text, "Twice");
         assert_eq!(lines[3].text, "Twice");
+    }
+
+    /// Synced words uploaded from a file saved with a byte order mark keep
+    /// their first line, whose stamp the mark used to hide.
+    #[test]
+    fn lrc_text_with_a_byte_order_mark_keeps_its_first_line() {
+        let lines = parse_lrc("\u{feff}[00:01.00]First line\n[00:02.00]Second line\n");
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "First line");
+        assert_eq!(lines[0].at_ms, Some(1_000));
     }
 
     #[test]
