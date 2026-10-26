@@ -382,18 +382,17 @@ fn main() -> eframe::Result<()> {
     // it would reach the real server, write its inventions over the user's
     // own, and truncate the log of an instance already running.
     #[cfg(feature = "demo")]
-    let dirs = if demo {
+    let found = if demo {
         let root = std::env::temp_dir().join(format!("fastsonic-demo-{}", std::process::id()));
-        paths::AppDirs {
-            config: root.join("config"),
-            state: root.join("state"),
-            cache: root.join("cache"),
-        }
+        paths::Found::given(paths::AppDirs::inside(&root))
     } else {
         paths::AppDirs::discover()
     };
+    // A portable Windows copy's own folder, made the first time from the
+    // per-user one, or the per-user one.
     #[cfg(not(feature = "demo"))]
-    let dirs = paths::AppDirs::discover();
+    let found = paths::AppDirs::discover();
+    let dirs = found.dirs.clone();
     let dirs_ready = dirs.ensure();
     let mut logger =
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter));
@@ -412,6 +411,7 @@ fn main() -> eframe::Result<()> {
         std::env::consts::OS,
         std::env::consts::ARCH
     );
+    found.log();
     if let Err(error) = dirs_ready {
         log::warn!("unable to create the application directories: {error}");
     }

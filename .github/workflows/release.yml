@@ -108,6 +108,10 @@ jobs:
           mkdir -p "dist/$name"
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp "target/${{ matrix.target }}/release/fastsonic.exe" "dist/$name/"
+            # Marks the zip's copy as portable: it keeps its files in
+            # fastsonic-data beside the executable (src/paths.rs). The
+            # installer never installs it.
+            cp packaging/windows/fastsonic-portable.txt "dist/$name/"
           else
             cp "target/${{ matrix.target }}/release/fastsonic" "dist/$name/"
           fi

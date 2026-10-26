@@ -27,6 +27,42 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 `%LOCALAPPDATA%\\github.rwojsznis\\fastsonic\\data`, and caches use the sibling
 `cache` directory.
 
+### Portable copies
+
+Fastsonic started from the Windows ZIP keeps its files in a `fastsonic-data`
+folder next to `fastsonic.exe`, instead of the folders above. It knows it is
+the ZIP copy by the `fastsonic-portable.txt` file beside it, which the
+installer never installs.
+
+| What | Where |
+| --- | --- |
+| Settings, skins, MilkDrop presets, themes | `fastsonic-data\config\` |
+| State: the credential, session, history and logs | `fastsonic-data\state\` |
+| Caches | `fastsonic-data\cache\` |
+
+The first time it starts without that folder, it copies (never moves) your
+settings and state from the folders above, so a ZIP copy you ran before
+keeps your preferences and sign-in. Caches and old logs are not copied;
+Fastsonic fills the caches again. The installed Fastsonic keeps its own
+files, and from then on the two never share settings, history, sign-in or
+caches: signing out of one leaves the other signed in. The copy is made in
+`fastsonic-data.partial` and renamed when complete, so a copy interrupted by
+a crash or a power cut is made again at the next start.
+
+If Fastsonic cannot write next to its executable, for example in `Program
+Files` or on read-only media, it uses the folders above and says why in the
+log. To start a portable copy afresh, quit it and delete `fastsonic-data`;
+the next start copies from the folders above again. Anyone who can read the
+folder, on a shared USB drive say, can read what is in it, the credential
+included.
+
+Only one Fastsonic runs at a time for your Windows account, portable or
+installed: a second one, whichever it is, brings the running one forward,
+because the `fastsonic` command and media controls find it by a fixed
+local port.
+
+The Linux `.tar.gz` and the macOS app keep the folders above.
+
 Starting with your computer (Settings → Playback on this computer) is kept
 where each system keeps it, not in `settings.json`:
 

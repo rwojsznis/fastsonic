@@ -23,7 +23,10 @@ can work while Navidrome-only sections remain empty.
 
 An empty password field retries the stored Subsonic credential, which is
 useful after a server was temporarily unreachable. Signing out removes both
-stored credentials.
+stored credentials. A copy started from the Windows zip keeps them in its
+own `fastsonic-data` folder, starting from a copy of the installed copy's
+the first time, so signing out of one leaves the other signed in (see
+[portable copies](settings-and-files.md#portable-copies)).
 
 ## Extra headers
 

@@ -9,6 +9,12 @@ signed, so Gatekeeper and SmartScreen will both object on first open; the
 release notes say what to do about it. There is no Homebrew tap and no AUR
 package.
 
+On Windows, the ZIP is a portable copy: extract it anywhere and open
+`fastsonic.exe`. It keeps its settings, sign-in and caches in a
+`fastsonic-data` folder next to it, starting the first time from a copy of
+the installed copy's settings and sign-in, so the folder carries everything
+(see [portable copies](../_reference/settings-and-files.md#portable-copies)).
+
 Uninstalling on Windows while the installed copy runs stops before removing
 anything and offers **Retry**, **Close Fastsonic** or **Cancel**. Close
 Fastsonic ends that copy at once, never a portable one elsewhere. A silent
