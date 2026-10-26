@@ -355,9 +355,10 @@ fn queue_is_empty(app: &App) -> bool {
 
 fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    // Snapshot to avoid borrow issues while drawing. The rows are both
-    // histories as one: what was played here and what the server reports.
-    let items = app.recents_view.clone();
+    // Share the rows to avoid borrow issues while drawing, without copying
+    // them. The rows are both histories as one: what was played here and
+    // what the server reports.
+    let items = Arc::clone(&app.recents_view);
     let loading = app.recents.loading;
     let error = app.recents.error.clone();
     let complete = app.recents.complete;
