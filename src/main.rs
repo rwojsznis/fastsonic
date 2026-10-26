@@ -637,7 +637,7 @@ fn main() -> eframe::Result<()> {
             let wait = {
                 let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
                 let app = guard.as_mut().expect("application state present");
-                app.background_frame(&headless);
+                headless_pass(&headless, |ctx| app.background_frame(ctx));
                 if app.quit_requested || app.wants_show {
                     break;
                 }
@@ -661,6 +661,21 @@ fn main() -> eframe::Result<()> {
         app.shutdown();
     }
     Ok(())
+}
+
+/// Runs one tick in the tray as an egui pass on the windowless context.
+///
+/// egui lets go of what a pass collected (repaint requests and their
+/// causes, viewport commands, texture uploads and frees) only when the pass
+/// ends. Without passes the context kept every repaint the app asked for
+/// for as long as it sat in the tray, and its memory grew without bound.
+/// Nothing paints the pass, so its textures are dropped.
+fn headless_pass<T>(ctx: &egui::Context, tick: impl FnOnce(&egui::Context) -> T) -> T {
+    ctx.begin_pass(egui::RawInput::default());
+    let answer = tick(ctx);
+    let mut output = ctx.end_pass();
+    output.textures_delta.clear();
+    answer
 }
 
 /// Every log line goes to stderr and to the log file.
@@ -1256,6 +1271,29 @@ mod native_window_tests {
             Some("the window stalled for 300 ms in one update"),
             "a warning counts only the stalls since the one before"
         );
+    }
+
+    /// Each tick in the tray is a pass of its own, so what one tick asks of
+    /// the windowless context is let go by the next instead of piling up
+    /// for as long as the app sits in the tray.
+    #[test]
+    fn a_tick_in_the_tray_lets_go_of_what_it_asked_of_the_context() {
+        let ctx = egui::Context::default();
+        let mut seen = Vec::new();
+        for _ in 0..100 {
+            headless_pass(&ctx, |ctx| {
+                seen.push((ctx.cumulative_pass_nr(), ctx.repaint_causes().len()));
+                ctx.request_repaint();
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title("Playing".into()));
+                drop(ctx.load_texture("cover", egui::ColorImage::example(), Default::default()));
+            });
+        }
+        for (tick, (pass, causes)) in seen.iter().enumerate() {
+            assert_eq!(*pass, tick as u64, "one pass per tick");
+            assert!(*causes <= 4, "tick {tick} still holds {causes} repaints");
+        }
+        assert!(seen[1].1 > 0, "a tick sees the repaints of the one before");
     }
 
     /// An update is its logic and its drawing together; a logic pass that
