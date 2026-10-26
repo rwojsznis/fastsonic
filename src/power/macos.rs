@@ -7,7 +7,8 @@
 //!   the main dispatch queue, which the app's event loop runs (and the tray
 //!   loop, while there is no window).
 //! - An activity from `beginActivityWithOptions:reason:` keeps playback out
-//!   of App Nap.
+//!   of App Nap, and another with idle system sleep disabled keeps the Mac
+//!   awake.
 //! - The engine's thread asks for the user-interactive QoS class.
 //!
 //! Sleep and wake from NSWorkspace are not followed yet.
@@ -55,8 +56,7 @@ pub(super) fn read_low_power(shared: &Shared) {
     shared.update(|conditions| conditions.saver = saver);
 }
 
-/// A user-initiated activity that still allows idle system sleep, ended
-/// when dropped.
+/// An `NSProcessInfo` activity, ended when dropped.
 pub(super) struct Activity(Retained<ProtocolObject<dyn NSObjectProtocol>>);
 
 // SAFETY: the token is an opaque object that is only ever handed back to
@@ -72,6 +72,17 @@ impl Activity {
         Self(
             NSProcessInfo::processInfo().beginActivityWithOptions_reason(
                 NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
+                &NSString::from_str(reason),
+            ),
+        )
+    }
+
+    /// An activity that only keeps the Mac from sleeping when idle: the
+    /// display may still sleep, and App Nap is left to [`Activity::begin`].
+    pub(super) fn keep_awake(reason: &str) -> Self {
+        Self(
+            NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+                NSActivityOptions::IdleSystemSleepDisabled,
                 &NSString::from_str(reason),
             ),
         )

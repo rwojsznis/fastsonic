@@ -1,7 +1,8 @@
 //! Windows: power settings, sleep and wake, the network's reach and cost,
 //! the session lock and the end of the session; EcoQoS while nobody can see
-//! the app, MMCSS for the audio device's callback thread, and above normal
-//! priority for the engine's thread that feeds it.
+//! the app, MMCSS for the audio device's callback thread, above normal
+//! priority for the engine's thread that feeds it, and a power request that
+//! keeps the system awake while music plays.
 //!
 //! Power settings, sleep and the network come through system callbacks that
 //! need no window, on threads of the system's pool. The session lock and the
@@ -454,6 +455,72 @@ pub fn join_audio_task() {
             Some(AudioTask(handle))
         });
     });
+}
+
+/// A power request that keeps the system out of idle sleep, cleared and
+/// closed when dropped.
+pub(super) struct KeepAwake(HANDLE);
+
+// SAFETY: a power request handle is a kernel object handle, usable and
+// closable from any thread; nothing else holds it.
+unsafe impl Send for KeepAwake {}
+// SAFETY: as above; a shared reference gives no access to the handle.
+unsafe impl Sync for KeepAwake {}
+
+impl KeepAwake {
+    /// Sets the request, or logs why it could not and returns `None`.
+    pub(super) fn begin(reason: &str) -> Option<Self> {
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::System::Power::{
+            PowerCreateRequest, PowerRequestSystemRequired, PowerSetRequest,
+        };
+        use windows_sys::Win32::System::SystemServices::POWER_REQUEST_CONTEXT_VERSION;
+        use windows_sys::Win32::System::Threading::{
+            POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0,
+        };
+        let mut text: Vec<u16> = reason.encode_utf16().chain([0]).collect();
+        let context = REASON_CONTEXT {
+            Version: POWER_REQUEST_CONTEXT_VERSION,
+            Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,
+            Reason: REASON_CONTEXT_0 {
+                SimpleReasonString: text.as_mut_ptr(),
+            },
+        };
+        // SAFETY: `context` and the NUL-terminated string it points to
+        // outlive the call, which copies the reason.
+        let request = unsafe { PowerCreateRequest(&context) };
+        if request == INVALID_HANDLE_VALUE || request.is_null() {
+            log::debug!(
+                "cannot keep the computer awake: {}",
+                std::io::Error::last_os_error()
+            );
+            return None;
+        }
+        let request = Self(request);
+        // SAFETY: `request` holds the live handle just created.
+        if unsafe { PowerSetRequest(request.0, PowerRequestSystemRequired) } == 0 {
+            log::debug!(
+                "cannot keep the computer awake: {}",
+                std::io::Error::last_os_error()
+            );
+            return None;
+        }
+        Some(request)
+    }
+}
+
+impl Drop for KeepAwake {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Power::{PowerClearRequest, PowerRequestSystemRequired};
+        // SAFETY: the handle came from `PowerCreateRequest` and is closed
+        // only here, once. Clearing a request that was never set fails
+        // harmlessly.
+        unsafe {
+            PowerClearRequest(self.0, PowerRequestSystemRequired);
+            CloseHandle(self.0);
+        }
+    }
 }
 
 /// Raises the calling thread one step above normal priority.

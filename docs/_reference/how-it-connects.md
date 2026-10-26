@@ -171,6 +171,14 @@ covers Fastsonic. Pausing, stopping, an output error or signing out releases
 it. The activity permits idle system sleep and does not keep the display
 awake.
 
+Playing and loading also keep the computer from sleeping when idle,
+released at the same moments: on macOS an activity with idle system sleep
+disabled (`pmset -g assertions`), on Windows a system power request
+(`powercfg /requests`), and on Linux the desktop portal's Inhibit request
+for suspend over the session bus, or a systemd-logind `idle` inhibitor on the
+system bus when there is no portal (`systemd-inhibit --list`). None of them
+keeps the display on, and a sleep you ask for still happens.
+
 ## Other outbound traffic
 
 - When the lyrics panel is open and the server has no lyrics, Fastsonic sends

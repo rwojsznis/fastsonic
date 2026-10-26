@@ -326,6 +326,16 @@ soon as the window shows again. The thread that feeds the sound card keeps
 its priority, so playback is not affected. If you set efficiency mode
 yourself in Task Manager, Fastsonic leaves it alone.
 
+## Sleep while playing
+
+While music plays, Fastsonic keeps the computer from going to sleep on its
+own, so a long playlist is not cut off by the idle timer. The display still
+turns off and the screen still locks as usual, and you can still put the
+computer to sleep yourself or close the lid. Pausing or stopping lets the
+computer sleep again. There is no setting. On Linux this asks the desktop
+(through the desktop portal, or else systemd-logind), so it depends on the
+desktop honouring the request; GNOME and KDE do.
+
 ## Recent plays
 
 The queue panel's second tab combines the server's recent songs with tracks

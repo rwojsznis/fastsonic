@@ -18,6 +18,9 @@
 //! What a platform does not report keeps the default, which is the
 //! unconstrained case, so nothing is ever held back because a platform
 //! says nothing.
+//!
+//! [`Activity`] keeps playback out of App Nap on macOS, and [`KeepAwake`]
+//! keeps the computer from going to sleep on its own while music plays.
 
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 #[cfg(any(target_os = "windows", target_os = "linux", test))]
@@ -318,6 +321,8 @@ impl Shared {
 /// queue), so a slow or absent service never holds up the app.
 pub struct Power {
     shared: Arc<Shared>,
+    /// Made by [`Power::fixed`]: nothing here reaches the system.
+    fixed: bool,
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     _reader: Option<Reader>,
     #[cfg(target_os = "windows")]
@@ -338,6 +343,7 @@ impl Power {
             #[cfg(target_os = "windows")]
             eco_qos: windows::EcoQos::default(),
             shared,
+            fixed: false,
         }
     }
 
@@ -353,6 +359,7 @@ impl Power {
             .unwrap_or_else(PoisonError::into_inner) = conditions;
         Self {
             shared,
+            fixed: true,
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             _reader: None,
             #[cfg(target_os = "windows")]
@@ -413,6 +420,91 @@ impl Power {
     /// [`Ack`].
     pub fn send(&self, event: Event) {
         self.shared.push(event);
+    }
+
+    /// Keeps the computer awake while the result is held, as
+    /// [`KeepAwake::begin`] does. A [`fixed`](Self::fixed) `Power` hands out
+    /// an inert hold instead, so tests and demo runs never keep the real
+    /// computer awake or reach the system for it.
+    pub fn keep_awake(&self, reason: &str) -> KeepAwake {
+        if self.fixed {
+            KeepAwake { hold: None }
+        } else {
+            KeepAwake::begin(reason)
+        }
+    }
+}
+
+/// Keeps the computer from going to sleep on its own while it is held, and
+/// lets it sleep again when dropped.
+///
+/// Playback holds one while it plays or loads, so a long playlist is not
+/// cut off by the idle timer, and drops it on pause, stop or an output
+/// error. It blocks idle sleep only: the display still dims and turns off,
+/// the screen still locks, and the user can still put the computer to sleep
+/// or close the lid.
+///
+/// - macOS: an `NSProcessInfo` activity with idle system sleep disabled,
+///   which `pmset -g assertions` lists as `PreventUserIdleSystemSleep`.
+/// - Windows: a power request for the system (`PowerSetRequest` with
+///   `PowerRequestSystemRequired`), which `powercfg /requests` lists.
+///   Unlike `SetThreadExecutionState` it belongs to no thread, so it can be
+///   taken and dropped anywhere.
+/// - Linux: the desktop portal's Inhibit with the Suspend flag, which works
+///   inside Flatpak and which GNOME and KDE honour for their automatic
+///   suspend, or else an "idle" block lock from logind. A thread of its own
+///   asks and holds it, so a slow or absent bus never holds up the app.
+#[must_use = "the computer may sleep again once this is dropped"]
+pub struct KeepAwake {
+    hold: Option<Hold>,
+}
+
+/// What the platform holds for a [`KeepAwake`].
+struct Hold {
+    #[cfg(target_os = "macos")]
+    _token: macos::Activity,
+    #[cfg(target_os = "windows")]
+    _request: Option<windows::KeepAwake>,
+    #[cfg(target_os = "linux")]
+    _inhibit: linux::KeepAwake,
+}
+
+impl KeepAwake {
+    /// Keeps the computer awake. `reason` is what the system shows for it.
+    pub fn begin(reason: &str) -> Self {
+        log::debug!("keeping the computer awake: {reason}");
+        let hold = Hold {
+            #[cfg(target_os = "macos")]
+            _token: macos::Activity::keep_awake(reason),
+            #[cfg(target_os = "windows")]
+            _request: windows::KeepAwake::begin(reason),
+            #[cfg(target_os = "linux")]
+            _inhibit: linux::KeepAwake::begin(reason),
+        };
+        Self { hold: Some(hold) }
+    }
+
+    /// Whether this asked the system to stay awake: false for the inert
+    /// hold of a fixed [`Power`]. Whether the system agreed is logged.
+    #[must_use]
+    pub fn is_held(&self) -> bool {
+        self.hold.is_some()
+    }
+}
+
+impl Drop for KeepAwake {
+    fn drop(&mut self) {
+        if self.hold.take().is_some() {
+            log::debug!("the computer may sleep again");
+        }
+    }
+}
+
+impl std::fmt::Debug for KeepAwake {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeepAwake")
+            .field("held", &self.is_held())
+            .finish()
     }
 }
 
@@ -687,7 +779,18 @@ mod tests {
         fn send_and_sync<T: Send + Sync>() {}
         send_and_sync::<Power>();
         send_and_sync::<Activity>();
+        send_and_sync::<KeepAwake>();
         send_and_sync::<Ack>();
+    }
+
+    /// Tests and demo runs hold the computer awake as the app would, but a
+    /// fixed `Power` never reaches the system for it.
+    #[test]
+    fn a_fixed_monitor_keeps_nothing_awake() {
+        let power = Power::fixed(Conditions::default());
+        let awake = power.keep_awake("Playing music");
+        assert!(!awake.is_held());
+        assert_eq!(format!("{awake:?}"), "KeepAwake { held: false }");
     }
 
     /// A thread asks for precedence once and keeps the answer; another
