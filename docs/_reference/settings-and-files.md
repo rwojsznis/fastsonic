@@ -165,7 +165,10 @@ older settings file) shows a Now Playing card under the notch of a notched
 display while Fastsonic is in the background; see
 [MacBook notch](../_guide/using-fastsonic.md#macbook-notch). Its cover is
 the one the system's media controls are handed, so it adds no request to the
-server. Close
+server. Also on macOS, **Show in Dock** (`mac_show_in_dock`, on by default,
+and on in an older settings file) keeps Fastsonic in the Dock and Cmd+Tab;
+off, it runs from the menu bar alone, and the menu-bar icon always stays.
+Close
 to tray and daily GitHub update checks are enabled by default and can be
 disabled. **Check for updates** asks straight away and reports the answer
 either way, including when the version installed is the current one; on macOS

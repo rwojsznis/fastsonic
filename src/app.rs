@@ -185,6 +185,10 @@ pub struct App {
     /// once it has said; 0 before. Not saved: the window may open on
     /// another screen next time.
     pub screen_hz: u32,
+    /// macOS: whether the Dock shows Fastsonic as this window last made
+    /// it, or `None` until the window applies the setting.
+    #[cfg(target_os = "macos")]
+    dock_icon_shown: Option<bool>,
     pub window_hidden: bool,
     /// The window should close but the process should stay in the tray.
     pub hide_intent: bool,
@@ -586,6 +590,8 @@ impl App {
             keep_awake: None,
             budget: crate::power::Budget::default(),
             screen_hz: 0,
+            #[cfg(target_os = "macos")]
+            dock_icon_shown: None,
             window_hidden: false,
             hide_intent: false,
             wants_show: false,
@@ -782,6 +788,11 @@ impl App {
         // A new window starts titled "Fastsonic"; name the playing song
         // again rather than trust what the replaced window was told.
         self.window_title.clear();
+        // Each window applies the Dock setting again on its first pass.
+        #[cfg(target_os = "macos")]
+        {
+            self.dock_icon_shown = None;
+        }
         if let Some(tray) = &mut self.tray {
             tray.attach();
         }
@@ -5947,9 +5958,36 @@ impl App {
         self.sync_window_title(ctx);
         #[cfg(target_os = "macos")]
         self.sync_notch(ctx);
+        #[cfg(target_os = "macos")]
+        self.sync_dock_icon(ctx);
         let close_requested = ctx.input(|input| input.viewport().close_requested());
         self.note_close_request(close_requested, self.hides_to_tray());
         self.schedule_next_pass(ctx);
+    }
+
+    /// Whether the app launches into the Dock: the item that is the way
+    /// back to a closed window is made with the first window, so whether
+    /// there will be one is what counts here.
+    #[cfg(target_os = "macos")]
+    pub fn shows_in_dock_at_launch(&self) -> bool {
+        crate::mac_dock::shows_in_dock(self.settings.mac_show_in_dock, self.tray.is_some())
+    }
+
+    /// Puts Fastsonic in the Dock or takes it out, as Settings asks, on a
+    /// window's first pass and whenever the setting changes.
+    #[cfg(target_os = "macos")]
+    fn sync_dock_icon(&mut self, ctx: &egui::Context) {
+        let shown =
+            crate::mac_dock::shows_in_dock(self.settings.mac_show_in_dock, self.tray.is_some());
+        let applied = self.dock_icon_shown.replace(shown);
+        if applied == Some(shown) {
+            return;
+        }
+        // The switch activates the app again; asking for the focus too
+        // keeps this window the key one when the setting changed in it.
+        if crate::mac_dock::set_dock_icon_visible(shown) && applied.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
     }
 
     /// Follows the desktop's wish for less motion, which egui's easing and

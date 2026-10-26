@@ -502,6 +502,12 @@ fn main() -> eframe::Result<()> {
         };
         #[cfg(not(feature = "demo"))]
         let options = native_options(false, mini, None);
+        #[cfg(target_os = "macos")]
+        let options = {
+            let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
+            let app = guard.as_ref().expect("application state present");
+            launch_options(options, !app.shows_in_dock_at_launch())
+        };
         let persist_memory = options.persist_window;
         #[cfg(target_os = "linux")]
         let hide_from_taskbar = options.viewport.taskbar == Some(false);
@@ -760,6 +766,23 @@ impl MiniWindow {
 // and window::can_restore has checked its title bar against a live work area.
 fn mini_creation_position(position: Option<[f32; 2]>, on_windows: bool) -> Option<[f32; 2]> {
     if on_windows { None } else { position }
+}
+
+/// How AppKit is to launch the app, which happens with the first window's
+/// event loop; eframe keeps that loop for every window after, and ignores
+/// this then. `accessory` starts it out of the Dock, as Settings can ask:
+/// a packaged app would otherwise show in the Dock until the window's
+/// first pass took it out, and winit puts a run outside a bundle there
+/// as it launches.
+#[cfg(target_os = "macos")]
+fn launch_options(mut options: eframe::NativeOptions, accessory: bool) -> eframe::NativeOptions {
+    use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+    options.event_loop_builder = Some(Box::new(move |builder| {
+        if accessory {
+            builder.with_activation_policy(ActivationPolicy::Accessory);
+        }
+    }));
+    options
 }
 
 /// eframe keeps the main window's geometry and zoom in a file of its own,
@@ -1390,6 +1413,19 @@ mod native_window_tests {
             mixer_icon(Some("io.github.rwojsznis.Fastsonic".into())),
             "io.github.rwojsznis.Fastsonic"
         );
+    }
+
+    /// A launch out of the Dock is asked of the event loop that launches
+    /// the app; any other leaves winit's own choice.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_launch_out_of_the_dock_asks_the_event_loop() {
+        let mut builder = winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event();
+        for accessory in [false, true] {
+            let options = launch_options(native_options(false, None, None), accessory);
+            let hook = options.event_loop_builder.expect("a hook for the loop");
+            hook(&mut builder);
+        }
     }
 
     #[test]

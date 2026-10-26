@@ -238,6 +238,9 @@ pub struct Settings {
     /// macOS: hovering over a MacBook's notch while Fastsonic is in the
     /// background shows what is playing, with the player bar's controls.
     pub mac_notch_widget: bool,
+    /// macOS: keep Fastsonic in the Dock and Cmd-Tab. Off makes it a
+    /// menu-bar app, whose menu-bar icon is the way back.
+    pub mac_show_in_dock: bool,
     /// Ask GitHub once a day whether a newer release exists.
     pub check_for_updates: bool,
     /// Context URIs pinned to the top of the sidebar, Liked Songs' among
@@ -351,6 +354,7 @@ impl Default for Settings {
             playback_authorized: false,
             keep_playing_in_background: true,
             mac_notch_widget: false,
+            mac_show_in_dock: true,
             check_for_updates: true,
             pinned_contexts: Vec::new(),
             liked_songs_pinned: true,
@@ -537,6 +541,18 @@ mod tests {
         let restored: Settings =
             serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
         assert!(restored.mac_notch_widget);
+    }
+
+    /// Older files keep the Dock icon; hiding it survives a save.
+    #[test]
+    fn the_dock_icon_stays_unless_hidden_and_round_trips() {
+        let empty: Settings = serde_json::from_str("{}").unwrap();
+        assert!(empty.mac_show_in_dock);
+        let hidden: Settings = serde_json::from_str(r#"{"mac_show_in_dock": false}"#).unwrap();
+        assert!(!hidden.mac_show_in_dock);
+        let encoded = serde_json::to_string(&hidden).unwrap();
+        let decoded: Settings = serde_json::from_str(&encoded).unwrap();
+        assert!(!decoded.mac_show_in_dock);
     }
 
     #[test]

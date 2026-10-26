@@ -326,6 +326,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        // Applied by the app's next pass (App::sync_dock_icon).
+        #[cfg(target_os = "macos")]
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Show in Dock",
+            "When off, Fastsonic lives in the menu bar and leaves Cmd+Tab. Open it from its menu-bar icon.",
+            |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Show in Dock",
+                    &mut app.settings.mac_show_in_dock,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            },
+        );
         #[cfg(target_os = "macos")]
         widgets::setting_row(
             ui,

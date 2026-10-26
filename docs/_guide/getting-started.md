@@ -109,6 +109,8 @@ features; Navidrome-only personalisation sections may be empty.
 
 - Closing the window keeps music playing from the system tray by default.
   Reopen it from the tray or Dock, and quit from the tray menu or Ctrl+Q.
+  On macOS, Settings can also keep Fastsonic out of the Dock, in the menu
+  bar only.
   Show on an open window brings it forward; Wayland compositors refuse
   that to the app itself, except niri, which Fastsonic asks through
   `niri msg` to focus the window and switch to its workspace.

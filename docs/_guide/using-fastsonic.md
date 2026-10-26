@@ -316,6 +316,21 @@ Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
 while music plays), **Next**, and **Previous**, above the standard Dock items.
 They keep working while the window is closed to the menu bar.
 
+### Menu bar only
+
+Turn off **Show in Dock** under **Settings → Playback on this computer** to
+run Fastsonic from the menu bar alone. The Dock icon goes at once, without a
+restart, and the window stays open in front. Fastsonic then also leaves the
+Cmd+Tab switcher and shows no menu bar of its own while you use it, as other
+menu-bar apps do. Its keyboard shortcuts, including Cmd+Q, Cmd+comma and
+copy and paste, keep working in the window.
+
+The menu-bar icon stays: it is how you show the window again after closing
+it, and how you quit while the window is closed. Opening Fastsonic again from
+Finder or Launchpad also brings the window back. Turn the setting on to put
+Fastsonic back in the Dock. The choice survives restarts, and Fastsonic
+starts without the Dock icon. This option is only on macOS.
+
 ## MacBook notch
 
 On a Mac whose display has a notch, turn on **MacBook notch widget** under

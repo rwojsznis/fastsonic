@@ -68,7 +68,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   it back when the window widens.
 - Background playback, Linux MPRIS, desktop media controls, keyboard
   shortcuts, tray/Dock reopening, a Play/Pause, Next and Previous Dock menu
-  on macOS, the same three buttons under the taskbar preview on Windows,
+  on macOS, where Fastsonic can also live in the menu bar alone, the same
+  three buttons under the taskbar preview on Windows,
   and single-instance behavior. On a MacBook with a notch, an optional
   Now Playing card drops out of the notch when you hover it while
   Fastsonic is in the background.

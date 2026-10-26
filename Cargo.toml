@@ -136,6 +136,10 @@ objc2 = { version = "0.6", features = ["exception"] }
 # bundle, which gets the packaged Dock icon (src/mac_dock.rs).
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSAccessibilityProtocols", "NSAnimation", "NSAnimationContext", "NSApplication", "NSBezierPath", "NSButton", "NSCell", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSImageCell", "NSImageView", "NSMenu", "NSMenuItem", "NSPanel", "NSParagraphStyle", "NSResponder", "NSRunningApplication", "NSScreen", "NSText", "NSTextField", "NSTrackingArea", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSData", "NSDate", "NSGeometry", "NSObjCRuntime", "NSProcessInfo", "NSRunLoop", "NSString", "NSUserDefaults"] }
+# How the first window's event loop launches the app: out of the Dock when
+# Settings keeps it there (src/main.rs). The version eframe already
+# compiles, named here for its macOS builder extension.
+winit = "0.30"
 # The notch card's icons are the app's own SVGs, drawn to PNG for AppKit,
 # which reads SVG only on recent releases. Already compiled for egui_extras'
 # SVG loader, so this adds no code to the build.
