@@ -2290,6 +2290,50 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A liked song's heart opens Add to playlist, whose Remove from Liked
+    /// Songs unlikes it; the heart then likes it at once, without a menu.
+    #[test]
+    fn a_liked_songs_heart_opens_add_to_playlist() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("player-bar-liked-heart");
+        let click = |ctx: &egui::Context, app: &mut App, label: &str| {
+            let tree = accessible_frame(ctx, app, vec![]);
+            let button = accessible_node(&tree, label, Role::Button);
+            accessible_frame(
+                ctx,
+                app,
+                vec![accessible_action(button, AccessibleAction::Click, None)],
+            );
+            // A menu's first frame only measures it.
+            accessible_frame(ctx, app, vec![]);
+        };
+        let filter_shown = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Filter playlists"))
+        };
+        accessible_frame(&ctx, &mut app, vec![]);
+        let now = app.now_playing().unwrap().uri;
+        assert_eq!(app.is_saved(&now), Some(true));
+
+        click(&ctx, &mut app, "Add to playlist");
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(filter_shown(&tree), "the heart opens Add to playlist");
+        accessible_node(&tree, "New playlist", Role::Button);
+        assert_eq!(app.is_saved(&now), Some(true), "opening it keeps the like");
+
+        click(&ctx, &mut app, "Remove from Liked Songs");
+        assert_eq!(app.is_saved(&now), Some(false));
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!filter_shown(&tree), "choosing Remove closes the menu");
+
+        click(&ctx, &mut app, "Save to Liked Songs");
+        assert_eq!(app.is_saved(&now), Some(true));
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!filter_shown(&tree), "liking a song does not open the menu");
+        app.backend.shutdown();
+    }
+
     #[test]
     fn the_liked_songs_menu_is_as_narrow_as_the_other_menus() {
         use egui::accesskit::Role;
@@ -4209,7 +4253,7 @@ mod tests {
             ("shuffle", "Shuffle off", |b| b.y1 < 700.0),
             ("album header", "Remove from Your Library", |_| true),
             ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
-            ("player bar", "Remove from Liked Songs", |b| b.y0 > 700.0),
+            ("player bar", "Add to playlist", |b| b.y0 > 700.0),
         ];
         for theme in ["dark", "light"] {
             for (place, label, pick) in targets {

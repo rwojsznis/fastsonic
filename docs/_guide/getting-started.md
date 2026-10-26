@@ -116,6 +116,10 @@ features; Navidrome-only personalisation sections may be empty.
   next, star, add to playlist, and copy link.
   In **Add to playlist**, type to filter, use Up or Down to pick a match,
   and press Enter to add the song to it.
+- **The heart likes, then adds to a playlist.** In the player bar, the heart
+  stars the playing song, adding it to Liked Songs. Once it is liked, the
+  heart opens **Add to playlist** instead, with **Remove from Liked Songs**
+  below the playlists.
 
 ## Lyrics
 

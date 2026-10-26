@@ -15,6 +15,8 @@ const TINT_STRENGTH: f32 = 0.12;
 /// How long the bar takes to cross over to a new song's tint.
 const TINT_FADE_SECONDS: f32 = 0.45;
 const TINT_SESSION_ID: &str = "player-bar-tint-session";
+/// The Add to playlist menu a liked song's heart opens.
+const LIKED_POPUP_ID: &str = "player-bar-liked-playlists";
 /// How strongly the visualizer shows through behind the controls: the
 /// spectrum's bars fade from their foot to their top, with a glow around
 /// them, a brighter cap above, and a pulse along the foot with the bass.
@@ -515,12 +517,12 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
     // The playing thing answers the same right-click menu as a table row,
     // from the cover or the words.
-    if let Some(item) = song {
+    if let Some(item) = &song {
         let context = app.editable_context_playlist();
         for response in &responses {
             egui::Popup::context_menu(response)
                 .frame(super::widgets::menu_frame(&palette))
-                .show(|ui| super::widgets::item_menu(ui, app, &item, context.as_ref(), None));
+                .show(|ui| super::widgets::item_menu(ui, app, item, context.as_ref(), None));
         }
     }
 
@@ -532,7 +534,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 Icon::HeartFilled,
                 palette.accent,
                 palette.accent_hover,
-                "Remove from Liked Songs",
+                "Add to playlist",
             )
         } else {
             (
@@ -562,8 +564,53 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        if theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, tooltip).clicked() {
-            app.actions.push(Action::ToggleSaved(now.uri.clone()));
+        let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, tooltip);
+        let popup_id = egui::Id::new(LIKED_POPUP_ID);
+        // A liked song's heart opens Add to playlist, with Remove from Liked
+        // Songs below the playlists. The first click on a song not yet liked
+        // still likes it at once.
+        match song.as_ref().filter(|_| saved) {
+            None => {
+                egui::Popup::close_id(ui.ctx(), popup_id);
+                if response.clicked() {
+                    app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                }
+            }
+            Some(item) => {
+                let query_id = popup_id.with("query");
+                let songs = [(item.uri().to_string(), item.name().to_string())];
+                let shown = egui::Popup::menu(&response)
+                    .id(popup_id)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .frame(super::widgets::menu_frame(&palette))
+                    .show(|ui| {
+                        let stored = ui.data(|data| data.get_temp::<String>(query_id));
+                        let fresh = stored.is_none();
+                        let mut query = stored.unwrap_or_default();
+                        let before = app.actions.len();
+                        let field = super::widgets::playlist_picker(ui, app, &songs, &mut query);
+                        if fresh {
+                            field.request_focus();
+                        }
+                        ui.data_mut(|data| data.insert_temp(query_id, query));
+                        super::widgets::menu_separator(ui, &palette);
+                        if super::widgets::menu_item(
+                            ui,
+                            &palette,
+                            Some(Icon::HeartFilled),
+                            "Remove from Liked Songs",
+                        ) {
+                            app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                        }
+                        // A playlist, New playlist, or Remove closes it.
+                        if app.actions.len() > before {
+                            ui.close();
+                        }
+                    });
+                if shown.is_none() {
+                    ui.data_mut(|data| data.remove::<String>(query_id));
+                }
+            }
         }
     }
 }
