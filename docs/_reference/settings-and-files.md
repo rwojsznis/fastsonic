@@ -165,7 +165,9 @@ either way, including when the version installed is the current one; on macOS
 the application menu asks the same question. When a newer release
 exists, a badge beside Search names it and opens its GitHub release; in a
 narrow window it shows only its icon, and hovering it gives the version, so
-Search keeps its room.
+Search keeps its room. **Release notes**, beside **Check for updates** in
+**Settings → About**, opens the GitHub release page of the version you are
+running, to read what changed.
 
 ## Custom themes
 

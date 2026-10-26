@@ -1081,8 +1081,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
         });
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::splat(8.0);
             let check_label = if app.update_checking {
                 "Checking…"
             } else {
@@ -1092,6 +1092,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 && !app.update_checking
             {
                 app.actions.push(Action::CheckForUpdates);
+            }
+            if theme::soft_button(
+                ui,
+                &palette,
+                Some(Icon::ExternalLink),
+                "Release notes",
+                false,
+            )
+            .clicked()
+            {
+                app.actions
+                    .push(Action::OpenUrl(RELEASE_NOTES_URL.to_owned()));
             }
             if theme::soft_button(ui, &palette, Some(Icon::Info), "Keyboard shortcuts", false)
                 .clicked()
@@ -1112,6 +1124,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.actions.push(Action::SettingsChanged);
     }
 }
+
+/// The GitHub release page of the running version, opened by About's
+/// Release notes button. Every release is tagged `v` and its version.
+const RELEASE_NOTES_URL: &str = concat!(
+    env!("CARGO_PKG_REPOSITORY"),
+    "/releases/tag/v",
+    env!("CARGO_PKG_VERSION")
+);
 
 /// The Theme picker, wide enough for most palette names.
 const THEME_PICKER_WIDTH: f32 = 200.0;
@@ -1324,6 +1344,17 @@ fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettin
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn release_notes_open_the_running_version_release_page() {
+        assert_eq!(
+            super::RELEASE_NOTES_URL,
+            format!(
+                "https://github.com/rwojsznis/fastsonic/releases/tag/v{}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+    }
+
     #[test]
     fn the_slider_fill_stops_under_its_handle() {
         let ctx = egui::Context::default();
