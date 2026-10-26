@@ -182,6 +182,7 @@ pub fn carry_over(state: &LocalState, queue: &QueueSnapshot) -> Option<LoadSpec>
         position_ms,
         play,
         shuffle: Some(state.shuffle),
+        repeat: Some(state.repeat),
         queued,
         ..LoadSpec::default()
     };
@@ -235,6 +236,11 @@ pub struct LoadSpec {
     /// the context's own row (rule 3). `offset_uri` then says where the
     /// album is, and this says what is heard over the top of it.
     pub current: Option<String>,
+    /// The repeat mode to play under. Only a restore sets this, as with
+    /// `queued`: a resumed session, or an engine handing over to the one
+    /// replacing it. Any other load is the listener choosing something
+    /// else to play, which turns Repeat One into Repeat All.
+    pub repeat: Option<RepeatMode>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -362,7 +368,8 @@ mod tests {
     /// engine had reached.
     #[test]
     fn a_replaced_engine_is_handed_the_whole_queue() {
-        let (state, queue) = playing_album();
+        let (mut state, queue) = playing_album();
+        state.repeat = RepeatMode::Track;
         let spec = carry_over(&state, &queue).expect("something was playing");
         assert_eq!(spec.context_uri.as_deref(), Some("sonic:album:x"));
         assert_eq!(spec.offset_uri.as_deref(), Some("sonic:track:b"));
@@ -371,6 +378,11 @@ mod tests {
         assert!(spec.uris.is_empty(), "an album is named, not listed");
         assert!(spec.play);
         assert!(spec.position_ms >= 30_000);
+        assert_eq!(
+            spec.repeat,
+            Some(RepeatMode::Track),
+            "a handover is no song chosen by hand: Repeat One stays"
+        );
     }
 
     /// A queued song playing over the album keeps both: the song is picked

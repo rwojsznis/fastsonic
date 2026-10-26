@@ -1679,6 +1679,12 @@ impl App {
             // Accept shuffle changes made by another client.
             self.shuffle_wanted = state.shuffle;
         }
+        // The engine ends Repeat One when a song is chosen by hand. An
+        // engine with no song has only its starting mode to say.
+        if state.track.is_some() && state.repeat != self.repeat_wanted {
+            self.repeat_wanted = state.repeat;
+            self.session_dirty = true;
+        }
         if state.playback != self.local.playback {
             self.optimistic_playing = None;
             if matches!(state.playback, Playback::Playing | Playback::Loading) {
@@ -1827,6 +1833,11 @@ impl App {
         };
         self.cache_track_from_context(&context, &next);
         self.resume_track = Some(next);
+        // Another song chosen by hand, as the engine counts Next and
+        // Previous: Repeat One becomes Repeat All.
+        if self.repeat_wanted == RepeatMode::Track {
+            self.repeat_wanted = RepeatMode::Context;
+        }
         // The song stepped to is the context's own row, so the album is on
         // it: whatever queued song was remembered over the top of it has
         // been stepped past (rule 3).
@@ -4363,6 +4374,7 @@ impl App {
             None => PlayRequest::tracks(vec![track]),
         };
         request.restore_queued = queued;
+        request.restore_repeat = Some(self.local_repeat());
         request.position_ms = self.resume_position_ms;
         self.play_request(request, false);
         true
@@ -6441,6 +6453,7 @@ fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
             position_ms: request.position_ms,
             play: true,
             queued: request.restore_queued.clone(),
+            repeat: request.restore_repeat,
             ..LoadSpec::default()
         };
     }
@@ -6463,6 +6476,8 @@ fn local_load(request: &PlayRequest, shuffle: bool) -> LoadSpec {
         // play, so the panel is whole in the first snapshot it publishes.
         queued: request.restore_queued.clone(),
         current: request.restore_current.clone(),
+        // Any other play is a song chosen by hand, which ends Repeat One.
+        repeat: request.restore_repeat,
     }
 }
 
@@ -7537,6 +7552,94 @@ mod tests {
             app.backend.asked(),
             [PlayerCommand::Repeat(RepeatMode::Context)]
         );
+        app.backend.shutdown();
+    }
+
+    /// Resuming the remembered song is no song chosen by hand: its load
+    /// keeps Repeat One. Any other play leaves the engine to end it.
+    #[test]
+    fn resuming_keeps_repeat_one_and_another_play_does_not_ask_to() {
+        let mut app = headless_app();
+        app.local.connected = true;
+        app.repeat_wanted = RepeatMode::Track;
+        app.resume_track = Some("sonic:track:abc".into());
+        app.backend.asked();
+        assert!(app.resume_last());
+        let asked = app.backend.asked();
+        let [PlayerCommand::Load(load)] = asked.as_slice() else {
+            panic!("one load resumes the session: {asked:?}");
+        };
+        assert_eq!(load.repeat, Some(RepeatMode::Track));
+
+        app.play_request(PlayRequest::context("sonic:album:x"), false);
+        let asked = app.backend.asked();
+        let Some(PlayerCommand::Load(load)) = asked.first() else {
+            panic!("a play is a load: {asked:?}");
+        };
+        assert_eq!(load.repeat, None, "the engine ends Repeat One itself");
+        app.backend.shutdown();
+    }
+
+    /// Stepping the remembered song before anything plays is choosing
+    /// another song too; restarting it is not.
+    #[test]
+    fn stepping_a_restored_song_ends_repeat_one() {
+        use crate::api::models::{PlayableItem, PlaylistItem, Track};
+        use crate::model::PagedList;
+        let row = |uri: &str| PlaylistItem {
+            item: Some(PlayableItem::Track(Track {
+                uri: uri.into(),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.playlist_pages.insert(
+            "pl1".into(),
+            PlaylistPage {
+                items: PagedList {
+                    items: vec![row("sonic:track:one"), row("sonic:track:two")],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        app.resume_context = Some("sonic:playlist:pl1".into());
+        app.resume_track = Some("sonic:track:two".into());
+        app.repeat_wanted = RepeatMode::Track;
+        app.resume_position_ms = RESTART_BEFORE_PREVIOUS + 1_000;
+        app.apply(Action::Previous, &ctx);
+        assert_eq!(app.resume_track.as_deref(), Some("sonic:track:two"));
+        assert_eq!(app.repeat_wanted, RepeatMode::Track, "a restart keeps it");
+        app.apply(Action::Previous, &ctx);
+        assert_eq!(app.resume_track.as_deref(), Some("sonic:track:one"));
+        assert_eq!(app.repeat_wanted, RepeatMode::Context);
+        assert_eq!(
+            app.now_playing().map(|now| now.repeat),
+            Some(RepeatMode::Context)
+        );
+        app.backend.shutdown();
+    }
+
+    /// The engine ending Repeat One is followed, and saved.
+    #[test]
+    fn the_engines_repeat_mode_is_followed_once_it_has_a_song() {
+        let mut app = headless_app();
+        app.repeat_wanted = RepeatMode::Track;
+        app.handle_local(LocalState::default());
+        assert_eq!(
+            app.repeat_wanted,
+            RepeatMode::Track,
+            "an engine with no song only says it started at off"
+        );
+        app.handle_local(LocalState {
+            track: Some(crate::engine::LocalTrack::default()),
+            repeat: RepeatMode::Context,
+            ..LocalState::default()
+        });
+        assert_eq!(app.repeat_wanted, RepeatMode::Context);
+        assert!(app.session_dirty);
         app.backend.shutdown();
     }
 

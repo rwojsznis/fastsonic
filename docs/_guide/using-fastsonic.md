@@ -201,6 +201,13 @@ Right-click a row of **Playing next**, or open its **…** menu, and choose
 **Remove from queue** to take out that one row; other copies of the song stay.
 Rows of **Next up** have no such entry.
 
+Repeat cycles through off, the whole list, and one song, and is kept when
+you quit. As in Spotify's own apps, choosing another song while one song
+repeats (Next, a Previous that steps back, a row of the queue, or playing
+something else) turns Repeat One back into repeating the whole list.
+Previous that restarts the song keeps it repeating, and so does resuming the
+song you left off at.
+
 Play and Pause fade over 50 ms, and a volume change, mute included, glides
 over 30 ms instead of clicking. Pressing the player bar's volume slider sets
 the volume where you press, without waiting for the pointer to move; the seek

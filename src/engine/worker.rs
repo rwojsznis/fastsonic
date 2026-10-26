@@ -954,6 +954,14 @@ impl Worker {
         self.state.track_sequence = self.state.track_sequence.wrapping_add(1);
     }
 
+    /// Changes the repeat mode, telling the interface only of a change.
+    fn set_repeat(&mut self, repeat: RepeatMode) {
+        if self.state.repeat != repeat {
+            self.state.repeat = repeat;
+            self.publish();
+        }
+    }
+
     fn toggle(&mut self) {
         match self.state.playback {
             Playback::Playing => {
@@ -1021,10 +1029,13 @@ impl Worker {
     /// The track after this one, either because this one ended or because
     /// Next was pressed. Repeat one applies only to the first case: asking
     /// for the next track and getting the same one again is not what the
-    /// button says.
+    /// button says, and pressing it ends Repeat One.
     fn advance(&mut self, manual: bool) {
         if self.queue.is_empty() {
             return;
+        }
+        if manual {
+            self.set_repeat(chosen_by_hand(self.state.repeat));
         }
         if !manual && self.state.repeat == RepeatMode::Track && self.queue.current().is_some() {
             self.seek(0);
@@ -1045,7 +1056,9 @@ impl Worker {
             return;
         }
         let position = Duration::from_millis(u64::from(self.position()));
-        match self.queue.previous(self.state.repeat, position) {
+        let (rewound, repeat) = step_back(&mut self.queue, self.state.repeat, position);
+        self.set_repeat(repeat);
+        match rewound {
             Rewound::Moved => {
                 self.publish_queue();
                 self.start(self.state.playback != Playback::Paused, 0);
@@ -1059,6 +1072,7 @@ impl Worker {
         if !self.queue.skip_to(row) {
             return;
         }
+        self.set_repeat(chosen_by_hand(self.state.repeat));
         let play = self.state.playback != Playback::Paused;
         self.publish_queue();
         self.start(play, 0);
@@ -1092,6 +1106,12 @@ impl Worker {
     }
 
     fn load(&mut self, spec: LoadSpec) {
+        // Before the server is asked for the songs, so the repeat button
+        // answers the play at once.
+        self.set_repeat(
+            spec.repeat
+                .unwrap_or_else(|| chosen_by_hand(self.state.repeat)),
+        );
         let entries = match self.expand(&spec) {
             Ok(entries) => entries,
             Err(message) => return self.fail(message),
@@ -1415,6 +1435,27 @@ fn replays(previous: Option<&LocalTrack>, next: &LocalTrack) -> bool {
     previous.is_some_and(|previous| previous.uri == next.uri)
 }
 
+/// The repeat mode once the listener has chosen another song: Next, a
+/// Previous that steps back, a row of the queue, or something else to
+/// play. Repeat One turns into repeating the whole list, as Spotify's own
+/// apps do; Off and Repeat All stay as they are.
+fn chosen_by_hand(repeat: RepeatMode) -> RepeatMode {
+    match repeat {
+        RepeatMode::Track => RepeatMode::Context,
+        other => other,
+    }
+}
+
+/// Previous from `position`, and the repeat mode after it. Stepping back
+/// is choosing another song, so it steps back as Repeat All would and
+/// ends Repeat One; restarting the song keeps it.
+fn step_back(queue: &mut Queue, repeat: RepeatMode, position: Duration) -> (Rewound, RepeatMode) {
+    match queue.previous(chosen_by_hand(repeat), position) {
+        Rewound::Moved => (Rewound::Moved, chosen_by_hand(repeat)),
+        Rewound::Restart => (Rewound::Restart, repeat),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1438,6 +1479,43 @@ mod tests {
             &track("sonic:track:b")
         ));
         assert!(!replays(None, &track("sonic:track:a")));
+    }
+
+    /// Choosing another song ends Repeat One and repeats the whole list;
+    /// the other modes are left alone.
+    #[test]
+    fn choosing_another_song_ends_repeat_one() {
+        assert_eq!(chosen_by_hand(RepeatMode::Track), RepeatMode::Context);
+        assert_eq!(chosen_by_hand(RepeatMode::Context), RepeatMode::Context);
+        assert_eq!(chosen_by_hand(RepeatMode::Off), RepeatMode::Off);
+    }
+
+    /// Previous near the start of a song steps back and ends Repeat One;
+    /// later on it restarts the song, which keeps repeating.
+    #[test]
+    fn a_previous_that_steps_back_ends_repeat_one() {
+        let early = Duration::from_secs(1);
+        let late = Duration::from_secs(10);
+        let mut queue = Queue::default();
+        queue.load(None, entries(&["a", "b", "c"]), 1);
+        assert_eq!(queue.current().map(|entry| entry.id.as_str()), Some("b"));
+
+        let restarted = step_back(&mut queue, RepeatMode::Track, late);
+        assert_eq!(restarted, (Rewound::Restart, RepeatMode::Track));
+        assert_eq!(queue.current().map(|entry| entry.id.as_str()), Some("b"));
+
+        let stepped = step_back(&mut queue, RepeatMode::Track, early);
+        assert_eq!(stepped, (Rewound::Moved, RepeatMode::Context));
+        assert_eq!(queue.current().map(|entry| entry.id.as_str()), Some("a"));
+
+        // From the first song it steps round to the last, as Repeat All
+        // does, rather than restarting.
+        let wrapped = step_back(&mut queue, RepeatMode::Track, early);
+        assert_eq!(wrapped, (Rewound::Moved, RepeatMode::Context));
+        assert_eq!(queue.current().map(|entry| entry.id.as_str()), Some("c"));
+
+        let off = step_back(&mut queue, RepeatMode::Off, early);
+        assert_eq!(off, (Rewound::Moved, RepeatMode::Off));
     }
 
     #[test]

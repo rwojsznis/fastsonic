@@ -1143,18 +1143,10 @@ impl Worker {
         let (Some(engine), Some(spec)) = (self.engine.as_ref(), carried) else {
             return;
         };
+        // Shuffle and repeat travel with the load: a load without its repeat
+        // mode is a song chosen by hand, which ends Repeat One.
         if let Err(error) = engine.command(PlayerCommand::Load(spec)) {
             log::warn!("unable to pick playback up again: {error}");
-            return;
-        }
-        // Shuffle travels with the load; repeat has nothing to do with what
-        // plays now, so it follows behind it.
-        if let Some(repeat) = before
-            .map(|state| state.repeat)
-            .filter(|repeat| *repeat != crate::engine::RepeatMode::Off)
-            && let Err(error) = engine.command(PlayerCommand::Repeat(repeat))
-        {
-            log::warn!("unable to set repeat again: {error}");
         }
     }
 

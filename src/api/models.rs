@@ -659,6 +659,10 @@ pub struct PlayRequest {
     /// The remembered song, when it was one of the queued ones rather than
     /// the context's row. `offset_uri` is then where the album was.
     pub restore_current: Option<String>,
+    /// The repeat mode the remembered song played under. Only the resume
+    /// carries it: any other play is choosing another song, which ends
+    /// Repeat One.
+    pub restore_repeat: Option<crate::engine::RepeatMode>,
 }
 
 impl PlayRequest {
