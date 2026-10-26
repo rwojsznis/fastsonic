@@ -326,6 +326,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        // The macOS menu bar already draws its icon black or white to match.
+        if !cfg!(target_os = "macos") {
+            use crate::settings::TrayIcon;
+            let icons = [
+                (TrayIcon::Colour, "Colour"),
+                (TrayIcon::White, "White"),
+                (TrayIcon::Black, "Black"),
+            ];
+            let width = choices_width(ui, icons.map(|(_, label)| label));
+            widgets::setting_row_sized(
+                ui,
+                &palette,
+                "Tray icon",
+                "White or black can match your panel or taskbar.",
+                width,
+                |ui| {
+                    // Laid right to left, so the last choice goes first.
+                    choices(ui, width, icons.len(), |ui, index| {
+                        let (icon, label) = icons[icons.len() - 1 - index];
+                        if theme::soft_button(
+                            ui,
+                            &palette,
+                            None,
+                            label,
+                            app.settings.tray_icon == icon,
+                        )
+                        .clicked()
+                            && app.settings.tray_icon != icon
+                        {
+                            app.settings.tray_icon = icon;
+                            changed = true;
+                        }
+                    });
+                },
+            );
+        }
         // Applied by the app's next pass (App::sync_dock_icon).
         #[cfg(target_os = "macos")]
         widgets::setting_row(

@@ -2743,6 +2743,8 @@ impl App {
         let playing = self.now_playing().is_some_and(|now| now.playing);
         if let Some(tray) = &mut self.tray {
             tray.set_playing(playing);
+            // Changes the item only when the setting did.
+            tray.set_icon_colour(self.settings.tray_icon);
         }
         #[cfg(target_os = "macos")]
         crate::mac_menu::set_playing(playing);

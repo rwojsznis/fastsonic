@@ -67,14 +67,16 @@ fn left_click(sender: &Sender<TrayCommand>, wake: &Wake, on_macos: bool) {
 
 /// The item, and the menu entry whose label follows playback.
 struct Item {
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     icon: TrayIcon,
     play_pause: MenuItem,
 }
 
+/// The tray item's size in pixels, which the system scales.
+const ICON_SIZE: u32 = 32;
+
 /// Builds the item on the current thread and routes its events to `sender`.
 fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::error::Error>> {
-    let size = 32u32;
+    let size = ICON_SIZE;
     #[cfg(not(target_os = "macos"))]
     let icon = Icon::from_rgba(crate::util::app_icon_rgba(size as usize), size, size)?;
     // macOS draws template images itself, black or white to match the menu
@@ -135,12 +137,18 @@ mod host {
         DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, TranslateMessage, WM_APP,
     };
 
+    /// A change to the item, carried to its thread.
+    pub enum Change {
+        Playing(bool),
+        Colour(crate::settings::TrayIcon),
+    }
+
     /// Runs the item on its own thread. Answers with the thread's id once
     /// the item exists, or with why it could not be made.
     pub fn start(
         sender: Sender<TrayCommand>,
         wake: Wake,
-        playing: Receiver<bool>,
+        changes: Receiver<Change>,
     ) -> Result<u32, String> {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let spawned = std::thread::Builder::new()
@@ -157,8 +165,8 @@ mod host {
                 let mut message: MSG = unsafe { std::mem::zeroed() };
                 while unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) } > 0 {
                     if message.message == WM_APP {
-                        while let Ok(playing) = playing.try_recv() {
-                            item.play_pause.set_text(play_pause_label(playing));
+                        while let Ok(change) = changes.try_recv() {
+                            apply(&item, change);
                         }
                         continue;
                     }
@@ -176,6 +184,26 @@ mod host {
             .map_err(|_| "the tray thread did not answer".to_string())?
     }
 
+    fn apply(item: &Item, change: Change) {
+        match change {
+            Change::Playing(playing) => item.play_pause.set_text(play_pause_label(playing)),
+            Change::Colour(colour) => {
+                let size = ICON_SIZE;
+                let pixels = crate::util::tray_icon_rgba(colour, size as usize);
+                let changed = Icon::from_rgba(pixels, size, size)
+                    .map_err(|error| error.to_string())
+                    .and_then(|icon| {
+                        item.icon
+                            .set_icon(Some(icon))
+                            .map_err(|error| error.to_string())
+                    });
+                if let Err(error) = changed {
+                    log::warn!("the tray icon could not be changed: {error}");
+                }
+            }
+        }
+    }
+
     /// Wakes the thread's message loop to read what was sent to it.
     pub fn poke(thread_id: u32) {
         unsafe {
@@ -188,7 +216,8 @@ mod host {
 pub struct TrayService {
     commands: Receiver<TrayCommand>,
     playing: bool,
-    playing_tx: Sender<bool>,
+    colour: crate::settings::TrayIcon,
+    changes: Sender<host::Change>,
     thread_id: u32,
 }
 
@@ -197,12 +226,13 @@ impl TrayService {
     /// Registers the tray item. `None` when it cannot be made.
     pub fn spawn(wake: impl Fn() + Send + Sync + 'static) -> Option<Self> {
         let (sender, commands) = std::sync::mpsc::channel();
-        let (playing_tx, playing_rx) = std::sync::mpsc::channel();
-        match host::start(sender, Arc::new(wake), playing_rx) {
+        let (changes, changes_rx) = std::sync::mpsc::channel();
+        match host::start(sender, Arc::new(wake), changes_rx) {
             Ok(thread_id) => Some(Self {
                 commands,
                 playing: false,
-                playing_tx,
+                colour: crate::settings::TrayIcon::Colour,
+                changes,
                 thread_id,
             }),
             Err(error) => {
@@ -220,9 +250,22 @@ impl TrayService {
     pub fn set_playing(&mut self, playing: bool) {
         if self.playing != playing {
             self.playing = playing;
-            if self.playing_tx.send(playing).is_ok() {
-                host::poke(self.thread_id);
-            }
+            self.change(host::Change::Playing(playing));
+        }
+    }
+
+    /// Shows the icon in colour, or white or black to match the taskbar,
+    /// in place: the item and its menu stay.
+    pub fn set_icon_colour(&mut self, colour: crate::settings::TrayIcon) {
+        if self.colour != colour {
+            self.colour = colour;
+            self.change(host::Change::Colour(colour));
+        }
+    }
+
+    fn change(&self, change: host::Change) {
+        if self.changes.send(change).is_ok() {
+            host::poke(self.thread_id);
         }
     }
 
@@ -696,6 +739,11 @@ impl TrayService {
             host::set_playing(playing);
         }
     }
+
+    /// The menu bar already draws the template icon black or white to match
+    /// itself, so the choice would only add a way to make the icon vanish
+    /// on one of the two bars.
+    pub fn set_icon_colour(&mut self, _colour: crate::settings::TrayIcon) {}
 
     /// A window exists: make the item if this is the first one and bring the
     /// application forward.

@@ -26,6 +26,7 @@ struct FastTray {
     commands: Sender<TrayCommand>,
     wake: Arc<dyn Fn() + Send + Sync>,
     playing: bool,
+    colour: crate::settings::TrayIcon,
 }
 
 impl FastTray {
@@ -47,7 +48,7 @@ impl ksni::Tray for FastTray {
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
         let size = 64usize;
-        let rgba = crate::util::app_icon_rgba(size);
+        let rgba = crate::util::tray_icon_rgba(self.colour, size);
         // ksni wants ARGB32 in network byte order.
         let mut data = Vec::with_capacity(rgba.len());
         let (pixels, _) = rgba.as_chunks::<4>();
@@ -112,6 +113,7 @@ pub struct TrayService {
     handle: ksni::blocking::Handle<FastTray>,
     commands: Receiver<TrayCommand>,
     playing: bool,
+    colour: crate::settings::TrayIcon,
 }
 
 impl TrayService {
@@ -122,6 +124,7 @@ impl TrayService {
             commands: sender,
             wake: Arc::new(wake),
             playing: false,
+            colour: crate::settings::TrayIcon::Colour,
         };
         // Flatpak allows talking to the watcher, but not owning ksni's
         // generated StatusNotifierItem name. Register the unique connection
@@ -133,6 +136,7 @@ impl TrayService {
                 handle,
                 commands,
                 playing: false,
+                colour: crate::settings::TrayIcon::Colour,
             }),
             Err(error) => {
                 log::info!("no system tray available: {error}");
@@ -150,6 +154,15 @@ impl TrayService {
         if self.playing != playing {
             self.playing = playing;
             self.handle.update(|tray| tray.playing = playing);
+        }
+    }
+
+    /// Shows the icon in colour, or white or black to match the panel, in
+    /// place: ksni tells the panel the icon changed.
+    pub fn set_icon_colour(&mut self, colour: crate::settings::TrayIcon) {
+        if self.colour != colour {
+            self.colour = colour;
+            self.handle.update(|tray| tray.colour = colour);
         }
     }
 

@@ -66,6 +66,28 @@ where
         .collect())
 }
 
+/// How the tray icon is drawn on Linux and Windows: in colour, or white or
+/// black to match the panel. The macOS menu bar always gets the template
+/// image, which it draws black or white to match itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrayIcon {
+    #[default]
+    Colour,
+    White,
+    Black,
+}
+
+/// Reads `tray_icon`, taking a name this version does not know as the
+/// colour icon instead of making the whole file unreadable.
+fn known_tray_icon<'de, D>(deserializer: D) -> Result<TrayIcon, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let saved = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(saved).unwrap_or_default())
+}
+
 /// Whether a Home shelf is drawn. Hidden shelves still refresh normally.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -235,6 +257,9 @@ pub struct Settings {
     pub playback_authorized: bool,
     /// Closing the window hides to the tray and keeps the music playing.
     pub keep_playing_in_background: bool,
+    /// Linux and Windows: the tray icon in colour, white or black.
+    #[serde(deserialize_with = "known_tray_icon")]
+    pub tray_icon: TrayIcon,
     /// macOS: hovering over a MacBook's notch while Fastsonic is in the
     /// background shows what is playing, with the player bar's controls.
     pub mac_notch_widget: bool,
@@ -353,6 +378,7 @@ impl Default for Settings {
             show_shortcut_hints: true,
             playback_authorized: false,
             keep_playing_in_background: true,
+            tray_icon: TrayIcon::Colour,
             mac_notch_widget: false,
             mac_show_in_dock: true,
             check_for_updates: true,
@@ -541,6 +567,33 @@ mod tests {
         let restored: Settings =
             serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
         assert!(restored.mac_notch_widget);
+    }
+
+    /// Older files keep the colour icon, and the choice round-trips as a
+    /// lowercase word; a word this version does not know keeps it too.
+    #[test]
+    fn the_tray_icon_stays_in_colour_unless_chosen_and_round_trips() {
+        use super::TrayIcon;
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.tray_icon, TrayIcon::Colour);
+        for (choice, word) in [
+            (TrayIcon::Colour, "colour"),
+            (TrayIcon::White, "white"),
+            (TrayIcon::Black, "black"),
+        ] {
+            let json = serde_json::to_value(Settings {
+                tray_icon: choice,
+                ..Settings::default()
+            })
+            .unwrap();
+            assert_eq!(json["tray_icon"], word);
+            let restored: Settings = serde_json::from_value(json).unwrap();
+            assert_eq!(restored.tray_icon, choice);
+        }
+        let newer: Settings =
+            serde_json::from_str(r#"{"tray_icon":"rainbow","volume":7}"#).unwrap();
+        assert_eq!(newer.tray_icon, TrayIcon::Colour);
+        assert_eq!(newer.volume, 7, "the rest of the file still reads");
     }
 
     /// Older files keep the Dock icon; hiding it survives a save.

@@ -128,6 +128,23 @@ pub fn tray_template_rgba(size: usize) -> Vec<u8> {
     rgba
 }
 
+/// The tray icon as Settings asks for it on Linux and Windows: the colour
+/// icon, or the shape of the macOS menu-bar template painted white or
+/// black, its transparency kept, to match the panel or taskbar.
+pub fn tray_icon_rgba(choice: crate::settings::TrayIcon, size: usize) -> Vec<u8> {
+    use crate::settings::TrayIcon;
+    let rgb = match choice {
+        TrayIcon::Colour => return app_icon_rgba(size),
+        TrayIcon::White => [255, 255, 255],
+        TrayIcon::Black => [0, 0, 0],
+    };
+    let mut rgba = tray_template_rgba(size);
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        pixel[..3].copy_from_slice(&rgb);
+    }
+    rgba
+}
+
 /// The mark rasterised to pixels for the window icon and the trays,
 /// where no egui painter exists. This is deliberately the one separate
 /// implementation of the logo; on-screen drawing goes through
@@ -388,6 +405,27 @@ fn replace_file(temporary: &std::path::Path, path: &std::path::Path) -> std::io:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Colour is the app icon; white and black paint the menu-bar
+    /// template's shape, keeping its transparency, so the play triangle
+    /// stays a hole.
+    #[test]
+    fn white_and_black_tray_icons_paint_the_template_shape() {
+        use crate::settings::TrayIcon;
+        assert_eq!(tray_icon_rgba(TrayIcon::Colour, 32), app_icon_rgba(32));
+        let template = tray_template_rgba(32);
+        for (choice, rgb) in [(TrayIcon::White, [255; 3]), (TrayIcon::Black, [0; 3])] {
+            let painted = tray_icon_rgba(choice, 32);
+            let (pixels, _) = painted.as_chunks::<4>();
+            let (shape, _) = template.as_chunks::<4>();
+            for (pixel, outline) in pixels.iter().zip(shape) {
+                assert_eq!(pixel[..3], rgb);
+                assert_eq!(pixel[3], outline[3], "the shape stays");
+            }
+        }
+        let centre = (16 * 32 + 16) * 4 + 3;
+        assert_eq!(tray_icon_rgba(TrayIcon::White, 32)[centre], 0, "a hole");
+    }
 
     fn scratch(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(

@@ -170,7 +170,12 @@ and on in an older settings file) keeps Fastsonic in the Dock and Cmd+Tab;
 off, it runs from the menu bar alone, and the menu-bar icon always stays.
 Close
 to tray and daily GitHub update checks are enabled by default and can be
-disabled. **Check for updates** asks straight away and reports the answer
+disabled. On Linux and Windows, **Tray icon** (`tray_icon`: `colour`, the
+default, `white` or `black`) draws the tray icon in colour, or in white or
+black to match the panel or taskbar, and changes it in place; a file without
+the field, or with a value this version does not know, keeps the colour
+icon. macOS does not show the row and ignores the field: the menu bar
+already draws its icon black or white to match itself. **Check for updates** asks straight away and reports the answer
 either way, including when the version installed is the current one; on macOS
 the application menu asks the same question. When a newer release
 exists, a badge beside Search names it and opens its GitHub release; in a
