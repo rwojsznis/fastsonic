@@ -9,6 +9,26 @@ signed, so Gatekeeper and SmartScreen will both object on first open; the
 release notes say what to do about it. There is no Homebrew tap and no AUR
 package.
 
+SmartScreen may warn about an unknown publisher the first time a Windows
+file runs; choose **More info**, then **Run anyway**. The Windows files are
+not signed with a publisher certificate, so Windows has no publisher name to
+show.
+
+To check a Windows download against `checksums.txt`, print its SHA-256 hash
+in PowerShell and compare it with that file's line, ignoring letter case:
+
+```powershell
+Get-FileHash "$HOME\Downloads\fastsonic-v*-pc-windows-msvc*"
+```
+
+If Windows Security flags a download, open **Windows Security → Virus &
+threat protection → Protection history** and note the threat name. Include
+it, and the file's hash, when you
+[report the problem](https://github.com/rwojsznis/fastsonic/issues/new?template=bug.yml).
+To ask Microsoft to review the file, send it through
+[Submit a file for malware analysis](https://www.microsoft.com/en-us/wdsi/filesubmission)
+as incorrectly detected.
+
 On Windows, the ZIP is a portable copy: extract it anywhere and open
 `fastsonic.exe`. It keeps its settings, sign-in and caches in a
 `fastsonic-data` folder next to it, starting the first time from a copy of
