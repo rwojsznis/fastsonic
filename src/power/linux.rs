@@ -9,6 +9,7 @@
 //!   gives the app a moment to save first; inside Flatpak it needs
 //!   `--system-talk-name=org.freedesktop.login1`, and without it the app
 //!   still hears about the wake.
+//! - The engine's thread asks for nice -5, where the system allows it.
 //!
 //! <https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.PowerProfileMonitor.html>
 //! <https://systemd.io/INHIBITOR_LOCKS/>
@@ -133,6 +134,29 @@ fn watch_sleep(shared: &Shared) -> zbus::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Ahead of ordinary threads, well short of what a real-time audio thread
+/// gets.
+const FEEDER_NICE: libc::c_int = -5;
+
+/// Raises the calling thread to [`FEEDER_NICE`]. Without the right to (no
+/// `RLIMIT_NICE` allowance, as usual for a desktop user) it is refused.
+pub(super) fn raise_feeder() -> std::io::Result<()> {
+    // SAFETY: `gettid` takes nothing; with a thread id, PRIO_PROCESS
+    // changes only that thread on Linux.
+    let result = unsafe {
+        libc::setpriority(
+            libc::PRIO_PROCESS,
+            libc::gettid() as libc::id_t,
+            FEEDER_NICE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
 }
 
 /// Takes a "delay" lock on sleep, or gets on without one. It is listed in

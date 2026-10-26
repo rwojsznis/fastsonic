@@ -1545,6 +1545,7 @@ dependencies = [
  "image",
  "jiff",
  "ksni",
+ "libc",
  "log",
  "md-5",
  "memmap2",

@@ -1,6 +1,7 @@
 //! Windows: power settings, sleep and wake, the network's reach and cost,
 //! the session lock and the end of the session; EcoQoS while nobody can see
-//! the app, and MMCSS for the thread that feeds the audio device.
+//! the app, MMCSS for the audio device's callback thread, and above normal
+//! priority for the engine's thread that feeds it.
 //!
 //! Power settings, sleep and the network come through system callbacks that
 //! need no window, on threads of the system's pool. The session lock and the
@@ -453,6 +454,28 @@ pub fn join_audio_task() {
             Some(AudioTask(handle))
         });
     });
+}
+
+/// Raises the calling thread one step above normal priority.
+pub(super) fn raise_feeder() -> std::io::Result<()> {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+    };
+    // SAFETY: the current thread's pseudo-handle needs no closing, and the
+    // call changes only that thread.
+    if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// The calling thread's priority, for the tests.
+#[cfg(test)]
+pub(super) fn thread_priority() -> i32 {
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, GetThreadPriority};
+    // SAFETY: reads the current thread's priority through its pseudo-handle.
+    unsafe { GetThreadPriority(GetCurrentThread()) }
 }
 
 thread_local! {

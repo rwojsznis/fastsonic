@@ -187,6 +187,10 @@ impl Engine {
         let thread = std::thread::Builder::new()
             .name("fastsonic-audio".into())
             .spawn(move || {
+                // This thread decodes and queues every chunk the device
+                // plays; ahead of ordinary work, a busy computer keeps it
+                // waiting less than the queue lasts.
+                crate::power::raise_feeder_priority();
                 let http = crate::blocking_http_client_builder()
                     .connect_timeout(CONNECT_TIMEOUT)
                     .redirect(crate::api::subsonic::headers::redirect_policy())

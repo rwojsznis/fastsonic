@@ -8,6 +8,7 @@
 //!   loop, while there is no window).
 //! - An activity from `beginActivityWithOptions:reason:` keeps playback out
 //!   of App Nap.
+//! - The engine's thread asks for the user-interactive QoS class.
 //!
 //! Sleep and wake from NSWorkspace are not followed yet.
 //! <https://developer.apple.com/documentation/foundation/processinfo/islowpowermodeenabled>
@@ -83,6 +84,33 @@ impl Drop for Activity {
         // is ended exactly once, here, before its reference is released.
         unsafe { NSProcessInfo::processInfo().endActivity(&self.0) };
     }
+}
+
+/// Puts the calling thread in the user-interactive QoS class, the class of
+/// the frontmost app's main thread.
+pub(super) fn raise_feeder() -> std::io::Result<()> {
+    // SAFETY: changes only the calling thread's own QoS class, with a valid
+    // class and a relative priority of zero, as the call allows.
+    let result = unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::from_raw_os_error(result))
+    }
+}
+
+/// The calling thread's QoS class, for the tests.
+#[cfg(test)]
+pub(super) fn qos_class() -> libc::qos_class_t {
+    let mut class = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+    let mut relative = 0;
+    // SAFETY: reads the calling thread's own class into valid places.
+    unsafe {
+        libc::pthread_get_qos_class_np(libc::pthread_self(), &mut class, &mut relative);
+    }
+    class
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]

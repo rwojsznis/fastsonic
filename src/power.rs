@@ -44,6 +44,60 @@ use self::windows::Reader;
 #[cfg(target_os = "windows")]
 pub use self::windows::join_audio_task;
 
+#[cfg(target_os = "linux")]
+use self::linux::raise_feeder;
+#[cfg(target_os = "macos")]
+use self::macos::raise_feeder;
+#[cfg(target_os = "windows")]
+use self::windows::raise_feeder;
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn raise_feeder() -> std::io::Result<()> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+thread_local! {
+    /// Whether this thread has asked for precedence, and what it was told.
+    static FEEDER: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Gives the calling thread precedence over ordinary work, for the engine's
+/// thread, which decodes and queues what the device plays. The device's
+/// own callback already runs where the system wants it (CoreAudio's
+/// real-time thread, MMCSS on Windows), but the thread filling its queue
+/// ran like any other, so a busy or swapping computer could keep it
+/// waiting until the queue ran dry: crackles and gaps the device never
+/// reports.
+///
+/// - macOS: the user-interactive QoS class, ahead of default, utility and
+///   background work.
+/// - Windows: one step above normal priority.
+/// - Linux: nice -5, which an ordinary user is usually refused; the thread
+///   then stays as it was.
+///
+/// Best effort, and asked once per thread: a refusal is logged once, at
+/// debug level. Returns whether the system granted it.
+pub fn raise_feeder_priority() -> bool {
+    FEEDER.with(|asked| {
+        if let Some(granted) = asked.get() {
+            return granted;
+        }
+        let granted = match raise_feeder() {
+            Ok(()) => true,
+            Err(error) => {
+                static LOGGED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    log::debug!("audio engine: thread priority not raised: {error}");
+                }
+                false
+            }
+        };
+        asked.set(Some(granted));
+        granted
+    })
+}
+
 /// What the system says about power, the display, the session and the
 /// network. A platform that cannot tell leaves the default, which is the
 /// unconstrained case.
@@ -634,6 +688,52 @@ mod tests {
         send_and_sync::<Power>();
         send_and_sync::<Activity>();
         send_and_sync::<Ack>();
+    }
+
+    /// A thread asks for precedence once and keeps the answer; another
+    /// thread asking changes nothing for this one.
+    #[test]
+    fn the_feeding_thread_asks_once() {
+        std::thread::spawn(|| {
+            assert_eq!(FEEDER.get(), None);
+            let granted = raise_feeder_priority();
+            assert_eq!(FEEDER.get(), Some(granted));
+            assert_eq!(raise_feeder_priority(), granted, "not asked again");
+        })
+        .join()
+        .expect("the thread raises its priority without panicking");
+        assert_eq!(FEEDER.get(), None, "this thread has not asked");
+    }
+
+    /// Any app may ask for the user-interactive class, so macOS grants it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_feeds_from_the_user_interactive_class() {
+        std::thread::spawn(|| {
+            assert!(raise_feeder_priority());
+            // qos_class_t has no PartialEq.
+            assert!(matches!(
+                macos::qos_class(),
+                libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE
+            ));
+        })
+        .join()
+        .expect("the class is set");
+    }
+
+    /// Any process may raise a thread to above normal.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_feeds_from_above_normal() {
+        std::thread::spawn(|| {
+            assert!(raise_feeder_priority());
+            assert_eq!(
+                windows::thread_priority(),
+                windows_sys::Win32::System::Threading::THREAD_PRIORITY_ABOVE_NORMAL
+            );
+        })
+        .join()
+        .expect("the priority is set");
     }
 
     /// Playback holds off App Nap while it plays or loads, and lets go on

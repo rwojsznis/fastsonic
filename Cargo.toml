@@ -115,6 +115,11 @@ unicode-bidi = "0.3"
 tray-icon = { version = "0.24", default-features = false }
 souvlaki = { version = "0.8", default-features = false }
 
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+# Raises the audio engine's thread: its QoS class on macOS, its nice value on
+# Linux (src/power). Already in the build through cpal, std and others.
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # Serving AppKit while no window exists: the status item and Dock reopen
 # callback live on the main thread. "exception" lets
