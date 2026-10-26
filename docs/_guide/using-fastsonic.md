@@ -204,7 +204,10 @@ continuous. The visualizers still follow the post-equalizer, pre-volume
 signal, so transport and volume changes do not move the picture.
 
 Settings → Appearance → **Player bar visualizer** offers a spectrum or waveform
-behind the controls. It is off by default. Click empty space on the player bar
+behind the controls. With **Colour from album art** on, it sweeps from bass to
+treble across up to four colours read from the cover, its hues first and its
+greys after, so a black and white cover moves in grey; with it off, it takes
+the accent colour. It is off by default. Click empty space on the player bar
 to cycle through spectrum, waveform, and off; turn off **Click player bar to
 change visualizer** just below it if those clicks change it by accident.
 **Frame rate** under that sets how often it and the mini player's analyser

@@ -26,7 +26,7 @@ use crate::api::subsonic::{
     ServerHeaders, SubsonicClient, auth::normalize_server, convert,
 };
 use crate::engine::{Engine, EngineConfig, EngineEvent, LocalState, PlayerCommand, QueueSnapshot};
-use crate::images::{ArtLoader, accent_color};
+use crate::images::{ArtLoader, art_palette};
 use crate::paths::AppDirs;
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -468,6 +468,8 @@ pub enum Event {
     Accent {
         url: String,
         color: [u8; 3],
+        /// The cover's colours, the accent first, for the visualizer.
+        palette: Vec<[u8; 3]>,
     },
     Error(String),
     /// GitHub answered an update check, or the request failed.
@@ -1289,12 +1291,15 @@ impl Worker {
         let waker = self.waker.clone();
         tokio::spawn(async move {
             if let Ok(bytes) = art.fetch(&url).await {
-                let color = tokio::task::spawn_blocking(move || accent_color(&bytes))
+                let palette = tokio::task::spawn_blocking(move || art_palette(&bytes))
                     .await
-                    .ok()
-                    .flatten();
-                if let Some(color) = color {
-                    let _ = events.send(Event::Accent { url, color });
+                    .unwrap_or_default();
+                if let Some(&color) = palette.first() {
+                    let _ = events.send(Event::Accent {
+                        url,
+                        color,
+                        palette,
+                    });
                     waker.wake();
                 }
             }

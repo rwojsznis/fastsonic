@@ -1075,6 +1075,11 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     })
                     .collect();
                 app.winamp.tap.push(&samples, 1.0);
+                // Read the cover's colours, as a change of song does, so the
+                // visualizer draws in them.
+                if let Some(now) = app.now_playing() {
+                    app.tint_for(now.art_small.or(now.art_url).as_deref());
+                }
             }
             // Titles in scripts the interface font does not cover.
             "rtl" => {

@@ -253,7 +253,8 @@ strength, so `#00000018` is a faint dark wash and `#ffffff20` a faint light
 one. Leave it out for a plain page, as every bundled palette does. Like a
 cover's colour, the wash scrolls away with the top of the page.
 
-**Colour from album art** tints pages with the playing cover over any theme;
+**Colour from album art** tints pages with the playing cover over any theme,
+and colours the player bar visualizer with up to four of the cover's colours;
 turn it off to keep a palette's colours everywhere.
 
 The folder is read in the background when Fastsonic starts, when Settings
