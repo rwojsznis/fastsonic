@@ -18,6 +18,9 @@ use skrifa::MetadataProvider as _;
 #[cfg(not(target_os = "macos"))]
 use skrifa::raw::TableProvider as _;
 
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod han;
+
 /// Registered font name, file bytes, and face index.
 pub struct Fallback {
     pub name: String,
@@ -34,6 +37,11 @@ pub struct Fallback {
 /// needs only the probe.
 pub(crate) const FALLBACK_SCRIPTS: &[(&str, char, &str)] = &[
     ("han", '\u{4e2d}', "cjk"),
+    // 们, a simplified character a Japanese face lacks. Where the Han face
+    // is Japanese, this registers a Chinese face behind it, so 们, 谢 and 联
+    // do not draw as boxes. Where the Han face already draws it, nothing is
+    // added. macOS covers this gap in its Han faces instead.
+    ("hans", '\u{4eec}', "cjk"),
     ("kana", '\u{3042}', "cjk"),
     ("hangul", '\u{d55c}', "cjk"),
     ("arabic", '\u{0627}', "arabic"),
@@ -96,6 +104,24 @@ fn scale_for(latin: f32, arabic: f32) -> f32 {
     } else {
         (scale * 100.0).round() / 100.0
     }
+}
+
+/// Whether a face carries an outline for `character`, rather than only a
+/// character map entry pointing at one: bitmap and colour-only fonts map
+/// characters and draw nothing epaint can rasterize.
+pub(crate) fn draws(font: &skrifa::FontRef, character: char) -> bool {
+    let outlines = font.outline_glyphs();
+    font.charmap()
+        .map(character)
+        .is_some_and(|glyph| outlines.get(glyph).is_some())
+}
+
+/// Whether a face already registered draws `probe`.
+#[cfg(any(not(target_os = "macos"), test))]
+fn already_draws(fonts: &[Fallback], probe: char) -> bool {
+    fonts.iter().any(|face| {
+        skrifa::FontRef::from_index(&face.bytes, face.index).is_ok_and(|font| draws(&font, probe))
+    })
 }
 
 /// The regional cut of a pan-CJK font a locale should be shown, longest
@@ -272,7 +298,10 @@ fn scan() -> Vec<Fallback> {
     // that chose it.
     let mut fonts: Vec<Fallback> = Vec::new();
     let mut taken: Vec<(PathBuf, u32)> = Vec::new();
-    for (script, _, _) in FALLBACK_SCRIPTS {
+    for (script, probe, _) in FALLBACK_SCRIPTS {
+        if *script == "hans" && already_draws(&fonts, *probe) {
+            continue;
+        }
         let Some(candidate) = best.get(script) else {
             log::debug!("no fallback face covers {script}");
             continue;
@@ -784,6 +813,43 @@ mod tests {
             "a face without heh is left alone"
         );
         assert!((arabic_scale(inter, b"not a font", 0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_registered_face_covers_only_characters_it_can_draw() {
+        let yi = Fallback {
+            name: "fallback-yi".to_string(),
+            bytes: std::fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yi/YiTest.ttf"),
+            )
+            .unwrap(),
+            index: 0,
+        };
+        assert!(already_draws(std::slice::from_ref(&yi), '\u{a248}'));
+        assert!(!already_draws(&[yi], '们'));
+        assert!(!already_draws(&[], '们'));
+        let invalid = Fallback {
+            name: "fallback-han".to_string(),
+            bytes: b"invalid".to_vec(),
+            index: 0,
+        };
+        assert!(!already_draws(&[invalid], '们'));
+    }
+
+    /// A Japanese face passes the Han probe but lacks simplified characters,
+    /// so a second probe that only a Chinese face draws follows it.
+    #[test]
+    fn simplified_han_has_a_probe_of_its_own_behind_han() {
+        let position = |name: &str| {
+            FALLBACK_SCRIPTS
+                .iter()
+                .position(|(script, _, _)| *script == name)
+        };
+        let han = position("han").unwrap();
+        let hans = position("hans").unwrap();
+        assert_eq!(hans, han + 1);
+        assert_eq!(FALLBACK_SCRIPTS[hans].1, '们');
+        assert_ne!(FALLBACK_SCRIPTS[han].1, FALLBACK_SCRIPTS[hans].1);
     }
 
     #[test]

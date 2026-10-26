@@ -25,18 +25,31 @@ use std::path::PathBuf;
 
 use skrifa::MetadataProvider as _;
 
-use crate::system_fonts::{FALLBACK_SCRIPTS, Fallback, MAX_FACES};
+use crate::system_fonts::han::{Coverage, KEYS, PROBES, select};
+use crate::system_fonts::{FALLBACK_SCRIPTS, Fallback, MAX_FACES, draws};
 
 /// The face CoreText resolves for each script, read into memory.
 ///
 /// A face serving several scripts is registered once, under the first script
 /// that resolved to it: `PingFang` answers Han, kana, and the symbols probe
-/// on a Chinese desktop.
+/// on a Chinese desktop. Han alone takes up to four faces, from
+/// `load_han`, since no one face macOS has draws all of it.
 pub fn load() -> Vec<Fallback> {
     let started = std::time::Instant::now();
     let mut fonts: Vec<Fallback> = Vec::new();
     let mut taken: Vec<(PathBuf, u32)> = Vec::new();
     for (script, probe, _) in FALLBACK_SCRIPTS {
+        if *script == "han" {
+            for (font, path) in load_han() {
+                taken.push((path, font.index));
+                fonts.push(font);
+            }
+            continue;
+        }
+        // The Han faces above already cover the simplified gap.
+        if *script == "hans" {
+            continue;
+        }
         let candidates = resolve(*probe);
         if candidates.is_empty() {
             log::debug!("CoreText names no face for {script}");
@@ -80,6 +93,78 @@ pub fn load() -> Vec<Fallback> {
         fonts.len()
     );
     fonts
+}
+
+/// The Han faces to register, with the files they came from: the first
+/// broad face in CoreText's cascade, then the faces behind it that fill its
+/// gaps, as `system_fonts::han::select` keeps them.
+///
+/// The face macOS draws Han with depends on the language the desktop is
+/// read in, and none draws all of it. An English desktop answers Hiragino
+/// Sans, which has no simplified forms such as 们, and a Korean one answers
+/// a face with only the hanja used in names.
+fn load_han() -> Vec<(Fallback, PathBuf)> {
+    let mut candidates: Vec<(String, PathBuf, u32)> = Vec::new();
+    let mut coverage = Vec::new();
+    for (family, path) in resolve('\u{4e2d}') {
+        let Some(index) = face_index(&path, &family, '\u{4e2d}') else {
+            continue;
+        };
+        if candidates
+            .iter()
+            .any(|(_, held, held_index)| *held == path && *held_index == index)
+        {
+            continue;
+        }
+        let Some(measured) = measure(&path, index) else {
+            continue;
+        };
+        candidates.push((family, path, index));
+        coverage.push(measured);
+    }
+    select(&coverage)
+        .into_iter()
+        .zip(KEYS)
+        .filter_map(|(position, key)| {
+            let (family, path, index) = &candidates[position];
+            let bytes = match std::fs::read(path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    log::warn!("cannot read {}: {error}", path.display());
+                    return None;
+                }
+            };
+            log::info!(
+                "{key} fallback: {family}, {} (face {index})",
+                path.display()
+            );
+            let font = Fallback {
+                name: format!("fallback-{key}"),
+                bytes,
+                index: *index,
+            };
+            Some((font, path.clone()))
+        })
+        .collect()
+}
+
+/// Which of the Han probes face `index` of `path` draws, and how much of the
+/// basic Han block it maps.
+fn measure(path: &std::path::Path, index: u32) -> Option<Coverage> {
+    let file = std::fs::File::open(path).ok()?;
+    // Safety: a read-only mapping that lives inside this call, as in
+    // `face_index`.
+    let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
+    let font = skrifa::FontRef::from_index(&map, index).ok()?;
+    let probes = PROBES.iter().enumerate().fold(0, |bits, (bit, character)| {
+        bits | (u32::from(draws(&font, *character)) << bit)
+    });
+    let ideographs = font
+        .charmap()
+        .mappings()
+        .filter(|(code, _)| (0x4e00..=0x9fff).contains(code))
+        .count();
+    Some(Coverage { probes, ideographs })
 }
 
 /// The family name and file CoreText draws `probe` with, in the language the
@@ -283,15 +368,6 @@ fn face_index(path: &std::path::Path, family: &str, probe: char) -> Option<u32> 
         .map(|(index, _)| *index)
 }
 
-/// Whether a face carries an outline for `character`, rather than only a
-/// character map entry pointing at one.
-fn draws(font: &skrifa::FontRef, character: char) -> bool {
-    let outlines = font.outline_glyphs();
-    font.charmap()
-        .map(character)
-        .is_some_and(|glyph| outlines.get(glyph).is_some())
-}
-
 /// Whether a face belongs to `family`, under either name it can be written.
 fn names(font: &skrifa::FontRef, family: &str) -> bool {
     [
@@ -427,6 +503,29 @@ mod tests {
         }
     }
 
+    /// Between them, the Han faces draw the simplified and the Japanese
+    /// forms any Han face on this Mac draws. Hiragino Sans, which an English
+    /// desktop answers first, has no 们, and PingFang has no 込.
+    #[test]
+    fn the_han_faces_draw_simplified_and_japanese_forms_the_mac_has() {
+        let kept = load_han();
+        for character in ['们', '込'] {
+            let anywhere = resolve('\u{4e2d}')
+                .iter()
+                .any(|(family, path)| face_index(path, family, character).is_some());
+            if !anywhere {
+                continue;
+            }
+            assert!(
+                kept.iter().any(|(font, _)| {
+                    skrifa::FontRef::from_index(&font.bytes, font.index)
+                        .is_ok_and(|face| draws(&face, character))
+                }),
+                "a Han face on this Mac draws {character}, but none registered does"
+            );
+        }
+    }
+
     /// The face chosen for Han draws whole titles, not just the probe.
     ///
     /// A face covering part of the script leaves the rest to the face behind
@@ -442,14 +541,12 @@ mod tests {
     /// apply to it.
     #[test]
     fn the_han_face_draws_the_characters_that_split() {
-        let candidates = resolve('\u{4e2d}');
         // The same choice `load` makes, so this tests the face that ships.
-        let Some((family, path, index)) = candidates.iter().find_map(|(family, path)| {
-            face_index(path, family, '\u{4e2d}').map(|index| (family, path, index))
-        }) else {
+        let Some((first, path)) = load_han().into_iter().next() else {
             return; // No Han face at all is not this test's business.
         };
-        let bytes = std::fs::read(path).expect("CoreText named a readable file");
+        let (family, index) = (&first.name, first.index);
+        let bytes = first.bytes;
         let font = match skrifa::raw::FileRef::new(&bytes) {
             Ok(skrifa::raw::FileRef::Font(font)) => font,
             Ok(skrifa::raw::FileRef::Collection(collection)) => {
