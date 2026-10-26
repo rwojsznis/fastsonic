@@ -31,9 +31,13 @@ This fork will backport changes from `fastpotify` repository while removing Spot
 - An engine-owned queue that links back to its playing context, with
   Play next, drag-to-reorder, drop-in and one-at-a-time removal of songs
   under Playing next, shuffle and
-  repeat, ReplayGain normalisation, a ten-band equalizer, and a bounded
-  on-disk audio cache.
-- Restores the last track, position, context, and manually queued songs.
+  repeat, ReplayGain normalisation, a ten-band equalizer with presets of
+  your own, and a bounded on-disk audio cache. The computer stays awake
+  while music plays.
+- Restores the last track, position, context, repeat mode, and manually
+  queued songs.
+- Listening activity: what the other people on your server are playing,
+  in a side panel beside Queue and Lyrics.
 - Servers behind Cloudflare Access or another gate: [extra
   headers](docs/_reference/how-it-connects.md#extra-headers) such as a service
   token are sent with every request to the server, and to no other host.
@@ -85,7 +89,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   [autoscroll](docs/_guide/using-fastsonic.md#middle-click-autoscroll).
 - Synced lyrics in a side panel or full-screen view, with line seeking and
   automatic following. Full screen, also on **F**, places a large cover
-  beside the lyrics in wide windows, or centres it when there are no words.
+  beside the lyrics in wide windows, or centres it when there are no words;
+  **Q** adds a queue column beside them.
 
 Fastsonic plays only on single computer. It does not provide Spotify Connect,
 Subsonic jukebox mode, podcasts, offline sync, multiple server profiles, or a
