@@ -113,7 +113,9 @@ features; Navidrome-only personalisation sections may be empty.
   that to the app itself, except niri, which Fastsonic asks through
   `niri msg` to focus the window and switch to its workspace.
 - Space plays and pauses—even when a row or button has focus—Ctrl+F or `/`
-  searches, and `Q` opens the queue. Text fields keep Space for typing.
+  searches, and `Q` opens the queue. The other single-key shortcuts, such
+  as M, S, R and B, also work from a focused song row; text fields keep
+  these keys for typing, and an open dialog keeps the single letters.
   Ctrl+/ shows every shortcut. On macOS, Cmd replaces Ctrl.
 - Right-click a song, playlist, album, or artist for actions such as Play
   next, star, add to playlist, and copy link.
