@@ -2905,6 +2905,65 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A click just past the end of the mini player's volume bar is near
+    /// the balance slider, which egui would hand it to, but it leaves the
+    /// balance alone; a click on the balance slider's own track still moves
+    /// it (#804).
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_click_beside_the_balance_slider_leaves_the_balance_centred() {
+        let (ctx, mut app) = accessible_app("winamp-balance-halo");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("winamp"));
+        let draw = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(550.0, 232.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+        };
+        draw(&mut app, Vec::new());
+        draw(&mut app, Vec::new());
+        // Two points per skin pixel. The volume bar ends at x 175 and the
+        // balance slider starts at 177, both centred on y 63.5.
+        let y = 63.5 * 2.0;
+        for x in [175.6, 176.4, 176.9] {
+            draw(
+                &mut app,
+                pointer_click(egui::pos2(x * 2.0, y), egui::PointerButton::Primary),
+            );
+            draw(&mut app, Vec::new());
+            assert_eq!(app.settings.balance, 0.0, "a click at x {x}");
+        }
+        // Just outside the slider, above and below.
+        for dy in [-8.0, 8.0] {
+            draw(
+                &mut app,
+                pointer_click(
+                    egui::pos2(200.0 * 2.0, y + dy * 2.0),
+                    egui::PointerButton::Primary,
+                ),
+            );
+            draw(&mut app, Vec::new());
+            assert_eq!(app.settings.balance, 0.0, "a click {dy} skin pixels off");
+        }
+        // The right end of the balance track.
+        draw(
+            &mut app,
+            pointer_click(egui::pos2(214.0 * 2.0, y), egui::PointerButton::Primary),
+        );
+        draw(&mut app, Vec::new());
+        assert_eq!(app.settings.balance, 1.0);
+        app.backend.shutdown();
+    }
+
     /// A song already cached without its album's art, as an album's song
     /// list caches it, takes the row's album for the radio's cover, while
     /// what the cache already knows is kept.
