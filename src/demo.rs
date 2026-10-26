@@ -1795,6 +1795,8 @@ mod tests {
                                 shift: 0.0,
                                 picked: false,
                                 picked_songs: &[],
+                                picked_positions: &[],
+                                position: None,
                             },
                         );
                     }
@@ -1897,6 +1899,8 @@ mod tests {
                                     shift: 0.0,
                                     picked: false,
                                     picked_songs: &[],
+                                    picked_positions: &[],
+                                    position: None,
                                 },
                             );
                         });
@@ -2017,6 +2021,8 @@ mod tests {
                                 shift: 0.0,
                                 picked: false,
                                 picked_songs: &[],
+                                picked_positions: &[],
+                                position: None,
                             },
                         );
                     }
@@ -3332,7 +3338,7 @@ mod tests {
                     events,
                     ..Default::default()
                 },
-                |ui| crate::ui::widgets::picked_menu(ui, app, &songs, None),
+                |ui| crate::ui::widgets::picked_menu(ui, app, &songs, &[], None),
             );
             output.textures_delta.clear();
             output.platform_output.accesskit_update.unwrap()
@@ -5301,6 +5307,8 @@ mod tests {
                         shift: 0.0,
                         picked: false,
                         picked_songs: &[],
+                        picked_positions: &[],
+                        position: None,
                     },
                 );
             }

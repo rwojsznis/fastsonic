@@ -25,8 +25,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::api::models::{
-    Album, Artist, Page, Playlist, PlaylistItem, Radio, SavedAlbum, SavedTrack, SearchResults,
-    Track, User,
+    Album, Artist, Page, Playlist, PlaylistItem, Radio, RemovedRow, SavedAlbum, SavedTrack,
+    SearchResults, Track, User,
 };
 
 use super::client::{ApiError, Result, SubsonicClient};
@@ -639,6 +639,34 @@ impl SubsonicClient {
         self.playlist(id).await
     }
 
+    /// `ApiRequest::RemoveFromPlaylist` with the picked rows: only those
+    /// copies of a song the playlist holds more than once go. Each row is
+    /// found in a fresh read, at its position while that still holds its
+    /// song, and otherwise as the same copy of the song; a row that is no
+    /// longer there removes nothing.
+    ///
+    /// Returns the playlist as it stands afterwards.
+    pub async fn remove_playlist_rows(&self, id: &str, rows: &[RemovedRow]) -> Result<Playlist> {
+        let current = self.get_playlist(id).await?;
+        let songs: Vec<&str> = current.entry.iter().map(|song| song.id.as_str()).collect();
+        let mut doomed: Vec<usize> = rows
+            .iter()
+            .filter_map(|row| row_index(&songs, row))
+            .collect();
+        doomed.sort_unstable();
+        doomed.dedup();
+        if !doomed.is_empty() {
+            let mut params = vec![param("playlistId", id)];
+            params.extend(
+                doomed
+                    .into_iter()
+                    .map(|index| param("songIndexToRemove", index)),
+            );
+            self.post("updatePlaylist", &params).await?;
+        }
+        self.playlist(id).await
+    }
+
     /// `ApiRequest::ReorderPlaylist`. There is no reorder endpoint, so the
     /// whole playlist is rewritten in the new order — the same
     /// `playlistId`, the same name, the full ordered list of song ids. It
@@ -926,6 +954,22 @@ fn insert(ids: &mut Vec<String>, added: Vec<String>, insert_before: usize) {
     ids.splice(at..at, added);
 }
 
+/// Where a picked row sits in the playlist as it is now: at its position
+/// while that holds its song, else as the same copy of the song.
+fn row_index(songs: &[&str], row: &RemovedRow) -> Option<usize> {
+    let song = convert::id_of(&row.uri, convert::Kind::Track)?;
+    let position = row.position as usize;
+    if songs.get(position) == Some(&song) {
+        return Some(position);
+    }
+    songs
+        .iter()
+        .enumerate()
+        .filter(|(_, held)| **held == song)
+        .nth(row.copy as usize)
+        .map(|(index, _)| index)
+}
+
 fn reorder(ids: &mut Vec<String>, from: usize, insert_before: usize) -> bool {
     if from >= ids.len() || insert_before > ids.len() {
         return false;
@@ -1095,6 +1139,21 @@ mod tests {
         let mut list = ids(&["a"]);
         insert(&mut list, ids(&["x"]), 9);
         assert_eq!(list, ids(&["a", "x"]));
+    }
+
+    #[test]
+    fn a_picked_copy_is_found_at_its_position_or_as_the_same_copy() {
+        let row = |position, copy| RemovedRow {
+            uri: "sonic:track:b".into(),
+            position,
+            copy,
+        };
+        assert_eq!(row_index(&["a", "b", "c", "b"], &row(3, 1)), Some(3));
+        // A row added above it since: the second copy is one further down.
+        assert_eq!(row_index(&["x", "a", "b", "c", "b"], &row(3, 1)), Some(4));
+        // The copy is gone: nothing else goes in its place.
+        assert_eq!(row_index(&["a", "b", "c"], &row(3, 1)), None);
+        assert_eq!(row_index(&["a", "c"], &row(1, 0)), None);
     }
 
     #[test]

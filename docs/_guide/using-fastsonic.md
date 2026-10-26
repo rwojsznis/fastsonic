@@ -30,8 +30,9 @@ With Queue or Lyrics open, the window cannot be made narrower than the room
 they need beside the page.
 
 Right-clicking a song in a playlist you can edit offers **Remove from this
-playlist** even when the list is sorted or filtered, since removal does not
-depend on position; with several songs picked, it removes them all. Drag a
+playlist** even when the list is sorted or filtered; with several songs
+picked, it removes them all. A song the playlist holds more than once loses
+only the copies you picked. Drag a
 song to the top or bottom edge of the list, or of the sidebar, to scroll it
 while you hold the song. **Move
 up**, **Move down**, and drag-reorder stay on the default order, where the

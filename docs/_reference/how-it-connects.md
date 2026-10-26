@@ -82,7 +82,12 @@ Library, search, playlists, stars, artwork, lyrics supplied by the server,
 streams, and scrobbles use Subsonic/OpenSubsonic. Playlist edits use form POST
 when necessary. Subsonic can only append to a playlist or remove rows from it,
 so a move, or a song dropped between rows, reads the playlist again and
-rewrites it whole in the new order under the same id and name. While an
+rewrites it whole in the new order under the same id and name. A removal
+reads the playlist first too and sends `updatePlaylist` the rows to drop by
+`songIndexToRemove`, counted in that fresh read: every row of a removed song,
+or, when the playlist holds the song more than once, only the copies picked,
+each found where it was seen or else as the same copy of its song; a copy no
+longer there removes nothing. While an
 edit is on its way, Fastsonic asks for none of the playlist's rows and ignores
 any that arrive, so a read from before the edit cannot undo it on screen;
 **Refresh** waits too, and the last edit's answer reloads the rows in place. Playback requests the original file, without transcoding, so

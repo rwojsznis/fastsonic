@@ -708,6 +708,7 @@ pub fn picked_menu(
     ui: &mut Ui,
     app: &mut App,
     songs: &[PlayableItem],
+    positions: &[u32],
     editable_playlist: Option<&(String, Option<String>)>,
 ) {
     let palette = app.palette;
@@ -749,15 +750,16 @@ pub fn picked_menu(
             saved: !all_saved,
         });
     }
-    // Removal is URI-based, so one entry covers the whole selection on
-    // both the unsorted context and a sorted or filtered view. The caller
-    // only passes a playlist when every picked row shares it.
+    // One entry covers the whole selection on both the unsorted context
+    // and a sorted or filtered view. The caller only passes a playlist when
+    // every picked row shares it.
     if let Some((playlist_id, _)) = editable_playlist
         && menu_item(ui, &palette, Some(Icon::Minus), "Remove from this playlist")
     {
         app.actions.push(Action::RemoveFromPlaylist {
             playlist_id: playlist_id.clone(),
             uris: uris.clone(),
+            positions: positions.to_vec(),
         });
     }
     add_to_playlist_menu(ui, app, &named);
@@ -924,6 +926,19 @@ pub fn item_menu(
     context: Option<&RowContext>,
     index: Option<usize>,
 ) {
+    item_menu_at(ui, app, item, context, index, None);
+}
+
+/// [`item_menu`] for a playlist row at `position`, so removing it removes
+/// that copy of a song the list holds more than once.
+fn item_menu_at(
+    ui: &mut Ui,
+    app: &mut App,
+    item: &PlayableItem,
+    context: Option<&RowContext>,
+    index: Option<usize>,
+    position: Option<u32>,
+) {
     let palette = app.palette;
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
@@ -956,9 +971,9 @@ pub fn item_menu(
         }
         add_to_playlist_menu(ui, app, &[(uri.clone(), label)]);
     }
-    // Removal is URI-based, so it stays available on a sorted or
-    // filtered view. Moves are positional, so they stay on the unsorted
-    // context only, where screen positions match server positions.
+    // Removal names the row's song and position, so it stays available on
+    // a sorted or filtered view. Moves are positional, so they stay on the
+    // unsorted context only, where screen positions match server positions.
     let editable = match context {
         Some(RowContext::Context {
             editable_playlist: Some((playlist_id, _)),
@@ -991,6 +1006,7 @@ pub fn item_menu(
             app.actions.push(Action::RemoveFromPlaylist {
                 playlist_id: playlist_id.clone(),
                 uris: vec![uri.clone()],
+                positions: position.into_iter().collect(),
             });
         }
     }
@@ -1148,6 +1164,11 @@ pub struct TrackRow<'a> {
     /// where a list does not offer picking.
     /// Every picked row of the table, in the order shown.
     pub picked_songs: &'a [PlayableItem],
+    /// The playlist position of each of `picked_songs`, when the list is a
+    /// playlist that knows them; empty otherwise.
+    pub picked_positions: &'a [u32],
+    /// This row's position in its playlist, whatever the view's order.
+    pub position: Option<u32>,
 }
 
 /// Draw each credited artist separately so its id remains clickable.
@@ -1694,7 +1715,16 @@ fn track_row_contents(
         egui::Popup::menu(&more)
             .id(menu_id)
             .frame(menu_frame(&palette))
-            .show(|ui| item_menu(ui, app, row.item, Some(row.context), Some(row.index)));
+            .show(|ui| {
+                item_menu_at(
+                    ui,
+                    app,
+                    row.item,
+                    Some(row.context),
+                    Some(row.index),
+                    row.position,
+                )
+            });
     }
 
     // Row interactions.
@@ -1754,7 +1784,8 @@ fn track_row_contents(
             if row.picked && row.picked_songs.len() > 1 {
                 // Every picked row shares this table's context, so one
                 // editable playlist covers the whole selection, including
-                // a sorted or filtered view where removal stays URI-based.
+                // a sorted or filtered view, whose rows still know their
+                // playlist positions.
                 let editable = match row.context {
                     RowContext::Context {
                         editable_playlist: Some(playlist),
@@ -1766,9 +1797,16 @@ fn track_row_contents(
                     } => Some(playlist),
                     _ => None,
                 };
-                picked_menu(ui, app, row.picked_songs, editable);
+                picked_menu(ui, app, row.picked_songs, row.picked_positions, editable);
             } else {
-                item_menu(ui, app, row.item, Some(row.context), Some(row.index));
+                item_menu_at(
+                    ui,
+                    app,
+                    row.item,
+                    Some(row.context),
+                    Some(row.index),
+                    row.position,
+                );
             }
         });
     crate::autoscroll::row(ui, &response);

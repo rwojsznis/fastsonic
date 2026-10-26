@@ -178,6 +178,9 @@ pub enum ApiRequest {
     RemoveFromPlaylist {
         playlist_id: String,
         uris: Vec<String>,
+        /// The picked rows, when only those copies of a song the playlist
+        /// holds more than once go; empty removes every copy of `uris`.
+        rows: Vec<crate::api::models::RemovedRow>,
         snapshot_id: Option<String>,
     },
     ReorderPlaylist {
@@ -1459,12 +1462,17 @@ async fn handle(
             message: format!("Added to {playlist_name}"),
         },
         ApiRequest::RemoveFromPlaylist {
-            playlist_id, uris, ..
+            playlist_id,
+            uris,
+            rows,
+            ..
         } => ApiResponse::PlaylistItemsChanged {
-            result: client
-                .remove_from_playlist(&playlist_id, &uris)
-                .await
-                .map(|playlist| playlist.snapshot_id),
+            result: if rows.is_empty() {
+                client.remove_from_playlist(&playlist_id, &uris).await
+            } else {
+                client.remove_playlist_rows(&playlist_id, &rows).await
+            }
+            .map(|playlist| playlist.snapshot_id),
             id: playlist_id,
             message: "Removed from playlist".to_string(),
         },

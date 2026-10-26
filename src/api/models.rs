@@ -613,6 +613,16 @@ pub struct Radio {
     pub songs: Vec<Track>,
 }
 
+/// One picked row of a playlist to remove: the song, the position it was
+/// seen at, and which copy of the song it was (0 for the first), to find it
+/// by if the position no longer holds the song.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemovedRow {
+    pub uri: String,
+    pub position: u32,
+    pub copy: u32,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct SnapshotId {
     #[serde(default)]
