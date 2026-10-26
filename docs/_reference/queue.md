@@ -33,6 +33,13 @@ for.
    has listed them; anything you queue meanwhile waits behind it, and
    Clear forgets an album still on its way.
 
+   **Play next**, beside **Add to queue** in a song's menu and a
+   selection's, puts the song, or the picked songs in the order shown, at
+   the top of *Playing next*, ahead of the songs you queued before. The
+   playing song carries on, and a song picked twice is two rows. The queue
+   a closed session left behind is not the player's yet, so before
+   anything plays it queues them as **Add to queue** does.
+
 3. **When a song starts, its row leaves the queue.** It doesn't matter
    how it started: the song before it ended, you pressed Next, or you
    clicked it. A song is never shown as playing and as next at the same

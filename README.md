@@ -29,8 +29,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   **Play** plays the songs on the page, **Refresh** asks for a new mix, and
   **Save as playlist** keeps it. Without an agent the page says so.
 - An engine-owned queue that links back to its playing context, with
-  drag-to-reorder, drop-in and one-at-a-time removal of songs under
-  Playing next, shuffle and
+  Play next, drag-to-reorder, drop-in and one-at-a-time removal of songs
+  under Playing next, shuffle and
   repeat, ReplayGain normalisation, a ten-band equalizer, and a bounded
   on-disk audio cache.
 - Restores the last track, position, context, and manually queued songs.

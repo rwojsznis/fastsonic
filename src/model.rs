@@ -886,6 +886,10 @@ pub enum Action {
     QueueMany {
         songs: Vec<(String, String)>,
     },
+    /// Put songs first in "Playing next", in the order given.
+    PlayNext {
+        items: Vec<PlayableItem>,
+    },
     /// Move the "Playing next" row shown at `from`, holding `uri`, to the
     /// slot before row `to` (rule 10 of `docs/_reference/queue.md`).
     MoveInQueue {

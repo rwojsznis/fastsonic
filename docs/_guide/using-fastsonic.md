@@ -187,7 +187,11 @@ sits.
 ## Queue
 
 Songs added with **Add to queue** appear after songs already queued and before
-the rest of the current album or playlist. The queue names the playing album,
+the rest of the current album or playlist. To hear a song right after the
+current one, right-click it and choose **Play next**: it goes ahead of the
+songs already queued, and a selection goes in the order shown, a song picked
+twice as two rows. Before anything plays, it queues like **Add to queue**.
+The queue names the playing album,
 playlist, artist, radio, or Liked Songs and links back to it. Clear removes
 only those manually queued songs. The player owns the queue, so every change is
 visible on the next frame and needs no server round-trip. The complete contract is in

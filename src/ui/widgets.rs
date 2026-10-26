@@ -732,6 +732,11 @@ pub fn picked_menu(
     });
     ui.add_space(4.0);
     menu_separator(ui, &palette);
+    if menu_item(ui, &palette, Some(Icon::SkipForward), "Play next") {
+        app.actions.push(Action::PlayNext {
+            items: songs.to_vec(),
+        });
+    }
     if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
         app.actions.push(Action::QueueMany {
             songs: named.clone(),
@@ -944,6 +949,11 @@ fn item_menu_at(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
+    if menu_item(ui, &palette, Some(Icon::SkipForward), "Play next") {
+        app.actions.push(Action::PlayNext {
+            items: vec![item.clone()],
+        });
+    }
     if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
         app.actions.push(Action::AddToQueue {
             uri: uri.clone(),

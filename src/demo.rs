@@ -3322,6 +3322,49 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The selection menu offers Play next, which asks for the picked songs
+    /// in the order shown, a repeated one as often as it was picked.
+    #[test]
+    fn the_selection_menu_plays_the_picked_songs_next() {
+        use egui::accesskit::{Action as Accessible, Role};
+        let (ctx, mut app) = accessible_app("selection-play-next");
+        app.backend.set_offline(true);
+        let songs = vec![
+            song(&track_uri("trk1"), "Second song"),
+            song(&track_uri("trk0"), "First song"),
+            song(&track_uri("trk1"), "Second song"),
+        ];
+        let draw = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::widgets::picked_menu(ui, app, &songs, &[], None),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let tree = draw(&mut app, vec![]);
+        let next = accessible_node(&tree, "Play next", Role::Button);
+        draw(
+            &mut app,
+            vec![accessible_action(next, Accessible::Click, None)],
+        );
+        let picked: Vec<String> = songs.iter().map(|item| item.uri().to_string()).collect();
+        assert!(
+            matches!(app.actions.as_slice(), [Action::PlayNext { items }]
+                if items.iter().map(|item| item.uri()).eq(picked.iter().map(String::as_str))),
+            "{:?}",
+            app.actions
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn playlist_submenu_stays_open_for_a_click_in_its_filter_and_grows_back_when_cleared() {
         use egui::accesskit::{Action, Role};

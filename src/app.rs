@@ -4892,6 +4892,19 @@ impl App {
                     });
                 }
             }
+            // Play next is a drop above the first row of Playing next. The
+            // queue a closed session left takes no position, so before
+            // anything plays it just queues, as a drop there does (rule 10).
+            Action::PlayNext { items } if self.queue_takes_positions() => {
+                self.apply(Action::InsertInQueue { items, at: 0 }, ctx);
+            }
+            Action::PlayNext { items } => {
+                let songs = items
+                    .iter()
+                    .map(|item| (item.uri().to_string(), item.name().to_string()))
+                    .collect();
+                self.apply(Action::QueueMany { songs }, ctx);
+            }
             Action::MoveInQueue { from, to, uri } => {
                 self.backend
                     .player(PlayerCommand::MoveQueued { from, to, uri });
@@ -8290,7 +8303,7 @@ mod tests {
     /// Rule 2: Add to queue asks the engine to queue the song, and asks it
     /// once per click. The engine decides where the row goes.
     #[test]
-    fn play_next_asks_the_engine_to_queue_the_song() {
+    fn add_to_queue_asks_the_engine_to_queue_the_song() {
         let ctx = egui::Context::default();
         let mut app = headless_app();
         app.backend.asked();
@@ -8357,6 +8370,63 @@ mod tests {
                 .map(|id| PlayerCommand::AddToQueue(format!("sonic:track:{id}")))
                 .to_vec(),
             "every picked row is queued, in order"
+        );
+        app.backend.shutdown();
+    }
+
+    /// Play next puts a song, or a selection in the order shown, ahead of
+    /// the songs already queued, a repeated song as rows of its own, and
+    /// leaves the playing song alone.
+    #[test]
+    fn play_next_puts_the_selection_first_in_its_order() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.handle_queue(snapshot(
+            Some("sonic:track:a"),
+            &["sonic:track:q1"],
+            &["sonic:track:ctx"],
+        ));
+        app.backend.asked();
+        app.apply(
+            Action::PlayNext {
+                items: ["sonic:track:b", "sonic:track:new", "sonic:track:b"]
+                    .map(queued_song)
+                    .to_vec(),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.asked(),
+            vec![PlayerCommand::InsertQueued {
+                uris: vec![
+                    "sonic:track:b".into(),
+                    "sonic:track:new".into(),
+                    "sonic:track:b".into(),
+                ],
+                at: 0,
+            }],
+            "one ask, at the top of Playing next, and nothing that restarts a song"
+        );
+        app.backend.shutdown();
+    }
+
+    /// The queue a closed session left is not the player's yet, so before
+    /// anything plays Play next queues, as a drop there does (rule 10).
+    #[test]
+    fn play_next_before_anything_plays_just_queues() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.set_remembered_queue(vec![queued_song("sonic:track:q1")], 1);
+        app.backend.asked();
+        app.apply(
+            Action::PlayNext {
+                items: vec![queued_song("sonic:track:b")],
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.backend.asked(),
+            vec![PlayerCommand::AddToQueue("sonic:track:b".into())]
         );
         app.backend.shutdown();
     }
