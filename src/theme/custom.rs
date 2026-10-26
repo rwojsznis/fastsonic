@@ -47,6 +47,166 @@ pub fn read_cached_theme<'de, D: serde::Deserializer<'de>>(
     }
 }
 
+/// Reads a settings value with `read`, or gives the default when it is
+/// damaged, so one bad field never makes the rest of the settings
+/// unreadable.
+fn tolerant<T: Default + serde::de::DeserializeOwned>(
+    value: serde_json::Value,
+    what: &str,
+) -> Option<T> {
+    if value.is_null() {
+        return None;
+    }
+    match serde_json::from_value(value) {
+        Ok(read) => Some(read),
+        Err(error) => {
+            log::warn!("ignoring an unreadable {what}: {error}");
+            None
+        }
+    }
+}
+
+/// The palette file Follow system shows in light or in dark mode, with the
+/// colours last read from it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairSlot {
+    pub filename: String,
+    /// The colours last accepted from the file, so the first frame after a
+    /// restart is right and a file that disappears keeps its look. A
+    /// damaged copy reads as `None` and leaves the choice in place.
+    #[serde(
+        default,
+        deserialize_with = "read_slot_palette",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub palette: Option<Palette>,
+}
+
+fn read_slot_palette<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Palette>, D::Error> {
+    use serde::Deserialize;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(tolerant::<Option<Palette>>(value, "cached palette").flatten())
+}
+
+fn read_slot<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<PairSlot>, D::Error> {
+    use serde::Deserialize;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(tolerant::<Option<PairSlot>>(value, "theme choice").flatten())
+}
+
+/// A palette file for light mode and one for dark mode, which Follow system
+/// switches between as the desktop does. An empty side is Fastsonic's own
+/// Light or Dark, so the default pair is Follow system as it always was.
+///
+/// Each side takes only palettes of its own base: egui draws the standard
+/// controls light or dark with the system, so a dark palette in light mode
+/// would put dark colours on light controls.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThemePair {
+    #[serde(
+        default,
+        deserialize_with = "read_slot",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub light: Option<PairSlot>,
+    #[serde(
+        default,
+        deserialize_with = "read_slot",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dark: Option<PairSlot>,
+}
+
+/// Reads the `theme_pair` setting, treating a damaged one as no choice.
+pub fn read_theme_pair<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ThemePair, D::Error> {
+    use serde::Deserialize;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(tolerant(value, "light and dark theme choice").unwrap_or_default())
+}
+
+impl ThemePair {
+    /// Both sides are Fastsonic's own, and the setting is left unwritten.
+    pub fn is_default(&self) -> bool {
+        self.light.is_none() && self.dark.is_none()
+    }
+
+    pub fn slot(&self, dark: bool) -> Option<&PairSlot> {
+        if dark {
+            self.dark.as_ref()
+        } else {
+            self.light.as_ref()
+        }
+    }
+
+    fn slot_mut(&mut self, dark: bool) -> &mut Option<PairSlot> {
+        if dark {
+            &mut self.dark
+        } else {
+            &mut self.light
+        }
+    }
+
+    /// The file chosen for dark or light mode, `None` for Fastsonic's own.
+    pub fn filename(&self, dark: bool) -> Option<&str> {
+        self.slot(dark).map(|slot| slot.filename.as_str())
+    }
+
+    /// Chooses `theme` for dark or light mode, or Fastsonic's own with
+    /// `None`. A palette of the other base changes nothing and returns
+    /// false.
+    pub fn set(&mut self, dark: bool, theme: Option<&CustomTheme>) -> bool {
+        let slot = match theme {
+            Some(theme) if theme.palette.dark != dark => return false,
+            Some(theme) => Some(PairSlot {
+                filename: theme.filename.clone(),
+                palette: Some(theme.palette),
+            }),
+            None => None,
+        };
+        *self.slot_mut(dark) = slot;
+        true
+    }
+
+    /// The colours to show in dark or light mode, as last accepted. `None`
+    /// for an empty side, or one whose file was never read.
+    pub fn palette(&self, dark: bool) -> Option<Palette> {
+        self.slot(dark).and_then(|slot| slot.palette)
+    }
+
+    /// Takes each chosen file's colours from a finished listing, so an
+    /// edited file shows its new ones. A file no longer listed, or that now
+    /// names the other base, keeps its last accepted colours. True when a
+    /// side changed, for the settings to be saved.
+    pub fn refresh(&mut self, catalog: &Catalog) -> bool {
+        let mut changed = false;
+        for dark in [false, true] {
+            if let Some(slot) = self.slot_mut(dark)
+                && let Some(theme) = catalog.find(&slot.filename)
+                && theme.palette.dark == dark
+                && slot.palette != Some(theme.palette)
+            {
+                slot.palette = Some(theme.palette);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// The chosen files, for a listing to read first.
+    pub fn filenames(&self) -> impl Iterator<Item = String> + '_ {
+        [&self.light, &self.dark]
+            .into_iter()
+            .flatten()
+            .map(|slot| slot.filename.clone())
+    }
+}
+
 #[derive(Default, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Base {
@@ -190,6 +350,16 @@ const BUNDLED: [(&str, &str); 8] = [
     ),
 ];
 
+/// A bundled palette by filename, read without the themes folder.
+#[cfg(feature = "demo")]
+pub fn bundled(filename: &str) -> Option<CustomTheme> {
+    let (filename, text) = BUNDLED.into_iter().find(|(name, _)| *name == filename)?;
+    Some(CustomTheme {
+        filename: filename.into(),
+        palette: parse_palette(text).ok()?,
+    })
+}
+
 /// The file in the themes folder naming the bundled palettes already put
 /// there, one per line.
 const INSTALLED: &str = ".installed-palettes";
@@ -247,7 +417,7 @@ struct Loaded {
 
 /// Lists and reads the palettes in `directory`, in filename order, leaving
 /// out the files that cannot be read.
-fn discover(directory: &Path, selected: Option<&str>) -> Loaded {
+fn discover(directory: &Path, selected: &[String]) -> Loaded {
     let mut loaded = Loaded::default();
     let read = |loaded: &mut Loaded, filename: &str| match read_theme(directory, filename) {
         Ok(theme) => loaded.themes.push(theme),
@@ -256,10 +426,10 @@ fn discover(directory: &Path, selected: Option<&str>) -> Loaded {
             loaded.skipped.push((filename.to_owned(), error));
         }
     };
-    // Read the saved choice first so a large folder cannot push it out.
-    // It is still a single validated filename, never an arbitrary path. A
+    // Read the saved choices first so a large folder cannot push them out.
+    // Each is still a single validated filename, never an arbitrary path. A
     // choice that is gone is told apart from one that cannot be read.
-    if let Some(filename) = selected {
+    for filename in selected {
         let missing = filename_is_local(filename)
             && std::fs::symlink_metadata(directory.join(filename))
                 .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
@@ -301,7 +471,7 @@ fn discover(directory: &Path, selected: Option<&str>) -> Loaded {
         let Some(filename) = filename.to_str() else {
             continue;
         };
-        if filename_is_local(filename) && Some(filename) != selected {
+        if filename_is_local(filename) && !selected.iter().any(|chosen| chosen == filename) {
             match entry.file_type() {
                 Ok(kind) if kind.is_file() => names.push(filename.to_owned()),
                 Ok(_) => {}
@@ -325,7 +495,7 @@ fn discover(directory: &Path, selected: Option<&str>) -> Loaded {
 
 struct Scan {
     directory: PathBuf,
-    selected: Option<String>,
+    selected: Vec<String>,
     waker: crate::backend::Waker,
 }
 
@@ -354,12 +524,17 @@ impl Catalog {
         self.install_bundled = true;
     }
 
+    /// Lists `directory` in the background, reading the `selected`
+    /// filenames (the saved choices) first.
     pub fn start(
         &mut self,
         directory: PathBuf,
-        selected: Option<String>,
+        selected: impl IntoIterator<Item = String>,
         waker: &crate::backend::Waker,
     ) {
+        let mut selected: Vec<String> = selected.into_iter().collect();
+        selected.sort();
+        selected.dedup();
         let scan = Scan {
             directory,
             selected,
@@ -381,7 +556,7 @@ impl Catalog {
                     scan.directory.display()
                 );
             }
-            discover(&scan.directory, scan.selected.as_deref())
+            discover(&scan.directory, &scan.selected)
         });
     }
 
@@ -447,6 +622,38 @@ impl Catalog {
                 "Skipped {filename} ({error}) and {} more. See the log for details.",
                 rest.len()
             ),
+        }
+    }
+
+    /// The palettes Follow system offers for dark or light mode: those of
+    /// that base, in picker order.
+    pub fn pair_themes(&self, dark: bool) -> impl Iterator<Item = &CustomTheme> {
+        self.themes
+            .iter()
+            .filter(move |theme| theme.palette.dark == dark)
+    }
+
+    /// What the light or dark mode row says under its name: why its palette
+    /// is unavailable, else what went wrong with the folder, else nothing.
+    pub fn pair_detail(&self, pair: &ThemePair, dark: bool) -> String {
+        let Some(filename) = pair.filename(dark).filter(|_| self.listed) else {
+            return String::new();
+        };
+        let name = display_name(filename);
+        match self.find(filename) {
+            Some(theme) if theme.palette.dark == dark => String::new(),
+            Some(_) => format!(
+                "{name} is now a {} theme. Its last colours stay until you choose another.",
+                if dark { "light" } else { "dark" }
+            ),
+            None => match self.skipped.iter().find(|(skipped, _)| skipped == filename) {
+                Some((_, error)) => format!(
+                    "{name} could not be read ({error}). Its last colours stay until it is fixed."
+                ),
+                None => format!(
+                    "{name} is no longer in the themes folder. Its last colours stay until you choose another theme."
+                ),
+            },
         }
     }
 
@@ -651,7 +858,7 @@ mod tests {
             "fastsonic-themes-missing-{}",
             rand::random::<u64>()
         ));
-        let missing = discover(&dir, None);
+        let missing = discover(&dir, &[]);
         assert!(missing.themes.is_empty());
         assert_eq!(missing.problem, None, "no folder yet is no themes yet");
         std::fs::create_dir_all(&dir).unwrap();
@@ -740,7 +947,7 @@ mod tests {
             std::os::unix::fs::symlink(root.join("outside.json"), dir.join("link.json")).unwrap();
             assert!(read_theme(&dir, "link.json").is_err());
             assert!(
-                discover(&dir, Some("link.json"))
+                discover(&dir, &["link.json".to_owned()])
                     .themes
                     .iter()
                     .all(|theme| theme.filename != "link.json")
@@ -756,7 +963,7 @@ mod tests {
             std::fs::write(dir.join(format!("{index:03}.json")), b"{}").unwrap();
         }
         std::fs::write(dir.join("selected.json"), b"{}").unwrap();
-        let loaded = discover(&dir, Some("selected.json"));
+        let loaded = discover(&dir, &["selected.json".to_owned()]);
         assert_eq!(loaded.themes.len(), MAX_THEMES);
         assert!(
             loaded
@@ -768,7 +975,7 @@ mod tests {
         for index in 0..MAX_DIRECTORY_ENTRIES {
             std::fs::write(dir.join(format!("ignored-{index}.txt")), b"ignored").unwrap();
         }
-        let loaded = discover(&dir, Some("selected.json"));
+        let loaded = discover(&dir, &["selected.json".to_owned()]);
         assert_eq!(filenames(&loaded.themes), ["selected.json"]);
         assert!(loaded.problem.unwrap().contains("512"));
         std::fs::remove_dir_all(dir).unwrap();
@@ -935,5 +1142,141 @@ mod tests {
         wait(&mut catalog);
         assert!(catalog.detail(Some("gone.json")).contains("no longer"));
         assert_eq!(catalog.detail(None), "");
+    }
+
+    fn named(filename: &str, dark: bool, accent: Color32) -> CustomTheme {
+        let mut palette = if dark {
+            Palette::dark()
+        } else {
+            Palette::light()
+        };
+        palette.accent = accent;
+        CustomTheme {
+            filename: filename.into(),
+            palette,
+        }
+    }
+
+    #[test]
+    fn the_default_pair_is_fastsonics_own_light_and_dark() {
+        let pair = ThemePair::default();
+        assert!(pair.is_default());
+        assert_eq!(pair.palette(false), None);
+        assert_eq!(pair.palette(true), None);
+        assert_eq!(pair.filenames().count(), 0);
+    }
+
+    #[test]
+    fn each_side_takes_only_palettes_of_its_base() {
+        let latte = named("Latte.json", false, Color32::RED);
+        let mocha = named("Mocha.json", true, Color32::BLUE);
+        let mut pair = ThemePair::default();
+        assert!(!pair.set(true, Some(&latte)));
+        assert!(!pair.set(false, Some(&mocha)));
+        assert!(pair.is_default());
+        assert!(pair.set(false, Some(&latte)));
+        assert!(pair.set(true, Some(&mocha)));
+        assert_eq!(pair.palette(false), Some(latte.palette));
+        assert_eq!(pair.palette(true), Some(mocha.palette));
+        assert_eq!(
+            pair.filenames().collect::<Vec<_>>(),
+            ["Latte.json", "Mocha.json"]
+        );
+        assert!(pair.set(false, None));
+        assert_eq!(pair.palette(false), None);
+        assert_eq!(pair.filename(true), Some("Mocha.json"));
+
+        let catalog = Catalog::from_themes(vec![latte, mocha]);
+        let names = |dark| {
+            catalog
+                .pair_themes(dark)
+                .map(|theme| theme.filename.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(false), ["Latte.json"]);
+        assert_eq!(names(true), ["Mocha.json"]);
+    }
+
+    #[test]
+    fn a_missing_or_turned_file_keeps_its_last_colours_and_says_so() {
+        let mocha = named("Mocha.json", true, Color32::BLUE);
+        let mut pair = ThemePair::default();
+        pair.set(true, Some(&mocha));
+        let empty = Catalog::from_themes(Vec::new());
+        assert!(!pair.refresh(&empty));
+        assert_eq!(pair.palette(true), Some(mocha.palette));
+        assert!(empty.pair_detail(&pair, true).contains("no longer"));
+        assert_eq!(empty.pair_detail(&pair, false), "", "an empty side");
+
+        let edited = named("Mocha.json", true, Color32::GREEN);
+        let listed = Catalog::from_themes(vec![edited.clone()]);
+        assert!(listed.pair_detail(&pair, true).is_empty());
+        assert!(
+            pair.refresh(&listed),
+            "an edited file shows its new colours"
+        );
+        assert_eq!(pair.palette(true), Some(edited.palette));
+        assert!(!pair.refresh(&listed));
+
+        let turned = Catalog::from_themes(vec![named("Mocha.json", false, Color32::RED)]);
+        assert!(!pair.refresh(&turned));
+        assert_eq!(pair.palette(true), Some(edited.palette));
+        assert!(
+            turned
+                .pair_detail(&pair, true)
+                .contains("now a light theme")
+        );
+
+        let mut waiting = Catalog::default();
+        assert_eq!(waiting.pair_detail(&pair, true), "", "nothing listed yet");
+        waiting.load_test(Vec::new);
+        wait(&mut waiting);
+        assert!(waiting.pair_detail(&pair, true).contains("no longer"));
+    }
+
+    #[test]
+    fn a_pair_round_trips_and_damage_stays_contained() {
+        let mut pair = ThemePair::default();
+        pair.set(false, Some(&named("Latte.json", false, Color32::RED)));
+        let text = serde_json::to_string(&pair).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(value.get("dark").is_none(), "an empty side is left out");
+        assert_eq!(serde_json::from_str::<ThemePair>(&text).unwrap(), pair);
+        assert_eq!(
+            serde_json::from_str::<ThemePair>("{}").unwrap(),
+            ThemePair::default()
+        );
+        // A damaged copy of the colours keeps the choice; a damaged choice
+        // empties its side.
+        let damaged: ThemePair = serde_json::from_str(
+            r#"{"light":{"filename":"Latte.json","palette":"broken"},"dark":{"palette":{}}}"#,
+        )
+        .unwrap();
+        assert_eq!(damaged.filename(false), Some("Latte.json"));
+        assert_eq!(damaged.palette(false), None);
+        assert_eq!(damaged.dark, None);
+    }
+
+    /// Both sides' files, and the single palette, are read ahead of a full
+    /// folder, so none of them is pushed out of the listing.
+    #[test]
+    fn every_saved_choice_is_read_ahead_of_a_full_folder() {
+        let dir = scratch("pair-limits");
+        for index in 0..MAX_THEMES + 1 {
+            std::fs::write(dir.join(format!("{index:03}.json")), b"{}").unwrap();
+        }
+        std::fs::write(dir.join("zz-light.json"), br#"{"base":"light"}"#).unwrap();
+        std::fs::write(dir.join("zz-dark.json"), b"{}").unwrap();
+        let mut catalog = Catalog::default();
+        catalog.start(
+            dir.clone(),
+            ["zz-light.json", "zz-dark.json", "zz-light.json"].map(String::from),
+            &Default::default(),
+        );
+        wait(&mut catalog);
+        assert!(catalog.find("zz-light.json").is_some());
+        assert!(catalog.find("zz-dark.json").is_some());
+        assert_eq!(catalog.themes().len(), MAX_THEMES);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

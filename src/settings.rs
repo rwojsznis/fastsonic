@@ -181,6 +181,15 @@ pub struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     pub custom_theme_cache: Option<crate::theme::custom::CustomTheme>,
+    /// The palette files Follow system shows in light and in dark mode,
+    /// each with its colours as last read. An empty side is Fastsonic's own
+    /// Light or Dark, and the field is written only once a side is chosen.
+    #[serde(
+        default,
+        deserialize_with = "crate::theme::custom::read_theme_pair",
+        skip_serializing_if = "crate::theme::custom::ThemePair::is_default"
+    )]
+    pub theme_pair: crate::theme::custom::ThemePair,
     /// Tint the interface with the colour of the playing album's art.
     pub accent_from_art: bool,
     pub player_bar_vis: PlayerBarVis,
@@ -310,6 +319,7 @@ impl Default for Settings {
             home: HomeSettings::default(),
             custom_theme: None,
             custom_theme_cache: None,
+            theme_pair: Default::default(),
             accent_from_art: true,
             player_bar_vis: PlayerBarVis::Off,
             player_bar_vis_click: true,
@@ -448,6 +458,18 @@ impl Settings {
             .as_ref()
             .filter(|theme| theme.filename == chosen)
             .map(|theme| theme.palette)
+    }
+
+    /// The palette to show while the system is `dark` or light: the chosen
+    /// palette file, else Follow system's choice for that appearance.
+    /// `None` leaves Fastsonic's own Light or Dark.
+    pub fn palette_for(&self, dark: bool) -> Option<crate::theme::Palette> {
+        if self.custom_theme.is_some() {
+            return self.cached_palette();
+        }
+        (self.theme == ThemeChoice::System)
+            .then(|| self.theme_pair.palette(dark))
+            .flatten()
     }
 
     pub fn remember_search(&mut self, query: &str) {
@@ -709,6 +731,76 @@ mod tests {
             ..settings
         };
         assert_eq!(unchosen.cached_palette(), None);
+    }
+
+    /// Settings from before the light and dark mode themes keep their look,
+    /// and write no pair until a side is chosen.
+    #[test]
+    fn follow_system_pairs_load_old_settings_unchanged_and_round_trip() {
+        use super::ThemeChoice;
+        use crate::theme::{Palette, custom::CustomTheme};
+        let mut nord = Palette::dark();
+        nord.accent = egui::Color32::from_rgb(0x88, 0xc0, 0xd0);
+        let cache = serde_json::to_value(CustomTheme {
+            filename: "Nord.json".into(),
+            palette: nord,
+        })
+        .unwrap();
+        // One palette file, with Follow system underneath: Nord in light
+        // and dark mode alike.
+        let single: Settings = serde_json::from_value(serde_json::json!({
+            "theme": "system", "custom_theme": "Nord.json", "custom_theme_cache": cache,
+        }))
+        .unwrap();
+        assert!(single.theme_pair.is_default());
+        assert_eq!(single.palette_for(false), Some(nord));
+        assert_eq!(single.palette_for(true), Some(nord));
+        // Plain Follow system: Fastsonic's own Light and Dark.
+        let follow: Settings = serde_json::from_str(r#"{"theme":"system"}"#).unwrap();
+        assert_eq!(follow.palette_for(false), None);
+        assert_eq!(follow.palette_for(true), None);
+        let encoded = serde_json::to_value(&follow).unwrap();
+        assert!(encoded.get("theme_pair").is_none(), "no pair, no field");
+
+        let mut latte = Palette::light();
+        latte.window = egui::Color32::from_rgb(0xef, 0xf1, 0xf5);
+        let mut paired = follow.clone();
+        assert!(paired.theme_pair.set(
+            false,
+            Some(&CustomTheme {
+                filename: "Catppuccin Latte.json".into(),
+                palette: latte,
+            })
+        ));
+        assert_eq!(paired.palette_for(false), Some(latte));
+        assert_eq!(paired.palette_for(true), None, "dark stays Fastsonic's");
+        let encoded = serde_json::to_string(&paired).unwrap();
+        let decoded: Settings = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, paired);
+
+        // A pair waits behind a fixed choice and comes back with Follow
+        // system.
+        let mut fixed = paired.clone();
+        fixed.theme = ThemeChoice::Dark;
+        assert_eq!(fixed.palette_for(false), None);
+        fixed.theme = ThemeChoice::System;
+        assert_eq!(fixed.palette_for(false), Some(latte));
+
+        // A damaged pair, whole or in part, keeps the other settings.
+        let mut damaged = serde_json::to_value(&paired).unwrap();
+        damaged["theme_pair"]["light"]["palette"] = "broken".into();
+        damaged["audio_cache_mb"] = 777.into();
+        let recovered: Settings = serde_json::from_value(damaged.clone()).unwrap();
+        assert_eq!(
+            recovered.theme_pair.filename(false),
+            Some("Catppuccin Latte.json")
+        );
+        assert_eq!(recovered.palette_for(false), None);
+        assert_eq!(recovered.audio_cache_mb, 777);
+        damaged["theme_pair"] = "broken".into();
+        let recovered: Settings = serde_json::from_value(damaged).unwrap();
+        assert!(recovered.theme_pair.is_default());
+        assert_eq!(recovered.audio_cache_mb, 777);
     }
 
     #[test]

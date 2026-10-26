@@ -976,6 +976,27 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.theme = crate::settings::ThemeChoice::Light;
                 app.actions.push(Action::SettingsChanged);
             }
+            // Follow system with Catppuccin Latte for light mode and
+            // Catppuccin for dark mode. On Linux the desktop is fixed light
+            // or dark; elsewhere the system's own appearance decides.
+            "system-light" | "system-dark" => {
+                app.settings.theme = crate::settings::ThemeChoice::System;
+                app.settings.custom_theme = None;
+                app.settings.custom_theme_cache = None;
+                for (dark, filename) in
+                    [(false, "Catppuccin Latte.json"), (true, "Catppuccin.json")]
+                {
+                    let theme = crate::theme::custom::bundled(filename);
+                    app.settings.theme_pair.set(dark, theme.as_ref());
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(
+                        surface == "system-dark",
+                    ));
+                }
+                app.actions.push(Action::SettingsChanged);
+            }
             "focus" => app.settings.sidebar_visible = false,
             // A cold start: nothing is playing, and all the app has is
             // what the last session left it — the song, the place the
@@ -6837,6 +6858,82 @@ mod tests {
         assert_eq!(node.value(), Some("local"), "read out as shown");
         wait_for_themes(&ctx, &mut app);
         let _ = std::fs::remove_dir_all(themes);
+    }
+
+    /// Follow system offers a light and a dark mode theme, each listing
+    /// only the palettes of its base; a fixed choice hides them.
+    #[test]
+    fn follow_system_offers_a_light_and_a_dark_theme_of_their_own_base() {
+        let (ctx, mut app) = accessible_app("theme-pair-picker");
+        app.backend.shutdown();
+        app.open(Page::Settings);
+        wait_for_themes(&ctx, &mut app);
+        app.settings.theme = crate::settings::ThemeChoice::System;
+        let theme = |filename: &str, palette| crate::theme::custom::CustomTheme {
+            filename: filename.into(),
+            palette,
+        };
+        app.custom_themes = crate::theme::custom::Catalog::from_themes(vec![
+            theme("Latte.json", crate::theme::Palette::light()),
+            theme("Mocha.json", crate::theme::Palette::dark()),
+        ]);
+        let view = crate::ui::settings::show;
+        for _ in 0..3 {
+            view_frame(&ctx, &mut app, vec![], view);
+        }
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        let title = painted_below(&painted, "Light mode theme", 0.0);
+        assert!(painted_below(&painted, "Dark mode theme", 0.0).top() > title.top());
+        // The picker beside the title shows Fastsonic's own Light.
+        let picker = painted
+            .iter()
+            .find(|(text, rect)| {
+                text == "Light" && (rect.center().y - title.center().y).abs() < 30.0
+            })
+            .map(|(_, rect)| rect.center())
+            .expect("light mode picker");
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(picker, egui::PointerButton::Primary),
+            view,
+        );
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert!(
+            painted.iter().all(|(text, _)| text != "Mocha"),
+            "a dark palette is not offered for light mode"
+        );
+        let latte = painted_below(&painted, "Latte", picker.y + 1.0).center();
+        app.actions.clear();
+        view_frame(
+            &ctx,
+            &mut app,
+            pointer_click(latte, egui::PointerButton::Primary),
+            view,
+        );
+        let chosen = app
+            .actions
+            .drain(..)
+            .find(|action| matches!(action, Action::SetPairTheme { .. }))
+            .expect("choosing Latte asks for it");
+        app.apply(chosen, &ctx);
+        assert_eq!(app.settings.theme_pair.filename(false), Some("Latte.json"));
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let id = accessible_node(&tree, "Light mode theme", egui::accesskit::Role::ComboBox);
+        let node = &tree.nodes.iter().find(|(node, _)| *node == id).unwrap().1;
+        assert_eq!(node.value(), Some("Latte"), "read out as shown");
+
+        app.apply(Action::SetTheme(crate::settings::ThemeChoice::Dark), &ctx);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert!(
+            painted.iter().all(|(text, _)| text != "Light mode theme"),
+            "a fixed theme has no light and dark mode themes"
+        );
+        assert_eq!(
+            app.settings.theme_pair.filename(false),
+            Some("Latte.json"),
+            "kept for when Follow system comes back"
+        );
     }
 
     /// Beside the themes folder, a button opens the guide to writing a

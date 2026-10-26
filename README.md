@@ -46,7 +46,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   themes and applied at once, with an optional `tint` that washes page
   headers when album art doesn't. Eight (Catppuccin, Nord, Rose Pine, Tokyo
   Night and others) are put there on first start, as files to use, change or
-  delete.
+  delete. With Follow system, one palette for light mode and one for dark
+  mode switch with the system.
 - System font fallbacks for titles in scripts Inter does not cover, and for
   the styled, circled and Javanese letters people put in names; Arabic is
   enlarged to read as large as the Latin text around it, and Windows prefers

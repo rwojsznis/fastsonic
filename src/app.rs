@@ -148,7 +148,7 @@ pub struct App {
     pub backend: Backend,
     media_controls: Option<MediaService>,
     #[cfg(target_os = "linux")]
-    system_appearance: Option<crate::appearance::SystemAppearance>,
+    pub(crate) system_appearance: Option<crate::appearance::SystemAppearance>,
     /// The artwork the media controls were last given, and the URL it came
     /// from. Finding the file touches the disk and the controls are synced
     /// every frame, so the answer is kept until the artwork changes.
@@ -2341,25 +2341,35 @@ impl App {
     /// opens and when the Theme picker opens. Building the app or a window
     /// never reads it.
     pub fn load_custom_themes(&mut self) {
-        self.custom_themes.start(
-            self.dirs.themes_dir(),
-            self.settings.custom_theme.clone(),
-            &self.waker,
-        );
+        // The saved choices are read first: the one palette, and Follow
+        // system's light and dark ones.
+        let selected = self
+            .settings
+            .custom_theme
+            .clone()
+            .into_iter()
+            .chain(self.settings.theme_pair.filenames());
+        self.custom_themes
+            .start(self.dirs.themes_dir(), selected, &self.waker);
     }
 
-    /// Takes a finished listing, and with it the chosen palette's colours
-    /// when its file changed.
+    /// Takes a finished listing, and with it the chosen palettes' colours
+    /// when their files changed.
     pub(crate) fn poll_custom_themes(&mut self, ctx: &egui::Context) {
-        if self.custom_themes.poll()
-            && let Some(filename) = &self.settings.custom_theme
+        if !self.custom_themes.poll() {
+            return;
+        }
+        // The choices as they are now, never the ones the scan started with.
+        if let Some(filename) = &self.settings.custom_theme
             && let Some(theme) = self.custom_themes.find(filename)
             && self.settings.custom_theme_cache.as_ref() != Some(theme)
         {
-            // The choice as it is now, never the one the scan started with.
             self.settings.custom_theme_cache = Some(theme.clone());
             self.mark_settings_dirty();
             ctx.set_theme(self.theme_preference());
+        }
+        if self.settings.theme_pair.refresh(&self.custom_themes) {
+            self.mark_settings_dirty();
         }
     }
 
@@ -2394,7 +2404,7 @@ impl App {
             }
         }
         let dark = ctx.theme() == egui::Theme::Dark;
-        let palette = self.settings.cached_palette().unwrap_or_else(|| {
+        let palette = self.settings.palette_for(dark).unwrap_or_else(|| {
             if dark {
                 Palette::dark()
             } else {
@@ -5154,6 +5164,19 @@ impl App {
                     self.settings.custom_theme = Some(filename);
                     self.mark_settings_dirty();
                     ctx.set_theme(self.theme_preference());
+                    self.apply_theme(ctx);
+                }
+            }
+            Action::SetPairTheme { dark, filename } => {
+                // Only a palette that was read can be chosen; a file that is
+                // no longer listed changes nothing.
+                let listed = filename
+                    .as_deref()
+                    .map(|filename| self.custom_themes.find(filename));
+                if listed.is_none_or(|theme| theme.is_some())
+                    && self.settings.theme_pair.set(dark, listed.flatten())
+                {
+                    self.mark_settings_dirty();
                     self.apply_theme(ctx);
                 }
             }
@@ -8563,6 +8586,124 @@ mod tests {
         app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(false));
         app.apply_theme(&ctx);
         assert_eq!(ctx.theme(), egui::Theme::Dark);
+    }
+
+    /// Follow system shows the chosen light palette in light mode and the
+    /// dark one in dark mode, switching as the system does; a palette of
+    /// the other base is refused, and a single palette still wins.
+    #[test]
+    fn follow_system_switches_between_the_chosen_light_and_dark_palettes() {
+        let mut app = test_app("theme-pair");
+        let ctx = egui::Context::default();
+        app.settings.theme = ThemeChoice::System;
+        let named = |filename: &str, mut palette: Palette, accent| {
+            palette.accent = accent;
+            theme::custom::CustomTheme {
+                filename: filename.into(),
+                palette,
+            }
+        };
+        let latte = named("Latte.json", Palette::light(), egui::Color32::RED);
+        let mocha = named("Mocha.json", Palette::dark(), egui::Color32::BLUE);
+        app.custom_themes = theme::custom::Catalog::from_themes(vec![latte.clone(), mocha.clone()]);
+        let pair = |dark, filename: Option<&str>| Action::SetPairTheme {
+            dark,
+            filename: filename.map(str::to_owned),
+        };
+        app.apply(pair(false, Some("Mocha.json")), &ctx);
+        app.apply(pair(true, Some("Latte.json")), &ctx);
+        app.apply(pair(true, Some("missing.json")), &ctx);
+        assert!(
+            app.settings.theme_pair.is_default(),
+            "each side takes its own base"
+        );
+        app.apply(pair(false, Some("Latte.json")), &ctx);
+        app.apply(pair(true, Some("Mocha.json")), &ctx);
+        assert!(app.settings_dirty);
+        assert_eq!(app.theme_preference(), egui::ThemePreference::System);
+
+        let system = |app: &mut App, theme| {
+            ctx.set_theme(egui::ThemePreference::System);
+            ctx.options_mut(|options| options.fallback_theme = theme);
+            #[cfg(target_os = "linux")]
+            {
+                app.system_appearance = Some(crate::appearance::SystemAppearance::fixed(
+                    theme == egui::Theme::Dark,
+                ));
+            }
+            app.apply_theme(&ctx);
+        };
+        system(&mut app, egui::Theme::Light);
+        assert_eq!(ctx.theme(), egui::Theme::Light);
+        assert_eq!(app.palette, latte.palette);
+        system(&mut app, egui::Theme::Dark);
+        assert_eq!(ctx.theme(), egui::Theme::Dark);
+        assert_eq!(app.palette, mocha.palette);
+
+        // Fastsonic's own Light for light mode again.
+        app.apply(pair(false, None), &ctx);
+        system(&mut app, egui::Theme::Light);
+        assert_eq!(app.palette, Palette::light());
+        assert_eq!(app.settings.theme_pair.filename(true), Some("Mocha.json"));
+
+        // One palette for everything still wins over the pair, which comes
+        // back with Follow system.
+        app.apply(Action::SetCustomTheme("Latte.json".into()), &ctx);
+        app.apply_theme(&ctx);
+        assert_eq!(app.palette, latte.palette);
+        app.apply(Action::SetTheme(ThemeChoice::System), &ctx);
+        system(&mut app, egui::Theme::Dark);
+        assert_eq!(app.palette, mocha.palette, "the pair comes back");
+    }
+
+    /// The light and dark palettes' files are read first, and an edited one
+    /// shows its new colours; one that disappears keeps its last.
+    #[test]
+    fn a_listing_reads_the_pairs_files_and_takes_their_edits() {
+        let mut app = test_app("theme-pair-listing");
+        let ctx = egui::Context::default();
+        let themes = app.dirs.themes_dir();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            themes.join("night.json"),
+            r##"{"colors":{"accent":"#112233"}}"##,
+        )
+        .unwrap();
+        app.settings.theme = ThemeChoice::System;
+        app.load_custom_themes();
+        wait_for_custom_themes(&mut app, &ctx);
+        app.apply(
+            Action::SetPairTheme {
+                dark: true,
+                filename: Some("night.json".into()),
+            },
+            &ctx,
+        );
+        let first = app.settings.palette_for(true).unwrap();
+        assert_eq!(first.accent, egui::Color32::from_rgb(0x11, 0x22, 0x33));
+
+        std::fs::write(
+            themes.join("night.json"),
+            r##"{"colors":{"accent":"#445566"}}"##,
+        )
+        .unwrap();
+        app.settings_dirty = false;
+        app.load_custom_themes();
+        wait_for_custom_themes(&mut app, &ctx);
+        assert!(app.settings_dirty, "the new colours are saved");
+        let edited = app.settings.palette_for(true).unwrap();
+        assert_eq!(edited.accent, egui::Color32::from_rgb(0x44, 0x55, 0x66));
+
+        std::fs::remove_file(themes.join("night.json")).unwrap();
+        app.load_custom_themes();
+        wait_for_custom_themes(&mut app, &ctx);
+        assert_eq!(app.settings.palette_for(true), Some(edited));
+        assert!(
+            app.custom_themes
+                .pair_detail(&app.settings.theme_pair, true)
+                .contains("no longer")
+        );
+        let _ = std::fs::remove_dir_all(themes);
     }
 
     fn wait_for_custom_themes(app: &mut App, ctx: &egui::Context) {

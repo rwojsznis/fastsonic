@@ -998,6 +998,12 @@ pub enum Action {
     SetTheme(crate::settings::ThemeChoice),
     /// Show a palette from the themes folder, by filename.
     SetCustomTheme(String),
+    /// Follow system shows this palette file while the system is dark (or
+    /// light), or Fastsonic's own with `None`.
+    SetPairTheme {
+        dark: bool,
+        filename: Option<String>,
+    },
     /// List the themes folder again, and take the chosen palette's new
     /// colours if its file changed.
     ReloadThemes,

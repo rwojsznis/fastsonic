@@ -29,9 +29,9 @@ struct Cli {
     demo_page: Option<String>,
 
     /// Extra demo surfaces: a comma-separated list of `queue`, `playing-next`,
-    /// `recents`, `shortcuts`, `create`, `light`, `focus`, `resume`, `lyrics`,
-    /// `lyrics-fullscreen`, `player-bar-spectrum`, `player-bar-waveform`,
-    /// `scripts`, `rtl`, `signed-out`, `connecting`, `library-list` and
+    /// `recents`, `shortcuts`, `create`, `light`, `system-light`, `system-dark`,
+    /// `focus`, `resume`, `lyrics`, `lyrics-fullscreen`, `player-bar-spectrum`,
+    /// `player-bar-waveform`, `scripts`, `rtl`, `signed-out`, `connecting`, `library-list` and
     /// `library-grid` (each also `-narrow` or `-wide`), `collection-loading`,
     /// and the Winamp ones.
     #[cfg(feature = "demo")]

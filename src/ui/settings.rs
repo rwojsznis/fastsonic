@@ -506,6 +506,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 });
             },
         );
+        if app.settings.custom_theme.is_none() && app.settings.theme == ThemeChoice::System {
+            for dark in [false, true] {
+                pair_row(app, ui, dark);
+            }
+        }
         widgets::setting_row(
             ui,
             &palette,
@@ -1234,6 +1239,87 @@ fn theme_picker(app: &mut App, ui: &mut egui::Ui) {
     response.response.widget_info(|| {
         let mut info =
             egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), "Theme");
+        info.current_text_value = Some(selected.clone());
+        info
+    });
+}
+
+/// Follow system's theme for light or dark mode: Fastsonic's own, or a
+/// palette file of that base.
+fn pair_row(app: &mut App, ui: &mut egui::Ui, dark: bool) {
+    let palette = app.palette;
+    let (title, usage) = if dark {
+        (
+            "Dark mode theme",
+            "Used while your computer is in dark mode. Only dark themes are listed.",
+        )
+    } else {
+        (
+            "Light mode theme",
+            "Used while your computer is in light mode. Only light themes are listed.",
+        )
+    };
+    let problem = app
+        .custom_themes
+        .pair_detail(&app.settings.theme_pair, dark);
+    let detail = if problem.is_empty() {
+        usage.to_owned()
+    } else {
+        problem
+    };
+    widgets::setting_row_sized(ui, &palette, title, &detail, THEME_PICKER_WIDTH, |ui| {
+        pair_picker(app, ui, dark, title);
+    });
+}
+
+fn pair_picker(app: &mut App, ui: &mut egui::Ui, dark: bool, name: &str) {
+    let own = if dark {
+        ThemeChoice::Dark
+    } else {
+        ThemeChoice::Light
+    }
+    .label();
+    let current = app.settings.theme_pair.filename(dark).map(str::to_owned);
+    let selected = current.as_deref().map_or(own, display_name).to_owned();
+    let salt = if dark {
+        "appearance-dark-theme"
+    } else {
+        "appearance-light-theme"
+    };
+    let response = egui::ComboBox::from_id_salt(salt)
+        .selected_text(selected.as_str())
+        .width(THEME_PICKER_WIDTH.min(ui.available_width()))
+        .show_ui(ui, |ui| {
+            if ui.selectable_label(current.is_none(), own).clicked() && current.is_some() {
+                app.actions.push(Action::SetPairTheme {
+                    dark,
+                    filename: None,
+                });
+            }
+            let mut themes = app.custom_themes.pair_themes(dark).peekable();
+            if themes.peek().is_some() {
+                ui.separator();
+            }
+            for theme in themes {
+                let chosen = current.as_deref() == Some(theme.filename.as_str());
+                if ui
+                    .selectable_label(chosen, display_name(&theme.filename))
+                    .clicked()
+                    && !chosen
+                {
+                    app.actions.push(Action::SetPairTheme {
+                        dark,
+                        filename: Some(theme.filename.clone()),
+                    });
+                }
+            }
+        });
+    // As with the Theme picker, opening it lists the folder again.
+    if response.response.clicked() {
+        app.actions.push(Action::ReloadThemes);
+    }
+    response.response.widget_info(|| {
+        let mut info = egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), name);
         info.current_text_value = Some(selected.clone());
         info
     });

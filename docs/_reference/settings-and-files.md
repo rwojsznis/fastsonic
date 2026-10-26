@@ -183,6 +183,16 @@ is **Gruvbox**), and picking it applies it at once. Choosing Follow system,
 Light or Dark sets the palette aside again. A theme changes colours only;
 fonts and layout stay as they are, and Winamp skins keep their own look.
 
+While **Follow system** is chosen, two more pickers appear below the Theme
+row: **Light mode theme** and **Dark mode theme**. Each starts with
+Fastsonic's own **Light** or **Dark**, then lists the palettes whose `base`
+matches: only light palettes for light mode and only dark ones for dark mode,
+because the base also decides whether the standard controls are drawn light
+or dark, and those follow the system. Fastsonic then shows one or the other
+as the system switches between light and dark, while it runs and without
+interrupting playback. The two choices are kept when you pick a single theme,
+and come back when you choose Follow system again.
+
 The first time Fastsonic starts, it puts eight palettes in the folder:
 Catppuccin, Catppuccin Latte, Nord, Ristretto, Rose Pine, Rose Pine Dawn,
 Rose Pine Moon and Tokyo Night. They are ordinary palette files: read them to
@@ -273,6 +283,14 @@ later deleted or broken, its last colours stay, including across restarts, and
 the Theme row explains why until you fix the file or choose another theme. A
 damaged copy is ignored without resetting any other setting.
 
+The light and dark mode themes are kept the same way, in `theme_pair`:
+`{"light": {"filename": "Catppuccin Latte.json", "palette": {...}}, "dark":
+{...}}`, each `palette` the last accepted copy of that file's colours. A
+side that is left out, or the whole field, is Fastsonic's own Light or Dark,
+so a settings file from before it looks as it did, and the field is written
+only once you choose a side. A file that disappears, or whose `base` changes
+to the other one, keeps its last colours, and its row says why.
+
 ## Home shelves
 
 Each of Home's shelves can be hidden on its own. Quit Fastsonic before editing
@@ -341,8 +359,10 @@ cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed,
 `listeners-empty`, for the Listening activity panel with sample people or
 none,
 `collection-loading`, for a playlist, album or artist page still waiting for
-its details, and `home-loading`, for Home while its shelves are still
-loading); and `--demo-shot <PATH>`
+its details, `home-loading`, for Home while its shelves are still loading,
+and `system-light` and `system-dark`, for Follow system with Catppuccin
+Latte and Catppuccin as the light and dark mode themes, on a desktop fixed
+light or dark on Linux and as the system is elsewhere); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a
 profile of its own under the system temporary directory, so it never reads the
 saved sign-in, never contacts your server, and leaves your settings, session,
