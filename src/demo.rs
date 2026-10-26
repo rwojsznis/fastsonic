@@ -4388,6 +4388,171 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Page Up and Page Down scroll the main page, Home and End jump to its
+    /// ends. The selection, page, navigation history and playback stay put,
+    /// at a normal and a narrow window in both themes, and an open dialog
+    /// keeps the keys.
+    #[test]
+    fn page_navigation_scrolls_the_main_page() {
+        let command = if cfg!(target_os = "macos") {
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND
+        } else {
+            egui::Modifiers::CTRL | egui::Modifiers::COMMAND
+        };
+        for (width, height) in [(1280.0, 800.0), (800.0, 600.0)] {
+            for light in [false, true] {
+                let (ctx, mut app) =
+                    accessible_app(&format!("page-navigation-{width}x{height}-{light}"));
+                let page = Page::Playlist("pl1".into());
+                app.open(page.clone());
+                app.settings.theme = if light {
+                    crate::settings::ThemeChoice::Light
+                } else {
+                    crate::settings::ThemeChoice::Dark
+                };
+                app.actions.push(Action::SettingsChanged);
+                let scrolled = egui::Id::new(("page-scrolled", page.encode()));
+                let mut time = 0.0;
+                let mut frame = |app: &mut App, events: Vec<egui::Event>| -> f32 {
+                    time += 1.0 / 60.0;
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(width, height),
+                            )),
+                            time: Some(time),
+                            events,
+                            ..Default::default()
+                        },
+                        |ui| app.frame_ui(ui),
+                    );
+                    output.textures_delta.clear();
+                    ctx.data(|data| data.get_temp::<f32>(scrolled))
+                        .unwrap_or(0.0)
+                };
+                let settle =
+                    |app: &mut App, frame: &mut dyn FnMut(&mut App, Vec<egui::Event>) -> f32| {
+                        let mut offset = 0.0;
+                        for _ in 0..30 {
+                            offset = frame(app, vec![]);
+                        }
+                        offset
+                    };
+                let press = |app: &mut App,
+                             frame: &mut dyn FnMut(&mut App, Vec<egui::Event>) -> f32,
+                             key: egui::Key| {
+                    frame(app, vec![keyboard(key, egui::Modifiers::NONE)]);
+                    settle(app, frame)
+                };
+                let case = format!("{width}x{height} light={light}");
+
+                settle(&mut app, &mut frame);
+                assert_eq!(frame(&mut app, vec![]), 0.0, "{case}");
+                assert_eq!(app.palette.dark, !light, "{case}: the theme applied");
+
+                // A real selection: Ctrl+A picks every song in the list.
+                frame(&mut app, vec![keyboard(egui::Key::A, command)]);
+                let selection = app.picked_rows(&page).cloned();
+                assert!(
+                    selection.as_ref().is_some_and(|rows| rows.len() > 10),
+                    "{case}: the demo playlist selects"
+                );
+                let history = app.history.clone();
+                let playing = app.now_playing().map(|now| (now.uri, now.playing));
+
+                let first = press(&mut app, &mut frame, egui::Key::PageDown);
+                assert!(first > 0.0, "{case}: Page Down scrolls");
+                let second = press(&mut app, &mut frame, egui::Key::PageDown);
+                assert!(second >= first, "{case}: another Page Down grows or clamps");
+                let back = press(&mut app, &mut frame, egui::Key::PageUp);
+                assert!(back < second, "{case}: Page Up moves back up");
+                let bottom = press(&mut app, &mut frame, egui::Key::End);
+                assert!(
+                    bottom >= second && bottom > back,
+                    "{case}: End reaches the bottom"
+                );
+                let again = press(&mut app, &mut frame, egui::Key::PageDown);
+                assert_eq!(again, bottom, "{case}: Page Down past the bottom stays");
+                let top = press(&mut app, &mut frame, egui::Key::Home);
+                assert_eq!(top, 0.0, "{case}: Home returns to the top");
+
+                assert_eq!(
+                    app.picked_rows(&page).cloned(),
+                    selection,
+                    "{case}: scrolling keeps the selection"
+                );
+                assert_eq!(app.page(), &page, "{case}: scrolling keeps the page");
+                assert_eq!(
+                    app.history, history,
+                    "{case}: scrolling keeps the navigation history"
+                );
+                assert_eq!(
+                    app.now_playing().map(|now| (now.uri, now.playing)),
+                    playing,
+                    "{case}: scrolling leaves playback alone"
+                );
+
+                // An open dialog owns the keys.
+                app.dialog = Some(Dialog::Shortcuts);
+                let offset = press(&mut app, &mut frame, egui::Key::PageDown);
+                assert_eq!(offset, 0.0, "{case}: a dialog keeps Page Down");
+                app.dialog = None;
+                app.backend.shutdown();
+            }
+        }
+    }
+
+    /// The same keys scroll Liked Songs and an album page.
+    #[test]
+    fn page_navigation_scrolls_liked_songs_and_albums() {
+        for page in [Page::LikedSongs, Page::Album("alb0".into())] {
+            let (ctx, mut app) = accessible_app(&format!("page-navigation-{}", page.encode()));
+            app.open(page.clone());
+            let scrolled = egui::Id::new(("page-scrolled", page.encode()));
+            let mut time = 0.0;
+            let mut frame = |app: &mut App, events: Vec<egui::Event>| -> f32 {
+                time += 1.0 / 60.0;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(800.0, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| app.frame_ui(ui),
+                );
+                output.textures_delta.clear();
+                ctx.data(|data| data.get_temp::<f32>(scrolled))
+                    .unwrap_or(0.0)
+            };
+            for _ in 0..5 {
+                frame(&mut app, vec![]);
+            }
+            frame(
+                &mut app,
+                vec![keyboard(egui::Key::PageDown, egui::Modifiers::NONE)],
+            );
+            let mut offset = 0.0;
+            for _ in 0..30 {
+                offset = frame(&mut app, vec![]);
+            }
+            assert!(offset > 0.0, "{page:?}: Page Down scrolls the page");
+            frame(
+                &mut app,
+                vec![keyboard(egui::Key::Home, egui::Modifiers::NONE)],
+            );
+            for _ in 0..30 {
+                offset = frame(&mut app, vec![]);
+            }
+            assert_eq!(offset, 0.0, "{page:?}: Home returns to the top");
+            app.backend.shutdown();
+        }
+    }
+
     /// Every page, panel, and dialog lays out without panicking.
     #[test]
     fn every_surface_renders_headless() {

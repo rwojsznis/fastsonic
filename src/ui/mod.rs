@@ -342,6 +342,9 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                                 Page::Settings => settings::show(app, ui),
                             }
                         });
+                    if app.dialog.is_none() {
+                        keys::scroll_page(ui);
+                    }
                 },
             );
             ui.ctx()

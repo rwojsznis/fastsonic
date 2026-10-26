@@ -117,6 +117,9 @@ features; Navidrome-only personalisation sections may be empty.
   as M, S, R and B, also work from a focused song row; text fields keep
   these keys for typing, and an open dialog keeps the single letters.
   Ctrl+/ shows every shortcut. On macOS, Cmd replaces Ctrl.
+- Page Up and Page Down scroll the page by a screen, and Home and End go to
+  its top and bottom. A text field, an open menu or a dialog keeps these
+  keys, and they leave the selected songs as they are.
 - Right-click a song, playlist, album, or artist for actions such as Play
   next, star, add to playlist, and copy link.
   In **Add to playlist**, type to filter, use Up or Down to pick a match,
