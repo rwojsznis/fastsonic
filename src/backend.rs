@@ -248,6 +248,11 @@ pub enum ApiRequest {
         seed: String,
         generation: u64,
     },
+    /// What everyone on the server is playing, from `getNowPlaying`, for
+    /// the Listening activity panel's request `generation`.
+    NowPlaying {
+        generation: u64,
+    },
 }
 
 impl ApiRequest {
@@ -260,6 +265,7 @@ impl ApiRequest {
                 | Self::AlbumShelf { .. }
                 | Self::MyPlaylists { .. }
                 | Self::PlaylistSample { .. }
+                | Self::NowPlaying { .. }
         )
     }
 }
@@ -390,6 +396,10 @@ pub enum ApiResponse {
         seed: String,
         generation: u64,
         result: ApiResult<Radio>,
+    },
+    NowPlaying {
+        generation: u64,
+        result: ApiResult<Vec<crate::listeners::Listener>>,
     },
 }
 
@@ -1559,6 +1569,16 @@ async fn handle(
             result: client.radio(&seed).await,
             seed,
             generation,
+        },
+        ApiRequest::NowPlaying { generation } => ApiResponse::NowPlaying {
+            generation,
+            result: client.now_playing().await.map(|answer| {
+                answer
+                    .entry
+                    .iter()
+                    .map(crate::listeners::Listener::from_entry)
+                    .collect()
+            }),
         },
     };
     Some(response)

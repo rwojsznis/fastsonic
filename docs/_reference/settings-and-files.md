@@ -334,7 +334,9 @@ right-to-left titles, `signed-out` and `connecting`, for the sign-in card,
 `library-list`, `library-list-narrow`, `library-list-wide`, `library-grid`,
 `library-grid-narrow` and `library-grid-wide`, for the Library as rows or
 cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed,
-`library-by-you`, for the playlists with **By You** on, and
+`library-by-you`, for the playlists with **By You** on, `listeners` and
+`listeners-empty`, for the Listening activity panel with sample people or
+none, and
 `collection-loading`, for a playlist, album or artist page still waiting for
 its details); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a

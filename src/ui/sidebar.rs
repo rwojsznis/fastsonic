@@ -499,7 +499,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // first nav row has to start below them.
     let top =
         12 + theme::titlebar_inset(ui.ctx()) as i8 + super::left_controls_inset(ui.ctx()) as i8;
-    let beside = if app.show_queue_panel || app.show_lyrics_panel {
+    let beside = if app.show_queue_panel || app.show_lyrics_panel || app.show_listeners_panel {
         theme::SIDE_PANEL_MIN_WIDTH
     } else {
         0.0

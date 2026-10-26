@@ -855,6 +855,29 @@ pub fn populate(app: &mut App) {
     });
 }
 
+/// Other people on the demo server, for `--demo-show listeners`: two
+/// listening now, one of them the demo account in another player, long
+/// names and titles, and reports from minutes to days old.
+fn demo_listeners() -> Vec<crate::listeners::Listener> {
+    let (songs, _) = songs();
+    let listener = |username: &str, player: Option<&str>, minutes_ago, playing, song: usize| {
+        crate::listeners::Listener {
+            username: username.into(),
+            player: player.map(str::to_string),
+            minutes_ago,
+            playing,
+            track: songs[song % songs.len()].clone(),
+        }
+    };
+    vec![
+        listener("maria", Some("Feishin"), 0, true, 8),
+        listener(USER, Some("NavidromeUI"), 1, true, 3),
+        listener("tomasz", Some("Symfonium"), 25, false, 0),
+        listener("sam.whitfield-montgomery", Some("fastsonic"), 300, false, 1),
+        listener("lee", None, 4000, false, 20),
+    ]
+}
+
 /// Words to go with the sample track, timed so that the one being sung
 /// sits mid-panel at the demo's playback position.
 #[cfg(any(test, feature = "demo"))]
@@ -919,6 +942,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             }
             "library-by-you" => app.settings.library_by_you = true,
             "queue" => app.show_queue_panel = true,
+            "listeners" => {
+                app.show_listeners_panel = true;
+                app.listeners = Loadable::Loaded(demo_listeners());
+            }
+            "listeners-empty" => {
+                app.show_listeners_panel = true;
+                app.listeners = Loadable::Loaded(Vec::new());
+            }
             "playing-next" => {
                 app.show_queue_panel = true;
                 app.manual_queue = app
@@ -1335,6 +1366,148 @@ mod tests {
             repeat: false,
             modifiers,
         }
+    }
+
+    /// One frame of the demo at `width`, for the Listening activity tests.
+    fn listeners_frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        width: f32,
+        events: Vec<egui::Event>,
+    ) -> egui::accesskit::TreeUpdate {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 800.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| app.frame_ui(ui),
+        );
+        output.textures_delta.clear();
+        output
+            .platform_output
+            .accesskit_update
+            .expect("screen-reader tree")
+    }
+
+    fn button_bounds(
+        tree: &egui::accesskit::TreeUpdate,
+        label: &str,
+    ) -> Option<egui::accesskit::Rect> {
+        tree.nodes.iter().find_map(|(_, node)| {
+            (node.role() == egui::accesskit::Role::Button
+                && node.label().is_some_and(|text| text.starts_with(label)))
+            .then(|| node.bounds())
+            .flatten()
+        })
+    }
+
+    /// The Listening activity button sits in the player bar beside Lyrics,
+    /// and gives way in a narrow window before it crowds Repeat.
+    #[test]
+    fn the_listening_activity_button_never_crowds_the_transport() {
+        let (ctx, mut app) = accessible_app("listeners-button-room");
+        let mut shown_at = None;
+        for width in (760..=1600).step_by(8) {
+            let width = width as f32;
+            listeners_frame(&ctx, &mut app, width, vec![]);
+            let tree = listeners_frame(&ctx, &mut app, width, vec![]);
+            let repeat = button_bounds(&tree, "Repeat").expect("Repeat");
+            let lyrics = button_bounds(&tree, "Lyrics").expect("Lyrics");
+            if let Some(people) = button_bounds(&tree, "Listening activity") {
+                shown_at.get_or_insert(width);
+                assert!(people.y0 > 700.0, "in the player bar at {width}");
+                assert!(people.x1 <= lyrics.x0, "before Lyrics at {width}");
+                assert!(people.x0 - repeat.x1 >= 10.0, "clear of Repeat at {width}");
+            } else {
+                assert!(shown_at.is_none(), "it stays once shown, gone at {width}");
+            }
+        }
+        assert!(
+            shown_at.is_some_and(|width| width <= 1000.0),
+            "shown from {shown_at:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// Pointing at a person plays their song here at once, and the same
+    /// row then offers to pause it; the song played here already offers
+    /// Pause from the start.
+    #[test]
+    fn a_listeners_song_plays_here_and_then_pauses() {
+        use egui::accesskit::Action as AccessibleAction;
+        let (ctx, mut app) = accessible_app("listeners-play");
+        app.show_listeners_panel = true;
+        app.listeners = Loadable::Loaded(demo_listeners());
+        let here = app.now_playing().expect("the demo plays a song").title;
+        listeners_frame(&ctx, &mut app, 1280.0, vec![]);
+        let tree = listeners_frame(&ctx, &mut app, 1280.0, vec![]);
+        assert!(
+            button_bounds(&tree, &format!("Play {here}")).is_none(),
+            "the song playing here offers Pause"
+        );
+        let pauses = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.role() == egui::accesskit::Role::Button && node.label() == Some("Pause")
+            })
+            .count();
+        assert_eq!(pauses, 2, "the player bar's and the row's");
+
+        let song = app.listeners.get().unwrap()[0].track.clone();
+        let play = accessible_node(
+            &tree,
+            &format!("Play {}", song.name),
+            egui::accesskit::Role::Button,
+        );
+        listeners_frame(
+            &ctx,
+            &mut app,
+            1280.0,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.current_track_uri(), Some(song.uri.clone()));
+        let tree = listeners_frame(&ctx, &mut app, 1280.0, vec![]);
+        assert!(button_bounds(&tree, &format!("Play {}", song.name)).is_none());
+        app.backend.shutdown();
+    }
+
+    /// Long names and titles truncate instead of widening the panel: it
+    /// keeps the narrow width chosen for it.
+    #[test]
+    fn long_listener_titles_never_widen_the_panel() {
+        let (ctx, mut app) = accessible_app("listeners-panel-width");
+        app.settings.queue_width = crate::theme::SIDE_PANEL_MIN_WIDTH;
+        app.show_listeners_panel = true;
+        app.listeners = Loadable::Loaded(demo_listeners());
+        let long = "A very long song title that never ends ".repeat(4);
+        if let Loadable::Loaded(listeners) = &mut app.listeners {
+            let listener = &mut listeners[0];
+            listener.username = long.clone();
+            listener.player = Some(long.clone());
+            listener.track.name = long.clone();
+            listener.track.artists[0].name = long.clone();
+            if let Some(album) = &mut listener.track.album {
+                album.name = long;
+            }
+        }
+        for _ in 0..4 {
+            listeners_frame(&ctx, &mut app, 1400.0, vec![]);
+        }
+        let width =
+            egui::containers::panel::PanelState::load(&ctx, egui::Id::new("listeners-panel"))
+                .unwrap()
+                .size()
+                .x;
+        assert!(
+            width <= crate::theme::SIDE_PANEL_MIN_WIDTH + 1.0,
+            "the panel grew to {width}"
+        );
+        app.backend.shutdown();
     }
 
     #[test]

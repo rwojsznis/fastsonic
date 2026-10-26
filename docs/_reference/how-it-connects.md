@@ -89,6 +89,13 @@ any that arrive, so a read from before the edit cannot undo it on screen;
 HTTP byte ranges remain available for seeking and the in-process decoder sees
 the library's real format.
 
+While the **Listening activity** panel is open in the main window, and only
+then, Fastsonic sends `getNowPlaying` when the panel opens and again 15
+seconds after each answer, never with one still on its way. The answer lists
+every player's song, this app's own report included, and is kept in memory
+only. Closing the panel, closing the window to the tray, switching to the
+mini player or signing out stops the requests.
+
 A radio page asks the server for similar songs: `getSimilarSongs` for a song
 or an album, `getSimilarSongs2` for an artist, each beside `getSong`,
 `getAlbum` or `getArtist` for the name and cover it is titled with. Subsonic

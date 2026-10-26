@@ -192,7 +192,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let width = ui.available_width();
     let mut window_controls = super::window_controls_reservation(
         ui.ctx(),
-        app.show_queue_panel,
+        app.show_queue_panel || app.show_listeners_panel,
         app.show_lyrics_panel,
         width,
     );

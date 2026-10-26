@@ -111,7 +111,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .max_rect(right_band)
                     .layout(Layout::right_to_left(Align::Center)),
             );
-            extras(app, &mut right_ui, now.as_ref());
+            let transport_right = center.center().x + transport_width() / 2.0;
+            extras(app, &mut right_ui, now.as_ref(), transport_right);
         });
 }
 
@@ -553,6 +554,16 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     }
 }
 
+/// The transport's button widths: icon buttons occupy icon size + 12; the
+/// disc is 36.
+const TRANSPORT_WIDTHS: [f32; 5] = [29.0, 30.0, 36.0, 30.0, 29.0];
+const TRANSPORT_GAP: f32 = 10.0;
+
+/// The transport's buttons from Shuffle to Repeat, centred in the bar.
+fn transport_width() -> f32 {
+    TRANSPORT_WIDTHS.iter().sum::<f32>() + TRANSPORT_GAP * 4.0
+}
+
 fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region: Rect) {
     let palette = app.palette;
     // Everything here is placed with explicit rects: egui's implicit rows
@@ -576,14 +587,11 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         palette.dim
     };
 
-    // Button widths: icon buttons occupy icon size + 12; the disc is 36.
-    let widths = [29.0, 30.0, 36.0, 30.0, 29.0];
-    let gap = 10.0;
-    let total: f32 = widths.iter().sum::<f32>() + gap * 4.0;
-    let mut x = region.center().x - total / 2.0;
+    let widths = TRANSPORT_WIDTHS;
+    let mut x = region.center().x - transport_width() / 2.0;
     let mut slot = |width: f32| {
         let rect = Rect::from_center_size(pos2(x + width / 2.0, cy), vec2(width, 36.0));
-        x += width + gap;
+        x += width + TRANSPORT_GAP;
         rect
     };
     let centered = |ui: &mut egui::Ui, rect: Rect| {
@@ -768,7 +776,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     );
 }
 
-fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
+fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_right: f32) {
     let palette = app.palette;
     ui.spacing_mut().item_spacing.x = 6.0;
     let volume = now
@@ -860,6 +868,31 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
     .clicked()
     {
         app.actions.push(Action::ToggleLyricsPanel);
+    }
+    listeners_button(app, ui, transport_right);
+}
+
+/// Listening activity, the first button to go in a narrow window, so it
+/// never crowds the transport.
+fn listeners_button(app: &mut App, ui: &mut egui::Ui, transport_right: f32) {
+    let palette = app.palette;
+    let left = ui.min_rect().left() - ui.spacing().item_spacing.x - (18.0 + theme::ICON_BUTTON_PAD);
+    if left - transport_right >= TRANSPORT_GAP
+        && theme::icon_button(
+            ui,
+            Icon::Users,
+            18.0,
+            if app.show_listeners_panel {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+            palette.text,
+            crate::ui::listeners::TITLE,
+        )
+        .clicked()
+    {
+        app.actions.push(Action::ToggleListenersPanel);
     }
 }
 

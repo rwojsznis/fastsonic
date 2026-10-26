@@ -6,6 +6,7 @@ mod dialogs;
 pub mod home;
 mod keys;
 pub mod library;
+pub(crate) mod listeners;
 pub mod login;
 pub mod lyrics;
 pub mod player_bar;
@@ -71,6 +72,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if app.show_lyrics_panel {
             lyrics::side_panel(app, ui);
         }
+        if app.show_listeners_panel {
+            listeners::side_panel(app, ui);
+        }
         central(app, ui);
         keep_room_for_panels(app, ctx);
     }
@@ -107,7 +111,7 @@ fn keep_room_for_panels(app: &App, ctx: &Context) {
     let width = main_min_width(
         topbar::least_width(ctx),
         app.settings.sidebar_visible,
-        app.show_queue_panel || app.show_lyrics_panel,
+        app.show_queue_panel || app.show_lyrics_panel || app.show_listeners_panel,
     )
     .round();
     let id = Id::new("main-min-width");

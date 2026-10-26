@@ -30,6 +30,8 @@ use crate::tray::{TrayCommand, TrayService};
 use crate::util;
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
+/// How often the open Listening activity panel asks the server again.
+const LISTENERS_POLL: Duration = Duration::from_secs(15);
 /// How long a suspend or the end of the session waits for pending file
 /// writes. The power readers hold the system back for 1.5 s before a
 /// suspend (3 s at the end of a session), so a longer wait would only
@@ -277,6 +279,20 @@ pub struct App {
     pub dialog: Option<Dialog>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
+    /// Listening activity takes the right panel's place, so at most one of
+    /// the Queue, Lyrics and Listening activity is open.
+    pub show_listeners_panel: bool,
+    /// What the other people on the server last played. A refresh keeps the
+    /// last answer on screen.
+    pub listeners: Loadable<Vec<crate::listeners::Listener>>,
+    listeners_in_flight: bool,
+    listeners_fetched_at: Option<Instant>,
+    /// Bumped when the account changes, so an answer for the last one is
+    /// dropped.
+    listeners_generation: u64,
+    /// The ids of this app's latest songs, the newest last, which tell its
+    /// own report apart from everyone else's.
+    played_here: Vec<String>,
     pub lyrics_fullscreen: Option<bool>,
     pub lyrics_fullscreen_seen: bool,
     lyrics_fullscreen_restoring: Option<bool>,
@@ -611,6 +627,12 @@ impl App {
             dialog: None,
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
+            show_listeners_panel: false,
+            listeners: Loadable::NotLoaded,
+            listeners_in_flight: false,
+            listeners_fetched_at: None,
+            listeners_generation: 0,
+            played_here: Vec::new(),
             lyrics_fullscreen: None,
             lyrics_fullscreen_seen: false,
             lyrics_fullscreen_restoring: None,
@@ -1457,6 +1479,13 @@ impl App {
         self.table_rows.clear();
         self.page_used.clear();
         self.track_used.clear();
+        // Who listens belongs to the account that asked; an answer still on
+        // its way is dropped.
+        self.listeners = Loadable::NotLoaded;
+        self.listeners_in_flight = false;
+        self.listeners_fetched_at = None;
+        self.listeners_generation += 1;
+        self.played_here.clear();
     }
 
     /// Drop table-row caches whose pages are gone, and cap what remains.
@@ -1862,6 +1891,98 @@ impl App {
         }
     }
 
+    /// Whether the Listening activity panel is on screen, which is the only
+    /// time it asks the server anything.
+    fn listeners_shown(&self) -> bool {
+        self.show_listeners_panel
+            && self.is_connected()
+            && !self.window_hidden
+            && !self.settings.winamp_window
+            && self.lyrics_fullscreen.is_none()
+    }
+
+    /// Asks again every `LISTENERS_POLL` while the panel is shown, counted
+    /// from the last answer, and never with an answer still on its way.
+    fn poll_listeners(&mut self, ctx: &egui::Context) {
+        if !self.listeners_shown() || self.listeners_in_flight {
+            return;
+        }
+        match self.listeners_fetched_at.map(|at| at.elapsed()) {
+            Some(elapsed) if elapsed < LISTENERS_POLL => {
+                ctx.request_repaint_after(LISTENERS_POLL - elapsed);
+            }
+            _ => self.refresh_listeners(),
+        }
+    }
+
+    /// Asks the server who is listening, unless an answer is on its way. The
+    /// panel keeps showing the last answer meanwhile.
+    fn refresh_listeners(&mut self) {
+        if self.listeners_in_flight {
+            return;
+        }
+        self.note_played_here();
+        if self.offline {
+            if !matches!(self.listeners, Loadable::Loaded(_)) {
+                self.listeners = Loadable::Loaded(Vec::new());
+            }
+            return;
+        }
+        self.listeners_in_flight = true;
+        if !matches!(self.listeners, Loadable::Loaded(_)) {
+            self.listeners = Loadable::Loading;
+        }
+        self.backend.api(ApiRequest::NowPlaying {
+            generation: self.listeners_generation,
+        });
+    }
+
+    /// Remembers the song shown as playing here, so the server's report of
+    /// it is known for this app's own.
+    fn note_played_here(&mut self) {
+        let Some(id) = self.now_playing().and_then(|now| now.id) else {
+            return;
+        };
+        if self.played_here.last() == Some(&id) {
+            return;
+        }
+        self.played_here.retain(|known| *known != id);
+        self.played_here.push(id);
+        let extra = self
+            .played_here
+            .len()
+            .saturating_sub(crate::listeners::OWN_SONGS);
+        self.played_here.drain(..extra);
+    }
+
+    /// Everyone but this app. A failed refresh keeps the people already
+    /// shown; only a first read that fails says so.
+    fn receive_listeners(
+        &mut self,
+        generation: u64,
+        result: crate::backend::ApiResult<Vec<crate::listeners::Listener>>,
+    ) {
+        if generation != self.listeners_generation {
+            return;
+        }
+        self.listeners_in_flight = false;
+        self.listeners_fetched_at = Some(Instant::now());
+        match result {
+            Ok(listeners) => {
+                self.note_played_here();
+                let me = self.user.as_ref().map(|user| user.id.as_str());
+                self.listeners =
+                    Loadable::Loaded(crate::listeners::others(listeners, me, &self.played_here));
+            }
+            Err(error) => {
+                log::debug!("the server did not say who is listening: {error}");
+                if !matches!(self.listeners, Loadable::Loaded(_)) {
+                    self.listeners = Loadable::Failed(error.to_string());
+                }
+            }
+        }
+    }
+
     /// Asks for the playing track's lyrics unless they are here or on the way.
     pub fn request_lyrics(&mut self) {
         let Some(now) = self.now_playing() else {
@@ -1945,6 +2066,8 @@ impl App {
             self.request_resume_track();
             self.ensure_resume_context_loaded();
         }
+
+        self.poll_listeners(ctx);
 
         if let Some(typed) = self.search.typed_at {
             if typed.elapsed() >= SEARCH_DEBOUNCE {
@@ -3762,6 +3885,9 @@ impl App {
                 generation,
                 result,
             } => self.receive_radio(&seed, generation, result),
+            ApiResponse::NowPlaying { generation, result } => {
+                self.receive_listeners(generation, result)
+            }
             ApiResponse::Track { id, result } => {
                 self.track_requests.remove(&id);
                 if let Ok(track) = result {
@@ -4379,6 +4505,7 @@ impl App {
                 | Action::SignOut
                 | Action::ToggleWinampWindow
                 | Action::ToggleQueuePanel
+                | Action::ToggleListenersPanel
         ) {
             self.leave_lyrics_fullscreen(ctx);
         }
@@ -4875,6 +5002,7 @@ impl App {
                 // the next one typed in.
                 self.server_headers.clear();
                 self.server_headers_open = false;
+                self.show_listeners_panel = false;
                 self.history = vec![Page::Home];
                 self.history_index = 0;
             }
@@ -4886,6 +5014,7 @@ impl App {
                 self.show_queue_panel = !self.show_queue_panel;
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
+                    self.show_listeners_panel = false;
                 }
             }
             Action::ToggleLyricsPanel => {
@@ -4893,8 +5022,17 @@ impl App {
                 self.show_lyrics_panel = !self.show_lyrics_panel;
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
+                    self.show_listeners_panel = false;
                     self.lyrics_following = true;
                     self.request_lyrics();
+                }
+            }
+            Action::ToggleListenersPanel => {
+                self.show_listeners_panel = !self.show_listeners_panel;
+                if self.show_listeners_panel {
+                    self.show_queue_panel = false;
+                    self.show_lyrics_panel = false;
+                    self.refresh_listeners();
                 }
             }
             Action::SetLyricsFullscreen(fullscreen) => {
@@ -4914,6 +5052,7 @@ impl App {
                     self.lyrics_fullscreen_seen = false;
                     self.show_lyrics_panel = true;
                     self.show_queue_panel = false;
+                    self.show_listeners_panel = false;
                     self.lyrics_following = true;
                     self.lyrics_line_shown = None;
                     self.request_lyrics();
@@ -10419,6 +10558,198 @@ mod tests {
         app.handle_local(next);
         assert!(app.held_seek.is_none());
         assert_eq!(app.now_playing().map(|now| now.position_ms), Some(0));
+        app.backend.shutdown();
+    }
+
+    fn listener(username: &str, player: Option<&str>, song: &str) -> crate::listeners::Listener {
+        crate::listeners::Listener {
+            username: username.into(),
+            player: player.map(str::to_string),
+            minutes_ago: 0,
+            playing: true,
+            track: Track {
+                id: Some(song.into()),
+                uri: format!("sonic:track:{song}"),
+                name: format!("Song {song}"),
+                ..Track::default()
+            },
+        }
+    }
+
+    fn asked_who_listens(app: &App) -> usize {
+        app.backend
+            .asked_api()
+            .iter()
+            .filter(|request| matches!(request, ApiRequest::NowPlaying { .. }))
+            .count()
+    }
+
+    /// Listening activity takes the right panel's place: opening it closes
+    /// the Queue and Lyrics, and opening either of them closes it.
+    #[test]
+    fn listening_activity_swaps_places_with_the_queue_and_lyrics() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("listeners-panel-swap");
+        app.show_queue_panel = true;
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        assert!(app.show_listeners_panel && !app.show_queue_panel);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.show_queue_panel && !app.show_listeners_panel);
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert!(app.show_lyrics_panel && !app.show_listeners_panel);
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        assert!(app.show_listeners_panel && !app.show_lyrics_panel);
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        assert!(!app.show_listeners_panel && !app.show_queue_panel && !app.show_lyrics_panel);
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        app.apply(Action::SignOut, &ctx);
+        assert!(!app.show_listeners_panel, "signing out closes it");
+        app.backend.shutdown();
+    }
+
+    /// The server is asked who listens when the panel opens and every 15
+    /// seconds after an answer while it stays open and in sight; never
+    /// while it is closed, the window is hidden, or an answer is on its way.
+    #[test]
+    fn listening_activity_asks_only_while_it_is_open() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("listeners-poll");
+        app.auth = AuthStatus::Connected {
+            username: "me".into(),
+        };
+        let long_ago = || Instant::now().checked_sub(LISTENERS_POLL).unwrap();
+        app.backend.asked_api();
+        app.poll_listeners(&ctx);
+        assert_eq!(asked_who_listens(&app), 0, "closed, nobody is asked");
+
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        assert_eq!(asked_who_listens(&app), 1, "opening asks at once");
+        assert!(app.listeners.is_loading());
+        app.poll_listeners(&ctx);
+        assert_eq!(asked_who_listens(&app), 0, "one question at a time");
+
+        app.receive_listeners(app.listeners_generation, Ok(Vec::new()));
+        assert_eq!(app.listeners, Loadable::Loaded(Vec::new()));
+        app.poll_listeners(&ctx);
+        assert_eq!(asked_who_listens(&app), 0, "a fresh answer waits");
+        app.listeners_fetched_at = Some(long_ago());
+        app.poll_listeners(&ctx);
+        assert_eq!(asked_who_listens(&app), 1, "15 seconds on, it asks again");
+        app.receive_listeners(app.listeners_generation, Ok(Vec::new()));
+
+        app.window_hidden = true;
+        app.listeners_fetched_at = Some(long_ago());
+        app.poll_listeners(&ctx);
+        assert_eq!(asked_who_listens(&app), 0, "a hidden window asks nothing");
+        app.window_hidden = false;
+
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        app.listeners_fetched_at = Some(long_ago());
+        app.poll_listeners(&ctx);
+        assert_eq!(asked_who_listens(&app), 0, "closed again, it stops");
+        app.backend.shutdown();
+    }
+
+    /// This app's own report never lists it, also when the server still
+    /// has the song before the one now playing; the same account in another
+    /// player stays.
+    #[test]
+    fn listening_activity_leaves_this_app_out() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("listeners-self");
+        app.user = Some(User {
+            id: "me".into(),
+            ..User::default()
+        });
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:s1".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.apply(Action::ToggleListenersPanel, &ctx);
+        app.receive_listeners(
+            app.listeners_generation,
+            Ok(vec![
+                listener("me", Some("fastsonic"), "s1"),
+                listener("me", Some("NavidromeUI"), "s1"),
+                listener("ann", Some("fastsonic"), "s1"),
+            ]),
+        );
+        let names = |app: &App| -> Vec<(String, Option<String>)> {
+            app.listeners
+                .get()
+                .unwrap()
+                .iter()
+                .map(|listener| (listener.username.clone(), listener.player.clone()))
+                .collect()
+        };
+        assert_eq!(
+            names(&app),
+            [
+                ("me".to_string(), Some("NavidromeUI".to_string())),
+                ("ann".to_string(), Some("fastsonic".to_string())),
+            ]
+        );
+
+        // The next song starts before the server hears of it.
+        app.local.track = Some(crate::engine::LocalTrack {
+            uri: "sonic:track:s2".into(),
+            ..Default::default()
+        });
+        app.refresh_listeners();
+        app.receive_listeners(
+            app.listeners_generation,
+            Ok(vec![
+                listener("me", Some("fastsonic"), "s1"),
+                listener("ann", None, "s2"),
+            ]),
+        );
+        assert_eq!(names(&app), [("ann".to_string(), None)]);
+        app.backend.shutdown();
+    }
+
+    /// A refresh that fails keeps the people already on screen; only a
+    /// first read that fails says so.
+    #[test]
+    fn a_failed_listeners_refresh_keeps_the_last_answer() {
+        let mut app = test_app("listeners-refresh");
+        app.refresh_listeners();
+        assert!(app.listeners.is_loading());
+        let ann = listener("ann", None, "s1");
+        app.receive_listeners(app.listeners_generation, Ok(vec![ann.clone()]));
+        app.refresh_listeners();
+        assert!(app.listeners_in_flight);
+        assert_eq!(app.listeners.get(), Some(&vec![ann.clone()]));
+        app.receive_listeners(
+            app.listeners_generation,
+            Err(crate::api::subsonic::ApiError::NotSignedIn),
+        );
+        assert_eq!(app.listeners.get(), Some(&vec![ann]));
+        assert!(!app.listeners_in_flight);
+
+        app.reset_data();
+        app.refresh_listeners();
+        app.receive_listeners(
+            app.listeners_generation,
+            Err(crate::api::subsonic::ApiError::NotSignedIn),
+        );
+        assert!(matches!(app.listeners, Loadable::Failed(_)));
+        app.backend.shutdown();
+    }
+
+    /// An answer for the account that signed out never fills the panel for
+    /// the next one.
+    #[test]
+    fn listeners_from_a_signed_out_account_are_dropped() {
+        let mut app = test_app("listeners-account");
+        app.refresh_listeners();
+        let asked = app.listeners_generation;
+        app.reset_data();
+        assert!(!app.listeners_in_flight);
+        assert_eq!(app.listeners, Loadable::NotLoaded);
+        app.receive_listeners(asked, Ok(vec![listener("ann", None, "s1")]));
+        assert_eq!(app.listeners, Loadable::NotLoaded);
         app.backend.shutdown();
     }
 

@@ -974,6 +974,9 @@ pub enum Action {
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
+    /// Show or hide what other people on the server are playing, in the
+    /// right panel.
+    ToggleListenersPanel,
     SetLyricsFullscreen(bool),
     LyricsLineShown(Option<usize>),
     FollowLyrics,

@@ -212,6 +212,37 @@ draw: 30, 60 (the default), the rate of the screen showing the window, or
 Uncapped, which follows the display. A lower rate uses less power. MilkDrop
 has a frame rate of its own.
 
+## Listening activity
+
+The people button in the player bar, beside Queue and Lyrics, opens what the
+other people on your music server are playing. It takes the place of the
+Queue or Lyrics panel on the right, and they take its place in turn. While
+it is open, it asks the server again every 15 seconds; it stops asking while
+the window is closed to the tray or the mini player stands in for it.
+
+Each row shows the person's initial and username, the player they listen
+in, the song and artist, and its album. A dot on the initial and bars in
+place of the time mean the person is listening right now; the bars hold
+still. Pointing at the initial shows a play button: click it to play their
+song here, or to pause it when that song is already playing here. The song's
+title and the album line open the album, and the artist opens their page.
+
+The list comes from the server's `getNowPlaying`, which every player on the
+server feeds, Fastsonic included. Your own playback here is left out: an
+entry under your username, from Fastsonic or a player with no name, playing
+the song this window is playing or played just before, is taken for this
+one. Your account in another player (Navidrome's web player, a phone app)
+stays in the list, and so does another copy of Fastsonic playing a
+different song; a second copy playing the very same song cannot be told
+apart and is left out too. Without the OpenSubsonic `playbackReport`
+extension the server does not say whether a song is paused, so a report
+younger than the song counts as listening. A server that lists nobody shows
+**Nobody else is listening**; one that refuses the request says so in the
+panel. Nothing from the panel is written to disk.
+
+In a very narrow window the people button gives way so the playback controls
+keep their room; widen the window to bring it back.
+
 ## Less motion
 
 Fastsonic keeps still when the system asks it to: **Animation effects**

@@ -15,6 +15,7 @@ pub mod file_writer;
 pub mod history;
 pub mod images;
 pub mod limiter;
+pub mod listeners;
 pub mod lyrics;
 #[cfg(target_os = "macos")]
 pub mod mac_fonts;
