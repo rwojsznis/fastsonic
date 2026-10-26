@@ -522,3 +522,117 @@ Declined:
   sign-in has no browser redirect) and the librespot fixes (`6a60c30`
   beyond projectM).
 - The website (`677dbf6`) and the release itself (`a4c1b3e`).
+
+## Sync through upstream 0.14.2
+
+`upstream/v0.14.2` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+Upstream moved its fastframe crates from 0.6.0 to 0.14.0 in the range, and
+the fixes and features it adopted through them were ported in-tree.
+
+Taken and adapted to Fastsonic:
+
+- Playback: the repeat mode kept across restarts (`e8057e9`); Repeat One
+  turned back into Repeat All by Next, a Previous that steps back or
+  playing something else (`cb415c2`); the engine's thread raised above
+  other work on every platform (`24e3b57`, fastframe `760e829`); the gaps
+  the audio device played logged (`b772e08`, fastframe `cf01365`'s
+  counting); the app's icon beside its stream in Linux volume mixers
+  (`f3d47d9`, the icon only); the computer kept awake while music plays
+  (`d995a36`, fastframe `ba9b89b`, `58fc5c3`), in the power module.
+- Rows and the queue: the chosen copy of a repeated playlist song started
+  and marked alone (`93dd3d2`); only the picked copy removed, through
+  `updatePlaylist`'s `songIndexToRemove` (`bdabd61`); Play next in song and
+  selection menus (`67f31e9`); a search song played on its own
+  (`c3faf59`); the seed first in song radio (`f71df0a`); the Recent tab
+  shared rather than copied (`08d88f4`); Home's top tiles following what
+  was played from (`55d1b5f`, playlists, albums and Liked Songs, as the
+  fork records them).
+- Interface: Add to playlist from a liked song's heart (`dff96e4`); the
+  header cover enlarged on a click (`7c0e77c`); skeleton loading pages
+  (`ee8900d`); the visualizer changed from beside the player bar's words
+  (`2bc03fd`); the visualizer swept across the cover's colours
+  (`447a0ee`); a Release notes button in About (`3037975`); even padding in
+  settings cards (`2526523`); a light and a dark theme for Follow system
+  (`3428548`, fastframe `4edd14d`, without Omarchy); Han fallback faces
+  for simplified Chinese and Japanese (fastframe `0ecccb4`, `c3187b5`);
+  egui 0.36.2 from crates.io (`d54bf07`'s version, not the egui fork).
+- Keys, lyrics and the mini player: single-key shortcuts with a song row
+  focused (`2bf13b1`); Page Up, Page Down, Home and End (`da44f07`); no
+  side panel room in full-screen lyrics (`703c0b1`); the queue column in
+  full-screen lyrics, toggled by Q (`3737062`); the mini player's sliders
+  moved only by their own track (`d44db71`); D stepping through 1x
+  (`d69bb2e`); visualizers in shade mode (`5aec231`); your own equalizer
+  presets (`952da3b`); LRCLIB's 429 waited out (`cffb506`); a byte order
+  mark kept from eating the first synced line (`a910bfe`, applied to
+  LRCLIB's synced lyrics, as the fork reads no `.lrc` files); the main
+  window opened at its default size below its minimum (`7bb1d95`).
+- Listening activity (`3a735af`), rebuilt on `getNowPlaying`: what other
+  people on the same server are playing, polled every 15 seconds only
+  while the panel is open.
+- Desktop: starting with your computer, with the window or in the tray
+  (`3dbb309`, with `77339ee`, `dc27a83` and fastframe `cee4b40`, `55652f5`),
+  in-tree in `src/autostart`; the menu bar named on macOS (`9188c5e`);
+  menu-bar only, without a Dock icon (`e3b8627`, fastframe `a415de7`); a
+  white or black tray icon (`4115b0e`, fastframe `77b4274`); the menu-bar
+  menu on any click (`9d1f7a6`, fastframe `1f3d7d7`); the menu-bar item
+  rebuilt after a window's event loop ends, the symptom `dffb1be`'s winit
+  patch fixes, and the Dock icon of an unbundled run (fastframe `97ceedd`);
+  memory kept flat in the tray (`0cfb8c9`, fastframe `3ee0dbb`); a portable
+  Windows copy's data next to it (`83e1546`, fastframe `08b1f6b`, sharing
+  the one single-instance port rather than taking a slot of its own as
+  fastframe `8cf7b6c` does); checking a Windows download (`1bd872b`).
+
+Already true here, or not applicable:
+
+- `c85c038`: the engine's queue is already measured in time.
+- `d5e4e6b` (fastframe `e46fe7b`): cpal 0.16 opens the Windows default
+  as a real endpoint; the virtual default device arrived in cpal 0.18.
+- `118e26a` (fastframe `2b5ab56`): the libpulse backend is upstream's own,
+  and cpal 0.16 has no device ids; the fork opens a saved output by name.
+- Fastframe `e504c70` (the device already rests while paused), `ab6f5c8`
+  and `e03f4e5` (the fork's callback allocates no conversion buffers),
+  `1cccc82` (a suspend hook keep-awake does not need).
+- `dcb43ad`: no Home shelf here waits on a seed. `e3b8b45`: the fork keeps
+  no lasting unlike record, and `getStarred2` answers whole. `a8b8033`:
+  every playlist entry is a playable row. `6aaf503`: the fork has one
+  locale. `ad21363`: the account menu has one line. `7c177d1`: the sign-in
+  card already grows to fit. `7807d21`: the fork's bidi tests have no
+  glyph-counting helper.
+
+Declined:
+
+- The real-time output callback on Linux (fastframe `cf01365`, `b722c80`,
+  upstream `e3d03db`, `a3ff025`): the fork plays through cpal's ALSA host,
+  normally to `default`, `pipewire` or `pulse`, which `b722c80`'s own rule
+  keeps out of real time.
+- Following the desktop's text size (fastframe `55910e8`): upstream does
+  not call it as of 0.14.2. Validated local fonts (fastframe `fcf20de`):
+  an API for a font picker the fork does not have.
+- Spotify: the playback-session rootlist, buddylist, Pathfinder and
+  librespot work (`bda7b8c`, `97844ec`, `7d63f55`, `f9f2060`, `fade33e`,
+  `cd93c5e`, `a0efaeb`, `56ec5ac`, `466bdf5`), podcast refresh (`d284f5a`),
+  folders (`46a4ecf`), Your top mixes (`f0b5522`), the device picker's
+  output and Cast ranking (`fa527b6`, `b96f805`), the Windows grant copy
+  (`46b827a`; the fork keeps its credential in a file), play counts
+  (`247c2ac`; Subsonic's `playCount` is your own, not a song's
+  popularity), New releases from followed artists (`2e5142f`), hidden
+  songs (`4322346`), a playlist's local files (`3e63cb4`, `88edc38`,
+  `2784cbd`, `e86d3de`), the shared app, audio keys and their banners
+  (`19b7443`, `8a4a6bc`, `791fab0`), Top Songs periods (`6911a79`, from
+  `/me/top`), remote volume (`cd5ba1f`) and the personal-app sign-in
+  (`f06b05b`, `7ed46cc`, `f7b3810`).
+- The winit fork's AppKit patches (`dffb1be`, `0b3e980`); with stock
+  winit the macOS hidden start opens a transparent first window that closes
+  itself to the menu bar.
+- The fastframe crates and their version moves (`d5e4e6b`, `77339ee`,
+  `0cfb8c9`, `e3d03db`, `a3ff025`, `d54bf07`, `7c78448`, `118e26a` and
+  `f3d47d9` beyond the behaviours taken above), with fastframe's cpal fork
+  and PipeWire host (`6f87eb8`, `861716c`, `504962c`), notifications,
+  audio input, the AppImage updater and its own release feed.
+- AppImage (`a3282ba`, `c5f2639`, `c303ef6`), translations (`3e82631`,
+  `35f4837`, `9775fc7`) and repository policy and triage (`dc23c1c`,
+  `673aaed`, `cd9cd41`, `e5449a1`, `076aa3b`, `e53fa09`, `a31e35f`).
+- The website (`4ba5a6a`, `1bc082f`, `ebc0341`, `5730dbc`) and the
+  releases themselves (`b6c939d`, `c2e41ee`, `3ce8b3f`, `3bc6bb4`).
