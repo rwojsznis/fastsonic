@@ -84,6 +84,18 @@ struct AssumedContext {
     at: Instant,
 }
 
+/// The row a song was started from, so a list holding that song more than
+/// once marks only the copy that was chosen.
+struct PlayedRow {
+    /// The playlist, album or collection the row belongs to.
+    context: String,
+    /// Whether the row was in a sorted or filtered view, whose indices are
+    /// places in the view rather than playlist positions.
+    view: bool,
+    index: u32,
+    uri: String,
+}
+
 /// The playing item as the interface sees it, whichever device plays it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NowPlaying {
@@ -386,6 +398,8 @@ pub struct App {
     optimistic_playing: Option<(bool, Instant)>,
     /// Track shown immediately after a play request, until the engine reports.
     intent_track: Option<(String, Instant)>,
+    /// The row the current song was started from, while it still plays.
+    played_row: Option<PlayedRow>,
     /// Requested shuffle mode, applied to every context until changed.
     shuffle_wanted: bool,
     /// The repeat mode the last run saved, which the engine is given when it
@@ -686,6 +700,7 @@ impl App {
             held_seek: None,
             optimistic_playing: None,
             intent_track: None,
+            played_row: None,
             shuffle_wanted: session.shuffle_on,
             repeat_wanted: RepeatMode::from_api(&session.repeat),
             shuffle_set_at: None,
@@ -925,6 +940,64 @@ impl App {
             return Some(uri.clone());
         }
         self.now_playing().map(|now| now.uri)
+    }
+
+    /// Whether a row holding `uri` may show as the current song. A song
+    /// started from a row marks that row alone in its own list; other copies
+    /// of the song there are ordinary rows. Anywhere else, and once the
+    /// remembered row no longer holds the song, every copy shows it.
+    pub fn row_is_played_copy(&self, context: &RowContext, index: usize, uri: &str) -> bool {
+        let Some(played) = self.played_row.as_ref().filter(|played| played.uri == uri) else {
+            return true;
+        };
+        let applies = match context {
+            RowContext::Context {
+                uri: context_uri, ..
+            } => {
+                !played.view
+                    && played.context == *context_uri
+                    && self.playlist_row_holds(context_uri, played.index, uri) != Some(false)
+            }
+            RowContext::View {
+                uris, context_uri, ..
+            } => {
+                played.view
+                    && played.context == *context_uri
+                    && uris
+                        .get(played.index as usize)
+                        .is_some_and(|held| held == uri)
+            }
+            RowContext::Uris(_) | RowContext::Queue => false,
+        };
+        !applies || played.index as usize == index
+    }
+
+    /// Whether the loaded playlist row at `position` holds `uri`; `None`
+    /// when that row is not loaded or the context is no playlist.
+    fn playlist_row_holds(&self, context_uri: &str, position: u32, uri: &str) -> Option<bool> {
+        let id = convert::id_of(context_uri, Kind::Playlist)?;
+        let row = self
+            .playlist_pages
+            .get(id)?
+            .items
+            .items
+            .get(position as usize)?;
+        Some(row.playable().is_some_and(|item| item.uri() == uri))
+    }
+
+    /// The position to start a playlist row at, when its song sits in the
+    /// loaded rows more than once: named by song alone, the engine starts
+    /// the first copy. The rows are the playlist's entries in the server's
+    /// order, so a row's index is its position there, and the engine checks
+    /// that the position still holds the song before it starts there.
+    fn repeated_row_position(&self, context_uri: &str, uri: &str, index: u32) -> Option<u32> {
+        let id = convert::id_of(context_uri, Kind::Playlist)?;
+        let rows = &self.playlist_pages.get(id)?.items.items;
+        let holds = |row: &crate::api::models::PlaylistItem| {
+            row.playable().is_some_and(|item| item.uri() == uri)
+        };
+        let repeated = rows.iter().filter(|row| holds(row)).count() > 1;
+        (repeated && rows.get(index as usize).is_some_and(holds)).then_some(index)
     }
 
     /// Playback state shown by the UI, including a recent local request.
@@ -2092,6 +2165,15 @@ impl App {
         }
         self.toasts
             .retain(|toast| toast.created.elapsed() < TOAST_LIFETIME);
+        // The chosen row stays marked only while its song is the current
+        // one; a later return to that song may be another copy.
+        if self
+            .played_row
+            .as_ref()
+            .is_some_and(|played| self.current_track_uri().as_ref() != Some(&played.uri))
+        {
+            self.played_row = None;
+        }
 
         // Not on a metered connection or without internet: the check waits
         // for a connection that will do, and checking by hand still works.
@@ -4193,6 +4275,8 @@ impl App {
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
         // Whatever starts now outranks a play-search still in flight.
         self.supersede_play_search();
+        // A play from a row names its row again after this.
+        self.played_row = None;
         self.start_play(request, shuffle_first);
     }
 
@@ -4654,8 +4738,18 @@ impl App {
                 RowContext::Context {
                     uri: context_uri, ..
                 } => {
-                    let request = PlayRequest::context(context_uri).starting_at_uri(uri);
+                    let mut request =
+                        PlayRequest::context(context_uri.clone()).starting_at_uri(uri.clone());
+                    // A song in the playlist more than once starts at the
+                    // chosen copy; by song alone the first would start.
+                    request.offset_position = self.repeated_row_position(&context_uri, &uri, index);
                     self.play_request(request, false);
+                    self.played_row = Some(PlayedRow {
+                        context: context_uri,
+                        view: false,
+                        index,
+                        uri,
+                    });
                 }
                 RowContext::Uris(uris) => {
                     let index = offset_of(uris.as_ref(), &uri, index);
@@ -4667,6 +4761,12 @@ impl App {
                 RowContext::View {
                     uris, context_uri, ..
                 } => {
+                    let played = uris.get(index as usize).cloned().map(|uri| PlayedRow {
+                        context: context_uri.clone(),
+                        view: true,
+                        index,
+                        uri,
+                    });
                     let (uris, index) = cap_uris(uris.as_ref(), index);
                     let mut request = PlayRequest::tracks(uris).starting_at_index(index);
                     // A radio is only ever the songs it showed, so the
@@ -4676,6 +4776,7 @@ impl App {
                         request.context_uri = Some(context_uri.clone());
                     }
                     self.play_request(request, false);
+                    self.played_row = played;
                     if !radio {
                         self.note_recent_context(&context_uri);
                         self.assumed_context = Some(AssumedContext {
@@ -7685,6 +7786,115 @@ mod tests {
             Some("sonic:track:two"),
             "a shuffled skip still lands on another song in the context"
         );
+    }
+
+    /// A playlist page holding these songs, in this order, under `id`.
+    fn playlist_with_songs(app: &mut App, id: &str, uris: &[&str]) {
+        use crate::api::models::{PlayableItem, PlaylistItem, Track};
+        let row = |uri: &&str| PlaylistItem {
+            item: Some(PlayableItem::Track(Track {
+                id: Some(uri.rsplit(':').next().unwrap().into()),
+                uri: (*uri).into(),
+                name: (*uri).into(),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        app.playlist_pages.insert(
+            id.into(),
+            PlaylistPage {
+                items: crate::model::PagedList {
+                    items: uris.iter().map(row).collect(),
+                    total: Some(uris.len() as u32),
+                    next_offset: None,
+                    loaded_once: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+    }
+
+    fn played_playlist_row(app: &mut App, uri: &str, index: u32) -> PlayRequest {
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Context {
+                    uri: "sonic:playlist:pl".into(),
+                    editable_playlist: None,
+                },
+                uri: uri.into(),
+                index,
+            },
+            &egui::Context::default(),
+        );
+        app.queued_play.clone().expect("waiting for the engine")
+    }
+
+    /// Double-clicking the second copy of a song a playlist holds twice
+    /// starts that copy, and only its row shows as playing and loading.
+    #[test]
+    fn the_second_copy_of_a_repeated_song_starts_there_and_alone_shows_playing() {
+        let (twice, once) = ("sonic:track:twice", "sonic:track:once");
+        let mut app = headless_app();
+        playlist_with_songs(&mut app, "pl", &[once, twice, once, twice]);
+        let request = played_playlist_row(&mut app, twice, 3);
+        assert_eq!(request.offset_uri.as_deref(), Some(twice));
+        assert_eq!(request.offset_position, Some(3));
+        let load = local_load(&request, false);
+        assert_eq!(
+            (load.offset_uri.as_deref(), load.offset_index),
+            (Some(twice), Some(3)),
+            "the engine is told which copy, and checks it still holds the song"
+        );
+        assert_eq!(app.current_track_uri().as_deref(), Some(twice));
+        let here = RowContext::Context {
+            uri: "sonic:playlist:pl".into(),
+            editable_playlist: None,
+        };
+        assert!(app.play_pending(twice));
+        assert!(app.row_is_played_copy(&here, 3, twice));
+        assert!(!app.row_is_played_copy(&here, 1, twice));
+        // Another list holding the song still shows it as playing.
+        let elsewhere = RowContext::Uris(std::sync::Arc::from([twice.to_string()]));
+        assert!(app.row_is_played_copy(&elsewhere, 0, twice));
+
+        // The first copy leaves the second an ordinary row.
+        let request = played_playlist_row(&mut app, twice, 1);
+        assert_eq!(request.offset_position, Some(1));
+        assert!(app.row_is_played_copy(&here, 1, twice));
+        assert!(!app.row_is_played_copy(&here, 3, twice));
+
+        // A song held once starts by name, as it always has.
+        playlist_with_songs(&mut app, "pl", &[once, twice]);
+        let request = played_playlist_row(&mut app, twice, 1);
+        assert_eq!(request.offset_position, None);
+        app.backend.shutdown();
+    }
+
+    /// Once another song plays, no row is singled out any more: a later
+    /// return to the song may be another copy.
+    #[test]
+    fn the_chosen_row_is_forgotten_when_its_song_stops_being_current() {
+        let twice = "sonic:track:twice";
+        let mut app = headless_app();
+        playlist_with_songs(&mut app, "pl", &[twice, "sonic:track:b", twice]);
+        played_playlist_row(&mut app, twice, 2);
+        assert!(app.played_row.is_some());
+        app.settings.check_for_updates = false;
+        let ctx = egui::Context::default();
+        let tick = |app: &mut App| {
+            let mut output = ctx.run_ui(Default::default(), |ui| app.tick(ui.ctx()));
+            output.textures_delta.clear();
+        };
+        tick(&mut app);
+        assert!(
+            app.played_row.is_some(),
+            "its song is still the current one"
+        );
+        app.intent_track = Some(("sonic:track:b".into(), Instant::now()));
+        tick(&mut app);
+        assert!(app.played_row.is_none());
+        app.backend.shutdown();
     }
 
     /// Rule 9: the songs queued when the app closed come back with the

@@ -1418,12 +1418,16 @@ fn stream_of(song: &Child, url: String, cache: Option<Arc<Cache>>) -> Stream {
 }
 
 /// Where a load starts: the track it named, else the index it named, else
-/// the beginning.
+/// the beginning. Given both, the index picks which copy of a song the list
+/// holds more than once, as long as that row still holds the song.
 fn start_index(entries: &[Entry], offset_uri: Option<&str>, offset_index: Option<u32>) -> usize {
-    if let Some(id) = offset_uri.and_then(|uri| convert::id_of(uri, convert::Kind::Track))
-        && let Some(found) = entries.iter().position(|entry| entry.id == id)
-    {
-        return found;
+    if let Some(id) = offset_uri.and_then(|uri| convert::id_of(uri, convert::Kind::Track)) {
+        let chosen = offset_index
+            .map(|index| index as usize)
+            .filter(|index| entries.get(*index).is_some_and(|entry| entry.id == id));
+        if let Some(found) = chosen.or_else(|| entries.iter().position(|entry| entry.id == id)) {
+            return found;
+        }
     }
     offset_index
         .map(|index| index as usize)
@@ -1528,5 +1532,16 @@ mod tests {
         assert_eq!(start_index(&list, Some("sonic:track:z"), None), 0);
         assert_eq!(start_index(&list, None, Some(9)), 0);
         assert_eq!(start_index(&list, None, None), 0);
+    }
+
+    #[test]
+    fn a_load_naming_a_song_and_its_row_starts_that_copy() {
+        let list = entries(&["a", "b", "c", "b"]);
+        assert_eq!(start_index(&list, Some("sonic:track:b"), Some(3)), 3);
+        assert_eq!(start_index(&list, Some("sonic:track:b"), Some(1)), 1);
+        // A row that no longer holds the song, as after an edit elsewhere,
+        // falls back to the song's first copy.
+        assert_eq!(start_index(&list, Some("sonic:track:b"), Some(2)), 1);
+        assert_eq!(start_index(&list, Some("sonic:track:b"), Some(9)), 1);
     }
 }
