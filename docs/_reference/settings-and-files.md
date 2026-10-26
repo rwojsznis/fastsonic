@@ -57,7 +57,9 @@ listed by `systemd-inhibit --list`; inside Flatpak it needs
 `session.json` also keeps the window's size and position. A window left
 maximized or full screen reopens that way; the remembered size and position
 describe an ordinary window and are not applied to one that already fills the
-screen, because sizing or moving it would restore it down. Quitting while
+screen, because sizing or moving it would restore it down. A remembered
+size below the main window's 760 by 520 minimum is not restored, and the
+window opens at its default size in its remembered place. Quitting while
 lyrics are full screen returns the next window to the mode it had before
 them, rather than starting full screen without the lyrics. A window that
 opens on no connected monitor, because its display was unplugged or comes

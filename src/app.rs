@@ -832,14 +832,9 @@ impl App {
         };
         if let Some(size) = self.session_window_size.take()
             && !filling_the_screen
+            && let Some([width, height]) = crate::window::usable_size(size)
         {
-            // Clamp to a sane range so a stale session never creates an
-            // unusable window; the OS will further clamp to the monitor.
-            if (400.0..=3000.0).contains(&size[0]) && (300.0..=2000.0).contains(&size[1]) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    size[0], size[1],
-                )));
-            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(width, height)));
         }
         // If the saved position is off-screen, leave the window where eframe put it.
         if let Some(pos) = self.session_window_pos.take()
@@ -10713,6 +10708,30 @@ mod tests {
             "the old account's page"
         );
         app.backend.shutdown();
+    }
+
+    /// A window size saved below the minimum is not restored, so the window
+    /// opens at its default size; one the window can have is.
+    #[test]
+    fn a_saved_window_below_its_minimum_opens_at_the_default_size() {
+        for (saved, restored) in [
+            ([64.0, 64.0], false),
+            ([700.0, 500.0], false),
+            ([1240.0, 800.0], true),
+        ] {
+            let mut app = headless_app();
+            app.session_window_size = Some(saved);
+            let ctx = egui::Context::default();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |_ui| app.attach(&ctx));
+            output.textures_delta.clear();
+            let resized = output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::InnerSize(egui::vec2(
+                    saved[0], saved[1],
+                )));
+            assert_eq!(resized, restored, "{saved:?}");
+            app.backend.shutdown();
+        }
     }
 
     /// A window left maximized or full screen comes back that way, instead of

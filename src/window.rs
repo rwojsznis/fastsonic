@@ -669,6 +669,16 @@ const fn repaint_delay_for(vsync: bool, frame: std::time::Duration) -> std::time
 /// its top bar fit beside the narrowest sidebar from here.
 pub const MAIN_MIN_SIZE: [f32; 2] = [760.0, 520.0];
 
+/// A remembered main window size to open at, or `None` for the default.
+/// Under the minimum is not a size anyone chose, since the window cannot be
+/// dragged that small; past 3000 by 2000 is a stale session from another
+/// display. The system further clamps what is left to the monitor.
+pub fn usable_size(size: [f32; 2]) -> Option<[f32; 2]> {
+    let [width, height] = size;
+    ((MAIN_MIN_SIZE[0]..=3000.0).contains(&width) && (MAIN_MIN_SIZE[1]..=2000.0).contains(&height))
+        .then_some(size)
+}
+
 static FIXED_SIZE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether the main window keeps one size it was given, as demo shots ask,
@@ -915,6 +925,20 @@ const fn custom_titlebar_for(supported: bool, chosen: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A remembered size under the minimum is not one anyone chose, since
+    /// the window cannot be dragged that small. It is not restored, so the
+    /// window opens at its default size instead.
+    #[test]
+    fn a_remembered_size_below_the_minimum_is_not_restored() {
+        assert_eq!(usable_size([64.0, 64.0]), None);
+        assert_eq!(usable_size([MAIN_MIN_SIZE[0] - 1.0, 800.0]), None);
+        assert_eq!(usable_size([1240.0, MAIN_MIN_SIZE[1] - 1.0]), None);
+        assert_eq!(usable_size([3001.0, 800.0]), None);
+        for size in [MAIN_MIN_SIZE, [1240.0, 800.0], [1920.0, 1129.0]] {
+            assert_eq!(usable_size(size), Some(size));
+        }
+    }
 
     #[test]
     fn missing_opengl_points_arm_at_the_store_pack_and_others_at_the_guide() {
