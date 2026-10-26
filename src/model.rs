@@ -1069,6 +1069,13 @@ pub enum Action {
     SetEqPreamp(f32),
     /// One of Winamp's presets, by its place in the list.
     ApplyEqPreset(usize),
+    /// A preset saved here, by name: its preamp and bands.
+    ApplyUserEqPreset(String),
+    /// Save the preamp and bands as a preset of this name, replacing one
+    /// already saved under it.
+    SaveEqPreset(String),
+    /// Forget a saved preset, by name.
+    DeleteEqPreset(String),
     /// The balance, -1 all left to 1 all right.
     SetBalance(f32),
     ToggleMono,

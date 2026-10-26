@@ -1048,6 +1048,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.eq_bands_db = crate::eq::PRESETS[13].bands_db;
             }
             "presets" => app.winamp.open_presets = true,
+            // A headphone correction saved as a preset, and in use.
+            "eq-user-presets" => {
+                let bands_db = [1.2, 0.0, -1.9, -2.0, 0.0, 1.6, 1.6, 2.6, 0.0, -4.4];
+                app.settings.eq_user_presets = vec![crate::settings::UserEqPreset {
+                    name: "AirPods".into(),
+                    preamp_db: -3.0,
+                    bands_db,
+                }];
+                app.settings.eq_on = true;
+                app.settings.eq_preamp_db = -3.0;
+                app.settings.eq_bands_db = bands_db;
+            }
             "art" => app.settings.art_expanded = true,
             "small" => app.settings.skin_scale = Some(1),
             "taskbar" => app.taskbar_hiding_supported = true,

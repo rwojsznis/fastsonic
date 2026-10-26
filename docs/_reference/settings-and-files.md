@@ -111,6 +111,9 @@ hints, sidebar state, zoom, player bar visualizer, Winamp skin/random
 selection/windows/equalizer, and MilkDrop. `player_bar_vis_click` (on by
 default, so older files keep it) lets a click on the player bar's empty space
 cycle `player_bar_vis` through `off`, `spectrum` and `waveform`.
+`eq_user_presets` holds the equalizer presets you saved, each with a `name`,
+its `preamp_db` and its ten `bands_db`, listed after the built-in presets; a
+file from before them has none.
 `visualizer_fps` (60 by default) is how many frames a second the player bar's
 visualizer and the mini player's analyser draw; `0` is uncapped, every
 refresh of the display, or 60 a second on Wayland, where the window does not
@@ -364,9 +367,10 @@ cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed,
 none,
 `collection-loading`, for a playlist, album or artist page still waiting for
 its details, `home-loading`, for Home while its shelves are still loading,
-and `system-light` and `system-dark`, for Follow system with Catppuccin
-Latte and Catppuccin as the light and dark mode themes, on a desktop fixed
-light or dark on Linux and as the system is elsewhere); and `--demo-shot <PATH>`
+`system-light` and `system-dark`, for Follow system with Catppuccin Latte
+and Catppuccin as the light and dark mode themes, on a desktop fixed light
+or dark on Linux and as the system is elsewhere, and `eq-user-presets`, for
+a saved equalizer preset in use); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a
 profile of its own under the system temporary directory, so it never reads the
 saved sign-in, never contacts your server, and leaves your settings, session,

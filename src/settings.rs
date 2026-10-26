@@ -154,6 +154,16 @@ impl PlayerBarVis {
     }
 }
 
+/// An equalizer preset saved by name: the preamp and the ten bands, so a
+/// headphone correction curve keeps the headroom it needs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UserEqPreset {
+    pub name: String,
+    #[serde(default)]
+    pub preamp_db: f32,
+    pub bands_db: [f32; 10],
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -279,6 +289,8 @@ pub struct Settings {
     pub eq_preamp_db: f32,
     /// The ten bands, in decibels, 60 Hz to 16 kHz.
     pub eq_bands_db: [f32; 10],
+    /// Equalizer presets saved here, listed after the built-in ones.
+    pub eq_user_presets: Vec<UserEqPreset>,
     /// The balance, -1 all left to 1 all right.
     pub balance: f32,
     /// Play both channels the same.
@@ -360,6 +372,7 @@ impl Default for Settings {
             eq_on: false,
             eq_preamp_db: 0.0,
             eq_bands_db: [0.0; 10],
+            eq_user_presets: Vec::new(),
             balance: 0.0,
             mono: false,
             playlist_shaded: false,
@@ -1032,6 +1045,23 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
         assert!(restored.middle_click_autoscroll);
+    }
+
+    /// Saved equalizer presets read back as written; files from before them
+    /// have none, and a preset without a preamp keeps it at zero.
+    #[test]
+    fn saved_equalizer_presets_round_trip_and_default_to_none() {
+        let settings: Settings = serde_json::from_str(r#"{"zoom": 1.2}"#).unwrap();
+        assert!(settings.eq_user_presets.is_empty());
+        let settings: Settings = serde_json::from_str(
+            r#"{"eq_user_presets":[{"name":"AirPods","preamp_db":-3.0,"bands_db":[1.2,0,-1.9,-2,0,1.6,1.6,2.6,0,-4.4]},{"name":"Old","bands_db":[0,0,0,0,0,0,0,0,0,1]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.eq_user_presets[0].preamp_db, -3.0);
+        assert_eq!(settings.eq_user_presets[1].preamp_db, 0.0);
+        let again: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(again.eq_user_presets, settings.eq_user_presets);
     }
 }
 

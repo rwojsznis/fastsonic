@@ -5548,6 +5548,49 @@ impl App {
                     self.push_eq();
                 }
             }
+            Action::ApplyUserEqPreset(name) => {
+                if let Some(preset) = self
+                    .settings
+                    .eq_user_presets
+                    .iter()
+                    .find(|preset| preset.name == name)
+                {
+                    // A preset edited by hand in settings.json stays within
+                    // what the equalizer can do.
+                    let range = crate::eq::RANGE_DB;
+                    self.settings.eq_preamp_db = preset.preamp_db.clamp(-range, range);
+                    self.settings.eq_bands_db =
+                        preset.bands_db.map(|band| band.clamp(-range, range));
+                    self.settings.eq_on = true;
+                    self.push_eq();
+                }
+            }
+            Action::SaveEqPreset(name) => {
+                let name = name.trim();
+                if !name.is_empty() {
+                    let preset = crate::settings::UserEqPreset {
+                        name: name.to_string(),
+                        preamp_db: self.settings.eq_preamp_db,
+                        bands_db: self.settings.eq_bands_db,
+                    };
+                    match self
+                        .settings
+                        .eq_user_presets
+                        .iter_mut()
+                        .find(|saved| saved.name == name)
+                    {
+                        Some(saved) => *saved = preset,
+                        None => self.settings.eq_user_presets.push(preset),
+                    }
+                    self.mark_settings_dirty();
+                }
+            }
+            Action::DeleteEqPreset(name) => {
+                self.settings
+                    .eq_user_presets
+                    .retain(|preset| preset.name != name);
+                self.mark_settings_dirty();
+            }
             Action::SetBalance(balance) => {
                 self.settings.balance = balance.clamp(-1.0, 1.0);
                 self.push_eq();
@@ -6932,6 +6975,51 @@ mod tests {
             egui::ViewportCommand::MinInnerSize(size)
                 if size.x == crate::window::MAIN_MIN_SIZE[0]
         )));
+        app.backend.shutdown();
+    }
+
+    /// A saved equalizer preset keeps the preamp with the bands, replaces
+    /// one of the same name, comes back exactly when chosen, turning the
+    /// equalizer on, and can be deleted, leaving the sound as it is.
+    #[test]
+    fn saved_equalizer_presets_keep_their_preamp_and_bands() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let correction = [1.2, 0.0, -1.9, -2.0, 0.0, 1.6, 1.6, 2.6, 0.0, -4.4];
+        app.settings.eq_preamp_db = -3.0;
+        app.settings.eq_bands_db = correction;
+        app.apply(Action::SaveEqPreset("  AirPods ".into()), &ctx);
+        app.apply(Action::SaveEqPreset("   ".into()), &ctx);
+        assert_eq!(
+            app.settings.eq_user_presets,
+            [crate::settings::UserEqPreset {
+                name: "AirPods".into(),
+                preamp_db: -3.0,
+                bands_db: correction,
+            }]
+        );
+
+        app.apply(Action::ApplyEqPreset(0), &ctx);
+        app.settings.eq_preamp_db = 0.0;
+        app.settings.eq_on = false;
+        app.apply(Action::ApplyUserEqPreset("AirPods".into()), &ctx);
+        assert_eq!(app.settings.eq_bands_db, correction);
+        assert_eq!(app.settings.eq_preamp_db, -3.0);
+        assert!(app.settings.eq_on);
+        assert_eq!(app.winamp.eq.lock().unwrap().bands_db, correction);
+
+        app.settings.eq_preamp_db = -6.0;
+        app.apply(Action::SaveEqPreset("AirPods".into()), &ctx);
+        assert_eq!(
+            app.settings.eq_user_presets.len(),
+            1,
+            "saved again in place"
+        );
+        assert_eq!(app.settings.eq_user_presets[0].preamp_db, -6.0);
+
+        app.apply(Action::DeleteEqPreset("AirPods".into()), &ctx);
+        assert!(app.settings.eq_user_presets.is_empty());
+        assert_eq!(app.settings.eq_bands_db, correction, "the sound stays");
         app.backend.shutdown();
     }
 

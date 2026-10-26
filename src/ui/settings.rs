@@ -989,18 +989,40 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        // The built-in presets, then the ones saved here, which carry their
+        // preamp too and are the current one when both match.
+        let built_in = crate::eq::PRESETS.len();
+        let user_presets = app.settings.eq_user_presets.clone();
         let names: Vec<(usize, &str)> = crate::eq::PRESETS
             .iter()
+            .map(|preset| preset.name)
+            .chain(user_presets.iter().map(|preset| preset.name.as_str()))
             .enumerate()
-            .map(|(index, preset)| (index, preset.name))
             .collect();
-        let current = crate::eq::PRESETS
-            .iter()
-            .position(|preset| preset.bands_db == app.settings.eq_bands_db)
+        let current_user = user_presets.iter().position(|preset| {
+            preset.bands_db == app.settings.eq_bands_db
+                && preset.preamp_db == app.settings.eq_preamp_db
+        });
+        let current = current_user
+            .map(|index| built_in + index)
+            .or_else(|| {
+                crate::eq::PRESETS
+                    .iter()
+                    .position(|preset| preset.bands_db == app.settings.eq_bands_db)
+            })
             .unwrap_or(usize::MAX);
         if let Some(picked) = widgets::chips(ui, &palette, &names, current) {
-            app.actions.push(Action::ApplyEqPreset(picked));
+            app.actions.push(match picked.checked_sub(built_in) {
+                Some(user) => Action::ApplyUserEqPreset(user_presets[user].name.clone()),
+                None => Action::ApplyEqPreset(picked),
+            });
         }
+        ui.add_space(8.0);
+        eq_preset_controls(
+            app,
+            ui,
+            current_user.map(|index| user_presets[index].name.as_str()),
+        );
         ui.add_space(10.0);
         eq_curve(ui, &palette, &crate::app::eq_settings(&app.settings));
         ui.add_space(10.0);
@@ -1325,6 +1347,59 @@ fn pair_picker(app: &mut App, ui: &mut egui::Ui, dark: bool, name: &str) {
     });
 }
 
+/// Saving the equalizer as a named preset, and deleting the saved preset
+/// that is in use.
+fn eq_preset_controls(app: &mut App, ui: &mut egui::Ui, current: Option<&str>) {
+    let palette = app.palette;
+    let name_id = ui.make_persistent_id("eq-preset-name");
+    let mut name = ui.data(|data| data.get_temp::<String>(name_id).unwrap_or_default());
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(8.0);
+        let field = Frame::new()
+            .fill(palette.surface)
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                widgets::text_edit(
+                    ui,
+                    egui::TextEdit::singleline(&mut name)
+                        .hint_text("Preset name")
+                        .font(theme::regular(14.0))
+                        .frame(egui::Frame::NONE)
+                        .desired_width(160.0),
+                )
+            })
+            .inner;
+        let entered = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+        let ready = !name.trim().is_empty();
+        let saved = ui
+            .add_enabled_ui(ready, |ui| {
+                theme::soft_button(ui, &palette, Some(Icon::Plus), "Save preset", false)
+            })
+            .inner
+            .clicked();
+        if ready && (saved || entered) {
+            app.actions
+                .push(Action::SaveEqPreset(name.trim().to_string()));
+            name.clear();
+        }
+        if let Some(current) = current
+            && theme::soft_button(
+                ui,
+                &palette,
+                Some(Icon::Trash),
+                &format!("Delete \u{201c}{current}\u{201d}"),
+                false,
+            )
+            .clicked()
+        {
+            app.actions
+                .push(Action::DeleteEqPreset(current.to_string()));
+        }
+    });
+    ui.data_mut(|data| data.insert_temp(name_id, name));
+}
+
 /// A band's frequency the short way: 60, 170, 1K, 16K.
 fn hertz(hz: f32) -> String {
     if hz >= 1000.0 {
@@ -1441,6 +1516,121 @@ fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettin
 
 #[cfg(test)]
 mod tests {
+    /// Save preset saves the typed name, and the saved preset in use offers
+    /// its Delete.
+    #[test]
+    fn equalizer_preset_controls_save_and_delete_by_name() {
+        use crate::model::Action;
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, TreeId};
+        let root = std::env::temp_dir().join(format!(
+            "fastsonic-eq-presets-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let mut app = crate::app::App::new(
+            &crate::backend::Waker::default(),
+            crate::paths::AppDirs {
+                config: root.join("config"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            },
+            crate::settings::Settings::default(),
+            crate::app::AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install(&ctx);
+        let frame = |app: &mut crate::app::App, current: Option<&str>, events| {
+            app.actions.clear();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 400.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| super::eq_preset_controls(app, ui, current),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let click = |tree: &egui::accesskit::TreeUpdate, label: &str| {
+            let (id, node) = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("missing {label}"));
+            assert!(!node.is_disabled(), "{label} is enabled");
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node: *id,
+                action: AccessibleAction::Click,
+                data: None,
+            })]
+        };
+        let tree = frame(&mut app, None, vec![]);
+        assert!(
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Save preset") && node.is_disabled()),
+            "nothing to save without a name"
+        );
+        assert!(
+            !tree.nodes.iter().any(|(_, node)| node
+                .label()
+                .is_some_and(|label| label.starts_with("Delete"))),
+            "a built-in preset cannot be deleted"
+        );
+        // Type into the field: focus it first, then send the text.
+        let field = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.role() == egui::accesskit::Role::TextInput)
+            .map(|(id, _)| *id)
+            .expect("the name field");
+        frame(
+            &mut app,
+            None,
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node: field,
+                action: AccessibleAction::Focus,
+                data: None,
+            })],
+        );
+        frame(&mut app, None, vec![egui::Event::Text("AirPods".into())]);
+        let tree = frame(&mut app, None, vec![]);
+        frame(&mut app, None, click(&tree, "Save preset"));
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SaveEqPreset(name) if name == "AirPods")),
+            "{:?}",
+            app.actions
+        );
+        let tree = frame(&mut app, Some("AirPods"), vec![]);
+        frame(
+            &mut app,
+            Some("AirPods"),
+            click(&tree, "Delete \u{201c}AirPods\u{201d}"),
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::DeleteEqPreset(name) if name == "AirPods"))
+        );
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn release_notes_open_the_running_version_release_page() {
         assert_eq!(
