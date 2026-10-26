@@ -189,6 +189,9 @@ keeps the display on, and a sleep you ask for still happens.
 - When the lyrics panel is open and the server has no lyrics, Fastsonic sends
   the track's artist, title, album, and duration to
   [LRCLIB](https://lrclib.net). Lyrics are cached locally for a month.
+  When LRCLIB answers that it is busy, Fastsonic waits as long as it asks,
+  one second if it does not say and five at most, and asks again up to three
+  times before the panel shows an error.
 - If update checks are enabled, Fastsonic asks GitHub's API once a day whether
   a newer release exists. **Check for updates** asks the same question once,
   whether or not the daily check is on. Fastsonic never downloads an update
