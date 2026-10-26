@@ -18,6 +18,8 @@ pub mod limiter;
 pub mod listeners;
 pub mod lyrics;
 #[cfg(target_os = "macos")]
+pub mod mac_dock;
+#[cfg(target_os = "macos")]
 pub mod mac_fonts;
 #[cfg(target_os = "macos")]
 pub mod mac_menu;

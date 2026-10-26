@@ -132,9 +132,10 @@ objc2 = { version = "0.6", features = ["exception"] }
 # NSAccessibility methods, answers whether Reduce motion is on
 # (src/motion.rs). The panel, views, controls and drawing are the
 # MacBook notch's Now Playing card (src/mac_notch.rs). NSProcessInfo reads
-# Low Power Mode (src/power/macos.rs).
+# Low Power Mode (src/power/macos.rs). NSBundle tells a run outside the app
+# bundle, which gets the packaged Dock icon (src/mac_dock.rs).
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSAccessibilityProtocols", "NSAnimation", "NSAnimationContext", "NSApplication", "NSBezierPath", "NSButton", "NSCell", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSImageCell", "NSImageView", "NSMenu", "NSMenuItem", "NSPanel", "NSParagraphStyle", "NSResponder", "NSRunningApplication", "NSScreen", "NSText", "NSTextField", "NSTrackingArea", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDate", "NSGeometry", "NSObjCRuntime", "NSProcessInfo", "NSRunLoop", "NSString", "NSUserDefaults"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSData", "NSDate", "NSGeometry", "NSObjCRuntime", "NSProcessInfo", "NSRunLoop", "NSString", "NSUserDefaults"] }
 # The notch card's icons are the app's own SVGs, drawn to PNG for AppKit,
 # which reads SVG only on recent releases. Already compiled for egui_extras'
 # SVG loader, so this adds no code to the build.

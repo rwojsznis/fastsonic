@@ -536,6 +536,7 @@ fn main() -> eframe::Result<()> {
                 {
                     fastsonic::mac_touchbar_crash_guard::install();
                     fastsonic::mac_menu::init();
+                    fastsonic::mac_dock::use_packaged_icon();
                     // The backend's waker, so a Dock menu pick also wakes
                     // the app while it lives in the menu bar.
                     let wake = creator_waker.clone();

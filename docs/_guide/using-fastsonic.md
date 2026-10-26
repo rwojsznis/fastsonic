@@ -309,6 +309,9 @@ either a primary or secondary click, as other macOS menu-bar items do. It
 stays in the menu bar with the main window open, with the Winamp mini
 player, and after closing the window to the menu bar.
 
+Run straight from a build through Cargo, without an app bundle, Fastsonic
+still shows its own Dock icon.
+
 Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
 while music plays), **Next**, and **Previous**, above the standard Dock items.
 They keep working while the window is closed to the menu bar.
