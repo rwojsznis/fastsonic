@@ -3068,6 +3068,64 @@ mod tests {
         }
     }
 
+    /// Double-clicking a song in the results plays that song, not a list
+    /// of the other results after it.
+    #[test]
+    fn a_search_result_song_plays_on_its_own_not_the_other_results() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("search-song-plays-alone");
+        app.open(Page::Search);
+        app.search.filter = crate::model::SearchFilter::Songs;
+        let Loadable::Loaded(results) = &app.search.results else {
+            panic!("demo search results");
+        };
+        let songs = results.tracks.as_ref().expect("demo songs").items.clone();
+        assert!(songs.len() > 2, "the demo needs several results");
+        let chosen = crate::api::models::PlayableItem::Track(songs[1].clone());
+        let label = format!("Play {}, {}", chosen.name(), chosen.subtitle());
+        // Only the search view: its actions stay queued instead of being applied.
+        let render = |app: &mut App, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 2200.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::search::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+                .platform_output
+                .accesskit_update
+                .expect("screen-reader tree")
+        };
+        render(&mut app, vec![]);
+        let tree = render(&mut app, vec![]);
+        let row = accessible_node(&tree, &label, Role::Button);
+        app.actions.clear();
+        render(
+            &mut app,
+            vec![accessible_action(row, AccessibleAction::Click, None)],
+        );
+        let played = app.actions.iter().find_map(|action| match action {
+            crate::model::Action::PlayFromRow {
+                context: crate::model::RowContext::Uris(uris),
+                uri,
+                ..
+            } => Some((uris.to_vec(), uri.clone())),
+            _ => None,
+        });
+        assert_eq!(
+            played,
+            Some((vec![chosen.uri().to_string()], chosen.uri().to_string())),
+            "a search result is not a queue of the other results"
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn the_cross_on_a_recent_search_forgets_only_that_query() {
         use egui::accesskit::{Action as AccessibleAction, Role};
