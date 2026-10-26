@@ -3425,6 +3425,66 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Home's tiles follow what was played from, newest first, each once,
+    /// and the Library's playlists fill what that leaves; before anything
+    /// is played, they are Liked Songs and the Library's first playlists.
+    #[test]
+    fn quick_access_tiles_follow_what_was_played() {
+        let (_ctx, mut app) = accessible_app("recent-tiles");
+        let pages = |app: &App| -> Vec<Page> {
+            crate::ui::home::quick_access_tiles(app)
+                .into_iter()
+                .map(|tile| tile.page)
+                .collect()
+        };
+        app.recent_contexts = vec![
+            playlist_uri("pl1"),
+            playlist_uri("gone"),
+            album_uri("alb2"),
+            crate::api::subsonic::convert::COLLECTION_URI.to_string(),
+            playlist_uri("pl4"),
+            album_uri("alb0"),
+            playlist_uri("pl1"),
+        ];
+        let tiles = pages(&app);
+        assert_eq!(tiles.len(), 8);
+        assert_eq!(
+            tiles[..5],
+            [
+                Page::Playlist("pl1".into()),
+                Page::Album("alb2".into()),
+                Page::LikedSongs,
+                Page::Playlist("pl4".into()),
+                Page::Album("alb0".into()),
+            ],
+            "newest first, each once, and a playlist no list knows passed over"
+        );
+        let unique: std::collections::HashSet<_> = tiles.iter().collect();
+        assert_eq!(unique.len(), tiles.len());
+        let library: Vec<Page> = app
+            .library
+            .playlists
+            .get()
+            .unwrap()
+            .iter()
+            .map(|playlist| Page::Playlist(playlist.id.clone()))
+            .filter(|page| !tiles[..5].contains(page))
+            .take(3)
+            .collect();
+        assert_eq!(tiles[5..], library[..], "the Library fills the rest");
+
+        app.recent_contexts.clear();
+        let tiles = pages(&app);
+        assert_eq!(
+            tiles[0],
+            Page::LikedSongs,
+            "the Library until something plays"
+        );
+        let first = app.library.playlists.get().unwrap()[0].id.clone();
+        assert_eq!(tiles[1], Page::Playlist(first));
+        app.backend.shutdown();
+    }
+
     #[test]
     fn playlist_submenu_stays_open_for_a_click_in_its_filter_and_grows_back_when_cleared() {
         use egui::accesskit::{Action, Role};

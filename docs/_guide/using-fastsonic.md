@@ -7,6 +7,12 @@ played songs, top artists, and a random shelf. Some personalisation depends on
 Navidrome's native API or its Last.fm integration and can be empty without
 affecting browsing or playback.
 
+The tiles at the top of Home show what you played from most recently,
+newest first: the playlists, albums and Liked Songs, each once. A tile opens
+its page, and its play button starts it again. Liked Songs and the first
+playlists in your Library fill the rest, and stand in before anything has
+been played.
+
 Search covers the songs, albums, artists, and playlists indexed by your
 server. Right-click rows and cards to star music, add songs to a playlist, or
 put a song in the queue. The playlist submenu filters as you type.

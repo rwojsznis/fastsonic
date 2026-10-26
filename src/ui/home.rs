@@ -5,6 +5,7 @@ use std::sync::Arc;
 use egui::{CornerRadius, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::{Album, PlayableItem, Playlist, pick_image};
+use crate::api::subsonic::convert;
 use crate::app::App;
 use crate::model::{Action, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
@@ -131,40 +132,80 @@ fn album_shelf(app: &mut App, ui: &mut egui::Ui, id: &str, title: &str, shelf: S
     });
 }
 
-struct Tile {
+pub(crate) struct Tile {
     image: Option<String>,
     name: String,
-    page: Page,
+    pub(crate) page: Page,
     uri: Option<String>,
     liked: bool,
     owned_playlist: Option<Playlist>,
 }
 
-fn quick_access(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
-    let mut tiles: Vec<Tile> = vec![Tile {
+/// How many quick-access tiles Home shows.
+const TILES: usize = 8;
+
+/// What was played most recently, newest first, each once: the playlists
+/// and albums songs were played from, and Liked Songs. Liked Songs and the
+/// Library's first playlists fill what that leaves, and stand in for it
+/// before anything has been played.
+pub(crate) fn quick_access_tiles(app: &App) -> Vec<Tile> {
+    let liked_tile = || Tile {
         image: None,
         name: "Liked Songs".to_string(),
         page: Page::LikedSongs,
-        uri: Some(crate::api::subsonic::convert::COLLECTION_URI.to_string()),
+        uri: Some(convert::COLLECTION_URI.to_string()),
         liked: true,
         owned_playlist: None,
-    }];
-    if let Some(playlists) = app.library.playlists.get() {
-        for playlist in playlists.iter().take(7) {
-            tiles.push(Tile {
-                image: pick_image(&playlist.images, 64).map(str::to_string),
-                name: playlist.name.clone(),
-                page: Page::Playlist(playlist.id.clone()),
-                uri: Some(playlist.uri.clone()),
-                liked: false,
-                owned_playlist: app
-                    .user_id()
-                    .is_some_and(|id| playlist.owned_by(id))
-                    .then(|| playlist.clone()),
-            });
-        }
-    }
+    };
+    let playlist_tile = |playlist: &Playlist| Tile {
+        image: pick_image(&playlist.images, 64).map(str::to_string),
+        name: playlist.name.clone(),
+        page: Page::Playlist(playlist.id.clone()),
+        uri: Some(playlist.uri.clone()),
+        liked: false,
+        owned_playlist: app
+            .user_id()
+            .is_some_and(|id| playlist.owned_by(id))
+            .then(|| playlist.clone()),
+    };
+    let album_tile = |album: &Album| Tile {
+        image: pick_image(&album.images, 64).map(str::to_string),
+        name: album.name.clone(),
+        page: Page::Album(album.id.clone()),
+        uri: Some(convert::album_uri(&album.id)),
+        liked: false,
+        owned_playlist: None,
+    };
+    // A context no list describes any more, such as a deleted playlist, is
+    // passed over; looking further back than this is not worth a frame.
+    let played = app
+        .recent_contexts
+        .iter()
+        .take(TILES * 2)
+        .filter_map(|uri| match convert::parse_uri(uri)? {
+            (convert::Kind::Collection, _) => Some(liked_tile()),
+            (convert::Kind::Playlist, id) => app.known_playlist(id).map(playlist_tile),
+            (convert::Kind::Album, id) => app
+                .album_pages
+                .get(id)
+                .and_then(|page| page.album.get())
+                .or_else(|| app.known_album(id))
+                .map(album_tile),
+            _ => None,
+        });
+    let library = app.library.playlists.get().into_iter().flatten();
+    let fill = std::iter::once(liked_tile()).chain(library.map(playlist_tile));
+    let mut seen = std::collections::HashSet::new();
+    played
+        .chain(fill)
+        .filter(|tile| seen.insert(tile.page.clone()))
+        .take(TILES)
+        .collect()
+}
+
+fn quick_access(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let tiles = quick_access_tiles(app);
     let available = ui.available_width();
     let columns = ((available / 300.0).floor() as usize).clamp(2, 4);
     let gap = 10.0;
