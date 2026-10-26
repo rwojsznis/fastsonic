@@ -29,7 +29,9 @@ configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 
 The session is saved shortly after it changes, including when a new song
 starts, and every 30 seconds while music plays, so a crash or a power cut
-resumes close to where you were.
+resumes close to where you were. It keeps the shuffle and repeat modes too,
+so the next start plays the way the last one left off; a session saved
+before repeat was kept starts with it off.
 
 Settings, the session, the play history, the credential and the playlist
 cache's files are never rewritten in place. Each is written to a temporary

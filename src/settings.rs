@@ -1061,6 +1061,9 @@ pub struct SessionState {
     pub last_queue_rows: Vec<crate::api::models::PlayableItem>,
     /// Shuffle mode saved across contexts and restarts.
     pub shuffle_on: bool,
+    /// Repeat mode ("off", "context" or "track") saved across restarts.
+    /// Sessions saved before it existed read as off.
+    pub repeat: String,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
     /// Last window inner size, to restore on next launch.
@@ -1141,5 +1144,29 @@ mod session_tests {
         );
         assert!(crate::util::temporary_files(&root).is_empty());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_session_saved_before_repeat_reads_as_off() {
+        let state: SessionState =
+            serde_json::from_str(r#"{"last_page":"home","shuffle_on":true}"#).unwrap();
+        assert_eq!(
+            crate::engine::RepeatMode::from_api(&state.repeat),
+            crate::engine::RepeatMode::Off
+        );
+    }
+
+    #[test]
+    fn the_repeat_mode_round_trips() {
+        let state = SessionState {
+            repeat: crate::engine::RepeatMode::Track.api_name().into(),
+            ..SessionState::default()
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let read: SessionState = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            crate::engine::RepeatMode::from_api(&read.repeat),
+            crate::engine::RepeatMode::Track
+        );
     }
 }
