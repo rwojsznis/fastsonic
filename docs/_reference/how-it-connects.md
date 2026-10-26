@@ -157,10 +157,13 @@ spent asleep does not count), is opened again and the song carries on from
 where it was heard, converted to the new device's rate; only a device that
 will not open stops playback with an error. On Linux, when ALSA
 plays through PulseAudio's plugin, including PipeWire's PulseAudio server, the
-stream is named **Fastsonic** with **Music playback** as its description, so
-mixers and audio processors can identify and route it; explicit
-`PULSE_PROP_application.name` and `PULSE_PROP_stream.description` values take
-precedence. PipeWire's own ALSA plugin names the stream after the program.
+stream is named **Fastsonic** with **Music playback** as its description and
+the app's icon (`fastsonic`, or the app id inside Flatpak), so mixers and audio
+processors can identify and route it. No media role is set, so a mixer
+remembers a volume for Fastsonic rather than one shared by every music player.
+Explicit `PULSE_PROP_application.name`, `PULSE_PROP_application.icon_name` and
+`PULSE_PROP_stream.description` values take precedence. PipeWire's own ALSA
+plugin names the stream after the program.
 
 On macOS, playback declares a user-initiated activity while a song plays or
 loads, so App Nap does not slow the engine down when another application

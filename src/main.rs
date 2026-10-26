@@ -310,20 +310,37 @@ const PULSEAUDIO_PROPERTIES: [(&str, &str); 2] = [
 ];
 
 #[cfg(target_os = "linux")]
+const PULSEAUDIO_ICON: &str = "PULSE_PROP_application.icon_name";
+
+/// The desktop entry's icon, which a mixer shows beside the stream: its own
+/// name, or inside Flatpak the app id, which the icon is exported under.
+#[cfg(target_os = "linux")]
+fn mixer_icon(flatpak_id: Option<String>) -> String {
+    flatpak_id
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| "fastsonic".to_owned())
+}
+
+#[cfg(target_os = "linux")]
 fn missing_pulseaudio_properties(
+    icon: &str,
     mut is_set: impl FnMut(&str) -> bool,
-) -> impl Iterator<Item = (&'static str, &'static str)> {
+) -> impl Iterator<Item = (&'static str, String)> {
     PULSEAUDIO_PROPERTIES
         .into_iter()
+        .map(|(key, value)| (key, value.to_owned()))
+        .chain([(PULSEAUDIO_ICON, icon.to_owned())])
         .filter(move |(key, _)| !is_set(key))
 }
 
-/// Names the stream for mixers when ALSA plays through PulseAudio's plugin,
-/// which otherwise leaves both names to guess. Values set by the launcher or
-/// the user are kept.
+/// Names the stream, with the app's icon, for mixers when ALSA plays
+/// through PulseAudio's plugin, which otherwise leaves them to guess.
+/// Values set by the launcher or the user are kept.
 #[cfg(target_os = "linux")]
 fn configure_pulseaudio_properties() {
-    for (key, value) in missing_pulseaudio_properties(|key| std::env::var_os(key).is_some()) {
+    let icon = mixer_icon(std::env::var("FLATPAK_ID").ok());
+    for (key, value) in missing_pulseaudio_properties(&icon, |key| std::env::var_os(key).is_some())
+    {
         // SAFETY: main calls this first, before any thread exists.
         unsafe { std::env::set_var(key, value) };
     }
@@ -1294,15 +1311,46 @@ mod native_window_tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn pulse_metadata_defaults_preserve_existing_properties() {
-        let defaults = missing_pulseaudio_properties(|_| false).collect::<Vec<_>>();
-        assert_eq!(defaults, PULSEAUDIO_PROPERTIES);
-        let defaults = missing_pulseaudio_properties(|key| key == "PULSE_PROP_application.name")
-            .collect::<Vec<_>>();
+        let owned = |pairs: &[(&'static str, &str)]| {
+            pairs
+                .iter()
+                .map(|(key, value)| (*key, (*value).to_owned()))
+                .collect::<Vec<_>>()
+        };
+        let defaults = missing_pulseaudio_properties("fastsonic", |_| false).collect::<Vec<_>>();
         assert_eq!(
             defaults,
-            [("PULSE_PROP_stream.description", "Music playback")]
+            owned(&[
+                ("PULSE_PROP_application.name", "Fastsonic"),
+                ("PULSE_PROP_stream.description", "Music playback"),
+                ("PULSE_PROP_application.icon_name", "fastsonic"),
+            ])
         );
-        assert_eq!(missing_pulseaudio_properties(|_| true).count(), 0);
+        let defaults = missing_pulseaudio_properties("fastsonic", |key| {
+            key != "PULSE_PROP_stream.description"
+        })
+        .collect::<Vec<_>>();
+        assert_eq!(
+            defaults,
+            owned(&[("PULSE_PROP_stream.description", "Music playback")])
+        );
+        assert_eq!(
+            missing_pulseaudio_properties("fastsonic", |_| true).count(),
+            0
+        );
+    }
+
+    /// The mixer shows the icon the desktop entry has: the app id inside
+    /// Flatpak, which exports it under that name.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_mixer_icon_follows_the_desktop_entry() {
+        assert_eq!(mixer_icon(None), "fastsonic");
+        assert_eq!(mixer_icon(Some(String::new())), "fastsonic");
+        assert_eq!(
+            mixer_icon(Some("io.github.rwojsznis.Fastsonic".into())),
+            "io.github.rwojsznis.Fastsonic"
+        );
     }
 
     #[test]
