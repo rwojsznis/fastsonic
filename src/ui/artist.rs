@@ -84,7 +84,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         }
                     }
                     Loadable::Loaded(_) => {}
-                    Loadable::Loading | Loadable::NotLoaded => widgets::loading_row(ui, &palette),
+                    Loadable::Loading | Loadable::NotLoaded => {
+                        widgets::skeleton_rows(ui, &palette, 5)
+                    }
                     Loadable::Failed(error) => {
                         let error = error.clone();
                         widgets::error_row(ui, app, &error, None);
@@ -149,7 +151,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 });
                         }
                     });
-                    if list.loading {
+                    if list.loading && albums.is_empty() {
+                        widgets::grid(ui, |ui| widgets::skeleton_cards(ui, &palette, 6, false));
+                    } else if list.loading {
                         widgets::loading_row(ui, &palette);
                     } else if let Some(error) = &list.error {
                         let error = error.clone();
@@ -164,7 +168,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         }
                     }
                 }
-                None => widgets::loading_row(ui, &palette),
+                None => widgets::grid(ui, |ui| widgets::skeleton_cards(ui, &palette, 6, false)),
             }
             ui.add_space(20.0);
 
@@ -208,7 +212,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
         Loadable::Loading | Loadable::NotLoaded => {
             artist_preview(app, ui, preview.as_deref());
-            widgets::loading_row(ui, &palette);
+            widgets::skeleton_rows(ui, &palette, 5);
         }
         Loadable::Failed(error) => {
             let error = error.clone();

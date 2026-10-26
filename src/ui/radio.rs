@@ -81,7 +81,7 @@ pub fn radio(app: &mut App, ui: &mut egui::Ui, seed: &str) {
                     None,
                 )
             });
-            widgets::loading_row(ui, &app.palette);
+            widgets::skeleton_rows(ui, &app.palette, 8);
             return;
         }
         Err(error) => {

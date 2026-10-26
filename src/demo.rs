@@ -1028,8 +1028,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     },
                 );
             }
+            // Home while the server has yet to answer for its shelves.
+            "home-loading" => {
+                app.home.recently_played = Loadable::Loading;
+                app.home.top_artists = Loadable::Loading;
+                app.home.top_tracks = Loadable::Loading;
+                app.home.newest_albums = Loadable::Loading;
+                app.home.frequent_albums = Loadable::Loading;
+                app.home.random_albums = Loadable::Loading;
+            }
             // The open page as it is while its details load: what the list
-            // that opened it already knew, over a loading row.
+            // that opened it already knew, over skeleton rows.
             "collection-loading" => match app.page().clone() {
                 Page::Playlist(id) => {
                     if let Some(page) = app.playlist_pages.get_mut(&id) {
@@ -2463,10 +2472,44 @@ mod tests {
         (ARTISTS[0], "Artist", loading_artist),
     ];
 
+    /// Where a frame of `view` puts its loading skeletons, which screen
+    /// readers hear as Loading….
+    fn loading_skeletons(
+        ctx: &egui::Context,
+        app: &mut App,
+        view: fn(&mut App, &mut egui::Ui),
+    ) -> Vec<egui::Rect> {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 2200.0),
+                )),
+                ..Default::default()
+            },
+            |ui| view(app, ui),
+        );
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        tree.nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.label() == Some("Loading…") || node.value() == Some("Loading…")
+            })
+            .filter_map(|(_, node)| node.bounds())
+            .map(|rect| {
+                egui::Rect::from_min_max(
+                    egui::pos2(rect.x0 as f32, rect.y0 as f32),
+                    egui::pos2(rect.x1 as f32, rect.y1 as f32),
+                )
+            })
+            .collect()
+    }
+
     /// A page opened from a list shows what that list already knew, from
-    /// the first frame, above the row saying the rest is loading. The album
-    /// here is known only from one of its songs, which does not say how
-    /// many songs it has.
+    /// the first frame, above skeleton rows standing in for the songs to
+    /// come rather than a spinner. The album here is known only from one of
+    /// its songs, which does not say how many songs it has.
     #[test]
     fn loading_collections_keep_what_their_lists_knew() {
         let (ctx, mut app) = accessible_app("loading-collections");
@@ -2487,9 +2530,14 @@ mod tests {
                     .unwrap_or_else(|| panic!("{title}: {wanted} is not drawn"))
                     .1
             };
-            let loading = at("Loading…");
+            let skeletons = loading_skeletons(&ctx, &mut app, view);
+            let loading = skeletons.first().expect("a loading skeleton");
             assert!(at(title).bottom() < loading.top(), "{title}");
             assert!(at(detail).bottom() < loading.top(), "{title}");
+            assert!(
+                !painted.iter().any(|(text, _)| text == "Loading…"),
+                "{title}: no spinner row"
+            );
             assert!(
                 !painted.iter().any(|(text, _)| text.starts_with("0 songs")),
                 "{title}: an unknown count is left out"
@@ -2579,7 +2627,37 @@ mod tests {
         assert!(matches!(app.album_pages["alb0"].album, Loadable::Loading));
         let painted = view_frame(&ctx, &mut app, vec![], loading_album);
         assert!(painted.iter().any(|(text, _)| text == RECORDS[0].title));
-        assert!(painted.iter().any(|(text, _)| text == "Loading…"));
+        assert!(!loading_skeletons(&ctx, &mut app, loading_album).is_empty());
+        app.backend.shutdown();
+    }
+
+    /// `--demo-show home-loading` holds Home's shelves in card and row
+    /// skeletons, not spinner rows, each heard as Loading….
+    #[cfg(feature = "demo")]
+    #[test]
+    fn loading_home_shelves_show_skeletons() {
+        let (ctx, mut app) = accessible_app("loading-home");
+        apply_flags(&mut app, Some("home"), Some("home-loading"));
+        let view = crate::ui::home::show;
+        view_frame(&ctx, &mut app, vec![], view);
+        let painted = view_frame(&ctx, &mut app, vec![], view);
+        assert!(!painted.iter().any(|(text, _)| text == "Loading…"));
+        let shelves = [
+            "Recently added",
+            "Recently played",
+            "Your top songs",
+            "Most played",
+            "Your top artists",
+            "Something at random",
+        ];
+        for shelf in shelves {
+            assert!(
+                painted.iter().any(|(text, _)| text == shelf),
+                "{shelf} keeps its title"
+            );
+        }
+        let skeletons = loading_skeletons(&ctx, &mut app, view);
+        assert_eq!(skeletons.len(), shelves.len(), "one per loading shelf");
         app.backend.shutdown();
     }
 

@@ -108,9 +108,9 @@ an agent the answers are empty.
 Opening a playlist, album or artist keeps the title, byline and cover that the
 sidebar, Home, Search or another page already holds for it while `getPlaylist`,
 `getAlbum` or `getArtist` answers; this adds no request. Controls that need the
-answer stay disabled under a loading row, and if the request fails the known
-header stays above **Retry**. A link to something no list has shown has only
-the loading or error row.
+answer stay disabled above grey skeleton rows, and if the request fails the
+known header stays above **Retry**. A link to something no list has shown has
+only the skeleton rows or the error row.
 
 Each cover is requested from `getCoverArt` at about a quarter more pixels
 than it covers on the window's display, rounded up to one of 64, 128, 192,

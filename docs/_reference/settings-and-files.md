@@ -339,9 +339,10 @@ right-to-left titles, `signed-out` and `connecting`, for the sign-in card,
 cards in a 380, 230 or 440 pixel sidebar with the artwork collapsed,
 `library-by-you`, for the playlists with **By You** on, `listeners` and
 `listeners-empty`, for the Listening activity panel with sample people or
-none, and
+none,
 `collection-loading`, for a playlist, album or artist page still waiting for
-its details); and `--demo-shot <PATH>`
+its details, and `home-loading`, for Home while its shelves are still
+loading); and `--demo-shot <PATH>`
 writes a PNG after the optional `--demo-shot-delay <MS>`. Demo mode runs in a
 profile of its own under the system temporary directory, so it never reads the
 saved sign-in, never contacts your server, and leaves your settings, session,

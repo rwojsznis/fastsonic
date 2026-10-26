@@ -80,7 +80,7 @@ fn album_shelf(app: &mut App, ui: &mut egui::Ui, id: &str, title: &str, shelf: S
         Loadable::Loaded(albums) => albums,
         Loadable::Loading | Loadable::NotLoaded => {
             widgets::shelf(ui, &palette, id, title, |ui| {
-                widgets::loading_row(ui, &palette)
+                widgets::skeleton_cards(ui, &palette, 7, false)
             });
             return;
         }
@@ -280,7 +280,7 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
         Loadable::Loaded(history) => history,
         Loadable::Loading | Loadable::NotLoaded => {
             widgets::shelf(ui, &palette, "recent", "Recently played", |ui| {
-                widgets::loading_row(ui, &palette)
+                widgets::skeleton_cards(ui, &palette, 7, false)
             });
             return;
         }
@@ -346,7 +346,7 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
         Loadable::Loaded(artists) => artists,
         Loadable::Loading | Loadable::NotLoaded => {
             widgets::shelf(ui, &palette, "top-artists", "Your top artists", |ui| {
-                widgets::loading_row(ui, &palette)
+                widgets::skeleton_cards(ui, &palette, 7, true)
             });
             return;
         }
@@ -408,7 +408,7 @@ fn track_list(
             } else {
                 theme::section_title(ui, &palette, title);
             }
-            widgets::loading_row(ui, &palette);
+            widgets::skeleton_rows(ui, &palette, 4);
             ui.add_space(12.0);
             return;
         }
