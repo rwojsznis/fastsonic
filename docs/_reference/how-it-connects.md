@@ -119,7 +119,8 @@ ask for a new size at every pixel, nor fill the server's resize cache and
 the artwork cache with near copies. The 64-pixel size serves only covers of
 32 pixels or less. At 100% scaling a sidebar row asks for 128, a card for
 192 and a page header for 300; at 200% a card asks for 448 and a header for
-640. The colour a page is tinted with and the softened stand-in for a page's
+640. A header's cover clicked to enlarge it asks for the size it then covers,
+up to 1280 on a HiDPI screen. The colour a page is tinted with and the softened stand-in for a page's
 cover use the 64-pixel size, and the media controls the 640-pixel one. Each
 size is downloaded once and cached under its own request, so artwork cached
 in those three sizes by earlier versions is still read. Fastsonic then

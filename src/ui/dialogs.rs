@@ -10,6 +10,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(dialog) = app.dialog.clone() else {
         return;
     };
+    if let Dialog::CoverArt { url, shown, title } = &dialog {
+        cover_art(app, ctx, url, shown.as_deref(), title);
+        return;
+    }
     let palette = app.palette;
     let frame = Frame::new()
         .fill(palette.overlay)
@@ -32,6 +36,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_width(420.0);
             match dialog {
+                // Drawn by cover_art above.
+                Dialog::CoverArt { .. } => {}
                 Dialog::CreatePlaylist { .. } => create_playlist(app, ui),
                 Dialog::EditPlaylist { .. } => edit_playlist(app, ui),
                 Dialog::ConfirmDeletePlaylist { id, name, owned } => {
@@ -131,6 +137,56 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if response.should_close() {
         app.actions.push(Action::CloseDialog);
     }
+}
+
+/// A page's header cover, as large as the window allows, over the dimmed
+/// page. A click anywhere, on the cover or around it, or Esc closes it.
+fn cover_art(app: &mut App, ctx: &egui::Context, url: &str, shown: Option<&str>, title: &str) {
+    let palette = app.palette;
+    let side = cover_art_side(ctx.content_rect().size());
+    let response = egui::Modal::new(egui::Id::new("cover-art"))
+        .frame(Frame::new().shadow(egui::epaint::Shadow {
+            offset: [0, 10],
+            blur: 40,
+            spread: 0,
+            color: palette.shadow,
+        }))
+        .backdrop_color(egui::Color32::from_black_alpha(if palette.dark {
+            190
+        } else {
+            150
+        }))
+        .show(ctx, |ui| {
+            let (rect, cover) =
+                ui.allocate_exact_size(egui::Vec2::splat(side), egui::Sense::click());
+            cover.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, title));
+            // A cover-art request asks the server for the size the cover
+            // covers here; the header's copy stands in until it arrives.
+            super::widgets::paint_cover_with_thumbnail(
+                ui,
+                &palette,
+                super::widgets::CoverSources {
+                    requested: Some(url),
+                    previous: shown,
+                    ..Default::default()
+                },
+                rect,
+                8.0,
+                theme::Icon::Music,
+                Some(app.backend.art()),
+            );
+            cover.clicked()
+        });
+    app.dialog_rect = Some(response.response.rect);
+    if response.inner || response.should_close() {
+        app.actions.push(Action::CloseDialog);
+    }
+}
+
+/// The enlarged cover's side: as much of the window as leaves a margin
+/// around it, and no larger than 640 points.
+fn cover_art_side(window: egui::Vec2) -> f32 {
+    (window.x.min(window.y) - 96.0).clamp(120.0, 640.0)
 }
 
 /// A dialog's button row, right-aligned and only as tall as a button. Every
@@ -292,4 +348,16 @@ fn edit_playlist(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cover_art_side;
+
+    #[test]
+    fn the_enlarged_cover_fits_the_window_up_to_640_points() {
+        assert_eq!(cover_art_side(egui::vec2(1240.0, 800.0)), 640.0);
+        assert_eq!(cover_art_side(egui::vec2(760.0, 620.0)), 524.0);
+        assert_eq!(cover_art_side(egui::vec2(100.0, 100.0)), 120.0);
+    }
 }

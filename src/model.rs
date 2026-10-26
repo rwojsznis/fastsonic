@@ -770,6 +770,15 @@ pub struct DragEntry {
 
 #[derive(Clone, Debug)]
 pub enum Dialog {
+    /// A page's header cover, enlarged. Clicking anywhere or Esc closes it.
+    CoverArt {
+        /// The largest artwork the page names; a cover-art request asks the
+        /// server for the size the enlarged cover covers.
+        url: String,
+        /// The header's own artwork, already loaded, shown until `url` is.
+        shown: Option<String>,
+        title: String,
+    },
     CreatePlaylist {
         name: String,
         public: bool,

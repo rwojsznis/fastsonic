@@ -54,6 +54,14 @@ song. Dragging a row that is not picked carries that song alone, and moving
 rows within a playlist still moves one song at a time: a selection dropped
 back between the rows of its own playlist stays where it was.
 
+## Viewing cover artwork
+
+Click the cover at the top of a playlist, album, artist or radio page to see
+it enlarged over the dimmed page, as large as the window allows up to 640
+points. Fastsonic asks the server for the cover at the size it is shown, and
+keeps the header's copy on screen until that arrives. Click anywhere or press
+`Esc` to return to the page. Liked Songs' drawn cover has nothing to enlarge.
+
 ## Keyboard input
 
 In a playlist, album or Liked Songs, Up and Down move between songs in the

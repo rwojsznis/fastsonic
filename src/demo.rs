@@ -2348,6 +2348,66 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Clicking a page's header cover shows its largest artwork, and a
+    /// click on it, a click beside it, or Esc closes it. Liked Songs' drawn
+    /// cover has nothing to enlarge.
+    #[test]
+    fn clicking_a_header_cover_enlarges_it_until_any_click_or_escape() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("cover-art");
+        let open = |ctx: &egui::Context, app: &mut App| {
+            let tree = accessible_frame(ctx, app, vec![]);
+            let cover = accessible_node(&tree, "Enlarge cover", Role::Button);
+            accessible_frame(
+                ctx,
+                app,
+                vec![accessible_action(cover, AccessibleAction::Click, None)],
+            );
+            let Some(Dialog::CoverArt { url, shown, title }) = &app.dialog else {
+                panic!("the cover opens enlarged: {:?}", app.dialog);
+            };
+            assert!(url.ends_with("/640/640"), "the largest artwork: {url}");
+            assert!(shown.is_some(), "the header's copy stands in");
+            assert_eq!(title, PLAYLISTS[1].0);
+            // The modal's first frame only measures it.
+            accessible_frame(ctx, app, vec![]);
+            accessible_frame(ctx, app, vec![])
+        };
+        app.open(Page::Playlist("pl1".into()));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let centre = egui::pos2(640.0, 400.0);
+        for close in [
+            pointer_click(centre, egui::PointerButton::Primary),
+            pointer_click(egui::pos2(8.0, 8.0), egui::PointerButton::Primary),
+            vec![keyboard(egui::Key::Escape, egui::Modifiers::NONE)],
+        ] {
+            let tree = open(&ctx, &mut app);
+            let image = accessible_node(&tree, PLAYLISTS[1].0, Role::Image);
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(id, _)| *id == image)
+                .and_then(|(_, node)| node.bounds())
+                .unwrap();
+            assert_eq!((bounds.x1 - bounds.x0).round(), 640.0, "{bounds:?}");
+            accessible_frame(&ctx, &mut app, close);
+            accessible_frame(&ctx, &mut app, vec![]);
+            assert!(app.dialog.is_none(), "it closes");
+            assert_eq!(app.page(), &Page::Playlist("pl1".into()), "on its page");
+        }
+        app.open(Page::LikedSongs);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Enlarge cover")),
+            "Liked Songs has no artwork to enlarge"
+        );
+        app.backend.shutdown();
+    }
+
     #[test]
     fn the_liked_songs_menu_is_as_narrow_as_the_other_menus() {
         use egui::accesskit::Role;

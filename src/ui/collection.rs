@@ -30,6 +30,8 @@ pub struct Hero<'a> {
 #[derive(Default)]
 pub struct HeroImages<'a> {
     pub image: Option<&'a str>,
+    /// The largest artwork named, which clicking the cover shows.
+    pub enlarged: Option<&'a str>,
     /// A cover of the same item already loaded, kept until `image` is ready.
     pub previous: Option<&'a str>,
     /// A small rendition, softened and enlarged while nothing better is ready.
@@ -53,6 +55,7 @@ pub fn hero_images<'a>(images: &'a [Image], preview: Option<&'a [Image]>) -> Her
     let image = pick_image(images, HERO_ART);
     HeroImages {
         image,
+        enlarged: pick_image(images, u32::MAX),
         previous: image.and_then(|image| {
             preview
                 .and_then(|images| pick_image(images, HERO_ART))
@@ -82,7 +85,33 @@ pub fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
     };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(cover_size), Sense::hover());
+        // Clicking the cover shows it enlarged. Liked Songs' drawn cover has
+        // nothing to enlarge.
+        let enlarged = hero.images.enlarged.filter(|_| !hero.liked);
+        let (rect, response) = ui.allocate_exact_size(
+            Vec2::splat(cover_size),
+            if enlarged.is_some() {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
+        if let Some(url) = enlarged {
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Enlarge cover")
+            });
+            theme::focus_ring(ui, &response);
+            if response
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+            {
+                app.actions.push(Action::ShowDialog(Dialog::CoverArt {
+                    url: url.to_string(),
+                    shown: hero.images.image.map(str::to_string),
+                    title: hero.title.to_string(),
+                }));
+            }
+        }
         let radius = if hero.round { cover_size / 2.0 } else { 6.0 };
         widgets::paint_shadow(ui, &palette, rect, radius);
         if hero.liked {
