@@ -309,9 +309,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Keep music playing when the window closes",
+            // macOS has a menu bar where the others have a tray.
             super::keys::platform_shortcut(
                 "Fastsonic hides to the system tray. Quit from the tray menu or with Ctrl+Q.",
-                "Fastsonic hides to the system tray. Quit from the tray menu or with Cmd+Q.",
+                "Fastsonic hides to the menu bar. Quit from its menu-bar icon or with Cmd+Q.",
             ),
             |ui| {
                 if widgets::switch(
@@ -1241,7 +1242,14 @@ fn start_with_computer_choices() -> [(Option<crate::autostart::Start>, &'static 
     [
         (None, "Off"),
         (Some(Start::Window), "With the window"),
-        (Some(Start::Hidden), "In the tray"),
+        (
+            Some(Start::Hidden),
+            if cfg!(target_os = "macos") {
+                "In the menu bar"
+            } else {
+                "In the tray"
+            },
+        ),
     ]
 }
 
@@ -1257,7 +1265,13 @@ fn start_with_computer_detail(
     if matches!(state, Some(State::NeedsApproval(_))) && choice.is_some() {
         "Allow Fastsonic in System Settings, General, Login Items."
     } else if choice == Some(Start::Hidden) && !keeps_running {
-        "Starting in the tray needs Keep music playing when the window closes. Until then, the window opens."
+        if cfg!(target_os = "macos") {
+            "Starting in the menu bar needs Keep music playing when the window closes. Until then, the window opens."
+        } else {
+            "Starting in the tray needs Keep music playing when the window closes. Until then, the window opens."
+        }
+    } else if cfg!(target_os = "macos") {
+        "Open Fastsonic when you log in, with its window or in the menu bar."
     } else {
         "Open Fastsonic when you log in, with its window or in the tray."
     }
@@ -1760,6 +1774,36 @@ mod tests {
                 env!("CARGO_PKG_VERSION")
             )
         );
+    }
+
+    /// macOS has a menu bar where Linux and Windows have a tray, and the
+    /// start-up choices say so.
+    #[test]
+    fn starting_hidden_names_the_menu_bar_on_macos_and_the_tray_elsewhere() {
+        use crate::autostart::{Start, State};
+        let [_, _, (_, hidden)] = super::start_with_computer_choices();
+        let texts = [
+            hidden,
+            super::start_with_computer_detail(
+                Some(State::On(Start::Hidden)),
+                Some(Start::Hidden),
+                false,
+            ),
+            super::start_with_computer_detail(Some(State::Off), None, true),
+        ];
+        for text in texts {
+            if cfg!(target_os = "macos") {
+                assert!(
+                    text.contains("menu bar") && !text.contains("tray"),
+                    "{text}"
+                );
+            } else {
+                assert!(
+                    text.contains("tray") && !text.contains("menu bar"),
+                    "{text}"
+                );
+            }
+        }
     }
 
     #[test]

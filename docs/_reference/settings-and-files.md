@@ -341,7 +341,8 @@ still refresh in the background, so this changes only what is drawn.
 ## Command line
 
 `fastsonic --start-hidden` starts in the tray, without a window: it is what
-**Start with your computer → In the tray** runs at login. Without the tray,
+**Start with your computer → In the tray** (**In the menu bar** on macOS)
+runs at login. Without the tray,
 or with **Keep music playing when the window closes** off, the window opens
 anyway, and on Linux it also opens when no panel shows the tray icon within
 30 seconds. When Fastsonic is already running, it stays as it is.

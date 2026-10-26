@@ -306,7 +306,8 @@ the tray, with the display off or the screen locked.
 **Settings → Playback on this computer → Start with your computer** opens
 Fastsonic when you log in. **With the window** opens it as you would; **In
 the tray** starts it without a window, ready for media keys and the tray
-icon. **Off** leaves your login alone.
+icon; on macOS it reads **In the menu bar**. **Off** leaves your login
+alone.
 
 The setting is your system's own list of what starts at login, read back each
 time Settings opens, so turning Fastsonic off there (System Settings on macOS,

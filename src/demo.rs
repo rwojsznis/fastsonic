@@ -7595,7 +7595,12 @@ mod tests {
         let painted = view_frame(&ctx, &mut app, vec![], view);
         sidebar_text(&painted, "Start with your computer");
         sidebar_text(&painted, "With the window");
-        let tray = sidebar_text(&painted, "In the tray").center();
+        let hidden = if cfg!(target_os = "macos") {
+            "In the menu bar"
+        } else {
+            "In the tray"
+        };
+        let tray = sidebar_text(&painted, hidden).center();
         app.actions.clear();
         view_frame(
             &ctx,
@@ -7614,15 +7619,14 @@ mod tests {
         app.settings.keep_playing_in_background = false;
         let painted = view_frame(&ctx, &mut app, vec![], view);
         assert!(painted.iter().any(|(text, _)| {
-            text.starts_with(
-                "Starting in the tray needs Keep music playing when the window closes.",
-            )
+            text.starts_with("Starting in the")
+                && text.contains("needs Keep music playing when the window closes.")
         }));
 
         app.autostart.state = Some(State::Unsupported);
         let painted = view_frame(&ctx, &mut app, vec![], view);
         assert!(
-            !painted.iter().any(|(text, _)| text == "In the tray"),
+            !painted.iter().any(|(text, _)| text == hidden),
             "nothing to offer where nothing can be registered"
         );
     }

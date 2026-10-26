@@ -107,13 +107,15 @@ features; Navidrome-only personalisation sections may be empty.
 
 ## Basics
 
-- Closing the window keeps music playing from the system tray by default.
-  Reopen it from the tray or Dock, and quit from the tray menu or Ctrl+Q.
+- Closing the window keeps music playing from the system tray (the menu bar
+  on macOS) by default. Reopen it from the tray or Dock, and quit from the
+  tray menu or Ctrl+Q (Cmd+Q).
   On macOS, Settings can also keep Fastsonic out of the Dock, in the menu
   bar only.
 - Fastsonic can start with your computer. Under **Settings > Playback on
   this computer**, **Start with your computer** opens it when you log in,
-  **With the window** or quietly **In the tray**.
+  **With the window** or quietly **In the tray** (**In the menu bar** on
+  macOS).
 - The tray icon can match your panel. On Linux and Windows, **Settings >
   Playback on this computer > Tray icon** shows it in colour, white or
   black. The macOS menu bar already draws it black or white to match itself.
