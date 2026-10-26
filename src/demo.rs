@@ -880,6 +880,21 @@ fn demo_listeners() -> Vec<crate::listeners::Listener> {
     ]
 }
 
+/// Enough fixed sound for the tap's speaker lag and the analyzer window.
+/// No server or audio device is involved.
+#[cfg(feature = "demo")]
+fn demo_sound() -> Vec<f64> {
+    (0..20_000)
+        .flat_map(|frame| {
+            let phase = frame as f64 / 44_100.0 * std::f64::consts::TAU;
+            let sample = (phase * 220.0).sin() * 0.35
+                + (phase * 440.0).sin() * 0.2
+                + (phase * 880.0).sin() * 0.1;
+            [sample, sample]
+        })
+        .collect()
+}
+
 /// Words to go with the sample track, timed so that the one being sung
 /// sits mid-panel at the demo's playback position.
 #[cfg(any(test, feature = "demo"))]
@@ -1012,9 +1027,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.actions.push(Action::Next);
             }
             // Use the built-in skin for deterministic screenshots.
-            "winamp" => {
+            "winamp" | "winamp-bars" | "winamp-scope" => {
                 app.settings.winamp_window = true;
                 app.settings.skin = None;
+                if surface != "winamp" {
+                    app.settings.vis = if surface == "winamp-bars" {
+                        crate::settings::VisMode::Bars
+                    } else {
+                        crate::settings::VisMode::Scope
+                    };
+                    app.winamp.tap.push(&demo_sound(), 1.0);
+                }
             }
             "playlist" => app.settings.playlist_open = true,
             "shade" => app.settings.winamp_shaded = true,
@@ -1095,18 +1118,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 } else {
                     crate::settings::PlayerBarVis::Waveform
                 };
-                // Enough fixed sound for the tap's speaker lag and the
-                // analyzer window. No server or audio device is involved.
-                let samples: Vec<f64> = (0..20_000)
-                    .flat_map(|frame| {
-                        let phase = frame as f64 / 44_100.0 * std::f64::consts::TAU;
-                        let sample = (phase * 220.0).sin() * 0.35
-                            + (phase * 440.0).sin() * 0.2
-                            + (phase * 880.0).sin() * 0.1;
-                        [sample, sample]
-                    })
-                    .collect();
-                app.winamp.tap.push(&samples, 1.0);
+                app.winamp.tap.push(&demo_sound(), 1.0);
                 // Read the cover's colours, as a change of song does, so the
                 // visualizer draws in them.
                 if let Some(now) = app.now_playing() {
@@ -3541,6 +3553,134 @@ mod tests {
         );
         let first = app.library.playlists.get().unwrap()[0].id.clone();
         assert_eq!(tiles[1], Page::Playlist(first));
+        app.backend.shutdown();
+    }
+
+    /// The rolled-up player keeps the real analyser and its repaint cadence
+    /// inside the skin's tiny display.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_collapsed_winamp_visualizer_draws_and_repaints_only_while_moving() {
+        use crate::settings::VisMode;
+        let (ctx, mut app) = accessible_app("winamp-shade-vis");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("winamp-bars,shade"));
+        let mut frame = 0;
+        let mut draw = |app: &mut App| {
+            frame += 1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(f64::from(frame) / 60.0),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(550.0, 28.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| crate::ui::winamp::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let display = egui::Rect::from_min_size(egui::pos2(158.0, 10.0), egui::vec2(76.0, 10.0));
+        let pixels = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Rect(rect)
+                        if display.contains_rect(rect.rect) && rect.rect != display =>
+                    {
+                        Some(rect.rect)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let wants_frames = |output: &egui::FullOutput| {
+            output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                < std::time::Duration::from_millis(100)
+        };
+        draw(&mut app);
+        let bars = draw(&mut app);
+        assert!(!pixels(&bars).is_empty(), "local sound draws compact bars");
+        assert!(
+            wants_frames(&bars),
+            "shade mode must keep the animation cadence"
+        );
+        assert!(!app.winamp.analyser.settled());
+
+        // A loading/live item can have no seek duration. That early return
+        // must still report that the visualiser is moving.
+        app.local.track.as_mut().unwrap().duration_ms = 0;
+        assert!(wants_frames(&draw(&mut app)));
+
+        app.settings.vis = VisMode::Scope;
+        let wave = draw(&mut app);
+        assert_ne!(pixels(&wave), pixels(&bars));
+        assert!(wants_frames(&wave));
+        assert!(
+            pixels(&wave)
+                .iter()
+                .any(|rect| rect.top() != pixels(&wave)[0].top())
+        );
+
+        app.local.playback = Playback::Paused;
+        draw(&mut app);
+        let paused = draw(&mut app);
+        let flat = pixels(&paused);
+        assert!(!flat.is_empty());
+        assert!(flat.iter().all(|rect| rect.top() == flat[0].top()));
+        assert!(
+            !wants_frames(&paused),
+            "a paused scope needs no animation frames"
+        );
+
+        app.settings.vis = VisMode::Off;
+        draw(&mut app);
+        let off = draw(&mut app);
+        assert!(pixels(&off).is_empty());
+        assert!(!wants_frames(&off));
+
+        app.backend.shutdown();
+    }
+
+    #[cfg(feature = "demo")]
+    #[test]
+    fn clicking_the_collapsed_visualizer_cycles_without_unshading_or_seeking() {
+        use crate::settings::VisMode;
+        let (ctx, mut app) = accessible_app("winamp-shade-vis-click");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("winamp-bars,shade"));
+        let draw = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        crate::ui::winamp::initial_size(&app.settings),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::winamp::show(app, ui),
+            );
+            output.textures_delta.clear();
+        };
+        // The hit target scales with the skin, and remains active when off.
+        for scale in 1..=4 {
+            app.settings.skin_scale = Some(scale);
+            for mode in [VisMode::Bars, VisMode::Scope, VisMode::Off] {
+                app.settings.vis = mode;
+                draw(&mut app, Vec::new());
+                draw(&mut app, Vec::new());
+                app.actions.clear();
+                let at = egui::pos2(98.0, 7.0) * f32::from(scale);
+                draw(&mut app, pointer_click(at, egui::PointerButton::Primary));
+                assert!(matches!(app.actions.as_slice(), [Action::CycleVisualiser]));
+                assert!(app.settings.winamp_shaded);
+                assert!(!app.winamp.time_remaining);
+            }
+        }
         app.backend.shutdown();
     }
 

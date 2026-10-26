@@ -56,7 +56,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   lively at zero volume, off by default. Click empty bar space to cycle modes;
   it draws at 30 or 60 frames a second, the screen's rate, or uncapped.
 - A Winamp mini player for classic `.wsz` skins, spectrum analyser,
-  oscilloscope, equalizer, and playlist; on Windows and X11 it can leave the
+  oscilloscope, equalizer, and playlist; the analyser and oscilloscope keep
+  moving in the rolled-up title bar, and on Windows and X11 it can leave the
   taskbar.
 - A projectM-powered MilkDrop window with optional preset packs.
 - Native window behaviour: on macOS, double-clicking the top bar does what
