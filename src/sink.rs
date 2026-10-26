@@ -3,7 +3,7 @@
 //! Stream opening is fallible because release builds abort on panic. A machine
 //! without an output device gets an error in the interface instead.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
@@ -63,6 +63,17 @@ pub(crate) struct DeviceStream {
     pub(crate) sample_rate: u32,
     /// Whether the device is asking for sound.
     running: bool,
+    /// The device's timeline, as the callback follows it.
+    gaps: Arc<Gaps>,
+}
+
+/// What the callback has seen of the device's timeline: the gaps it
+/// played, and how many times it was stopped and started, after which its
+/// timeline starts again.
+#[derive(Default)]
+struct Gaps {
+    played: AtomicU64,
+    epoch: AtomicU64,
 }
 
 impl DeviceStream {
@@ -76,13 +87,15 @@ impl DeviceStream {
             config.channels as rodio::ChannelCount,
             config.sample_rate.0 as rodio::SampleRate,
         );
-        let stream = build_stream(device, config, format, source, on_error)?;
+        let gaps = Arc::new(Gaps::default());
+        let stream = build_stream(device, config, format, source, Arc::clone(&gaps), on_error)?;
         stream.play().map_err(rodio::StreamError::PlayStreamError)?;
         Ok(Self {
             stream,
             mixer,
             sample_rate: config.sample_rate.0,
             running: true,
+            gaps,
         })
     }
 
@@ -92,12 +105,19 @@ impl DeviceStream {
         self.running
     }
 
+    /// How many times the device played silence because the callback came
+    /// too late, since the stream opened. Pausing is not one.
+    pub(crate) fn underruns(&self) -> u64 {
+        self.gaps.played.load(Ordering::Relaxed)
+    }
+
     /// Has the device ask for sound again. A device that will not is
     /// marked `failed`, so the engine opens the output again.
     pub(crate) fn resume(&mut self, failed: &AtomicBool) {
         if self.running {
             return;
         }
+        self.gaps.epoch.fetch_add(1, Ordering::Relaxed);
         match self.stream.play() {
             Ok(()) => self.running = true,
             Err(error) => {
@@ -113,6 +133,7 @@ impl DeviceStream {
         if !self.running {
             return;
         }
+        self.gaps.epoch.fetch_add(1, Ordering::Relaxed);
         match self.stream.pause() {
             Ok(()) => self.running = false,
             Err(cpal::PauseStreamError::DeviceNotAvailable) => {
@@ -156,25 +177,38 @@ fn build_stream(
     config: &cpal::StreamConfig,
     format: cpal::SampleFormat,
     source: rodio::mixer::MixerSource,
+    gaps: Arc<Gaps>,
     on_error: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<cpal::Stream, rodio::StreamError> {
     fn build<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         mut source: rodio::mixer::MixerSource,
+        gaps: Arc<Gaps>,
         on_error: impl FnMut(cpal::StreamError) + Send + 'static,
     ) -> Result<cpal::Stream, cpal::BuildStreamError>
     where
         T: cpal::SizedSample + cpal::FromSample<rodio::Sample>,
     {
+        let channels = usize::from(config.channels).max(1);
+        let rate = config.sample_rate.0;
+        let mut timeline = Timeline::default();
         device.build_output_stream::<T, _, _>(
             config,
-            move |data: &mut [T], _| {
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
                 // Keeps its priority while the app runs under EcoQoS.
                 #[cfg(windows)]
                 crate::power::join_audio_task();
-                for out in data {
+                for out in data.iter_mut() {
                     *out = source.next().map(T::from_sample_).unwrap_or(T::EQUILIBRIUM);
+                }
+                if timeline.observe(
+                    gaps.epoch.load(Ordering::Relaxed),
+                    info.timestamp().playback,
+                    (data.len() / channels) as u64,
+                    rate,
+                ) {
+                    gaps.played.fetch_add(1, Ordering::Relaxed);
                 }
             },
             on_error,
@@ -183,19 +217,63 @@ fn build_stream(
     }
     use cpal::SampleFormat as Format;
     match format {
-        Format::F32 => build::<f32>(device, config, source, on_error),
-        Format::F64 => build::<f64>(device, config, source, on_error),
-        Format::I8 => build::<i8>(device, config, source, on_error),
-        Format::I16 => build::<i16>(device, config, source, on_error),
-        Format::I32 => build::<i32>(device, config, source, on_error),
-        Format::I64 => build::<i64>(device, config, source, on_error),
-        Format::U8 => build::<u8>(device, config, source, on_error),
-        Format::U16 => build::<u16>(device, config, source, on_error),
-        Format::U32 => build::<u32>(device, config, source, on_error),
-        Format::U64 => build::<u64>(device, config, source, on_error),
+        Format::F32 => build::<f32>(device, config, source, gaps, on_error),
+        Format::F64 => build::<f64>(device, config, source, gaps, on_error),
+        Format::I8 => build::<i8>(device, config, source, gaps, on_error),
+        Format::I16 => build::<i16>(device, config, source, gaps, on_error),
+        Format::I32 => build::<i32>(device, config, source, gaps, on_error),
+        Format::I64 => build::<i64>(device, config, source, gaps, on_error),
+        Format::U8 => build::<u8>(device, config, source, gaps, on_error),
+        Format::U16 => build::<u16>(device, config, source, gaps, on_error),
+        Format::U32 => build::<u32>(device, config, source, gaps, on_error),
+        Format::U64 => build::<u64>(device, config, source, gaps, on_error),
         _ => return Err(rodio::StreamError::UnsupportedSampleFormat),
     }
     .map_err(rodio::StreamError::BuildStreamError)
+}
+
+/// Follows the device's own timeline of when each callback's sound plays,
+/// to notice when it played something else in between: the callback came
+/// too late and the device played silence (an underrun).
+///
+/// Each block should play where the one before it ends; one that plays
+/// more than half a block after that left a gap. The times are the
+/// device's (CoreAudio's host time, WASAPI's clock, ALSA's status), so a
+/// late callback that still made its deadline leaves none. A pause, a
+/// resume or a new stream starts the timeline again.
+#[derive(Clone, Copy, Debug, Default)]
+struct Timeline {
+    /// When the previous block's sound ends.
+    next: Option<cpal::StreamInstant>,
+    /// The stream's pause and resume count when `next` was set.
+    epoch: u64,
+}
+
+impl Timeline {
+    /// Notes a block of `frames` at `rate` that plays at `playback`; true
+    /// when the device played a gap before it.
+    fn observe(
+        &mut self,
+        epoch: u64,
+        playback: cpal::StreamInstant,
+        frames: u64,
+        rate: u32,
+    ) -> bool {
+        if rate == 0 || frames == 0 {
+            self.next = None;
+            return false;
+        }
+        let length = Duration::from_nanos(frames * 1_000_000_000 / u64::from(rate));
+        let gap = match self.next {
+            Some(next) if epoch == self.epoch => {
+                next.add(length / 2).is_some_and(|late| playback > late)
+            }
+            _ => false,
+        };
+        self.epoch = epoch;
+        self.next = playback.add(length);
+        gap
+    }
 }
 
 /// Opens the stream at the rate the chain would rather run at, so nothing
@@ -341,6 +419,38 @@ pub(crate) fn pick_device(preferred: Option<&str>) -> Result<cpal::Device, OpenE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_timeline_counts_blocks_the_device_played_late() {
+        let block = 512_u64;
+        let rate = 48_000;
+        let length = Duration::from_nanos(block * 1_000_000_000 / u64::from(rate));
+        let at = |offset: Duration| {
+            cpal::StreamInstant::new(1, 0)
+                .add(offset)
+                .expect("within range")
+        };
+        let mut timeline = Timeline::default();
+        let mut offset = Duration::ZERO;
+        let mut gaps = 0;
+        // Contiguous blocks, their times a little off either way: no gaps.
+        for jitter in [0_u64, 3_000, 0, 1_000, 0] {
+            let playback = at(offset + Duration::from_nanos(jitter));
+            gaps += u32::from(timeline.observe(0, playback, block, rate));
+            offset += length;
+        }
+        assert_eq!(gaps, 0);
+        // The device played one block of silence before this one.
+        offset += length;
+        assert!(timeline.observe(0, at(offset), block, rate));
+        offset += length;
+        assert!(!timeline.observe(0, at(offset), block, rate));
+        // After a pause and a resume the jump is not a gap.
+        offset += Duration::from_secs(5);
+        assert!(!timeline.observe(1, at(offset), block, rate));
+        offset += length;
+        assert!(!timeline.observe(1, at(offset), block, rate));
+    }
 
     /// Converts the configured buffer duration to device frames.
     #[test]

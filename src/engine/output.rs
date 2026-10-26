@@ -104,11 +104,21 @@ struct Stream {
     volume: Arc<VolumeRamp>,
     /// Pause waits for the ramp to reach silence before pausing rodio.
     pause_pending: bool,
+    /// The device's underruns, as last logged.
+    underruns: Underruns,
 }
 
 impl Stream {
     fn failed(&self) -> bool {
         self.failed.load(Ordering::Relaxed)
+    }
+
+    /// Logs the gaps the device played since the last line, if it is time.
+    fn log_underruns(&mut self, now: Instant) {
+        let count = self.stream.underruns();
+        if let Some(new) = self.underruns.take_new(count, now) {
+            log::warn!("audio device underran {new} times; {count} since the output opened");
+        }
     }
 
     fn resume_device(&mut self) {
@@ -187,10 +197,11 @@ impl Output {
     }
 
     fn maintain_at(&mut self, now: Instant) -> Result<Maintained, String> {
-        if self.open.is_none() {
+        let Some(stream) = &mut self.open else {
             self.stall = None;
             return Ok(Maintained::Unchanged);
-        }
+        };
+        stream.log_underruns(now);
         if !self.must_reopen() {
             if !self.stalled(now) {
                 return Ok(Maintained::Unchanged);
@@ -468,6 +479,39 @@ fn settle_pause(stream: &mut Stream) {
         // With the fade played out, the device can stop asking for sound
         // until Play.
         stream.rest_device();
+    }
+}
+
+/// The least time between two logs of the device's underruns, so a stretch
+/// of them under load leaves a line now and then, not one per gap.
+const UNDERRUN_LOG_EVERY: Duration = Duration::from_secs(10);
+
+/// Which of the device's underruns have been logged. "audio queue ran dry"
+/// is the engine being late to fill the queue; an underrun is the device
+/// playing silence because its own callback came too late, so a log shows
+/// both kinds of gap.
+#[derive(Debug, Default)]
+struct Underruns {
+    logged: u64,
+    at: Option<Instant>,
+}
+
+impl Underruns {
+    /// The gaps to log now, out of `count` so far: only when it has grown,
+    /// and at most once every [`UNDERRUN_LOG_EVERY`], holding the rest for
+    /// the next line.
+    fn take_new(&mut self, count: u64, now: Instant) -> Option<u64> {
+        if count <= self.logged
+            || self
+                .at
+                .is_some_and(|at| now.duration_since(at) < UNDERRUN_LOG_EVERY)
+        {
+            return None;
+        }
+        let new = count - self.logged;
+        self.logged = count;
+        self.at = Some(now);
+        Some(new)
     }
 }
 
@@ -944,12 +988,31 @@ fn open_device(
         transport,
         volume,
         pause_pending: false,
+        underruns: Underruns::default(),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn underruns_are_logged_when_they_grow_at_most_every_ten_seconds() {
+        let start = Instant::now();
+        let mut underruns = Underruns::default();
+        assert_eq!(underruns.take_new(0, start), None);
+        assert_eq!(underruns.take_new(2, start), Some(2));
+        assert_eq!(underruns.take_new(2, start + Duration::from_secs(30)), None);
+        // More within ten seconds of the last line wait for the next one.
+        let soon = start + Duration::from_secs(31);
+        assert_eq!(underruns.take_new(3, soon), Some(1));
+        assert_eq!(underruns.take_new(5, soon + Duration::from_secs(9)), None);
+        assert_eq!(
+            underruns.take_new(6, soon + UNDERRUN_LOG_EVERY),
+            Some(3),
+            "the held gaps are counted in the next line"
+        );
+    }
 
     fn ms(millis: u64) -> Duration {
         Duration::from_millis(millis)
