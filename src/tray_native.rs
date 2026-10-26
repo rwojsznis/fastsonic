@@ -63,7 +63,8 @@ fn left_click(sender: &Sender<TrayCommand>, wake: &Wake, on_windows: bool) {
 
 /// The item, and the menu entry whose label follows playback.
 struct Item {
-    _icon: TrayIcon,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    icon: TrayIcon,
     play_pause: MenuItem,
 }
 
@@ -119,10 +120,7 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
         }
     }));
 
-    Ok(Item {
-        _icon: icon,
-        play_pause,
-    })
+    Ok(Item { icon, play_pause })
 }
 
 #[cfg(windows)]
@@ -508,6 +506,24 @@ mod host {
         ITEM.with(|slot| slot.borrow().is_some())
     }
 
+    /// Makes the status item again, with its icon and menu. winit closes
+    /// every window the application has when a window's event loop ends,
+    /// the status item's own among them, which takes the icon out of the
+    /// menu bar for good; a new status item has a window of its own.
+    pub fn renew() {
+        ITEM.with(|slot| {
+            if let Some(item) = slot.borrow().as_ref() {
+                let renewed = item
+                    .icon
+                    .set_visible(false)
+                    .and_then(|()| item.icon.set_visible(true));
+                if let Err(error) = renewed {
+                    log::warn!("the status item could not be made again: {error}");
+                }
+            }
+        });
+    }
+
     pub fn set_playing(playing: bool) {
         ITEM.with(|slot| {
             if let Some(item) = slot.borrow().as_ref() {
@@ -623,6 +639,32 @@ pub struct TrayService {
     playing: bool,
     /// What the item needs, until the first window lets it be made.
     pending: Option<(Sender<TrayCommand>, Wake)>,
+    /// Whether a window's event loop has ended since the item was made.
+    life: ItemLife,
+}
+
+/// Whether the macOS status item outlived a window's event loop, which
+/// closes the item's window with its own (see `host::renew`).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ItemLife {
+    stale: bool,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl ItemLife {
+    /// A window opens around the item, and its loop will end before the
+    /// next window or the tray: whether the item must be made again first,
+    /// because the last window's loop ended without the tray in between.
+    fn window(&mut self) -> bool {
+        std::mem::replace(&mut self.stale, true)
+    }
+
+    /// A window's loop ended and the app went to the tray: whether the
+    /// item must be made again.
+    fn tray(&mut self) -> bool {
+        std::mem::replace(&mut self.stale, false)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -635,6 +677,7 @@ impl TrayService {
             commands,
             playing: false,
             pending: Some((sender, Arc::new(wake))),
+            life: ItemLife::default(),
         })
     }
 
@@ -656,13 +699,21 @@ impl TrayService {
         if let Some((sender, wake)) = self.pending.take() {
             host::create(sender, wake, self.playing);
         }
+        if self.life.window() {
+            host::renew();
+        }
         if host::exists() {
             host::activate();
         }
     }
 
-    /// No window: the status item and Dock icon both remain available.
-    pub fn hidden(&mut self) {}
+    /// No window: the status item and Dock icon both remain available, the
+    /// item made again after the window's loop closed its window.
+    pub fn hidden(&mut self) {
+        if self.life.tray() {
+            host::renew();
+        }
+    }
 }
 
 /// Waits while the app lives in the tray without a window, keeping AppKit
@@ -725,6 +776,21 @@ mod tests {
 #[cfg(test)]
 mod click_tests {
     use super::*;
+
+    /// winit closes the status item's window whenever a window's loop
+    /// ends, so the item is made again after each one: on the way to the
+    /// tray, or when the next window opens straight after (a switch to or
+    /// from the mini player), but not twice for the same loop.
+    #[test]
+    fn the_status_item_is_made_again_once_after_each_window() {
+        let mut life = ItemLife::default();
+        assert!(!life.window(), "the first window makes the item itself");
+        assert!(life.tray(), "closed to the tray");
+        assert!(!life.window(), "shown from the tray, already made again");
+        assert!(life.window(), "switched to the mini player");
+        assert!(life.tray(), "then closed to the tray");
+        assert!(!life.tray());
+    }
 
     #[test]
     fn both_windows_double_click_releases_request_show_and_wake_the_app() {

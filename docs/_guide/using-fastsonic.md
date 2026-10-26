@@ -301,7 +301,11 @@ power-saver profile on Linux), at most 30 frames a second while it saves
 energy, and not at all while nobody can see the window: minimised, closed to
 the tray, with the display off or the screen locked.
 
-## macOS Dock menu
+## macOS menu bar and Dock menu
+
+Fastsonic's menu-bar icon shows or hides the window, controls playback and
+quits. It stays in the menu bar with the main window open, with the Winamp
+mini player, and after closing the window to the menu bar.
 
 Right-click or Control-click Fastsonic's Dock icon for **Play** (or **Pause**
 while music plays), **Next**, and **Previous**, above the standard Dock items.
