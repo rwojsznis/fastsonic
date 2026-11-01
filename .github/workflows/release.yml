@@ -11,8 +11,25 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The packages carry the tag's name, but the binary reports Cargo.toml's
+  # version: a tag pushed before the version bump ships one version's name
+  # on another's code. Refuse it before any build minutes are spent.
+  version:
+    name: tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          v=$(grep -m1 -E '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$v" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} names $tag, but Cargo.toml says $v; bump the crate's version or retag"
+            exit 1
+          fi
+
   build:
     name: build (${{ matrix.target }})
+    needs: version
     runs-on: ${{ matrix.os }}
     env:
       CMAKE_GENERATOR: Ninja
@@ -100,6 +117,9 @@ jobs:
           # Each Windows build runs on its own processor: start it once.
           $version = (& $binary --version | Out-String).Trim()
           if ($version -notmatch '^fastsonic \d+\.\d+\.\d+') { throw "Unexpected --version output: $version" }
+          # The binary's version is the crate's, not the tag's.
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          if ($version -ne "fastsonic $tag") { throw "The binary reports $version, but the tag names $tag" }
 
       - name: Package
         shell: bash
@@ -154,6 +174,7 @@ jobs:
 
   macos:
     name: macOS universal app
+    needs: version
     runs-on: macos-latest
     env:
       # Signing and notarization run only when the Apple credentials exist as
