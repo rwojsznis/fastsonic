@@ -6,79 +6,6 @@
 pub const ON_TOP_UNAVAILABLE: &str =
     "On Wayland, use your desktop's Keep Above shortcut or window rule.";
 
-/// The message box shown when eframe could not create an OpenGL context on
-/// Windows, and the page its Yes button opens.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MissingOpenGl {
-    pub title: &'static str,
-    pub text: String,
-    pub page: &'static str,
-}
-
-/// The Store page of the OpenCL, OpenGL & Vulkan Compatibility Pack.
-const COMPATIBILITY_PACK_PAGE: &str = "ms-windows-store://pdp/?ProductId=9NQPSL29BFFF";
-/// The getting-started guide, which documents the OpenGL 2.0 requirement.
-const GETTING_STARTED_PAGE: &str =
-    "https://github.com/rwojsznis/fastsonic/blob/main/docs/_guide/getting-started.md";
-
-/// Says why no window opened and where the fix is.
-///
-/// Snapdragon graphics drivers have no OpenGL of their own. Windows provides
-/// it on ARM through Microsoft's compatibility pack, a Store app that
-/// translates it to Direct3D 12, so ARM points at that pack. Elsewhere the
-/// usual cause is a virtual machine or remote session with only the
-/// Microsoft Basic Display Adapter, which offers OpenGL 1.1.
-pub fn missing_opengl_message(arm: bool) -> MissingOpenGl {
-    let title = "Fastsonic cannot open its window";
-    if arm {
-        return MissingOpenGl {
-            title,
-            text: "On Windows on ARM, the OpenGL that Fastsonic draws with comes from \
-                   Microsoft's OpenCL, OpenGL & Vulkan Compatibility Pack. Open its \
-                   Microsoft Store page to install or repair it?"
-                .to_owned(),
-            page: COMPATIBILITY_PACK_PAGE,
-        };
-    }
-    MissingOpenGl {
-        title,
-        text: format!(
-            "Fastsonic needs a graphics driver with OpenGL 2.0 or newer, and this PC \
-             or virtual machine does not provide one. Install the graphics driver, \
-             or turn on GPU acceleration for the virtual machine. Open \
-             {GETTING_STARTED_PAGE} to read more?"
-        ),
-        page: GETTING_STARTED_PAGE,
-    }
-}
-
-/// Shows [`missing_opengl_message`] and opens its page on Yes, so a missing
-/// OpenGL does not close the app without a word.
-#[cfg(windows)]
-pub fn report_missing_opengl() {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{IDYES, MB_ICONERROR, MB_YESNO, MessageBoxW};
-
-    let message = missing_opengl_message(cfg!(target_arch = "aarch64"));
-    let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
-    let title = wide(message.title);
-    let text = wide(&message.text);
-    // SAFETY: both strings are NUL-terminated UTF-16 that outlive the call,
-    // and the box has no owner window.
-    let answer = unsafe {
-        MessageBoxW(
-            std::ptr::null_mut(),
-            text.as_ptr(),
-            title.as_ptr(),
-            MB_YESNO | MB_ICONERROR,
-        )
-    };
-    if answer == IDYES
-        && let Err(error) = open::that(message.page)
-    {
-        log::warn!("cannot open {}: {error}", message.page);
-    }
-}
-
 /// The active backend matters: a Wayland session can also host X11 windows.
 /// winit's Wayland backend cannot change a window's stacking level.
 pub fn supports_window_level(display: raw_window_handle::RawDisplayHandle) -> bool {
@@ -958,20 +885,6 @@ mod tests {
         for size in [MAIN_MIN_SIZE, [1240.0, 800.0], [1920.0, 1129.0]] {
             assert_eq!(usable_size(size), Some(size));
         }
-    }
-
-    #[test]
-    fn missing_opengl_points_arm_at_the_store_pack_and_others_at_the_guide() {
-        let arm = missing_opengl_message(true);
-        assert_eq!(arm.page, COMPATIBILITY_PACK_PAGE);
-        assert!(arm.text.contains("Compatibility Pack"));
-
-        let x64 = missing_opengl_message(false);
-        assert_eq!(x64.title, "Fastsonic cannot open its window");
-        assert_eq!(x64.page, GETTING_STARTED_PAGE);
-        assert!(x64.text.contains("OpenGL 2.0"));
-        assert!(x64.text.contains("virtual machine"));
-        assert!(x64.text.contains(GETTING_STARTED_PAGE));
     }
 
     #[test]

@@ -539,10 +539,13 @@ fn main() -> eframe::Result<()> {
         let persist_memory = options.persist_window;
         #[cfg(target_os = "linux")]
         let hide_from_taskbar = options.viewport.taskbar == Some(false);
+        let window_started = std::cell::Cell::new(false);
+        let started = &window_started;
         eframe::run_native(
             "Fastsonic",
             options,
             Box::new(move |cc| {
+                started.set(true);
                 if let Some(gl) = &cc.gl {
                     use eframe::glow::HasContext;
                     // eframe has made this window's GL context current before
@@ -638,14 +641,8 @@ fn main() -> eframe::Result<()> {
         // log file is where a report of a window that never opened starts.
         .inspect_err(|error| {
             log::error!("Native window failed: {error}");
-            #[cfg(windows)]
-            if matches!(
-                error,
-                eframe::Error::Glutin(_)
-                    | eframe::Error::NoGlutinConfigs(..)
-                    | eframe::Error::OpenGL(_)
-            ) {
-                fastsonic::window::report_missing_opengl();
+            if fastsonic::no_window::needs_explaining(error, window_started.get()) {
+                fastsonic::no_window::explain();
             }
         })?;
         waker.detach();

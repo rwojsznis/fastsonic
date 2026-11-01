@@ -38,6 +38,7 @@ pub mod media_controls;
 pub mod milkdrop;
 pub mod model;
 pub mod motion;
+pub mod no_window;
 pub mod notch;
 pub mod opener;
 pub mod opus;
