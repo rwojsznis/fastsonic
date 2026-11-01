@@ -316,7 +316,7 @@ of them:
 | `on_accent` | Text and icons drawn on the accent |
 | `danger` | Errors |
 | `warning` | Warnings |
-| `overlay` | Menus, dialogs and notifications |
+| `overlay` | Menus, dialogs and notifications; left out of a file that sets `window`, a step from the window toward the text in a dark theme, the panel in a light one |
 | `shadow` | The shadow under menus and dialogs, usually with alpha |
 | `tint` | The wash at the top of a page that album art does not colour |
 

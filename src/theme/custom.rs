@@ -233,6 +233,8 @@ pub(crate) fn parse_palette(text: &str) -> Result<Palette, String> {
         Base::Dark => Palette::dark(),
         Base::Light => Palette::light(),
     };
+    let derives_overlay =
+        file.colors.contains_key("window") && !file.colors.contains_key("overlay");
     for (name, value) in file.colors {
         let color = parse_color(&value)
             .ok_or_else(|| format!("{name}: expected #RRGGBB or #RRGGBBAA, not {value:?}"))?;
@@ -258,7 +260,23 @@ pub(crate) fn parse_palette(text: &str) -> Result<Palette, String> {
         };
         *field = color;
     }
+    if derives_overlay {
+        palette.overlay = derived_overlay(&palette);
+    }
     Ok(palette)
+}
+
+/// Menus, tooltips and dialogs follow a file's window when it leaves
+/// `overlay` out, as every bundled palette does; otherwise they keep the
+/// base's blue-grey on a brown or purple theme. The proportions are the
+/// built-in palettes': a step above the window toward the text in dark
+/// themes, the panel in light ones.
+fn derived_overlay(palette: &Palette) -> Color32 {
+    if palette.dark {
+        palette.window.lerp_to_gamma(palette.text, 0.08)
+    } else {
+        palette.panel
+    }
 }
 
 fn parse_color(value: &str) -> Option<Color32> {
@@ -738,6 +756,30 @@ mod tests {
         assert_eq!(display_name(".json"), ".json", "nothing left to show");
         assert_eq!(display_name("notes"), "notes");
         assert_eq!(display_name("é"), "é");
+    }
+
+    /// Ristretto's brown window must not open blue-grey menus.
+    #[test]
+    fn menus_follow_a_palette_that_leaves_overlay_out() {
+        let (_, ristretto) = BUNDLED
+            .into_iter()
+            .find(|(name, _)| *name == "Ristretto.json")
+            .unwrap();
+        let shared = parse_palette(ristretto).unwrap();
+        let [r, _, b, _] = shared.overlay.to_array();
+        assert!(r > b, "{:?}", shared.overlay);
+        assert_ne!(shared.overlay, Palette::dark().overlay);
+
+        let latte =
+            parse_palette(r##"{"base":"light","colors":{"window":"#eff1f5","panel":"#edeff3"}}"##)
+                .unwrap();
+        assert_eq!(latte.overlay, latte.panel);
+
+        let own =
+            parse_palette(r##"{"colors":{"window":"#2c2525","overlay":"#010203"}}"##).unwrap();
+        assert_eq!(own.overlay, Color32::from_rgb(1, 2, 3));
+        let accent_only = parse_palette(r##"{"colors":{"accent":"#8c3fa5"}}"##).unwrap();
+        assert_eq!(accent_only.overlay, Palette::dark().overlay);
     }
 
     #[test]
