@@ -1763,17 +1763,11 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         Some(&mut filter),
     );
     ui.data_mut(|data| data.insert_temp(filter_id, filter.clone()));
-    let uris: Arc<[String]> = items
-        .iter()
-        .map(|(item, _, _)| item.uri().to_string())
-        .collect::<Vec<_>>()
-        .into();
-    let context = match collection_uri {
-        Some(uri) if app.library.liked.is_complete() => RowContext::Context {
-            uri,
-            editable_playlist: None,
-        },
-        _ => RowContext::Uris(uris),
+    // The engine asks the server for every starred song, so a row plays
+    // the whole collection even before the rest of its rows are loaded.
+    let context = RowContext::Context {
+        uri: convert::COLLECTION_URI.to_string(),
+        editable_playlist: None,
     };
     let loading = app.library.liked.loading;
     let error = app.library.liked.error.clone();
