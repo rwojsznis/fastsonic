@@ -101,6 +101,8 @@ the songs of the playing album or playlist in place. The queue remembered from
 the last session, shown before anything plays, is not the engine's yet, so
 neither entry changes it. Notices from the main window scroll through the mini
 player's text display.
+The skin's capital-letter font folds accented Latin letters, including Turkish
+letters, to its available shapes. Other scripts use a fallback font.
 
 ## Equalizer
 
