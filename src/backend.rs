@@ -1660,7 +1660,9 @@ fn empty_cursor_page<T>(error: NativeError) -> Result<CursorPage<T>, ApiError> {
 }
 
 /// The server's own words, cached like LRCLIB's, "none" included; `None`
-/// falls back to LRCLIB.
+/// falls back to LRCLIB. When the server cannot answer, words it gave
+/// before still serve, however old, and keep their age so the next answer
+/// replaces them; an old "none" never does.
 async fn server_lyrics(
     client: &SubsonicClient,
     uri: &str,
@@ -1679,7 +1681,7 @@ async fn server_lyrics(
         }
         Err(error) => {
             log::debug!("the server has no words for this song: {error}");
-            None
+            crate::lyrics::previously_found(&path)
         }
     }
 }
@@ -1790,6 +1792,57 @@ async fn read_cached_playlist(path: std::path::PathBuf) -> std::io::Result<Cache
 mod tests {
     use super::*;
     use crate::engine::{LocalTrack, Playback};
+
+    /// A server that cannot answer still yields the words it gave before,
+    /// however old, without renewing them, and never an old "none".
+    #[tokio::test]
+    async fn a_server_that_cannot_answer_still_yields_its_old_lyrics() {
+        let root =
+            std::env::temp_dir().join(format!("fastsonic-server-lyrics-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let found = Some(crate::lyrics::Lyrics {
+            lines: crate::lyrics::parse_lrc("[00:01.00] A test line"),
+            synced: true,
+            instrumental: false,
+        });
+        let stale = std::time::SystemTime::now() - Duration::from_secs(60 * 60 * 24 * 60);
+        let store_stale = |id: &str, found: &Option<crate::lyrics::Lyrics>| {
+            let path = root.join(format!("server-{id}.json"));
+            crate::lyrics::store(&path, found);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(stale))
+                .unwrap();
+            assert!(crate::lyrics::cached(&path).is_none());
+            path
+        };
+        let words = store_stale("tr1", &found);
+        store_stale("tr2", &None);
+        let signed_out = SubsonicClient::new(
+            crate::http_client_builder().build().unwrap(),
+            Arc::default(),
+            50,
+        );
+        assert_eq!(
+            server_lyrics(&signed_out, "sonic:track:tr1", &root).await,
+            found
+        );
+        let modified = std::fs::metadata(&words).unwrap().modified().unwrap();
+        assert!(modified.elapsed().unwrap() > Duration::from_secs(60 * 60 * 24 * 30));
+        assert!(
+            server_lyrics(&signed_out, "sonic:track:tr2", &root)
+                .await
+                .is_none()
+        );
+        assert!(
+            server_lyrics(&signed_out, "sonic:track:tr3", &root)
+                .await
+                .is_none()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn a_stored_sign_in_is_retried_only_for_the_account_it_was_for() {

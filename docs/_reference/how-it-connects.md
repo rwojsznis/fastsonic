@@ -192,9 +192,16 @@ keeps the display on, and a sleep you ask for still happens.
 - When the lyrics panel is open and the server has no lyrics, Fastsonic sends
   the track's artist, title, album, and duration to
   [LRCLIB](https://lrclib.net). Lyrics are cached locally for a month.
-  When LRCLIB answers that it is busy, Fastsonic waits as long as it asks,
-  one second if it does not say and five at most, and asks again up to three
-  times before the panel shows an error.
+  When LRCLIB answers that it is busy (429), Fastsonic waits as long as it
+  asks, one second if it does not say, and asks again up to three times; a
+  short overload (502 to 504) is asked once more. A wait longer than five
+  seconds, or a `Retry-After` date, is never shortened: the panel shows an
+  error instead, and a click on it asks again. If the exact lookup is
+  briefly unavailable, LRCLIB's search is tried. One lookup gets 20 seconds
+  in all and each request five. A failed lookup is never saved as "no
+  lyrics"; lyrics found earlier, from the server or LRCLIB, still show
+  while either cannot answer, even after their month, and are replaced by
+  the next answer.
 - If update checks are enabled, Fastsonic asks GitHub's API once a day whether
   a newer release exists. **Check for updates** asks the same question once,
   whether or not the daily check is on. Fastsonic never downloads an update
