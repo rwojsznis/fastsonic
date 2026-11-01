@@ -15,6 +15,7 @@ Linux the default locations are:
 | Last session | `~/.local/state/fastsonic/session.json` | Yes |
 | Local play history | `~/.local/state/fastsonic/history.json` | Yes |
 | Current log | `~/.local/state/fastsonic/fastsonic.log` | Yes |
+| Previous run's log | `~/.local/state/fastsonic/fastsonic.previous.log` | Yes |
 | Crash log | `~/.local/state/fastsonic/panic.log` | Yes |
 | Audio cache | `~/.cache/fastsonic/audio/` | Always |
 | Artwork cache | `~/.cache/fastsonic/art/` | Always |
@@ -385,7 +386,9 @@ anyway, and on Linux it also opens when no panel shows the tray icon within
 
 `fastsonic -v` logs more from the audio engine and server API client. Attach
 `fastsonic.log` to bug reports and `panic.log` after a crash; credential values
-are redacted. A window that stops responding for a quarter of a second or more
+are redacted. Each start keeps the run before as `fastsonic.previous.log`, so
+after restarting a Fastsonic that hung, attach that one. A second launch that
+only brings the running window forward leaves both logs alone. A window that stops responding for a quarter of a second or more
 is logged as a warning with how long it stalled, at most once every ten
 seconds, the next warning counting the stalls in between.
 

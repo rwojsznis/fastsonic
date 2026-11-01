@@ -35,6 +35,7 @@ personalised Home sections that the protocol cannot answer. Those sections
 degrade to empty on another server or after that short-lived session expires;
 the library and player continue to work.
 
-Bug reports should include `fastsonic.log`, `panic.log` after a crash, and
-steps to reproduce the problem. See [Settings & Files](../_reference/settings-and-files.md)
+Bug reports should include `fastsonic.log` (or `fastsonic.previous.log`
+after restarting a Fastsonic that hung), `panic.log` after a crash, and steps
+to reproduce the problem. See [Settings & Files](../_reference/settings-and-files.md)
 for their locations.

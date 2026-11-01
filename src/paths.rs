@@ -20,7 +20,7 @@ const PORTABLE_MARKER: (&str, &str) = ("fastsonic-portable.txt", "fastsonic-port
 const DATA_FOLDER: &str = "fastsonic-data";
 /// Entries of the state folder a new portable folder does not copy: the
 /// logs of the installed copy's runs.
-const NOT_COPIED: &[&str] = &["fastsonic.log", "panic.log"];
+const NOT_COPIED: &[&str] = &["fastsonic.log", "fastsonic.previous.log", "panic.log"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppDirs {
@@ -139,9 +139,14 @@ impl AppDirs {
         self.state.join("credentials.json")
     }
 
-    /// The log of the current run, replaced at every start.
+    /// The log of the current run, started afresh at every start.
     pub fn log_file(&self) -> PathBuf {
         self.state.join("fastsonic.log")
+    }
+
+    /// The log of the run before, kept when the current one starts.
+    pub fn previous_log_file(&self) -> PathBuf {
+        self.state.join("fastsonic.previous.log")
     }
 
     /// Where a panic is recorded before the process dies of it.
@@ -422,6 +427,7 @@ mod tests {
             fs::create_dir_all(&installed.state).unwrap();
             fs::write(installed.state.join("credentials.json"), "signed in").unwrap();
             fs::write(installed.state.join("fastsonic.log"), "old run").unwrap();
+            fs::write(installed.state.join("fastsonic.previous.log"), "older run").unwrap();
             fs::create_dir_all(&installed.cache).unwrap();
             fs::write(installed.cache.join("art.bin"), "rebuildable").unwrap();
             Self {

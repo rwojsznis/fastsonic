@@ -397,13 +397,10 @@ fn main() -> eframe::Result<()> {
     let mut logger =
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter));
     // Launched from a desktop, stderr goes nowhere; keep the run's log where
-    // a bug report can find it.
-    match std::fs::File::create(dirs.log_file()) {
-        Ok(file) => {
-            logger.target(env_logger::Target::Pipe(Box::new(Tee(file))));
-        }
-        Err(error) => eprintln!("not keeping a log file: {error}"),
-    }
+    // a bug report can find it. The file opens once this run is the only
+    // instance, so a second launch leaves the running one's log alone.
+    let log_file = LogFile::default();
+    logger.target(env_logger::Target::Pipe(Box::new(Tee(log_file.clone()))));
     logger.init();
     log::info!(
         "Starting Fastsonic {} on {} ({})",
@@ -445,6 +442,9 @@ fn main() -> eframe::Result<()> {
     } else {
         None
     };
+    if let Err(error) = log_file.open(&dirs.log_file(), &dirs.previous_log_file()) {
+        log::warn!("not keeping a log file: {error}");
+    }
 
     // A capture run is a throwaway process next to the real one: no tray
     // icon of its own, and no second MPRIS service to fight over media keys.
@@ -727,7 +727,7 @@ fn headless_pass<T>(ctx: &egui::Context, tick: impl FnOnce(&egui::Context) -> T)
 }
 
 /// Every log line goes to stderr and to the log file.
-struct Tee(std::fs::File);
+struct Tee(LogFile);
 
 impl std::io::Write for Tee {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -739,6 +739,65 @@ impl std::io::Write for Tee {
     fn flush(&mut self) -> std::io::Result<()> {
         let _ = std::io::stderr().flush();
         self.0.flush()
+    }
+}
+
+/// The run's log file. Lines logged before [`LogFile::open`] wait in memory
+/// and are written first when it opens.
+#[derive(Clone, Default)]
+struct LogFile(std::sync::Arc<std::sync::Mutex<LogSink>>);
+
+enum LogSink {
+    Pending(Vec<u8>),
+    Open(std::fs::File),
+    Off,
+}
+
+impl Default for LogSink {
+    fn default() -> Self {
+        Self::Pending(Vec::new())
+    }
+}
+
+impl LogFile {
+    /// Starts `path` afresh, keeping the earlier run's file as `previous`,
+    /// so a run that hung and was killed still has its log after the
+    /// restart. Without a file, logging stays on stderr.
+    fn open(&self, path: &std::path::Path, previous: &std::path::Path) -> std::io::Result<()> {
+        use std::io::Write;
+        // The earlier run's log is worth more than a failed rename: the new
+        // file is made either way.
+        let _ = std::fs::rename(path, previous);
+        let mut sink = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let pending = match std::mem::replace(&mut *sink, LogSink::Off) {
+            LogSink::Pending(pending) => pending,
+            other => {
+                *sink = other;
+                return Ok(());
+            }
+        };
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(&pending)?;
+        *sink = LogSink::Open(file);
+        Ok(())
+    }
+}
+
+impl std::io::Write for LogFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match &mut *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) {
+            LogSink::Pending(pending) => pending.extend_from_slice(buf),
+            LogSink::Open(file) => file.write_all(buf)?,
+            LogSink::Off => {}
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match &mut *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) {
+            LogSink::Open(file) => file.flush(),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -1305,6 +1364,29 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod native_window_tests {
     use super::*;
+
+    /// The earlier run's log is kept beside the new one, which starts with
+    /// the lines logged before it opened.
+    #[test]
+    fn the_earlier_runs_log_is_kept_beside_the_new_one() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("fastsonic-log-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fastsonic.log");
+        let previous = dir.join("fastsonic.previous.log");
+        std::fs::write(&path, "the run that hung\n").unwrap();
+        std::fs::write(&previous, "an older run\n").unwrap();
+        let mut log = LogFile::default();
+        log.write_all(b"before\n").unwrap();
+        log.open(&path, &previous).unwrap();
+        log.write_all(b"after\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "before\nafter\n");
+        assert_eq!(
+            std::fs::read_to_string(&previous).unwrap(),
+            "the run that hung\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A slow update is logged with its length, once per stall, and a
     /// burst of stalls makes one warning that counts the rest.
