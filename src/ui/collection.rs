@@ -23,6 +23,8 @@ pub struct Hero<'a> {
     pub title: &'a str,
     pub description: Option<String>,
     pub byline: Vec<(String, Option<Page>)>,
+    /// Hover text for the byline entry at an index.
+    pub byline_tooltip: Option<(usize, String)>,
     pub round: bool,
 }
 
@@ -170,16 +172,21 @@ pub fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                     if index > 0 {
                         theme::text(ui, "•", theme::regular(13.5), palette.secondary);
                     }
-                    match page {
+                    let response = match page {
                         Some(page) => {
-                            if theme::link(ui, text, theme::semibold(13.5), palette.text).clicked()
-                            {
+                            let response =
+                                theme::link(ui, text, theme::semibold(13.5), palette.text);
+                            if response.clicked() {
                                 app.actions.push(Action::Open(page.clone()));
                             }
+                            response
                         }
-                        None => {
-                            theme::text(ui, text, theme::regular(13.5), palette.secondary);
-                        }
+                        None => theme::text(ui, text, theme::regular(13.5), palette.secondary),
+                    };
+                    if let Some((at, tooltip)) = &hero.byline_tooltip
+                        && *at == index
+                    {
+                        response.on_hover_text(tooltip);
                     }
                 }
             });
@@ -1430,6 +1437,7 @@ fn playlist_hero<'a>(
             title: &playlist.name,
             description: playlist.description.as_deref().map(util::strip_html),
             byline,
+            byline_tooltip: None,
             round: false,
         },
     );
@@ -1626,7 +1634,15 @@ fn album_hero(
         .iter()
         .map(|artist| (artist.name.clone(), artist.id.clone().map(Page::Artist)))
         .collect();
+    let mut byline_tooltip = None;
     if let Some(year) = album.year() {
+        // The whole day when the server knows it, else the year again.
+        let date = album
+            .release_date
+            .as_deref()
+            .filter(|date| date.len() >= 10)
+            .unwrap_or(year);
+        byline_tooltip = Some((byline.len(), util::format_date(date)));
         byline.push((year.to_string(), None));
     }
     let count = album.total_tracks.unwrap_or(tracks.items.len() as u32);
@@ -1656,6 +1672,7 @@ fn album_hero(
             title: &album.name,
             description: None,
             byline,
+            byline_tooltip,
             round: false,
         },
     );
@@ -1709,6 +1726,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             title: "Liked Songs",
             description: None,
             byline: vec![(user, None), (count_text, None)],
+            byline_tooltip: None,
             round: false,
         },
     );
@@ -2967,6 +2985,88 @@ mod tests {
                 tray: false,
             },
         )
+    }
+
+    /// Hovering an album's year shows the whole date it was released, or
+    /// the year when the server knows no day.
+    #[test]
+    fn an_albums_year_shows_its_release_date_on_hover() {
+        fn texts(shape: &egui::epaint::Shape, found: &mut Vec<(String, egui::Pos2)>) {
+            match shape {
+                egui::epaint::Shape::Text(text) => found.push((
+                    text.galley.job.text.clone(),
+                    text.pos + text.galley.rect.center().to_vec2(),
+                )),
+                egui::epaint::Shape::Vec(shapes) => {
+                    shapes.iter().for_each(|shape| texts(shape, found));
+                }
+                _ => {}
+            }
+        }
+        /// The text on screen while the pointer rests on the year.
+        fn hovering_the_year(release_date: &str) -> Vec<String> {
+            let mut app = test_app();
+            let single = Album {
+                name: "Lead Single".into(),
+                uri: "sonic:album:single".into(),
+                album_type: Some("single".into()),
+                release_date: Some(release_date.into()),
+                artists: vec![ArtistRef {
+                    name: "Artist".into(),
+                    ..Default::default()
+                }],
+                ..Album::default()
+            };
+            let tracks = PagedList::default();
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+            let mut time = 0.0;
+            let mut draw = |app: &mut App, events: Vec<egui::Event>| {
+                time += 1.0;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(1000.0, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| album_hero(app, ui, &single, &tracks, None),
+                );
+                output.textures_delta.clear();
+                let mut found = Vec::new();
+                output
+                    .shapes
+                    .iter()
+                    .for_each(|clipped| texts(&clipped.shape, &mut found));
+                found
+            };
+            let year = draw(&mut app, Vec::new())
+                .into_iter()
+                .find_map(|(text, pos)| (text == "2026").then_some(pos))
+                .expect("the byline shows the year");
+            for _ in 0..3 {
+                draw(&mut app, vec![egui::Event::PointerMoved(year)]);
+            }
+            let shown = draw(&mut app, vec![egui::Event::PointerMoved(year)]);
+            app.backend.shutdown();
+            shown.into_iter().map(|(text, _)| text).collect()
+        }
+
+        let shown = hovering_the_year("2026-10-05");
+        assert!(shown.iter().any(|text| text == "Oct 5, 2026"), "{shown:?}");
+        // Known only to the month or the year: the tooltip gives the year.
+        for date in ["2026-10", "2026"] {
+            let shown = hovering_the_year(date);
+            assert_eq!(
+                shown.iter().filter(|text| *text == "2026").count(),
+                2,
+                "{date}: {shown:?}"
+            );
+        }
     }
 
     #[test]

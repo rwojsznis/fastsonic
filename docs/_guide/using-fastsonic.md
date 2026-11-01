@@ -74,6 +74,14 @@ points. Fastsonic asks the server for the cover at the size it is shown, and
 keeps the header's copy on screen until that arrives. Click anywhere or press
 `Esc` to return to the page. Liked Songs' drawn cover has nothing to enlarge.
 
+## Release dates
+
+Hover over the year at the top of an album page to see the day it came out,
+such as "Oct 5, 2026", which the date below the songs also gives. The day
+comes from an OpenSubsonic server's release date, and only when it falls in
+the year the album shows; an album tagged only with its year shows the year
+again.
+
 ## Keyboard input
 
 In a playlist, album or Liked Songs, Up and Down move between songs in the

@@ -26,7 +26,9 @@ use crate::api::models::{
     SearchResults, Track, TrackCount, User,
 };
 
-use super::types::{AlbumId3, ArtistId3, ArtistInfo2, ArtistWithAlbumsId3, Child, SearchResult3};
+use super::types::{
+    AlbumId3, ArtistId3, ArtistInfo2, ArtistWithAlbumsId3, Child, ItemDate, SearchResult3,
+};
 use super::types::{Playlist as SubsonicPlaylist, User as SubsonicUser};
 
 /// The URI scheme this app addresses its own server's objects with.
@@ -329,7 +331,7 @@ pub fn album(album: &AlbumId3) -> Album {
             album.artist.as_ref(),
             album.artist_id.as_ref(),
         ),
-        release_date: album.year.map(|year| year.to_string()),
+        release_date: album_release_date(album),
         label: album.record_labels.first().map(|label| label.name.clone()),
         genres: album_genres(album),
         popularity: None,
@@ -337,6 +339,31 @@ pub fn album(album: &AlbumId3) -> Album {
         copyrights: Vec::new(),
         starred: Some(album.starred.is_some()),
     }
+}
+
+/// `YYYY-MM-DD` when the server knows the whole day, else the year.
+///
+/// `releaseDate` is this edition's, the one `year` describes, so it comes
+/// first; `originalReleaseDate` serves when it is the only full date. Either
+/// counts only within `year`, so the year the album shows never changes: a
+/// remaster's original date from decades before is not this album's day.
+fn album_release_date(album: &AlbumId3) -> Option<String> {
+    let full = |date: &ItemDate| match (date.year, date.month, date.day) {
+        (Some(year), Some(month), Some(day))
+            if album.year.is_none_or(|known| known == year)
+                && (1..=12).contains(&month)
+                && (1..=31).contains(&day) =>
+        {
+            Some(format!("{year:04}-{month:02}-{day:02}"))
+        }
+        _ => None,
+    };
+    album
+        .release_date
+        .as_ref()
+        .and_then(full)
+        .or_else(|| album.original_release_date.as_ref().and_then(full))
+        .or_else(|| album.year.map(|year| year.to_string()))
 }
 
 /// `Album::kind_label` reads this, and understands "single", "ep",
@@ -697,6 +724,40 @@ mod tests {
         assert_eq!(compilation.year(), Some("2024"));
         assert_eq!(compilation.genres, vec!["Test Tones".to_string()]);
         assert_eq!(compilation.total_tracks, Some(4));
+    }
+
+    /// The album's day when the server knows it whole; otherwise the year,
+    /// which a date from another year never displaces.
+    #[test]
+    fn an_album_dates_itself_to_the_day_the_server_knows() {
+        let date = |year, month, day| ItemDate { year, month, day };
+        let dated = |release, original| {
+            album(&AlbumId3 {
+                year: Some(2011),
+                release_date: release,
+                original_release_date: original,
+                ..AlbumId3::default()
+            })
+            .release_date
+        };
+        let full = Some(date(Some(2011), Some(3), Some(7)));
+        assert_eq!(dated(full, None).as_deref(), Some("2011-03-07"));
+        assert_eq!(dated(None, full).as_deref(), Some("2011-03-07"));
+        let other = Some(date(Some(2011), Some(9), Some(1)));
+        assert_eq!(dated(full, other).as_deref(), Some("2011-03-07"));
+        let partial = Some(date(Some(2011), Some(3), None));
+        assert_eq!(dated(partial, None).as_deref(), Some("2011"));
+        let remastered_from = Some(date(Some(1979), Some(5), Some(2)));
+        assert_eq!(dated(None, remastered_from).as_deref(), Some("2011"));
+        assert_eq!(
+            album(&AlbumId3 {
+                release_date: full,
+                ..AlbumId3::default()
+            })
+            .year(),
+            Some("2011")
+        );
+        assert_eq!(album(&AlbumId3::default()).release_date, None);
     }
 
     #[test]

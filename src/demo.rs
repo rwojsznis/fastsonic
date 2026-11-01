@@ -350,8 +350,12 @@ fn album(index: usize) -> Album {
         total_tracks: Some(record.songs.len() as u32),
         images: cover(200 + index as u32),
         artists: vec![artist_ref(record.artist)],
-        // A year is all the tag carries; there is no release day.
-        release_date: Some(record.year.to_string()),
+        // An OpenSubsonic server gives the day when the tags hold it; the
+        // second album is known only to the year, as older tags often are.
+        release_date: Some(match index {
+            1 => record.year.to_string(),
+            _ => format!("{}-03-1{}", record.year, index % 9),
+        }),
         label: record.label.map(str::to_string),
         genres: vec![record.genre.to_string()],
         // Neither a popularity score nor a copyright line is anything a
