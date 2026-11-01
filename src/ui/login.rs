@@ -136,14 +136,20 @@ fn card_contents(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             ui.add_space(16.0);
             if connecting {
                 ui.horizontal(|ui| {
-                    ui.add_space((ui.available_width() - 200.0).max(0.0) / 2.0);
-                    theme::spinner(ui, 18.0, palette.accent);
-                    theme::text(
-                        ui,
+                    let gap = ui.spacing().item_spacing.x;
+                    let galley = crate::bidi::layout(
+                        ui.painter(),
                         "Connecting to your server…",
                         theme::medium(14.0),
                         palette.text,
+                        (ui.available_width() - 18.0 - gap).max(0.0),
+                        1,
+                        Some(crate::bidi::ELLIPSIS),
                     );
+                    let width = 18.0 + gap + galley.size().x;
+                    ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
+                    theme::spinner(ui, 18.0, palette.accent);
+                    ui.add(egui::Label::new(galley).selectable(false));
                 });
                 ui.add_space(14.0);
                 if theme::pill_button(ui, &palette, "Cancel", false).clicked() {

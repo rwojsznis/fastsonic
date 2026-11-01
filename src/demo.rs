@@ -5971,6 +5971,36 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The spinner and its label are centred together, by the label's
+    /// measured width rather than a guess.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn connection_status_centers_the_spinner_and_label_together() {
+        let (ctx, mut app) = accessible_app("loading-status-centered");
+        apply_flags(&mut app, None, Some("connecting"));
+        for width in [760.0, 1280.0] {
+            let texts = view_frame_sized(
+                &ctx,
+                &mut app,
+                vec![],
+                App::frame_ui,
+                egui::vec2(width, 900.0),
+            );
+            let label = texts
+                .iter()
+                .find(|(text, _)| text == "Connecting to your server…")
+                .expect("connection status drawn")
+                .1;
+            let gap = ctx.style_of(egui::Theme::Dark).spacing.item_spacing.x;
+            let center = (label.left() - 18.0 - gap + label.right()) / 2.0;
+            assert!(
+                (center - width / 2.0).abs() < 1.0,
+                "status at {width} centred at {center}"
+            );
+        }
+        app.backend.shutdown();
+    }
+
     /// A window shorter than the card scrolls it, and the version follows the
     /// card instead of being drawn over it.
     #[cfg(feature = "demo")]
