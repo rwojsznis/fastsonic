@@ -636,3 +636,63 @@ Declined:
   `673aaed`, `cd9cd41`, `e5449a1`, `076aa3b`, `e53fa09`, `a31e35f`).
 - The website (`4ba5a6a`, `1bc082f`, `ebc0341`, `5730dbc`) and the
   releases themselves (`b6c939d`, `c2e41ee`, `3ce8b3f`, `3bc6bb4`).
+
+## Sync through upstream 0.15.0
+
+`upstream/v0.15.0` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+Most of the range is Soloist, upstream's managed Spotify playback, which
+has no counterpart here. Upstream moved its fastframe crates from 0.14.0
+to 0.15.2; the two behaviours it adopted through them were ported in-tree.
+
+Taken and adapted to Fastsonic:
+
+- Menus, tooltips and dialogs coloured from a palette that leaves
+  `overlay` out, as every bundled one does (`0f8cf68c`).
+- Turkish letters folded into the Winamp skin font (`cba8fa7b`).
+- The connection status centred by its measured width (`f2278d45`).
+- LRCLIB overloads retried and searched around, within a lookup budget,
+  and earlier found lyrics kept through an outage without caching it as a
+  miss (`af906d8e`); the same fallback for the server's own lyrics, where
+  upstream has it for Spotify's.
+- An album's full release date on hover over its year (`b708e0a6`), from
+  OpenSubsonic's `releaseDate`, or `originalReleaseDate` within the same
+  year.
+- Liked Songs rows played in the whole collection, and the playing row
+  kept marked when a song above it is unliked (`a2689f4d`).
+- The no-window dialog on macOS and Linux as well as Windows, with Windows
+  on ARM found at run time (`0511dd8a`, `f00ab3a0`, fastframe `b248f4d`,
+  `e4d95cd`, `32300f1`), in `src/no_window`, without the wgpu fallback.
+- The earlier run's log kept as `fastsonic.previous.log` (fastframe
+  `3424f5b`, through `5b6591bc`); the file opens only once this run is the
+  only instance, so a second launch no longer touches the running one's.
+- A release tag refused when it disagrees with `Cargo.toml` (`cd40da02`).
+- tokio 1.53.3, a security release (`4afff8ce`), with rustls, rustls-webpki,
+  hyper-util, flate2, clap, jiff, memmap2, objc2 and open at upstream's
+  versions (`646979b3`, `12735e28`, `55342480`, `2c837cad`, `f209d7a7`,
+  `69d45513`, `9a359d4d`, `a47f4310`, `e65e2281`, `f03d7d1b`).
+
+Already true here, or not applicable:
+
+- `372d5abf`: the flake already reads `Cargo.lock`. `028b86e9`: the fork's
+  CI has no native credential-store test. `f0864da2`, `c4b2ac3a`: the
+  fork depends on neither keyring-core nor mdns-sd.
+
+Declined:
+
+- Soloist (`55df7b9f`, `7349b95a`, `e3cdb08c`, `b324d7e4`, `80a3073d`,
+  `eee757ce`, `2abcf1b0`, `7232637c`, `deba936c`, `5566620f`, `2bb58d5b`,
+  `49ef1f70`, `3e0878d7`, `5aafc911`, `791c7fb3`, `01c2642d`, `9f6f17c4`)
+  and encoded names of Spotify local files (`b2264c68`).
+- The fastframe crates and their version moves (`5b6591bc`, `a73ba9eb`,
+  and `0511dd8a`, `f00ab3a0` beyond the behaviours taken above).
+- Only the MSI on Windows (`66507650`): the fork ships its Inno Setup
+  installer and the zip, and never shipped an MSI. Azure Artifact Signing
+  (`ab29f20a`): upstream's own signing account.
+- Upstream's CI scope for its shared runners (`09b74212`), Renovate
+  (`7632c5cc`, `efb831c3`, `f6813786`, `02c5cd0e`, `5ff240ba`), repository
+  policy (`ec48b3cf`), triage (`0332b91c`, `a5f7e1c4`) and AUR
+  (`41869199`).
+- The website (`197ee4d6`, `2c8b9975`, `699accfd`, `6b85cc20`) and the
+  release itself (`1216c48b`).
