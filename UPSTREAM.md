@@ -696,3 +696,69 @@ Declined:
   (`41869199`).
 - The website (`197ee4d6`, `2c8b9975`, `699accfd`, `6b85cc20`) and the
   release itself (`1216c48b`).
+
+## Sync through upstream 0.16.0
+
+`upstream/v0.16.0` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+Much of the range is again Soloist and Spotify's own services. Upstream
+moved its fastframe crates from 0.15.2 to 0.15.4; neither behaviour they
+add applies here (Linux real-time audio promotion with no CPU budget, which
+the fork's output never asks for, and a Dock-only macOS mode upstream does
+not use).
+
+Taken and adapted to Fastsonic:
+
+- Windows Media Player skins (`.wmz`, `.zip` or a folder) in the mini
+  player, beside Winamp skins, with Settings' Mini player section split by
+  skin kind and Random as a switch (`d722d489`). GIF pictures decode
+  through image's `gif` feature.
+- Settings > Storage shows the size of the artwork cache, the audio cache
+  and the play history, measured on the backend runtime while the section
+  is visible, and Clear audio runs there too, emptying what an earlier run
+  left even with audio caching off (`04298fd3`), without the librespot
+  cache accounting.
+- A Copy details submenu in the song menu: title, artist, and
+  "Artist - Title" (`7ccf2450`); Copy link keeps the server's URI.
+- Web links in a playlist's description open in the browser (`0a152975`),
+  including bare `http(s)://` addresses in a Subsonic comment, without
+  upstream's in-app Spotify links.
+- The artist page keeps its scroll when a discography category first loads
+  (`f51f512d`).
+- With shuffle on, the header Play of a sorted or filtered list starts at a
+  random shown row (`f5615772`), which includes the radio page's Play.
+- MilkDrop's Time per preset counted by Fastsonic against the current
+  setting, so a change applies to the playing preset and a preset that
+  fails to load no longer stops automatic changes (`8b5ed04f`).
+- A portable copy keeps eframe's `app.ron` in its own folder, seeded from
+  the per-user file on its first run (`e1b501be`).
+- A Linux window restored full screen by the compositor, with no
+  fullscreen lyrics behind it, opens as a window (`094b2fa2`).
+- The album and cover of a song added to a playlist from the player bar
+  (`fcde734e`).
+- Accessible names and focus rings for the topbar's buttons and the player
+  bar's loading disc (`8b7ca39d`).
+
+Already true here, or not applicable:
+
+- `93b6b829`: the fork's update check already uses the backend's one HTTP
+  client and downloads nothing.
+- `773c9227`: the skin sliders already preview a drag; the rest is
+  Soloist's volume.
+- `9e98f028`: sorting album songs by plays needs a Plays column the fork
+  left out on purpose (see the 0.14.2 sync, `247c2ac`).
+
+Declined:
+
+- Soloist (`abdf8ca5`, `8ef20c7b`, `08ad0c8d`, `d0759ec7`, `e785c531`,
+  `f2690aa9`, `d09ae88b`, `38ac1bc6`, `a9bb1d70`), its Flatpak PipeWire
+  socket (`9b7d7982`) and its Nix test fixes (`5f716802`, `fdbb6123`).
+- Spotify Connect and remote devices (`14641bff`, `c4da45ec`, `22c5110a`),
+  the Spotify session's Popular retries (`932ca444`), Home recommendations
+  (`255c6fb7`), monthly listeners (`38832e64`), upcoming releases
+  (`9bc5b21b`), hidden songs (`ccab2890`), playlist folders under By You
+  (`e1cfc72b`) and playlist snapshot rechecks (`da9f70bb`).
+- The fastframe crates and their version move (`91b511ad`) and the
+  translation catalogues (`758651b1`).
+- The website (`796393c4`) and the release itself (`2a57faf1`).
