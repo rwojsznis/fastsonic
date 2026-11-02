@@ -445,6 +445,14 @@ pub enum Command {
     /// and writes a file, the registry or D-Bus, and the Flatpak portal may
     /// ask the person first.
     Autostart(crate::autostart::Request),
+    /// Measure what Settings > Storage shows, for `generation` of
+    /// [`crate::storage::Usage`].
+    MeasureStorage {
+        generation: u64,
+    },
+    /// Empty the audio cache: through the cache that owns it, so its budget
+    /// keeps count, or the folder itself when none does.
+    ClearAudioCache(Option<Arc<crate::engine::Cache>>),
 }
 
 /// What a sign-in attempt produced, on its way back to the command loop.
@@ -495,6 +503,13 @@ pub enum Event {
         request: crate::autostart::Request,
         result: Result<crate::autostart::State, String>,
     },
+    /// What Settings > Storage shows, measured for `generation`.
+    StorageMeasured {
+        generation: u64,
+        sizes: crate::storage::Sizes,
+    },
+    /// The audio cache was emptied, freeing this many bytes, or why not.
+    AudioCacheCleared(Result<u64, String>),
     /// A playlist's items as last cached, with the snapshot they belong to.
     PlaylistCache {
         account_id: String,
@@ -681,15 +696,24 @@ impl Backend {
         &self.activity
     }
 
-    /// Stops server-bound commands from leaving the process; artwork and
-    /// shutdown still work. Used by the demo mode and by headless tests.
+    /// Stops server-bound commands from leaving the process; artwork,
+    /// storage on the disk and shutdown still work. Used by the demo mode
+    /// and by headless tests.
     #[cfg_attr(not(any(test, feature = "demo")), allow(dead_code))]
     pub fn set_offline(&mut self, offline: bool) {
         self.offline = offline;
     }
 
     pub fn send(&self, command: Command) {
-        if self.offline && !matches!(command, Command::Accent { .. } | Command::Shutdown) {
+        if self.offline
+            && !matches!(
+                command,
+                Command::Accent { .. }
+                    | Command::MeasureStorage { .. }
+                    | Command::ClearAudioCache(_)
+                    | Command::Shutdown
+            )
+        {
             return;
         }
         let _ = self.commands.send(command);
@@ -856,11 +880,45 @@ impl Worker {
                         waker.wake();
                     });
                 }
+                Command::MeasureStorage { generation } => self.measure_storage(generation),
+                Command::ClearAudioCache(cache) => self.clear_audio_cache(cache),
             }
         }
         if let Some(engine) = self.engine.take() {
             engine.shutdown();
         }
+    }
+
+    // ---- storage ----------------------------------------------------------
+
+    /// Walks the storage folders on a blocking thread, which may wait for
+    /// the disk as long as it likes: the commands go on meanwhile.
+    fn measure_storage(&self, generation: u64) {
+        let dirs = self.dirs.clone();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::task::spawn_blocking(move || {
+            let sizes = crate::storage::measure_all(&dirs);
+            let _ = events.send(Event::StorageMeasured { generation, sizes });
+            waker.wake();
+        });
+    }
+
+    /// Empties the audio cache on a blocking thread, so a slow disk holds up
+    /// neither the interface nor the player's commands.
+    fn clear_audio_cache(&self, cache: Option<Arc<crate::engine::Cache>>) {
+        let folder = self.dirs.audio_cache_dir();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = match cache {
+                Some(cache) => Ok(cache.clear()),
+                None => crate::storage::clear_folder(&folder)
+                    .map_err(|error| format!("{}: {error}", folder.display())),
+            };
+            let _ = events.send(Event::AudioCacheCleared(result));
+            waker.wake();
+        });
     }
 
     // ---- sign-in ----------------------------------------------------------

@@ -144,6 +144,22 @@ A playlist read in full is kept in the playlist cache under the server's
 time still matches and the cache holds as many songs as the server counts;
 otherwise the cache is dropped and the songs load from the server.
 
+Settings → Storage shows how much the artwork cache, the audio cache and the
+play history take beside their names, in decimal units (1 MB is 1,000,000
+bytes). The sizes are measured in the background while the section is on
+screen, again about every five seconds, and again after each clear. A folder
+that cannot be read shows Unavailable rather than part of its size. They are
+file sizes, never read from the files' contents; links are not followed. The
+artwork size counts the files **Clear artwork** removes, and the audio size
+includes its nested folders.
+
+**Clear audio** empties the audio cache in the background, and the button
+says Clearing… until it is done. With audio caching switched off it still
+removes what an earlier run left in the folder. It keeps the folder itself,
+the sign-in, the history and every setting. Playback goes on, reading from
+the server what is no longer on the disk, and fills the cache again as it
+plays.
+
 Clearing caches never signs you out. `credentials.json` contains a salted
 Subsonic token, not the password, plus a short-lived Navidrome session when
 available, and any [extra headers](how-it-connects.md#extra-headers) entered

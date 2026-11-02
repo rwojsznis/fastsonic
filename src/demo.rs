@@ -7764,6 +7764,9 @@ mod tests {
             view,
             size,
         );
+        // The tall page shows Storage too, which asks for its sizes.
+        app.actions
+            .retain(|action| !matches!(action, Action::MeasureStorage));
         assert!(matches!(
             app.actions.as_slice(),
             [Action::SetSkin(Some(name))] if name == "chrome.zip"
@@ -7836,6 +7839,111 @@ mod tests {
             pointer_click(egui::pos2(50.0, 20.0), egui::PointerButton::Primary),
         );
         assert!(matches!(app.actions.as_slice(), [Action::Next]));
+        app.backend.shutdown();
+    }
+
+    /// Settings > Storage names each size beside its row, measured in the
+    /// background, and measures again after each clear. Only the Settings
+    /// page is drawn: the rest of the demo would fetch covers into the
+    /// artwork cache under test.
+    #[test]
+    fn storage_shows_measured_sizes_and_refreshes_after_clearing() {
+        use crate::storage::Size;
+        let (ctx, mut app) = accessible_app("storage-sizes");
+        app.audio_cache = None;
+        let _ = std::fs::remove_dir_all(app.dirs.art_cache_dir());
+        let _ = std::fs::remove_dir_all(app.dirs.audio_cache_dir());
+        std::fs::create_dir_all(&app.dirs.state).unwrap();
+        std::fs::create_dir_all(app.dirs.art_cache_dir()).unwrap();
+        std::fs::create_dir_all(app.dirs.audio_cache_dir().join("nested")).unwrap();
+        std::fs::write(app.dirs.art_cache_dir().join("sample"), [0; 13]).unwrap();
+        std::fs::write(app.dirs.audio_cache_dir().join("nested/sample"), [0; 27]).unwrap();
+        std::fs::write(app.dirs.history_file(), [b' '; 1_500]).unwrap();
+        // One frame of the page, without taking the backend's answers.
+        let painted = |app: &mut App| -> Vec<String> {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 20_000.0),
+                )),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| crate::ui::settings::show(app, ui));
+            output.textures_delta.clear();
+            for action in std::mem::take(&mut app.actions) {
+                app.apply(action, &ctx);
+            }
+            let mut said = Vec::new();
+            fn walk(shape: &egui::epaint::Shape, said: &mut Vec<String>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => said.push(text.galley.job.text.clone()),
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| walk(shape, said))
+                    }
+                    _ => {}
+                }
+            }
+            for clipped in &output.shapes {
+                walk(&clipped.shape, &mut said);
+            }
+            said
+        };
+        let wait = |app: &mut App, expected: [Size; 3]| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                painted(app);
+                app.background_frame(&ctx);
+                if app.storage_usage.sizes == expected {
+                    break painted(app);
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "expected {expected:?}, got {:?}",
+                    app.storage_usage.sizes
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+
+        let said = wait(
+            &mut app,
+            [Size::Bytes(13), Size::Bytes(27), Size::Bytes(1_500)],
+        );
+        for label in [
+            "Artwork cache · 13 B",
+            "Audio cache · 27 B",
+            "Play history · 1.5 kB",
+        ] {
+            assert!(said.iter().any(|text| text == label), "{label}: {said:?}");
+        }
+
+        app.apply(Action::ClearArtCache, &ctx);
+        let said = painted(&mut app);
+        assert!(
+            said.iter().any(|text| text == "Artwork cache · Checking…"),
+            "{said:?}"
+        );
+        wait(
+            &mut app,
+            [Size::Bytes(0), Size::Bytes(27), Size::Bytes(1_500)],
+        );
+
+        app.apply(Action::ClearAudioCache, &ctx);
+        assert!(painted(&mut app).iter().any(|text| text == "Clearing…"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.clearing_audio_cache {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "audio clear timed out"
+            );
+            app.background_frame(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(painted(&mut app).iter().any(|text| text == "Clear audio"));
+        wait(
+            &mut app,
+            [Size::Bytes(0), Size::Bytes(0), Size::Bytes(1_500)],
+        );
         app.backend.shutdown();
     }
 }

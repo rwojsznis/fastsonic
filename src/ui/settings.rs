@@ -6,6 +6,7 @@ use crate::api::models::pick_image;
 use crate::app::App;
 use crate::model::{Action, Dialog};
 use crate::settings::ThemeChoice;
+use crate::storage::Size;
 use crate::theme::{self, Icon, Palette, custom::display_name};
 use crate::winamp::SkinKind;
 
@@ -1173,10 +1174,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     });
 
     section(ui, &palette, "Storage", |ui| {
+        let [art_size, audio_size, history_size] = app.storage_usage.sizes.map(Size::label);
         widgets::setting_row(
             ui,
             &palette,
-            "Artwork cache",
+            &format!("Artwork cache · {art_size}"),
             &format!("Stored in {}", app.dirs.art_cache_dir().display()),
             |ui| {
                 if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear artwork", false)
@@ -1189,10 +1191,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Audio cache",
+            &format!("Audio cache · {audio_size}"),
             &format!("Stored in {}", app.dirs.audio_cache_dir().display()),
             |ui| {
-                if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear audio", false)
+                let clearing = app.clearing_audio_cache;
+                let label = if clearing {
+                    "Clearing…"
+                } else {
+                    "Clear audio"
+                };
+                if ui
+                    .add_enabled_ui(!clearing, |ui| {
+                        theme::soft_button(ui, &palette, Some(Icon::Trash), label, false)
+                    })
+                    .inner
                     .clicked()
                 {
                     app.actions.push(Action::ClearAudioCache);
@@ -1202,7 +1214,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Play history",
+            &format!("Play history · {history_size}"),
             &format!(
                 "Tracks played here are stored in {}. This file is never uploaded.",
                 app.dirs.history_file().display()
@@ -1225,6 +1237,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ),
             |_| {},
         );
+        // Sizes are measured only while they can be seen.
+        if ui.is_rect_visible(ui.min_rect()) {
+            app.actions.push(Action::MeasureStorage);
+        }
     });
 
     section(ui, &palette, "About", |ui| {

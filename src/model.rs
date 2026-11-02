@@ -1037,9 +1037,12 @@ pub enum Action {
     ShowWindow,
     HideWindow,
     ClearArtCache,
+    /// Empty the audio cache on the backend runtime.
     ClearAudioCache,
     /// Clear local play history.
     ClearPlayHistory,
+    /// Settings > Storage is on screen: measure its sizes when they are due.
+    MeasureStorage,
     /// Open or close the Winamp window.
     ToggleWinampWindow,
     /// Select a skin, or the built-in skin for `None`.

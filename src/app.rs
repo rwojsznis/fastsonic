@@ -414,6 +414,10 @@ pub struct App {
     /// The bytes of streams kept on disk, shared with the engine and held
     /// here so that replacing the engine does not rescan them (P3.6).
     pub audio_cache: Option<std::sync::Arc<crate::engine::Cache>>,
+    /// What Settings > Storage shows beside each row.
+    pub storage_usage: crate::storage::Usage,
+    /// The audio cache is being emptied on the backend runtime.
+    pub clearing_audio_cache: bool,
     /// A local volume set here that the engine has not echoed back yet. It
     /// reports `VolumeChanged` asynchronously while position snapshots land
     /// every second, so a snapshot must not undo the change on its way past.
@@ -730,6 +734,8 @@ impl App {
             server_headers_open: false,
             account_id: None,
             audio_cache,
+            storage_usage: crate::storage::Usage::default(),
+            clearing_audio_cache: false,
             pending_local_volume: None,
             held_seek: None,
             optimistic_playing: None,
@@ -1598,8 +1604,16 @@ impl App {
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
             // Offline, as in demo mode, only colours read from cover art
-            // come through: the backend still reads them there.
-            if self.offline && !matches!(event, Event::Accent { .. }) {
+            // and what the disk answers come through: the backend still
+            // reads and clears those there.
+            if self.offline
+                && !matches!(
+                    event,
+                    Event::Accent { .. }
+                        | Event::StorageMeasured { .. }
+                        | Event::AudioCacheCleared(_)
+                )
+            {
                 continue;
             }
             match event {
@@ -1653,6 +1667,23 @@ impl App {
                 }
                 Event::Queue(queue) => self.handle_queue(*queue),
                 Event::Autostart { request, result } => self.on_autostart(request, result),
+                Event::StorageMeasured { generation, sizes } => {
+                    self.storage_usage
+                        .measured(generation, sizes, Instant::now());
+                }
+                Event::AudioCacheCleared(result) => {
+                    self.clearing_audio_cache = false;
+                    self.storage_usage.invalidate();
+                    match result {
+                        Ok(bytes) => self.toast(format!(
+                            "Cleared {} of audio",
+                            crate::storage::format_bytes(bytes)
+                        )),
+                        Err(error) => {
+                            self.toast_error(format!("Couldn't clear the audio cache: {error}"));
+                        }
+                    }
+                }
                 Event::UpdateChecked { manual, result } => {
                     self.update_checking = false;
                     match result {
@@ -5594,37 +5625,45 @@ impl App {
                 });
             }
             Action::ClearPlayHistory => {
+                self.storage_usage.invalidate();
                 self.plays.clear();
                 self.save_plays();
                 self.rebuild_recents();
                 self.toast("Play history cleared".to_string());
             }
-            Action::ClearArtCache => match self.backend.art().clear_disk_cache() {
-                Ok(bytes) => {
-                    ctx.forget_all_images();
-                    // The media controls hold a path into what was just
-                    // deleted; forget it, or the next sync hands the system
-                    // a file that is no longer there.
-                    self.media_art = None;
-                    self.toast(format!(
-                        "Cleared {:.1} MB of artwork",
-                        bytes as f64 / 1_048_576.0
-                    ));
+            Action::ClearArtCache => {
+                self.storage_usage.invalidate();
+                match self.backend.art().clear_disk_cache() {
+                    Ok(bytes) => {
+                        ctx.forget_all_images();
+                        // The media controls hold a path into what was just
+                        // deleted; forget it, or the next sync hands the
+                        // system a file that is no longer there.
+                        self.media_art = None;
+                        self.toast(format!(
+                            "Cleared {} of artwork",
+                            crate::storage::format_bytes(bytes)
+                        ));
+                    }
+                    Err(error) => self.toast_error(format!("Couldn't clear artwork: {error}")),
                 }
-                Err(error) => self.toast_error(format!("Couldn't clear artwork: {error}")),
-            },
-            Action::ClearAudioCache => match &self.audio_cache {
-                Some(cache) => {
-                    let bytes = cache.clear();
-                    self.toast(format!(
-                        "Cleared {:.1} MB of audio",
-                        bytes as f64 / 1_048_576.0
-                    ));
+            }
+            // Through the cache when it is on, so its budget keeps count;
+            // when it is off, what an earlier run left in its folder.
+            Action::ClearAudioCache => {
+                if !self.clearing_audio_cache {
+                    self.clearing_audio_cache = true;
+                    self.backend
+                        .send(Command::ClearAudioCache(self.audio_cache.clone()));
                 }
-                // The switch above it is off, so there is nothing on disk
-                // this app put there.
-                None => self.toast("The audio cache is switched off"),
-            },
+            }
+            Action::MeasureStorage => {
+                let now = Instant::now();
+                if let Some(generation) = self.storage_usage.due(now) {
+                    self.backend.send(Command::MeasureStorage { generation });
+                }
+                ctx.request_repaint_after(self.storage_usage.refresh_in(now));
+            }
             Action::ToggleWinampWindow => {
                 // One window at a time: this one closes and the loop in
                 // `main` opens the other kind where each was last.
@@ -13372,6 +13411,106 @@ mod tests {
         assert!(named(Role::Button, "Forward").is_some());
         assert!(named(Role::Button, &user).is_some(), "the account button");
         assert!(named(Role::ProgressIndicator, "Loading…").is_some());
+        app.backend.shutdown();
+    }
+
+    /// Clear audio works on the backend runtime, offline as in demo mode
+    /// too, with audio caching off: what an earlier run left goes, the
+    /// button says Clearing… until then, and a second press asks nothing.
+    #[test]
+    fn clearing_audio_runs_in_the_background_and_lets_the_button_go() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.offline = true;
+        app.backend.set_offline(true);
+        app.audio_cache = None;
+        let audio = app.dirs.audio_cache_dir();
+        std::fs::create_dir_all(audio.join("song")).unwrap();
+        std::fs::write(audio.join("song/00000000"), [0; 2_500]).unwrap();
+        app.storage_usage.sizes = [crate::storage::Size::Bytes(2_500); 3];
+
+        app.apply(Action::ClearAudioCache, &ctx);
+        assert!(app.clearing_audio_cache);
+        app.apply(Action::ClearAudioCache, &ctx);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.clearing_audio_cache {
+            assert!(Instant::now() < deadline, "the clear never answered");
+            std::thread::sleep(Duration::from_millis(5));
+            app.handle_events();
+        }
+
+        assert!(audio.is_dir(), "the folder stays");
+        assert_eq!(std::fs::read_dir(&audio).unwrap().count(), 0);
+        assert_eq!(app.storage_usage.sizes, [crate::storage::Size::Checking; 3]);
+        let messages: Vec<&str> = app
+            .toasts
+            .iter()
+            .map(|toast| toast.message.as_str())
+            .collect();
+        assert_eq!(
+            messages,
+            ["Cleared 2.5 kB of audio"],
+            "one clear, one answer"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_failed_audio_clear_lets_the_button_go_and_says_why() {
+        let mut app = headless_app();
+        app.offline = true;
+        app.clearing_audio_cache = true;
+        app.storage_usage.sizes = [crate::storage::Size::Bytes(100); 3];
+        app.handle_backend_events(vec![Event::AudioCacheCleared(Err(
+            "audio: Permission denied".into(),
+        ))]);
+        assert!(!app.clearing_audio_cache);
+        assert_eq!(app.storage_usage.sizes, [crate::storage::Size::Checking; 3]);
+        assert_eq!(
+            app.toasts
+                .last()
+                .map(|toast| (toast.message.as_str(), &toast.kind)),
+            Some((
+                "Couldn't clear the audio cache: audio: Permission denied",
+                &ToastKind::Error
+            ))
+        );
+        app.backend.shutdown();
+    }
+
+    /// Sizes are measured on the backend runtime, offline too, and one
+    /// asked for before a clear never puts the old size back.
+    #[test]
+    fn storage_sizes_come_from_the_backend_and_a_clear_drops_older_ones() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.offline = true;
+        app.backend.set_offline(true);
+        std::fs::create_dir_all(app.dirs.art_cache_dir()).unwrap();
+        std::fs::write(app.dirs.art_cache_dir().join("cover"), [0; 13]).unwrap();
+
+        app.apply(Action::MeasureStorage, &ctx);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.storage_usage.sizes[0] == crate::storage::Size::Checking {
+            assert!(Instant::now() < deadline, "the measurement never answered");
+            std::thread::sleep(Duration::from_millis(5));
+            app.handle_events();
+        }
+        assert_eq!(
+            app.storage_usage.sizes,
+            [
+                crate::storage::Size::Bytes(13),
+                crate::storage::Size::Bytes(0),
+                crate::storage::Size::Bytes(0)
+            ]
+        );
+
+        app.storage_usage.invalidate();
+        app.handle_backend_events(vec![Event::StorageMeasured {
+            generation: 0,
+            sizes: [crate::storage::Size::Bytes(13); 3],
+        }]);
+        assert_eq!(app.storage_usage.sizes, [crate::storage::Size::Checking; 3]);
         app.backend.shutdown();
     }
 }

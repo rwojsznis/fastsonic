@@ -49,6 +49,7 @@ pub mod settings;
 pub mod single_instance;
 pub mod sink;
 pub mod skin;
+pub mod storage;
 pub mod system_fonts;
 pub mod text_rendering;
 pub mod theme;
