@@ -1,12 +1,13 @@
 //! The Settings page.
 
-use egui::{Align, CornerRadius, Frame, Layout, Margin, Stroke, Vec2};
+use egui::{Align, CornerRadius, Frame, Layout, Margin, Stroke, Vec2, vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::model::{Action, Dialog};
 use crate::settings::ThemeChoice;
 use crate::theme::{self, Icon, Palette, custom::display_name};
+use crate::winamp::SkinKind;
 
 use super::widgets;
 
@@ -183,6 +184,42 @@ fn frame_rate_dial(ui: &mut egui::Ui, palette: &Palette, screen_hz: u32, fps: u3
     } else {
         None
     }
+}
+
+/// What a Windows Media Player skin leaves out, said once one is chosen.
+const WMP_CAVEAT: &str =
+    "This skin has no equalizer or playlist window, and its scripts do not run.";
+
+/// A line of explanation under a skin part's title, wrapped to the width
+/// like a setting row's description.
+fn skin_note(ui: &mut egui::Ui, palette: &Palette, text: &str) {
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(text)
+                .font(theme::regular(12.5))
+                .color(palette.secondary),
+        )
+        .wrap(),
+    );
+}
+
+/// One kind of skin inside the mini player's section: a title that stands
+/// out, and what belongs to it underneath.
+fn skin_part(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    title: &str,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    ui.horizontal(|ui| {
+        let (bar, _) = ui.allocate_exact_size(vec2(4.0, 22.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(bar, CornerRadius::same(2), palette.accent);
+        theme::text(ui, title, theme::bold(18.0), palette.text);
+    });
+    ui.add_space(6.0);
+    add_contents(ui);
+    ui.add_space(14.0);
 }
 
 fn section(
@@ -763,14 +800,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
     });
 
-    section(ui, &palette, "Winamp skins", |ui| {
+    section(ui, &palette, "Mini player", |ui| {
         widgets::setting_row(
             ui,
             &palette,
-            "Mini player",
+            "Show the mini player",
             super::keys::platform_shortcut(
-                "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to return. Drop a skin on either window to add it.",
-                "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to return. Drop a skin on either window to add it.",
+                "Use a Winamp or Windows Media Player skin. Press Ctrl+M to return. Drop a skin on either window to add it.",
+                "Use a Winamp or Windows Media Player skin. Press Cmd+Shift+M to return. Drop a skin on either window to add it.",
             ),
             |ui| {
                 if theme::pill_button(ui, &palette, "Switch to it", true).clicked() {
@@ -779,92 +816,117 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             },
         );
         let folder = app.dirs.skins_dir();
-        app.winamp.refresh_choices(&folder);
-        widgets::setting_row(
-            ui,
-            &palette,
-            "Skin",
-            &format!(
-                "Installed skins are in {}. Find more at the Winamp Skin Museum.",
-                folder.display()
-            ),
-            |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    if theme::soft_button(ui, &palette, Some(Icon::Globe), "Skin Museum", false)
-                        .clicked()
-                    {
-                        app.actions
-                            .push(Action::OpenUrl("https://skins.webamp.org/".into()));
-                    }
-                    if theme::soft_button(
-                        ui,
-                        &palette,
-                        Some(Icon::ExternalLink),
-                        "Open folder",
-                        false,
-                    )
-                    .clicked()
-                    {
-                        app.actions.push(Action::OpenSkinsFolder);
-                    }
-                });
-            },
-        );
+        app.winamp.poll_choices();
+        app.winamp.refresh_choices(&folder, ui.ctx());
         let choices = app.winamp.choices.clone();
-        const RANDOM: usize = usize::MAX;
-        let mut options: Vec<(usize, &str)> = vec![(RANDOM, "Random"), (0, "Fastsonic")];
-        options.extend(
-            choices
-                .iter()
-                .enumerate()
-                .map(|(index, choice)| (index + 1, choice.label())),
-        );
         let showing = app
             .settings
             .skin
             .as_deref()
-            .and_then(|name| choices.iter().position(|choice| choice.name == name))
-            .map_or(0, |index| index + 1);
-        let current = if app.settings.random_skin {
-            RANDOM
-        } else {
-            showing
-        };
-        if let Some(picked) = widgets::chips(ui, &palette, &options, current)
-            && picked != current
-        {
-            if picked == RANDOM {
-                app.actions.push(Action::SetRandomSkin(true));
-            } else {
-                let name = picked
-                    .checked_sub(1)
-                    .map(|index| choices[index].name.clone());
-                app.actions.push(Action::SetSkin(name));
-            }
-        }
-        if app.settings.random_skin {
-            let label = options
-                .iter()
-                .find(|(value, _)| *value == showing)
-                .map_or("Fastsonic", |(_, label)| *label);
-            theme::subtle(
+            .and_then(|name| choices.iter().position(|choice| choice.name == name));
+        skin_part(ui, &palette, "Winamp", |ui| {
+            skin_note(
                 ui,
                 &palette,
                 &format!(
-                    "Now showing {label}. Another skin is picked each time the mini player opens."
+                    "Classic .wsz skins. Installed skins are in {}. Find more at the Winamp Skin Museum.",
+                    folder.display()
                 ),
             );
-        }
-        ui.add_space(4.0);
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                if theme::soft_button(ui, &palette, Some(Icon::Globe), "Skin Museum", false)
+                    .clicked()
+                {
+                    app.actions
+                        .push(Action::OpenUrl("https://skins.webamp.org/".into()));
+                }
+                if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), "Open folder", false)
+                    .clicked()
+                {
+                    app.actions.push(Action::OpenSkinsFolder);
+                }
+            });
+            ui.add_space(6.0);
+            let mut options: Vec<(usize, &str)> = vec![(0, "Fastsonic")];
+            options.extend(
+                choices
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, choice)| choice.kind == SkinKind::Winamp)
+                    .map(|(index, choice)| (index + 1, choice.label())),
+            );
+            // With a Windows Media Player skin on, nothing here is.
+            let current = match showing {
+                None => 0,
+                Some(index) if choices[index].kind == SkinKind::Winamp => index + 1,
+                Some(_) => usize::MAX,
+            };
+            if let Some(picked) = widgets::chips(ui, &palette, &options, current)
+                && picked != current
+            {
+                app.actions.push(Action::SetSkin(
+                    picked
+                        .checked_sub(1)
+                        .map(|index| choices[index].name.clone()),
+                ));
+            }
+        });
+        skin_part(ui, &palette, "Windows Media Player", |ui| {
+            skin_note(
+                ui,
+                &palette,
+                "Windows Media Player .wmz skins. Drop one on either window to add it.",
+            );
+            let options: Vec<(usize, &str)> = choices
+                .iter()
+                .enumerate()
+                .filter(|(_, choice)| choice.kind == SkinKind::WindowsMediaPlayer)
+                .map(|(index, choice)| (index, choice.label()))
+                .collect();
+            ui.add_space(6.0);
+            if options.is_empty() {
+                skin_note(ui, &palette, "None installed yet.");
+            } else {
+                let current = showing
+                    .filter(|index| choices[*index].kind == SkinKind::WindowsMediaPlayer)
+                    .unwrap_or(usize::MAX);
+                if let Some(picked) = widgets::chips(ui, &palette, &options, current)
+                    && picked != current
+                {
+                    app.actions
+                        .push(Action::SetSkin(Some(choices[picked].name.clone())));
+                }
+            }
+            if showing.is_some_and(|index| choices[index].kind == SkinKind::WindowsMediaPlayer) {
+                ui.add_space(6.0);
+                skin_note(ui, &palette, WMP_CAVEAT);
+            }
+        });
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Random skin",
+            "Pick another skin each time the mini player opens.",
+            |ui| {
+                let mut random = app.settings.random_skin;
+                if widgets::switch(ui, &palette, "Random skin", &mut random).changed() {
+                    app.actions.push(Action::SetRandomSkin(random));
+                }
+            },
+        );
         widgets::setting_row(
             ui,
             &palette,
             "Size",
             "Whole-number scaling keeps skin pixels sharp.",
             |ui| {
-                let scale =
-                    crate::winamp::WinampState::scale(&app.settings, ui.ctx().pixels_per_point());
+                let scale = crate::winamp::WinampState::scale(
+                    &app.settings,
+                    ui.ctx().pixels_per_point(),
+                    &app.winamp.skin,
+                );
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     for candidate in 1..=crate::winamp::MAX_SCALE {
@@ -884,7 +946,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             "Always on top",
             if app.window_level_supported {
-                "Keep the Winamp window above everything else."
+                "Keep the mini player above everything else."
             } else {
                 crate::window::ON_TOP_UNAVAILABLE
             },
@@ -905,8 +967,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 "Keep a taskbar button for the mini player. The tray icon stays available when hidden.",
                 |ui| {
                     let mut visible = app.settings.winamp_show_taskbar;
-                    if widgets::switch(ui, &palette, "Show Winamp in taskbar", &mut visible)
-                        .changed()
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        "Show the mini player in taskbar",
+                        &mut visible,
+                    )
+                    .changed()
                     {
                         app.actions.push(Action::SetWinampTaskbar(visible));
                     }

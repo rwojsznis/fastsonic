@@ -2418,7 +2418,12 @@ impl App {
             }
         }
         if let Some(loaded) = self.winamp.poll() {
-            self.skin_loaded(loaded);
+            self.skin_loaded(loaded, ctx);
+        }
+        self.winamp.poll_choices();
+        // Random needs the list before the mini player is first opened.
+        if self.settings.random_skin && !self.winamp.choices_known() {
+            self.winamp.refresh_choices(&self.dirs.skins_dir(), ctx);
         }
         let fetched = self.winamp.presets.poll();
         if let Some(fetched) = fetched {
@@ -2567,14 +2572,14 @@ impl App {
     }
 
     /// Applies a loaded skin. Installed files become the selected skin.
-    fn skin_loaded(&mut self, loaded: crate::winamp::Loaded) {
+    fn skin_loaded(&mut self, loaded: crate::winamp::Loaded, ctx: &egui::Context) {
         match loaded.result {
             Ok(skin) => {
                 self.winamp
                     .wear(Some(loaded.name.clone()), std::sync::Arc::new(skin));
                 if loaded.installed {
                     self.toast(format!("Added {} skin", crate::winamp::label(&loaded.name)));
-                    self.winamp.list_choices(&self.dirs.skins_dir());
+                    self.winamp.list_choices(&self.dirs.skins_dir(), ctx);
                     self.settings.skin = Some(loaded.name);
                     self.settings_dirty = true;
                 }
@@ -5626,20 +5631,24 @@ impl App {
                 if self.settings.winamp_window {
                     self.winamp.remember_position();
                 } else if self.settings.random_skin {
-                    self.winamp.refresh_choices(&self.dirs.skins_dir());
-                    let candidates: Vec<Option<String>> = std::iter::once(None)
-                        .chain(
-                            self.winamp
-                                .choices
-                                .iter()
-                                .map(|choice| Some(choice.name.clone())),
-                        )
-                        .collect();
-                    self.settings.skin = crate::winamp::pick_another(
-                        &candidates,
-                        &self.settings.skin,
-                        &mut rand::rng(),
-                    );
+                    self.winamp.poll_choices();
+                    self.winamp.refresh_choices(&self.dirs.skins_dir(), ctx);
+                    // Until the first listing is back the skin stays as it is.
+                    if self.winamp.choices_known() {
+                        let candidates: Vec<Option<String>> = std::iter::once(None)
+                            .chain(
+                                self.winamp
+                                    .choices
+                                    .iter()
+                                    .map(|choice| Some(choice.name.clone())),
+                            )
+                            .collect();
+                        self.settings.skin = crate::winamp::pick_another(
+                            &candidates,
+                            &self.settings.skin,
+                            &mut rand::rng(),
+                        );
+                    }
                 }
                 self.session_window_size = self.last_window_size.or(self.session_window_size);
                 self.session_window_pos = self.last_window_pos.or(self.session_window_pos);
@@ -13098,11 +13107,14 @@ mod tests {
         let mut app = headless_app();
         app.settings.winamp_window = true;
         app.settings.skin = Some("B.wsz".into());
-        app.skin_loaded(crate::winamp::Loaded {
-            name: "A.wsz".into(),
-            result: Ok(some_skin("A")),
-            installed: false,
-        });
+        app.skin_loaded(
+            crate::winamp::Loaded {
+                name: "A.wsz".into(),
+                result: Ok(some_skin("A")),
+                installed: false,
+            },
+            &egui::Context::default(),
+        );
         assert_eq!(app.winamp.worn.as_deref(), Some("A.wsz"));
         assert_eq!(app.settings.skin.as_deref(), Some("B.wsz"));
     }
@@ -13116,6 +13128,18 @@ mod tests {
         std::fs::write(skins.join("A.wsz"), b"skin").unwrap();
         app.apply(Action::SetRandomSkin(true), &ctx);
         app.settings.skin = None;
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        assert_eq!(app.settings.skin, None, "nothing to pick from until listed");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !app.winamp.choices_known() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the listing never came back"
+            );
+            app.winamp.poll_choices();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        app.apply(Action::ToggleWinampWindow, &ctx);
         app.apply(Action::ToggleWinampWindow, &ctx);
         assert_eq!(app.settings.skin.as_deref(), Some("A.wsz"));
         app.apply(Action::ToggleWinampWindow, &ctx);
@@ -13132,11 +13156,14 @@ mod tests {
     fn a_dropped_skin_becomes_the_choice_and_a_failed_one_is_forgotten() {
         let mut app = headless_app();
         app.settings.winamp_window = true;
-        app.skin_loaded(crate::winamp::Loaded {
-            name: "Dropped.wsz".into(),
-            result: Ok(some_skin("Dropped")),
-            installed: true,
-        });
+        app.skin_loaded(
+            crate::winamp::Loaded {
+                name: "Dropped.wsz".into(),
+                result: Ok(some_skin("Dropped")),
+                installed: true,
+            },
+            &egui::Context::default(),
+        );
         assert_eq!(app.settings.skin.as_deref(), Some("Dropped.wsz"));
         assert_eq!(app.winamp.worn.as_deref(), Some("Dropped.wsz"));
         assert!(
@@ -13146,11 +13173,14 @@ mod tests {
         );
 
         app.settings.skin = Some("Gone.wsz".into());
-        app.skin_loaded(crate::winamp::Loaded {
-            name: "Gone.wsz".into(),
-            result: Err(crate::skin::SkinError::Empty),
-            installed: false,
-        });
+        app.skin_loaded(
+            crate::winamp::Loaded {
+                name: "Gone.wsz".into(),
+                result: Err(crate::skin::SkinError::Empty),
+                installed: false,
+            },
+            &egui::Context::default(),
+        );
         assert_eq!(app.settings.skin.as_deref(), Some("Dropped.wsz"));
         assert_eq!(app.winamp.worn.as_deref(), Some("Dropped.wsz"));
         assert!(

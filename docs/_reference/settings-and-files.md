@@ -9,7 +9,7 @@ Linux the default locations are:
 | --- | --- | --- |
 | Settings | `~/.config/fastsonic/settings.json` | Yes; preferences reset |
 | Custom themes | `~/.config/fastsonic/themes/` | Yes; the bundled palettes come back |
-| Winamp skins | `~/.config/fastsonic/skins/` | Yes; add them again |
+| Winamp and Windows Media Player skins | `~/.config/fastsonic/skins/` | Yes; add them again |
 | MilkDrop presets | `~/.config/fastsonic/milkdrop/` | Yes; fetch them again |
 | Server credential | `~/.local/state/fastsonic/credentials.json` | Yes; sign in again |
 | Last session | `~/.local/state/fastsonic/session.json` | Yes |
@@ -200,8 +200,8 @@ buttons instead, and changing it replaces only the native window. On GNOME
 the buttons follow the desktop's button layout, left or right and only those
 it shows, drawn with its icon theme's pictures; both come from the desktop
 portal, so a Flatpak sees them too. Other Linux desktops get Minimize,
-Maximize and Close on the right. On Windows, **Show in taskbar** under Winamp
-skins (`winamp_show_taskbar`, on by default) decides
+Maximize and Close on the right. On Windows, **Show in taskbar** under Mini
+player (`winamp_show_taskbar`, on by default) decides
 whether the mini player keeps a taskbar button; the main window always keeps
 its own. Linux X11 sessions offer the same switch; Wayland and macOS do not.
 On Linux, **Middle-click autoscroll** (`middle_click_autoscroll`, off by
@@ -246,7 +246,7 @@ and opens it in your file manager, and **How to make a theme** opens this
 section. A palette is listed by its filename without `.json` (`Gruvbox.json`
 is **Gruvbox**), and picking it applies it at once. Choosing Follow system,
 Light or Dark sets the palette aside again. A theme changes colours only;
-fonts and layout stay as they are, and Winamp skins keep their own look.
+fonts and layout stay as they are, and mini player skins keep their own look.
 
 While **Follow system** is chosen, two more pickers appear below the Theme
 row: **Light mode theme** and **Dark mode theme**. Each starts with

@@ -105,7 +105,7 @@ impl AppDirs {
         self.config.join("settings.json")
     }
 
-    /// Winamp skins the listener has added, as `.wsz` files or folders.
+    /// Mini player skins the listener has added, as `.wsz` or `.wmz` files or folders.
     pub fn skins_dir(&self) -> PathBuf {
         self.config.join("skins")
     }

@@ -1,8 +1,9 @@
 # The Winamp Mini Player
 
 Open the mini player with Ctrl+M (Cmd+Shift+M on macOS), the shrink button, or
-**Switch to it** in Settings. It supports classic Winamp 2 `.wsz` skins. Find
-skins at the [Winamp Skin Museum](https://skins.webamp.org).
+**Switch to it** in Settings. It supports classic Winamp 2 `.wsz` skins and
+Windows Media Player `.wmz` skins. Find Winamp skins at the
+[Winamp Skin Museum](https://skins.webamp.org).
 
 Only one player window is open at a time. Click the skin logo or Eject, or use
 the shortcut again, to return to the main window.
@@ -11,8 +12,10 @@ the shortcut again, to return to the main window.
 
 ## Skins and window size
 
-Drop a `.wsz` file on either window to install and use it. Settings lists the
-installed skins and can open the skins folder.
+Drop a `.wsz` file on either window to install and use it. The **Mini player**
+section in Settings lists Winamp skins and Windows Media Player skins under
+their own titles, and can open the skins folder. A `.zip` file is listed under
+the kind of skin it holds.
 
 Unpacked skins can keep their files inside nested folders, up to eight levels
 below the skin's own folder, as Windows' Extract All leaves them. File names
@@ -20,9 +23,9 @@ are matched without regard to case. If a name appears more than once, the copy
 closest to the skin's folder wins; ties use folder and file name order.
 Symbolic links are skipped.
 
-Choose **Random** in Winamp skins to pick a different installed skin each time
-the mini player opens. The built-in skin is part of the selection. Choosing a
-specific skin turns Random off.
+Turn on **Random skin** in Settings to pick a different installed skin, of
+either kind, each time the mini player opens. The built-in skin is part of the
+selection. Choosing a specific skin turns Random off.
 
 The mini player uses whole-number scaling to keep pixels sharp. Right-click
 the title bar, or click **O**, to choose 1x to 4x and set always-on-top. **D**
@@ -30,7 +33,7 @@ steps through the sizes, 1x to 4x, and **A** toggles always-on-top. Fastsonic
 remembers the window position.
 
 On Windows and in Linux X11 sessions, turn off **Show in taskbar** under
-**Settings > Winamp skins**, or in the **O** menu, to drop the mini player's
+**Settings > Mini player**, or in the **O** menu, to drop the mini player's
 taskbar button. The choice
 survives restarts. The mini player stays visible; the tray icon, Ctrl+M, the
 skin logo, and launching Fastsonic again still reach the app, and returning to
@@ -50,6 +53,28 @@ supported backend again.
 
 Non-rectangular skins use `region.txt` for transparent areas. Winamp 3 and 5
 skins use a different format and are not supported.
+
+## Windows Media Player skins
+
+The mini player also wears Windows Media Player skins. Drop a `.wmz` file on
+either window, exactly as with a Winamp skin, or put an unpacked skin folder
+with a `.wms` file in it into the skins folder, and pick it in Settings.
+
+Fastsonic draws the skin's pictures, buttons, seek and volume sliders, and
+text showing the song, its artist, and the time. Where a skin has a
+visualisation window, the same bars or sound wave as the Winamp display play
+there (click it to change them). Buttons are recognised by their name or
+script (play, pause, stop, next, previous, mute, shuffle, repeat, minimize,
+close). Close takes you back to the big window.
+
+It does not run a skin's scripts, so panels a script opens (drawers for the
+equalizer or playlist), video, and layouts that stretch with the window do not
+work; skins that depend on them may look incomplete. A Windows Media Player
+skin is drawn at one pixel per screen pixel unless you choose a size, either
+in Settings under **Mini player** or from the right-click menu. Both kinds of
+skin share that one size. Drag anywhere that is not a control to move the
+window, and press **Ctrl+M** (**Cmd+Shift+M** on macOS) to go back to the big
+window, since these skins have no logo to click.
 
 ## Main controls
 

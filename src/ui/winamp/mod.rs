@@ -29,6 +29,7 @@ use super::widgets::{SliderEvent, wheel_notches};
 mod equalizer;
 mod pixel_text;
 mod playlist;
+mod wmp;
 
 pub use pixel_text::PixelText;
 
@@ -67,8 +68,12 @@ pub fn window_size(settings: &crate::settings::Settings, unit: f32) -> Vec2 {
 
 /// A first guess at the window's size, before the display's scale is
 /// known; the first frame corrects it.
-pub fn initial_size(settings: &crate::settings::Settings) -> Vec2 {
-    window_size(settings, WinampState::scale(settings, 1.0) as f32)
+pub fn initial_size(settings: &crate::settings::Settings, skin: &Skin) -> Vec2 {
+    let unit = WinampState::scale(settings, 1.0, skin) as f32;
+    match &skin.wmp {
+        Some(wmp) => vec2(wmp.width as f32, wmp.height as f32) * unit,
+        None => window_size(settings, unit),
+    }
 }
 
 /// Skin files dropped on the window this frame.
@@ -87,12 +92,11 @@ pub fn dropped_skins(ctx: &egui::Context) -> Vec<PathBuf> {
 /// Logical points per skin pixel: a whole number of screen pixels.
 fn unit(app: &App, ctx: &egui::Context) -> f32 {
     let pixels_per_point = ctx.pixels_per_point();
-    WinampState::scale(&app.settings, pixels_per_point) as f32 / pixels_per_point
+    WinampState::scale(&app.settings, pixels_per_point, &app.winamp.skin) as f32 / pixels_per_point
 }
 
 /// Fits the window to the skin after the display scale is known.
-fn fit_window(ctx: &egui::Context, settings: &crate::settings::Settings, unit: f32) {
-    let wanted = window_size(settings, unit);
+fn fit_window(ctx: &egui::Context, wanted: Vec2) {
     // Not `inner_rect`: Wayland reports no window positions, so that is
     // `None` there; the screen rect is the window's size on every desktop.
     let current = ctx.viewport_rect().size();
@@ -323,9 +327,6 @@ impl View<'_> {
 /// The whole window, drawn into the root.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
-    let unit = unit(app, &ctx);
-    fit_window(&ctx, &app.settings, unit);
-    let origin = ui.max_rect().min;
     let (outer, focused) = ctx.input(|input| {
         let viewport = input.viewport();
         (viewport.outer_rect, viewport.focused)
@@ -333,6 +334,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some(rect) = outer {
         app.winamp.last_pos = Some([rect.min.x, rect.min.y]);
     }
+    if app.winamp.skin.wmp.is_some() {
+        wmp::show(app, ui);
+        return;
+    }
+    let unit = unit(app, &ctx);
+    fit_window(&ctx, window_size(&app.settings, unit));
+    let origin = ui.max_rect().min;
     let focused = focused.unwrap_or(true);
     super::keys::handle(app, &ctx);
     for path in dropped_skins(&ctx) {
@@ -711,7 +719,7 @@ fn title_bar(app: &mut App, view: &mut View, ctx: &egui::Context, focused: bool)
 fn options_menu(app: &mut App, ui: &mut Ui, unit: f32) {
     let font = menu_font(unit);
     ui.set_min_width(font * 11.0);
-    let scale = WinampState::scale(&app.settings, ui.ctx().pixels_per_point());
+    let scale = WinampState::scale(&app.settings, ui.ctx().pixels_per_point(), &app.winamp.skin);
     ui.horizontal(|ui| {
         ui.label("Size");
         for candidate in 1..=MAX_SCALE {
@@ -890,7 +898,11 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         }
         app.actions.push(Action::ToggleWinampWindow);
     }
-    let scale = WinampState::scale(&app.settings, view.ui.ctx().pixels_per_point());
+    let scale = WinampState::scale(
+        &app.settings,
+        view.ui.ctx().pixels_per_point(),
+        &app.winamp.skin,
+    );
     if view
         .lamp_button(
             layout::CLUTTER_D,
@@ -1609,15 +1621,16 @@ mod tests {
 
     #[test]
     fn the_first_size_is_a_whole_multiple_of_the_skin() {
+        let skin = Skin::builtin();
         let mut settings = crate::settings::Settings::default();
-        assert_eq!(initial_size(&settings), vec2(550.0, 232.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(550.0, 232.0));
         settings.skin_scale = Some(1);
-        assert_eq!(initial_size(&settings), vec2(275.0, 116.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 116.0));
         settings.playlist_open = true;
-        assert_eq!(initial_size(&settings), vec2(275.0, 290.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 290.0));
         settings.eq_open = true;
-        assert_eq!(initial_size(&settings), vec2(275.0, 406.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 406.0));
         settings.eq_shaded = true;
-        assert_eq!(initial_size(&settings), vec2(275.0, 304.0));
+        assert_eq!(initial_size(&settings, &skin), vec2(275.0, 304.0));
     }
 }

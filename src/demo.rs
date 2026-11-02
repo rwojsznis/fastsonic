@@ -1311,12 +1311,12 @@ mod tests {
             !tree
                 .nodes
                 .iter()
-                .any(|(_, node)| node.label() == Some("Show Winamp in taskbar"))
+                .any(|(_, node)| node.label() == Some("Show the mini player in taskbar"))
         );
         app.taskbar_hiding_supported = true;
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let control = accessible_node(&tree, "Show Winamp in taskbar", Role::CheckBox);
+        let control = accessible_node(&tree, "Show the mini player in taskbar", Role::CheckBox);
         accessible_frame(
             &ctx,
             &mut app,
@@ -3768,7 +3768,7 @@ mod tests {
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
-                        crate::ui::winamp::initial_size(&app.settings),
+                        crate::ui::winamp::initial_size(&app.settings, &app.winamp.skin),
                     )),
                     events,
                     ..Default::default()
@@ -7722,5 +7722,120 @@ mod tests {
             !painted.iter().any(|(text, _)| text == hidden),
             "nothing to offer where nothing can be registered"
         );
+    }
+
+    /// A Windows Media Player skin is listed under its own title, even from
+    /// a `.zip`, and choosing one says what it lacks.
+    #[test]
+    fn the_mini_player_settings_say_what_a_media_player_skin_lacks() {
+        let (ctx, mut app) = accessible_app("settings-media-player-skin");
+        app.backend.shutdown();
+        let folder = app.dirs.skins_dir();
+        std::fs::create_dir_all(&folder).unwrap();
+        let archive = crate::skin::zip::write(&[(
+            "chrome.wms",
+            br#"<VIEW width="30" height="20"/>"#.as_slice(),
+            false,
+        )]);
+        std::fs::write(folder.join("chrome.zip"), archive).unwrap();
+        let caveat = "This skin has no equalizer or playlist window, and its scripts do not run.";
+        let view = crate::ui::settings::show;
+        let size = egui::vec2(1280.0, 6000.0);
+        // The folder is listed on another thread.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut painted = view_frame_sized(&ctx, &mut app, vec![], view, size);
+        while !painted.iter().any(|(text, _)| text == "chrome") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the skins were not listed: {painted:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            painted = view_frame_sized(&ctx, &mut app, vec![], view, size);
+        }
+        let player = sidebar_text(&painted, "Windows Media Player");
+        let chip = sidebar_text(&painted, "chrome");
+        assert!(chip.top() > player.top(), "listed under its own title");
+        assert!(!painted.iter().any(|(text, _)| text == caveat));
+        app.actions.clear();
+        view_frame_sized(
+            &ctx,
+            &mut app,
+            pointer_click(chip.center(), egui::PointerButton::Primary),
+            view,
+            size,
+        );
+        assert!(matches!(
+            app.actions.as_slice(),
+            [Action::SetSkin(Some(name))] if name == "chrome.zip"
+        ));
+        app.settings.skin = Some("chrome.zip".into());
+        let painted = view_frame_sized(&ctx, &mut app, vec![], view, size);
+        sidebar_text(&painted, caveat);
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap().parent().unwrap());
+    }
+
+    /// The mini player draws a Windows Media Player skin at its own size,
+    /// one skin pixel per screen pixel by default, and its buttons do what
+    /// their names say.
+    #[test]
+    fn a_media_player_skin_fills_the_mini_player_and_its_buttons_play() {
+        let (ctx, mut app) = accessible_app("winamp-media-player-skin");
+        app.backend.set_offline(true);
+        let picture = |width: u32, height: u32| {
+            let image = image::RgbImage::from_pixel(width, height, image::Rgb([40, 40, 40]));
+            let mut png = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            png.into_inner()
+        };
+        let definition = br#"<THEME><VIEW backgroundImage="back.png">
+            <BUTTON id="play" left="10" top="10" image="button.png"/>
+            <BUTTON id="next" left="40" top="10" image="button.png"/>
+            </VIEW></THEME>"#;
+        let archive = crate::skin::zip::write(&[
+            ("chrome.wms", definition.as_slice(), false),
+            ("back.png", &picture(120, 60), false),
+            ("button.png", &picture(20, 20), false),
+        ]);
+        let skin = crate::skin::Skin::from_archive("chrome", &archive).unwrap();
+        app.winamp
+            .wear(Some("chrome.wmz".into()), std::sync::Arc::new(skin));
+        app.settings.winamp_window = true;
+        app.settings.skin = Some("chrome.wmz".into());
+        let size = crate::ui::winamp::initial_size(&app.settings, &app.winamp.skin);
+        assert_eq!(size, egui::vec2(120.0, 60.0));
+        let draw = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::winamp::show(app, ui),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        fn pictures(shape: &egui::epaint::Shape) -> usize {
+            match shape {
+                egui::epaint::Shape::Mesh(_) => 1,
+                egui::epaint::Shape::Vec(shapes) => shapes.iter().map(pictures).sum(),
+                _ => 0,
+            }
+        }
+        draw(&mut app, Vec::new());
+        let output = draw(&mut app, Vec::new());
+        let drawn: usize = output
+            .shapes
+            .iter()
+            .map(|clipped| pictures(&clipped.shape))
+            .sum();
+        assert_eq!(drawn, 3, "the background and both buttons");
+        app.actions.clear();
+        draw(
+            &mut app,
+            pointer_click(egui::pos2(50.0, 20.0), egui::PointerButton::Primary),
+        );
+        assert!(matches!(app.actions.as_slice(), [Action::Next]));
+        app.backend.shutdown();
     }
 }

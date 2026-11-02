@@ -845,7 +845,7 @@ struct MiniWindow {
 impl MiniWindow {
     fn wanted(app: &app::App) -> Option<Self> {
         app.settings.winamp_window.then(|| Self {
-            size: fastsonic::ui::winamp::initial_size(&app.settings),
+            size: fastsonic::ui::winamp::initial_size(&app.settings, &app.winamp.skin),
             // AppKit opens a borderless window wherever it is told, even on
             // a display unplugged since; Windows checks later, in App::attach.
             position: app.winamp.restore_pos.filter(|&pos| {
@@ -1563,7 +1563,8 @@ mod native_window_tests {
                 skin_scale: Some(2),
                 ..Default::default()
             };
-            let size = fastsonic::ui::winamp::initial_size(&settings);
+            let size =
+                fastsonic::ui::winamp::initial_size(&settings, &fastsonic::skin::Skin::builtin());
             let options = native_options(
                 false,
                 Some(MiniWindow {
