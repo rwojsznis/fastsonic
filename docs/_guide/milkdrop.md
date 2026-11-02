@@ -28,7 +28,9 @@ locked (Windows).
 
 ## Presets
 
-Presets change every ten seconds by default. Change the interval in Settings.
+Presets change every ten seconds by default. Change the interval in Settings;
+a new interval applies to the preset already playing, and no preset is cut
+shorter than its 2.7-second fade.
 Presets live in the config directory's `milkdrop` folder. Settings can download
 the 550 MilkDrop 2 presets and the 9,800-preset Cream of the Crop pack. Until a
 preset is installed, projectM shows its idle preset.
