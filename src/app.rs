@@ -11390,10 +11390,10 @@ mod tests {
     /// being restored down by the session's size and position.
     #[test]
     fn a_window_that_fills_the_screen_keeps_its_state_over_the_session_geometry() {
-        // On Windows only fullscreen lyrics make the main window full screen,
-        // so a restored full screen is left instead; see
+        // Away from macOS a restored full screen with no fullscreen lyrics
+        // behind it is left instead; see
         // a_window_closed_in_fullscreen_lyrics_returns_to_its_previous_mode.
-        let cases: &[(&str, Option<bool>, Option<bool>)] = if cfg!(windows) {
+        let cases: &[(&str, Option<bool>, Option<bool>)] = if STARTS_WINDOWED {
             &[("maximized", Some(true), None)]
         } else {
             &[
