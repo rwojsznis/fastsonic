@@ -13298,4 +13298,50 @@ mod tests {
         assert_eq!(track.image(640), now.art_url.as_deref());
         app.backend.shutdown();
     }
+
+    /// The topbar's drawn buttons and the player bar's loading disc are
+    /// named for a screen reader, which otherwise reads nothing there.
+    #[test]
+    fn topbar_controls_and_the_loading_disc_have_accessible_names() {
+        use egui::accesskit::Role;
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = test_app("topbar-accessible-names");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.local.playback = Playback::Loading;
+        let user = app.user.as_ref().unwrap().name().to_string();
+        let mut tree = None;
+        for time in 0..2 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(f64::from(time) / 60.0),
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            tree = output.platform_output.accesskit_update;
+        }
+        let tree = tree.unwrap();
+        let named = |role: Role, label: &str| {
+            tree.nodes
+                .iter()
+                .find(|(_, node)| node.role() == role && node.label() == Some(label))
+                .map(|(_, node)| node.clone())
+        };
+        let back = named(Role::Button, "Back").expect("Back is named");
+        assert!(
+            back.is_disabled(),
+            "a fresh window has nowhere to go back to"
+        );
+        assert!(named(Role::Button, "Forward").is_some());
+        assert!(named(Role::Button, &user).is_some(), "the account button");
+        assert!(named(Role::ProgressIndicator, "Loading…").is_some());
+        app.backend.shutdown();
+    }
 }
