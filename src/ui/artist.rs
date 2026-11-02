@@ -111,7 +111,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 });
             }
             ui.add_space(10.0);
-            match page.albums.get(page.filter.groups()) {
+            // A category chosen for the first time keeps the previous
+            // list's height while it loads, so the page does not shrink
+            // under the reader and scroll them somewhere else. Its cards
+            // go at once, so what shows always matches the chip.
+            let height_id = ui.make_persistent_id(("discography-height", id));
+            let list = page.albums.get(page.filter.groups());
+            let loading = list.is_none_or(|list| !list.loaded_once && list.error.is_none());
+            let previous = ui
+                .ctx()
+                .data(|data| data.get_temp::<(f32, usize)>(height_id));
+            let discography = ui.scope(|ui| match list {
+                _ if loading => {
+                    let height = previous.map_or(0.0, |(height, _)| height);
+                    ui.set_min_height(height);
+                    let count = previous.map_or(6, |(_, count)| count.max(1));
+                    widgets::grid(ui, |ui| {
+                        widgets::skeleton_cards_filling(ui, &palette, count, false, height);
+                    });
+                    count
+                }
                 Some(list) => {
                     let mut seen = std::collections::HashSet::new();
                     let albums: Vec<_> = list
@@ -153,9 +172,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 });
                         }
                     });
-                    if list.loading && albums.is_empty() {
-                        widgets::grid(ui, |ui| widgets::skeleton_cards(ui, &palette, 6, false));
-                    } else if list.loading {
+                    if list.loading {
                         widgets::loading_row(ui, &palette);
                     } else if let Some(error) = &list.error {
                         let error = error.clone();
@@ -169,8 +186,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 .push(Action::LoadMoreArtistAlbums(id.to_string()));
                         }
                     }
+                    albums.len()
                 }
-                None => widgets::grid(ui, |ui| widgets::skeleton_cards(ui, &palette, 6, false)),
+                None => 0,
+            });
+            if !loading {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(
+                        height_id,
+                        (discography.response.rect.height(), discography.inner),
+                    );
+                });
             }
             ui.add_space(20.0);
 

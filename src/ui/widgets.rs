@@ -2505,9 +2505,34 @@ pub fn skeleton_rows(ui: &mut Ui, palette: &Palette, count: usize) {
 /// cards it will show, round for artists. Like [`skeleton_rows`], they do
 /// not move, and screen readers hear Loading… once.
 pub fn skeleton_cards(ui: &mut Ui, palette: &Palette, count: usize, round: bool) {
+    let height = card_row_height(ui);
+    skeleton_cards_sized(ui, palette, count, round, height);
+}
+
+/// Fills a previous card grid's height with placeholders. Each row is at
+/// least as tall as a loaded card row and shares any extra room, such as
+/// the old Load more button's, across the rows.
+pub fn skeleton_cards_filling(
+    ui: &mut Ui,
+    palette: &Palette,
+    count: usize,
+    round: bool,
+    min_height: f32,
+) {
+    let spacing = CARD_GAP / 2.0;
+    let columns = ((ui.available_width() + spacing) / (CARD_WIDTH + spacing))
+        .floor()
+        .max(1.0) as usize;
+    let rows = count.max(1).div_ceil(columns);
+    let height = ((min_height - CARD_GAP * rows.saturating_sub(1) as f32) / rows as f32)
+        .max(card_row_height(ui));
+    skeleton_cards_sized(ui, palette, count, round, height);
+}
+
+/// Placeholder cards at a chosen row height.
+fn skeleton_cards_sized(ui: &mut Ui, palette: &Palette, count: usize, round: bool, height: f32) {
     const PAD: f32 = 12.0;
     let fill = skeleton_fill(palette);
-    let height = card_row_height(ui);
     let art_size = CARD_WIDTH - 2.0 * PAD;
     for index in 0..count {
         let (rect, response) = ui.allocate_exact_size(vec2(CARD_WIDTH, height), Sense::hover());
