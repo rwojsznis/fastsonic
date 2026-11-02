@@ -28,7 +28,7 @@ Pressing Enter, picking a recent search, emptying the field or typing over the
 selected query starts a new entry.
 Sorting or filtering a playlist, an album or Liked Songs changes what Play
 plays: the songs on screen, in the order shown, including a song that appears
-twice. Play is disabled when a filter matches nothing; it never falls back to
+twice; with shuffle on, Play starts at a random one of them. Play is disabled when a filter matches nothing; it never falls back to
 the whole list, though it still pauses and resumes the page's songs while
 they are what is playing. Clearing the filter restores the original order.
 Playing a song a playlist holds more than once starts the copy you chose,
@@ -148,8 +148,9 @@ to album radio**, and **Go to artist radio**. A song's radio starts with the
 song itself, once, followed by the server's picks in its order.
 
 The server picks afresh each time it is asked, so the page keeps the songs it
-shows: **Play** and a double-clicked row play those songs, in the order shown,
-and the queue names the radio and links back to its page. Choose **Refresh**
+shows: **Play** and a double-clicked row play those songs, in the order shown
+(with shuffle on, **Play** starts at a random one of them), and the queue
+names the radio and links back to its page. Choose **Refresh**
 in the page's **…** menu for a new mix; the songs stay on the page until it
 arrives, and stay if it fails. **Save as playlist** creates a private playlist
 named after the radio with the songs on the page.

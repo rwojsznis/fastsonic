@@ -375,8 +375,11 @@ mod tests {
                 })
             );
             // The radio is not the song, and not a playlist to remember
-            // in the sidebar's order.
-            assert_eq!(app.current_track_uri().as_deref(), Some("sonic:track:a"));
+            // in the sidebar's order. Shuffled, it starts at a random one
+            // of its songs, as any shown list does.
+            let start = request.offset_position.unwrap_or_default() as usize;
+            assert!(shuffle || start == 0, "unshuffled, the first song starts");
+            assert_eq!(app.current_track_uri(), Some(request.uris[start].clone()));
             assert!(!app.recent_contexts.iter().any(|uri| uri == radio));
             app.backend.shutdown();
         }

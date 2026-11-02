@@ -4980,13 +4980,27 @@ impl App {
                 RowContext::View {
                     uris, context_uri, ..
                 } => {
+                    // The header's Play names no song. With shuffle on it
+                    // starts at a random row, as a whole context does in
+                    // `shuffle_start`; a clicked row still plays first.
+                    let shuffled_start = uri.is_empty() && self.shuffle_wanted && !uris.is_empty();
+                    let index = if shuffled_start {
+                        rand::random_range(0..uris.len()) as u32
+                    } else {
+                        index
+                    };
                     let played = uris.get(index as usize).cloned().map(|uri| PlayedRow {
                         context: context_uri.clone(),
                         view: true,
                         index,
                         uri,
                     });
-                    let (uris, index) = cap_uris(uris.as_ref(), index);
+                    let (uris, index) = if shuffled_start {
+                        // Any row may start, with a full list around it.
+                        cap_uris_around(uris.as_ref(), index)
+                    } else {
+                        cap_uris(uris.as_ref(), index)
+                    };
                     let mut request = PlayRequest::tracks(uris).starting_at_index(index);
                     // A radio is only ever the songs it showed, so the
                     // engine is handed both and names the radio itself.
@@ -7050,14 +7064,25 @@ fn offset_of(uris: &[String], uri: &str, index: u32) -> u32 {
         .map_or(index, |position| position as u32)
 }
 
+/// The most songs a plain track list hands the player.
+const MAX_PLAYED_URIS: usize = 500;
+
+/// Caps large track lists at 500 items starting from the selected row.
 fn cap_uris(uris: &[String], index: u32) -> (Vec<String>, u32) {
-    const MAX: usize = 500;
-    if uris.len() <= MAX {
+    if uris.len() <= MAX_PLAYED_URIS {
         return (uris.to_vec(), index);
     }
     let start = (index as usize).min(uris.len().saturating_sub(1));
-    let end = (start + MAX).min(uris.len());
+    let end = (start + MAX_PLAYED_URIS).min(uris.len());
     (uris[start..end].to_vec(), 0)
+}
+
+/// Caps large track lists at 500 items that include the selected row,
+/// moving the window back near the end so it stays full.
+fn cap_uris_around(uris: &[String], index: u32) -> (Vec<String>, u32) {
+    let start = (index as usize).min(uris.len().saturating_sub(MAX_PLAYED_URIS));
+    let end = (start + MAX_PLAYED_URIS).min(uris.len());
+    (uris[start..end].to_vec(), index - start as u32)
 }
 
 mod radio;
@@ -12774,6 +12799,120 @@ mod tests {
             matches!(command, egui::OutputCommand::CopyText(text) if text == "sonic:track:track-1")
         }));
         output.textures_delta.clear();
+    }
+
+    #[test]
+    fn shuffled_header_play_of_a_shown_view_starts_at_a_random_row() {
+        let mut app = headless_app();
+        app.shuffle_wanted = true;
+        let ctx = egui::Context::default();
+        let uris: std::sync::Arc<[String]> = (0..20)
+            .map(|n| format!("sonic:track:t{n}"))
+            .collect::<Vec<_>>()
+            .into();
+        let view = || RowContext::View {
+            context_uri: "sonic:playlist:mix".into(),
+            uris: std::sync::Arc::clone(&uris),
+            editable_playlist: None,
+        };
+        let mut starts = HashSet::new();
+        for _ in 0..30 {
+            app.apply(
+                Action::PlayFromRow {
+                    context: view(),
+                    uri: String::new(),
+                    index: 0,
+                },
+                &ctx,
+            );
+            let play = app.queued_play.as_ref().unwrap();
+            assert_eq!(play.uris.as_slice(), uris.as_ref());
+            let start = play.offset_position.unwrap();
+            assert_eq!(
+                app.current_track_uri(),
+                Some(uris[start as usize].clone()),
+                "the chosen song shows as playing at once"
+            );
+            starts.insert(start);
+        }
+        assert!(
+            starts.len() > 1,
+            "the header's Play must not always start at the top row: {starts:?}"
+        );
+
+        app.apply(
+            Action::PlayFromRow {
+                context: view(),
+                uri: uris[0].clone(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.queued_play.as_ref().unwrap().offset_position,
+            Some(0),
+            "a clicked row still plays first with shuffle on"
+        );
+
+        // Without shuffle the header plays the shown songs from the top.
+        app.shuffle_wanted = false;
+        app.apply(
+            Action::PlayFromRow {
+                context: view(),
+                uri: String::new(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert_eq!(app.queued_play.as_ref().unwrap().offset_position, Some(0));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn shuffled_header_play_of_a_long_view_hands_over_a_full_list() {
+        let uris: Vec<String> = (0..600).map(|n| format!("sonic:track:t{n}")).collect();
+        let (window, index) = cap_uris_around(&uris, 590);
+        assert_eq!(
+            window.len(),
+            MAX_PLAYED_URIS,
+            "a late start keeps 500 songs"
+        );
+        assert_eq!(window[index as usize], uris[590]);
+        assert_eq!(
+            window.first(),
+            Some(&uris[100]),
+            "the window ends at the last song"
+        );
+        let (window, index) = cap_uris_around(&uris, 3);
+        assert_eq!(
+            (window.len(), window.first(), index),
+            (MAX_PLAYED_URIS, Some(&uris[3]), 0)
+        );
+        let (window, index) = cap_uris_around(&uris[..20], 7);
+        assert_eq!((window.len(), index), (20, 7), "a short list is kept whole");
+
+        let mut app = headless_app();
+        app.shuffle_wanted = true;
+        let ctx = egui::Context::default();
+        let uris: std::sync::Arc<[String]> = uris.into();
+        for _ in 0..20 {
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::View {
+                        context_uri: "sonic:playlist:mix".into(),
+                        uris: std::sync::Arc::clone(&uris),
+                        editable_playlist: None,
+                    },
+                    uri: String::new(),
+                    index: 0,
+                },
+                &ctx,
+            );
+            let play = app.queued_play.as_ref().unwrap();
+            assert_eq!(play.uris.len(), MAX_PLAYED_URIS);
+            assert!(play.offset_position.unwrap() < MAX_PLAYED_URIS as u32);
+        }
+        app.backend.shutdown();
     }
 
     #[test]
