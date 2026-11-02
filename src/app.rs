@@ -49,6 +49,11 @@ const HEADLESS_TICK: Duration = Duration::from_millis(150);
 /// before it opens the window. GNOME's AppIndicator extension, for one,
 /// loads after the session's autostart apps.
 const TRAY_WAIT: Duration = Duration::from_secs(30);
+/// Whether a main window eframe restores full screen, with no fullscreen
+/// lyrics to explain it, opens as an ordinary window. Demo shots open full
+/// screen on purpose.
+const STARTS_WINDOWED: bool =
+    cfg!(windows) || (cfg!(target_os = "linux") && !cfg!(feature = "demo"));
 /// How far into a song Previous restarts it rather than stepping back,
 /// matching what librespot does during playback.
 const RESTART_BEFORE_PREVIOUS: u32 = 3_000;
@@ -832,9 +837,10 @@ impl App {
         }
         // eframe restores the full screen fullscreen lyrics left behind when
         // the app closed in them, without the lyrics. The mode they came
-        // from is known, or on Windows, where only fullscreen lyrics make
-        // the main window full screen and nothing else could leave it, it
-        // was an ordinary window.
+        // from is known. Otherwise, away from macOS's full-screen button, it
+        // was an ordinary window: on Windows only fullscreen lyrics make the
+        // main window full screen, and on Linux a compositor's would come
+        // back with no title bar and nothing in the app to leave it.
         let lyrics_left = self.session_lyrics_fullscreen_from.take();
         if self.settings.winamp_window {
             // The mini player sizes itself; the big window's geometry
@@ -859,7 +865,7 @@ impl App {
         }
         let restored_full_screen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
         let lyrics_left = lyrics_left.or_else(|| {
-            (cfg!(windows) && restored_full_screen).then(crate::settings::WindowMode::default)
+            (STARTS_WINDOWED && restored_full_screen).then(crate::settings::WindowMode::default)
         });
         if let Some(mode) = lyrics_left
             && restored_full_screen
@@ -11349,16 +11355,15 @@ mod tests {
                 false,
             ),
             (Some(full_screen), vec![Fullscreen(true)], false),
-            // A session from before this was remembered: Windows can only
-            // have been in fullscreen lyrics, other desktops keep the state.
+            // Nothing remembered: only macOS keeps the restored state.
             (
                 None,
-                if cfg!(windows) {
+                if STARTS_WINDOWED {
                     vec![Fullscreen(false)]
                 } else {
                     vec![]
                 },
-                cfg!(windows),
+                STARTS_WINDOWED,
             ),
         ] {
             let mut app = headless_app();
