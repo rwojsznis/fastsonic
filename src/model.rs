@@ -965,6 +965,8 @@ pub enum Action {
     /// Save a radio page's songs as a new playlist, by the seed's URI.
     SaveRadio(String),
     CopyLink(String),
+    /// Copy plain text, such as a song's title or its artists.
+    CopyText(String),
     /// Open a web page in the browser.
     OpenUrl(String),
     Search(String),

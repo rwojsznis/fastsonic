@@ -16,6 +16,9 @@ been played.
 Search covers the songs, albums, artists, and playlists indexed by your
 server. Right-click rows and cards to star music, add songs to a playlist, or
 put a song in the queue. The playlist submenu filters as you type.
+To copy a song's title or artists instead of its link, right-click it and open
+**Copy details**. It offers the song title, the artists, or both as
+"Artist - Title".
 A song played from the results plays on its own, as the top result does:
 the other results are not queued after it, so playback ends with it unless
 you have queued more.

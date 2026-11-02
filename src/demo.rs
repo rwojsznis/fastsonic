@@ -8231,4 +8231,181 @@ mod tests {
         );
         app.backend.shutdown();
     }
+
+    #[test]
+    fn song_menu_copies_the_title_and_artists_from_a_submenu() {
+        let (ctx, mut app) = accessible_app("song-menu-copy-details");
+        let mut item = songs().0[0].clone();
+        item.artists = vec![
+            ArtistRef {
+                id: Some("first".into()),
+                name: "Lumen".into(),
+                uri: Some(artist_uri("first")),
+            },
+            ArtistRef {
+                id: None,
+                name: "Guest".into(),
+                uri: None,
+            },
+        ];
+        let title = item.name.clone();
+        app.search.results = Loadable::Loaded(SearchResults {
+            tracks: Some(page(vec![item])),
+            ..Default::default()
+        });
+        let search = crate::ui::search::show;
+        for (label, expected) in [
+            ("Song title", title.clone()),
+            ("Artist", "Lumen, Guest".to_string()),
+            ("Artist and song title", format!("Lumen, Guest - {title}")),
+        ] {
+            view_frame(&ctx, &mut app, vec![], search);
+            let text = view_frame(&ctx, &mut app, vec![], search);
+            let pos = text
+                .iter()
+                .find(|(text, _)| text == &title)
+                .expect("top result title")
+                .1
+                .center();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(pos, egui::PointerButton::Secondary),
+                search,
+            );
+            let text = view_frame(&ctx, &mut app, vec![], search);
+            assert!(
+                !text.iter().any(|(text, _)| text == "Song title"),
+                "the copy entries stay inside the submenu"
+            );
+            let details = text
+                .iter()
+                .find(|(text, _)| text == "Copy details")
+                .expect("the song menu offers Copy details")
+                .1
+                .center();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(details, egui::PointerButton::Primary),
+                search,
+            );
+            view_frame(&ctx, &mut app, vec![], search);
+            let text = view_frame(&ctx, &mut app, vec![], search);
+            let entry = text
+                .iter()
+                .rev()
+                .find(|(text, _)| text == label)
+                .unwrap_or_else(|| panic!("Copy details is missing {label}"))
+                .1
+                .center();
+            app.actions.clear();
+            view_frame(
+                &ctx,
+                &mut app,
+                pointer_click(entry, egui::PointerButton::Primary),
+                search,
+            );
+            assert!(
+                matches!(app.actions.as_slice(), [Action::CopyText(text)] if text == &expected),
+                "{label}: {:?}",
+                app.actions
+            );
+        }
+        app.backend.shutdown();
+    }
+
+    /// A song can come without a title or artist, so each entry needs only
+    /// what it copies, and a song with neither has no submenu.
+    #[test]
+    fn copy_details_offers_only_what_the_song_has() {
+        for (case, title, artist, offered) in [
+            ("no-title", "", "Lumen", &["Artist"][..]),
+            ("no-artist", "Fragments", "", &["Song title"][..]),
+            ("neither", "", "", &[][..]),
+        ] {
+            let (ctx, mut app) = accessible_app(&format!("song-menu-copy-{case}"));
+            let mut song = songs().0[0].clone();
+            song.name = title.into();
+            song.artists = (!artist.is_empty())
+                .then(|| ArtistRef {
+                    name: artist.into(),
+                    ..Default::default()
+                })
+                .into_iter()
+                .collect();
+            let song = PlayableItem::Track(song);
+            let draw = |app: &mut App, events| {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1280.0, 800.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| crate::ui::widgets::item_menu(ui, app, &song, None, None),
+                );
+                output.textures_delta.clear();
+                fn walk(shape: &egui::epaint::Shape, text: &mut Vec<(String, egui::Rect)>) {
+                    match shape {
+                        egui::epaint::Shape::Text(shape) => text.push((
+                            shape.galley.job.text.clone(),
+                            shape.galley.rect.translate(shape.pos.to_vec2()),
+                        )),
+                        egui::epaint::Shape::Vec(shapes) => {
+                            shapes.iter().for_each(|shape| walk(shape, text));
+                        }
+                        _ => {}
+                    }
+                }
+                let mut text = Vec::new();
+                for shape in &output.shapes {
+                    walk(&shape.shape, &mut text);
+                }
+                text
+            };
+            draw(&mut app, vec![]);
+            let text = draw(&mut app, vec![]);
+            let details = text.iter().find(|(text, _)| text == "Copy details");
+            let Some((_, details)) = details else {
+                assert!(offered.is_empty(), "{case}: Copy details is missing");
+                app.backend.shutdown();
+                continue;
+            };
+            assert!(
+                !offered.is_empty(),
+                "{case}: Copy details has nothing to copy"
+            );
+            draw(
+                &mut app,
+                pointer_click(details.center(), egui::PointerButton::Primary),
+            );
+            draw(&mut app, vec![]);
+            let text = draw(&mut app, vec![]);
+            for label in ["Song title", "Artist", "Artist and song title"] {
+                assert_eq!(
+                    text.iter().any(|(text, _)| text == label),
+                    offered.contains(&label),
+                    "{case}: {label}"
+                );
+            }
+            let entry = text
+                .iter()
+                .find(|(text, _)| text == offered[0])
+                .expect("the submenu's entry")
+                .1
+                .center();
+            app.actions.clear();
+            draw(&mut app, pointer_click(entry, egui::PointerButton::Primary));
+            let expected = if title.is_empty() { artist } else { title };
+            assert!(
+                matches!(app.actions.as_slice(), [Action::CopyText(text)] if text == expected),
+                "{case}: {:?}",
+                app.actions
+            );
+            app.backend.shutdown();
+        }
+    }
 }

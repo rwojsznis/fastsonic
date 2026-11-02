@@ -5337,6 +5337,12 @@ impl App {
                 ctx.copy_text(uri);
                 self.toast("Link copied");
             }
+            Action::CopyText(text) => {
+                if !text.is_empty() {
+                    ctx.copy_text(text);
+                    self.toast("Copied");
+                }
+            }
             Action::CopySongs(uris) => {
                 if !uris.is_empty() {
                     // One link a line, in the platform's own line breaks.
@@ -12768,6 +12774,29 @@ mod tests {
             matches!(command, egui::OutputCommand::CopyText(text) if text == "sonic:track:track-1")
         }));
         output.textures_delta.clear();
+    }
+
+    #[test]
+    fn copy_text_copies_the_text_and_nothing_when_empty() {
+        let copied = |text: &str| {
+            let mut app = headless_app();
+            let ctx = egui::Context::default();
+            ctx.begin_pass(Default::default());
+            app.apply(Action::CopyText(text.into()), &ctx);
+            let mut output = ctx.end_pass();
+            output.textures_delta.clear();
+            output
+                .platform_output
+                .commands
+                .into_iter()
+                .filter_map(|command| match command {
+                    egui::OutputCommand::CopyText(text) => Some(text),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(copied("Lumen - Fragments"), ["Lumen - Fragments"]);
+        assert!(copied("").is_empty());
     }
 
     fn snapshot_at(percent: u8) -> LocalState {

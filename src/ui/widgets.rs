@@ -1067,6 +1067,34 @@ fn item_menu_at(
     if menu_item(ui, &palette, Some(Icon::Copy), "Copy link") {
         app.actions.push(Action::CopyLink(uri.clone()));
     }
+    let PlayableItem::Track(track) = item;
+    copy_details_menu(ui, app, track);
+}
+
+/// The song's title, its artists, or both as "Artist - Title", each
+/// offered only when the song has what it copies.
+fn copy_details_menu(ui: &mut Ui, app: &mut App, track: &Track) {
+    let palette = app.palette;
+    let artists = track.artist_names();
+    let has_title = !track.name.is_empty();
+    let has_artists = !artists.is_empty();
+    if !has_title && !has_artists {
+        return;
+    }
+    menu_submenu(ui, &palette, Some(Icon::Copy), "Copy details", |ui| {
+        ui.set_min_width(200.0);
+        ui.set_max_width(300.0);
+        if has_title && menu_item(ui, &palette, None, "Song title") {
+            app.actions.push(Action::CopyText(track.name.clone()));
+        }
+        if has_artists && menu_item(ui, &palette, None, "Artist") {
+            app.actions.push(Action::CopyText(artists.clone()));
+        }
+        if has_title && has_artists && menu_item(ui, &palette, None, "Artist and song title") {
+            app.actions
+                .push(Action::CopyText(format!("{artists} - {}", track.name)));
+        }
+    });
 }
 
 /// Menu for a context (playlist, album, artist, show).
