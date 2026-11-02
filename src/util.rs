@@ -211,7 +211,151 @@ pub fn strip_html(text: &str) -> String {
             _ => {}
         }
     }
-    out.replace("&amp;", "&")
+    decode_entities(&out)
+}
+
+/// The text [`strip_html`] gives, with the byte range of each web link in
+/// it and where the link points, in reading order: every `<a>` with an
+/// `http` or `https` target, and every bare `http://` or `https://`
+/// address written as plain text, which is how a Subsonic comment carries
+/// one.
+pub fn html_links(text: &str) -> (String, Vec<(std::ops::Range<usize>, String)>) {
+    let mut out = String::with_capacity(text.len());
+    let mut links = Vec::new();
+    let mut open: Option<(usize, String)> = None;
+    let mut run = String::new();
+    let mut tag: Option<String> = None;
+    for character in text.chars() {
+        match character {
+            '<' => {
+                out.push_str(&decode_entities(&std::mem::take(&mut run)));
+                tag = Some(String::new());
+            }
+            '>' => {
+                let Some(tag) = tag.take() else { continue };
+                if let Some(href) = link_target(&tag) {
+                    open = Some((out.len(), href));
+                } else if tag.trim().eq_ignore_ascii_case("/a")
+                    && let Some((start, href)) = open.take()
+                    && start < out.len()
+                {
+                    links.push((start..out.len(), href));
+                }
+            }
+            _ => match &mut tag {
+                Some(tag) => tag.push(character),
+                None => run.push(character),
+            },
+        }
+    }
+    out.push_str(&decode_entities(&run));
+    links.retain(|(_, href)| is_web_address(href));
+    for range in bare_addresses(&out) {
+        if !links
+            .iter()
+            .any(|(link, _)| link.start < range.end && range.start < link.end)
+        {
+            links.push((range.clone(), out[range].to_string()));
+        }
+    }
+    links.sort_by_key(|(range, _)| range.start);
+    (out, links)
+}
+
+fn is_web_address(text: &str) -> bool {
+    let lower = text.get(..8).unwrap_or(text).to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
+}
+
+/// The `http://` and `https://` addresses written out in `text`: each
+/// starts a word and runs to the next space, less the punctuation that
+/// closes the sentence or the brackets around it.
+fn bare_addresses(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find("http") {
+        let start = from + offset;
+        let word_start = text[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|before| before.is_whitespace() || "([{<'\"".contains(before));
+        let end = text[start..]
+            .find(char::is_whitespace)
+            .map_or(text.len(), |space| start + space);
+        from = end.max(start + 4);
+        let mut address = &text[start..end];
+        loop {
+            let trimmed = address.trim_end_matches(['.', ',', ';', ':', '!', '?', '\'', '"']);
+            let trimmed = match trimmed.chars().next_back() {
+                Some(close @ (')' | ']' | '}' | '>')) => {
+                    let opening = match close {
+                        ')' => '(',
+                        ']' => '[',
+                        '}' => '{',
+                        _ => '<',
+                    };
+                    if trimmed.matches(opening).count() < trimmed.matches(close).count() {
+                        &trimmed[..trimmed.len() - 1]
+                    } else {
+                        trimmed
+                    }
+                }
+                _ => trimmed,
+            };
+            if trimmed.len() == address.len() {
+                break;
+            }
+            address = trimmed;
+        }
+        let scheme = if address.starts_with("https://") {
+            "https://".len()
+        } else if address.starts_with("http://") {
+            "http://".len()
+        } else {
+            continue;
+        };
+        if word_start && address.len() > scheme {
+            found.push(start..start + address.len());
+        }
+    }
+    found
+}
+
+/// Where an opening `<a>` tag points: its `href`, quoted or not. The
+/// attributes are read one by one, so a `data-href`, or an `href` inside
+/// another attribute's value, is not taken for it.
+fn link_target(tag: &str) -> Option<String> {
+    let mut rest = tag.strip_prefix(['a', 'A'])?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    loop {
+        rest = rest.trim_start();
+        let end = rest
+            .find(|c: char| c == '=' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        if end == 0 {
+            return None;
+        }
+        let (name, after) = rest.split_at(end);
+        let Some(after) = after.trim_start().strip_prefix('=') else {
+            rest = after;
+            continue;
+        };
+        let after = after.trim_start();
+        let (value, next) = match after.chars().next() {
+            Some(quote @ ('"' | '\'')) => after[1..].split_once(quote)?,
+            _ => after.split_once(char::is_whitespace).unwrap_or((after, "")),
+        };
+        if name.eq_ignore_ascii_case("href") {
+            return Some(decode_entities(value)).filter(|href| !href.is_empty());
+        }
+        rest = next;
+    }
+}
+
+fn decode_entities(text: &str) -> String {
+    text.replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&#x27;", "'")
         .replace("&#39;", "'")
@@ -594,5 +738,58 @@ mod tests {
             "Hi there & you"
         );
         assert_eq!(strip_html("ONE&#x2F;TWO&#x2F;THREE"), "ONE/TWO/THREE");
+    }
+
+    #[test]
+    fn html_links_keep_where_each_link_points() {
+        let html = "Mood: <a href=https://example.com/chill>Chill &amp; Co</a>, more at \
+                    <a href=\"https://example.com/?a=1&amp;b=2\">example</a>. <b>Enjoy</b>";
+        let (text, links) = html_links(html);
+        assert_eq!(text, strip_html(html));
+        assert_eq!(text, "Mood: Chill & Co, more at example. Enjoy");
+        let found: Vec<_> = links
+            .iter()
+            .map(|(range, href)| (&text[range.clone()], href.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Chill & Co", "https://example.com/chill"),
+                ("example", "https://example.com/?a=1&b=2"),
+            ]
+        );
+        // An anchor without a target, or never closed, is plain text.
+        assert!(html_links("<a name=x>x</a> <a href='y'>y").1.is_empty());
+        // Only a web address opens; other schemes stay plain text.
+        assert!(html_links("<a href=ftp://x.example>x</a>").1.is_empty());
+        // Only the attribute named href counts, spaced or not.
+        let spoofed = "<a data-href=\"https://spoof.example\" title='href=x' \
+                       HREF = \"https://example.com\">x</a>";
+        assert_eq!(
+            html_links(spoofed).1,
+            [(0..1, "https://example.com".to_string())]
+        );
+    }
+
+    #[test]
+    fn bare_addresses_in_a_comment_are_links() {
+        let comment = "Liner notes at https://example.com/notes. Mirror \
+                       (http://example.org/a_(b)), not xhttps://no or https://";
+        let (text, links) = html_links(comment);
+        assert_eq!(text, comment);
+        let found: Vec<_> = links
+            .iter()
+            .map(|(range, href)| (&text[range.clone()], href.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("https://example.com/notes", "https://example.com/notes"),
+                ("http://example.org/a_(b)", "http://example.org/a_(b)"),
+            ]
+        );
+        // An address an anchor already links is not taken twice.
+        let anchored = "<a href=https://a.example>https://a.example</a>";
+        assert_eq!(html_links(anchored).1.len(), 1);
     }
 }

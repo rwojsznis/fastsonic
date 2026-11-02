@@ -159,12 +159,7 @@ pub fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             if let Some(description) = &hero.description
                 && !description.is_empty()
             {
-                theme::text(
-                    ui,
-                    description.as_str(),
-                    theme::regular(13.5),
-                    palette.secondary,
-                );
+                hero_description(app, ui, &palette, description);
             }
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -193,6 +188,69 @@ pub fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
         });
     });
     ui.add_space(20.0);
+}
+
+/// A description on one line, its web links clickable: each stands out
+/// from the text around it and opens in the browser.
+fn hero_description(app: &mut App, ui: &mut egui::Ui, palette: &Palette, html: &str) {
+    let (text, links) = util::html_links(html);
+    let font = theme::regular(13.5);
+    // Right-to-left text is reordered for display, which the link ranges
+    // cannot follow; it stays plain.
+    if links.is_empty() || crate::bidi::has_rtl(&text) {
+        theme::text(ui, text, font, palette.secondary);
+        return;
+    }
+    let mut job = egui::text::LayoutJob::default();
+    let mut at = 0;
+    for (range, _) in &links {
+        let plain = egui::TextFormat::simple(font.clone(), palette.secondary);
+        job.append(&text[at..range.start], 0.0, plain);
+        let link = egui::TextFormat::simple(font.clone(), palette.text);
+        job.append(&text[range.clone()], 0.0, link);
+        at = range.end;
+    }
+    job.append(
+        &text[at..],
+        0.0,
+        egui::TextFormat::simple(font, palette.secondary),
+    );
+    job.wrap = egui::text::TextWrapping::truncate_at_width(ui.available_width());
+    let galley = ui.painter().layout_job(job);
+    let response = ui.add(
+        egui::Label::new(galley.clone())
+            .selectable(false)
+            .sense(Sense::click()),
+    );
+    let Some(pointer) = response.hover_pos() else {
+        return;
+    };
+    // The character under the pointer, not the nearest gap between two.
+    let origin = response.rect.left_top();
+    let cursor = galley.cursor_from_pos(pointer - origin);
+    let mut index = cursor.index.0;
+    if index > 0 && pointer.x < origin.x + galley.pos_from_cursor(cursor).min.x {
+        index -= 1;
+    }
+    let Some((byte, _)) = text.char_indices().nth(index) else {
+        return;
+    };
+    let Some((range, href)) = links.iter().find(|(range, _)| range.contains(&byte)) else {
+        return;
+    };
+    let edge = |byte: usize| {
+        let cursor = egui::text::CCursor::new(text[..byte].chars().count());
+        origin.x + galley.pos_from_cursor(cursor).min.x
+    };
+    ui.painter().hline(
+        edge(range.start)..=edge(range.end),
+        response.rect.bottom() - 1.0,
+        egui::Stroke::new(1.0, palette.text),
+    );
+    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    if response.clicked() {
+        app.actions.push(Action::OpenUrl(href.clone()));
+    }
 }
 
 pub struct Actions<'a> {
@@ -1435,7 +1493,7 @@ fn playlist_hero<'a>(
                 "Playlist"
             },
             title: &playlist.name,
-            description: playlist.description.as_deref().map(util::strip_html),
+            description: playlist.description.clone(),
             byline,
             byline_tooltip: None,
             round: false,
@@ -3061,6 +3119,100 @@ mod tests {
                 "{date}: {shown:?}"
             );
         }
+    }
+
+    /// A link in a playlist's description opens where it points, and the
+    /// text around it does nothing.
+    #[test]
+    fn a_link_in_the_description_opens_where_it_points() {
+        const SHOWN: &str = "Mood: Chill vibes, see https://example.org";
+        fn find(shape: &egui::epaint::Shape) -> Option<egui::epaint::TextShape> {
+            match shape {
+                egui::epaint::Shape::Text(shape) if shape.galley.text() == SHOWN => {
+                    Some(shape.clone())
+                }
+                egui::epaint::Shape::Vec(shapes) => shapes.iter().find_map(find),
+                _ => None,
+            }
+        }
+        /// The addresses opened by clicking the description's character
+        /// at `index`.
+        fn clicking(index: usize) -> Vec<String> {
+            let mut app = test_app();
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            let mut time = 0.0;
+            let mut draw = |app: &mut App, events: Vec<egui::Event>| {
+                time += 1.0 / 60.0;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(1000.0, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let description = "Mood: <a href=https://example.com/chill>Chill</a> \
+                                           vibes, see https://example.org";
+                        hero(
+                            app,
+                            ui,
+                            Hero {
+                                images: HeroImages::default(),
+                                liked: false,
+                                kind: "Playlist",
+                                title: "Mix",
+                                description: Some(description.into()),
+                                byline: Vec::new(),
+                                byline_tooltip: None,
+                                round: false,
+                            },
+                        );
+                    },
+                );
+                output.textures_delta.clear();
+                output.shapes
+            };
+            let shape = draw(&mut app, Vec::new())
+                .iter()
+                .find_map(|clipped| find(&clipped.shape))
+                .expect("the hero shows the description");
+            let edge = |index: usize| {
+                let cursor = egui::text::CCursor::new(index);
+                shape.pos.x + shape.galley.pos_from_cursor(cursor).min.x
+            };
+            let pos = pos2(
+                (edge(index) + edge(index + 1)) / 2.0,
+                shape.pos.y + shape.galley.rect.center().y,
+            );
+            let press = |pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::default(),
+            };
+            draw(&mut app, vec![egui::Event::PointerMoved(pos)]);
+            draw(&mut app, vec![press(true)]);
+            draw(&mut app, vec![press(false)]);
+            app.backend.shutdown();
+            app.actions
+                .iter()
+                .filter_map(|action| match action {
+                    Action::OpenUrl(url) => Some(url.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        // The "i" of Chill, the "o" of Mood, the "i" of vibes and the "e"
+        // of example.org.
+        assert_eq!(clicking(8), ["https://example.com/chill"]);
+        assert!(clicking(1).is_empty());
+        assert!(clicking(13).is_empty());
+        assert_eq!(clicking(SHOWN.len() - 5), ["https://example.org"]);
     }
 
     #[test]

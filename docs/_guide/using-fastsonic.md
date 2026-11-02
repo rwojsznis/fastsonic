@@ -74,6 +74,12 @@ points. Fastsonic asks the server for the cover at the size it is shown, and
 keeps the header's copy on screen until that arrives. Click anywhere or press
 `Esc` to return to the page. Liked Songs' drawn cover has nothing to enlarge.
 
+## Links in playlist descriptions
+
+A web address in a playlist's description, written out as `https://…` or as
+an HTML link, stands out from the rest of it and opens in your browser when
+clicked.
+
 ## Release dates
 
 Hover over the year at the top of an album page to see the day it came out,

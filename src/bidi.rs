@@ -35,6 +35,12 @@ pub fn is_rtl(text: &str) -> bool {
     false
 }
 
+/// Whether the text holds a right-to-left letter anywhere, so its runs need
+/// reordering even when the paragraph reads left to right.
+pub fn has_rtl(text: &str) -> bool {
+    !text.is_ascii() && text.chars().any(is_rtl_letter)
+}
+
 /// The edge the text should hug.
 pub fn halign_for(text: &str) -> Align {
     if is_rtl(text) {
