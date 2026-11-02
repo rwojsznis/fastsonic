@@ -393,6 +393,7 @@ fn main() -> eframe::Result<()> {
     #[cfg(not(feature = "demo"))]
     let found = paths::AppDirs::discover();
     let dirs = found.dirs.clone();
+    let window_file = found.window_file();
     let dirs_ready = dirs.ensure();
     let mut logger =
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter));
@@ -530,6 +531,7 @@ fn main() -> eframe::Result<()> {
         };
         #[cfg(not(feature = "demo"))]
         let options = native_options(false, mini, None);
+        let options = keep_window_in(options, window_file.clone());
         #[cfg(target_os = "macos")]
         let options = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
@@ -899,6 +901,19 @@ fn demo_native_options(
 ) -> eframe::NativeOptions {
     options.persistence_path = Some(storage);
     options.persist_window = false;
+    options
+}
+
+/// Points the main window's eframe memory at `window_file`, which a portable
+/// copy keeps in its own folder. Without one, eframe picks its per-user file.
+/// The mini player and a demo keep the paths they were given.
+fn keep_window_in(
+    mut options: eframe::NativeOptions,
+    window_file: Option<std::path::PathBuf>,
+) -> eframe::NativeOptions {
+    if options.persist_window && window_file.is_some() {
+        options.persistence_path = window_file;
+    }
     options
 }
 
@@ -1612,6 +1627,42 @@ mod native_window_tests {
             );
             assert!(!options.persist_window);
         }
+    }
+
+    #[test]
+    fn a_portable_copy_keeps_only_the_main_windows_memory_in_its_folder() {
+        let window_file = std::path::PathBuf::from("fastsonic-data/state/app.ron");
+        let main = keep_window_in(native_options(false, None, None), Some(window_file.clone()));
+        assert_eq!(main.persistence_path, Some(window_file.clone()));
+        let installed = keep_window_in(native_options(false, None, None), None);
+        assert_eq!(installed.persistence_path, None, "eframe's own file");
+        assert_eq!(
+            installed.viewport.app_id.as_deref(),
+            Some("fastsonic"),
+            "the app id names eframe's folder, paths::installed_window_file"
+        );
+        let mini_file = std::path::PathBuf::from("cache/winamp.ron");
+        let mini = keep_window_in(
+            native_options(
+                false,
+                Some(MiniWindow {
+                    size: egui::vec2(275.0, 116.0),
+                    position: None,
+                    on_top: false,
+                    taskbar: true,
+                    storage_path: mini_file.clone(),
+                }),
+                None,
+            ),
+            Some(window_file.clone()),
+        );
+        assert_eq!(mini.persistence_path, Some(mini_file));
+        let demo_file = std::path::PathBuf::from("temporary/demo.ron");
+        let demo = keep_window_in(
+            demo_native_options(native_options(false, None, None), demo_file.clone()),
+            Some(window_file),
+        );
+        assert_eq!(demo.persistence_path, Some(demo_file));
     }
 
     #[test]

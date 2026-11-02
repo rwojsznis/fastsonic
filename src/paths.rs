@@ -33,17 +33,29 @@ pub struct AppDirs {
 /// logging has started.
 pub struct Found {
     pub dirs: AppDirs,
-    line: Option<(log::Level, String)>,
+    /// Whether `dirs` is a portable copy's own folder.
+    portable: bool,
+    lines: Vec<(log::Level, String)>,
 }
 
 impl Found {
     /// Folders chosen elsewhere, such as a demo's, with nothing to say.
     pub fn given(dirs: AppDirs) -> Self {
-        Self { dirs, line: None }
+        Self {
+            dirs,
+            portable: false,
+            lines: Vec::new(),
+        }
+    }
+
+    /// Where eframe remembers the main window, when it is not the per-user
+    /// file eframe picks itself: a portable copy keeps it in its own folder.
+    pub fn window_file(&self) -> Option<PathBuf> {
+        self.portable.then(|| self.dirs.portable_window_file())
     }
 
     pub fn log(&self) {
-        if let Some((level, line)) = &self.line {
+        for (level, line) in &self.lines {
             log::log!(*level, "{line}");
         }
     }
@@ -64,8 +76,7 @@ impl AppDirs {
             Portable::No
         };
         let (dirs, mode) = settle(installed, portable);
-        let line = describe(&dirs, &mode);
-        Found { dirs, line }
+        found(dirs, &mode, installed_window_file().as_deref())
     }
 
     /// `config`, `state` and `cache` inside `root`: a portable data folder.
@@ -99,6 +110,11 @@ impl AppDirs {
                 }
             }
         }
+    }
+
+    /// What eframe remembers about a portable copy's main window.
+    fn portable_window_file(&self) -> PathBuf {
+        self.state.join("app.ron")
     }
 
     pub fn settings_file(&self) -> PathBuf {
@@ -328,6 +344,49 @@ fn prepare(folder: &Path, from: &AppDirs) -> io::Result<Option<AppDirs>> {
         return Err(error);
     }
     Ok(from.cloned())
+}
+
+/// What [`AppDirs::discover`] found, with what to log. A portable copy with
+/// no window file yet starts from a copy of `installed_window`, the
+/// per-user one, so its window opens as it was left. That one stays: the
+/// installed copy uses it.
+fn found(dirs: AppDirs, mode: &Mode, installed_window: Option<&Path>) -> Found {
+    let portable = matches!(mode, Mode::Portable { .. });
+    let mut lines: Vec<_> = describe(&dirs, mode).into_iter().collect();
+    if portable
+        && let Some(from) = installed_window
+        && let Err(error) = adopt_window_file(from, &dirs.portable_window_file())
+    {
+        lines.push((
+            log::Level::Warn,
+            format!("unable to copy {}: {error}", from.display()),
+        ));
+    }
+    Found {
+        dirs,
+        portable,
+        lines,
+    }
+}
+
+/// What eframe remembers about the main window (its size and the
+/// interface's memory), in the folder eframe picks from the window's app id,
+/// `fastsonic`: on Windows `%APPDATA%\fastsonic\data`.
+pub fn installed_window_file() -> Option<PathBuf> {
+    eframe::storage_dir("fastsonic").map(|dir| dir.join("app.ron"))
+}
+
+/// Gives a portable copy that has no window file yet a copy of `from`.
+/// Later runs keep their own.
+fn adopt_window_file(from: &Path, to: &Path) -> io::Result<()> {
+    if to.exists() {
+        return Ok(());
+    }
+    match fs::read(from) {
+        Ok(contents) => crate::util::write_file(to, contents),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 /// Copies the files and folders in `from` into `to`, which exists, leaving
@@ -641,6 +700,65 @@ mod tests {
         assert!(matches!(mode, Mode::Fallback { .. }), "{mode:?}");
         assert!(!app.join("fastsonic-data").exists());
         assert!(!app.join("fastsonic-data.partial").exists());
+    }
+
+    #[test]
+    fn a_portable_copy_keeps_its_window_file_in_its_folder() {
+        let fixture = Fixture::new("window-file");
+        let (dirs, mode) = fixture.discover();
+        let portable = found(dirs, &mode, None);
+        assert_eq!(
+            portable.window_file(),
+            Some(fixture.folder().join("state").join("app.ron"))
+        );
+        assert_eq!(Found::given(fixture.installed.clone()).window_file(), None);
+        fs::remove_file(fixture.app().join("fastsonic-portable.txt")).unwrap();
+        let (dirs, mode) = fixture.discover();
+        assert_eq!(found(dirs, &mode, None).window_file(), None);
+    }
+
+    /// The first portable run opens the window as it was left, the per-user
+    /// file stays for the installed copy, and later runs keep their own.
+    #[test]
+    fn a_portable_copy_starts_from_a_copy_of_the_window_file() {
+        let fixture = Fixture::new("adopt-window-file");
+        let from = fixture.root.join("roaming").join("app.ron");
+        let to = fixture.folder().join("state").join("app.ron");
+        let run = || {
+            let (dirs, mode) = fixture.discover();
+            found(dirs, &mode, Some(&from))
+        };
+
+        assert!(
+            run()
+                .lines
+                .iter()
+                .all(|(level, _)| *level != log::Level::Warn)
+        );
+        assert!(!to.exists(), "nothing to copy");
+
+        fs::create_dir_all(from.parent().unwrap()).unwrap();
+        fs::write(&from, "installed").unwrap();
+        run();
+        assert_eq!(fs::read_to_string(&to).unwrap(), "installed");
+        assert!(from.exists(), "copied, never moved");
+
+        fs::write(&to, "portable").unwrap();
+        run();
+        assert_eq!(fs::read_to_string(&to).unwrap(), "portable");
+    }
+
+    #[test]
+    fn an_installed_copy_never_copies_the_window_file() {
+        let fixture = Fixture::new("installed-window-file");
+        fs::remove_file(fixture.app().join("fastsonic-portable.txt")).unwrap();
+        let from = fixture.root.join("roaming").join("app.ron");
+        fs::create_dir_all(from.parent().unwrap()).unwrap();
+        fs::write(&from, "installed").unwrap();
+        let (dirs, mode) = fixture.discover();
+        found(dirs, &mode, Some(&from));
+        assert!(!fixture.installed.state.join("app.ron").exists());
+        assert!(!fixture.folder().exists());
     }
 
     /// The release workflow puts this file beside `fastsonic.exe` in the

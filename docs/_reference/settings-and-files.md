@@ -26,7 +26,10 @@ On macOS, configuration and state use `~/Library/Application Support/io.github.r
 and caches use `~/Library/Caches/io.github.rwojsznis.fastsonic`. On Windows,
 configuration uses `%APPDATA%\\github.rwojsznis\\fastsonic\\config`, state uses
 `%LOCALAPPDATA%\\github.rwojsznis\\fastsonic\\data`, and caches use the sibling
-`cache` directory.
+`cache` directory. The main window's interface memory, which eframe keeps in
+`app.ron`, is in eframe's own folder: `~/.local/share/fastsonic` on Linux,
+`~/Library/Application Support/fastsonic` on macOS and
+`%APPDATA%\fastsonic\data` on Windows.
 
 ### Portable copies
 
@@ -38,7 +41,7 @@ installer never installs.
 | What | Where |
 | --- | --- |
 | Settings, skins, MilkDrop presets, themes | `fastsonic-data\config\` |
-| State: the credential, session, history and logs | `fastsonic-data\state\` |
+| State: the credential, session, history, logs and `app.ron` | `fastsonic-data\state\` |
 | Caches | `fastsonic-data\cache\` |
 
 The first time it starts without that folder, it copies (never moves) your
@@ -49,6 +52,11 @@ files, and from then on the two never share settings, history, sign-in or
 caches: signing out of one leaves the other signed in. The copy is made in
 `fastsonic-data.partial` and renamed when complete, so a copy interrupted by
 a crash or a power cut is made again at the next start.
+
+A portable copy that has no `app.ron` yet starts from a copy of
+`%APPDATA%\fastsonic\data\app.ron`, so the window opens as you left it.
+That file stays where it is, because the installed Fastsonic uses it;
+without an installed copy you can delete it.
 
 If Fastsonic cannot write next to its executable, for example in `Program
 Files` or on read-only media, it uses the folders above and says why in the
