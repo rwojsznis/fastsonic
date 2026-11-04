@@ -10,7 +10,9 @@ use crate::storage::Size;
 use crate::theme::{self, Icon, Palette, custom::display_name};
 use crate::winamp::SkinKind;
 
+use super::skin_cards::{self, Card};
 use super::widgets;
+use crate::skin_previews::BUILT_IN;
 
 const PLAYBACK_DIRTY_ID: &str = "playback-settings-dirty";
 
@@ -832,6 +834,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.winamp.poll_choices();
         app.winamp.refresh_choices(&folder, ui.ctx());
         let choices = app.winamp.choices.clone();
+        let generation = app.winamp.choices_generation();
+        let listed = app.winamp.choices_known();
+        app.winamp.previews.begin(
+            ui.ctx(),
+            &app.dirs.skin_preview_dir(),
+            &choices,
+            generation,
+            listed,
+        );
         let showing = app
             .settings
             .skin
@@ -849,27 +860,30 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .push(Action::OpenUrl("https://skins.webamp.org/".into()));
             }
             ui.add_space(6.0);
-            let mut options: Vec<(usize, &str)> = vec![(0, "Fastsonic")];
-            options.extend(
-                choices
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, choice)| choice.kind == SkinKind::Winamp)
-                    .map(|(index, choice)| (index + 1, choice.label())),
-            );
+            let kept: Vec<usize> = (0..choices.len())
+                .filter(|index| choices[*index].kind == SkinKind::Winamp)
+                .collect();
+            let mut cards = vec![Card {
+                key: BUILT_IN,
+                label: "Fastsonic",
+            }];
+            cards.extend(kept.iter().map(|index| Card {
+                key: &choices[*index].name,
+                label: choices[*index].label(),
+            }));
             // With a Windows Media Player skin on, nothing here is.
             let current = match showing {
-                None => 0,
-                Some(index) if choices[index].kind == SkinKind::Winamp => index + 1,
-                Some(_) => usize::MAX,
+                None => Some(0),
+                Some(index) => kept.iter().position(|kept| *kept == index).map(|at| at + 1),
             };
-            if let Some(picked) = widgets::chips(ui, &palette, &options, current)
-                && picked != current
+            let picked = skin_cards::grid(ui, &palette, &mut app.winamp.previews, &cards, current);
+            if let Some(picked) = picked
+                && Some(picked) != current
             {
                 app.actions.push(Action::SetSkin(
                     picked
                         .checked_sub(1)
-                        .map(|index| choices[index].name.clone()),
+                        .map(|at| choices[kept[at]].name.clone()),
                 ));
             }
         });
@@ -893,27 +907,32 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     "https://archive.org/details/windowsmediaplayerskinscollection".into(),
                 ));
             }
-            let options: Vec<(usize, &str)> = choices
-                .iter()
-                .enumerate()
-                .filter(|(_, choice)| choice.kind == SkinKind::WindowsMediaPlayer)
-                .map(|(index, choice)| (index, choice.label()))
+            let kept: Vec<usize> = (0..choices.len())
+                .filter(|index| choices[*index].kind == SkinKind::WindowsMediaPlayer)
                 .collect();
             ui.add_space(6.0);
-            if options.is_empty() {
+            if kept.is_empty() {
                 skin_note(ui, &palette, "None installed yet.");
             } else {
-                let current = showing
-                    .filter(|index| choices[*index].kind == SkinKind::WindowsMediaPlayer)
-                    .unwrap_or(usize::MAX);
-                if let Some(picked) = widgets::chips(ui, &palette, &options, current)
-                    && picked != current
+                let cards: Vec<Card> = kept
+                    .iter()
+                    .map(|index| Card {
+                        key: &choices[*index].name,
+                        label: choices[*index].label(),
+                    })
+                    .collect();
+                let current = showing.and_then(|index| kept.iter().position(|kept| *kept == index));
+                let picked =
+                    skin_cards::grid(ui, &palette, &mut app.winamp.previews, &cards, current);
+                if let Some(picked) = picked
+                    && Some(picked) != current
                 {
                     app.actions
-                        .push(Action::SetSkin(Some(choices[picked].name.clone())));
+                        .push(Action::SetSkin(Some(choices[kept[picked]].name.clone())));
                 }
             }
         });
+        app.winamp.previews.finish();
         widgets::setting_row(
             ui,
             &palette,

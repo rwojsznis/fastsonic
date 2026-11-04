@@ -15,9 +15,13 @@ border, rounding or shadow, so a round skin is not drawn inside a rectangle.
 ## Skins and window size
 
 Drop a `.wsz` file on either window to install and use it. The **Mini player**
-section in Settings lists Winamp skins and Windows Media Player skins under
-their own titles. A `.zip` file is listed under the kind of skin it holds.
-**Open folder** opens the one folder both kinds are kept in.
+section in Settings shows Winamp skins and Windows Media Player skins under
+their own titles, each installed skin as a card with a picture of it. Click a
+card to wear that skin. The first time you scroll to them, the pictures are
+drawn in the background, one skin at a time, and kept for next time. A skin
+that cannot be drawn shows its name instead. It can still be worn. A `.zip`
+file is listed under the kind of skin it holds. **Open folder** opens the one
+folder both kinds are kept in.
 
 Unpacked skins can keep their files inside nested folders, up to eight levels
 below the skin's own folder, as Windows' Extract All leaves them. File names
@@ -74,6 +78,8 @@ intro animations, drawers, shutters and hidden panels work. Every view it
 defines works: a skin that opens separate windows for its playlist, equalizer
 or visualisation opens real windows here too. Windows take the skin's shape.
 A skin's preferences, such as which panels were open, are kept for next time.
+The picture on a skin's card comes from running it the same way, with a song
+partway through and still bars in place of the visualisation.
 
 Skins work with what Fastsonic has:
 

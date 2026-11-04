@@ -15,6 +15,7 @@ pub mod radio;
 pub mod search;
 pub mod settings;
 pub mod sidebar;
+pub mod skin_cards;
 pub mod topbar;
 pub mod widgets;
 pub mod winamp;

@@ -21,6 +21,7 @@ Linux the default locations are:
 | Audio cache | `~/.cache/fastsonic/audio/` | Always |
 | Artwork cache | `~/.cache/fastsonic/art/` | Always |
 | Lyrics cache | `~/.cache/fastsonic/lyrics/` | Always |
+| Skin previews | `~/.cache/fastsonic/skin-previews/` | Always; they are drawn again |
 | Per-account playlist cache | `~/.cache/fastsonic/playlists/` | Always |
 
 On macOS, configuration and state use `~/Library/Application Support/io.github.rwojsznis.fastsonic`
