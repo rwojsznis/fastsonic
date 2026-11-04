@@ -2232,7 +2232,11 @@ mod tests {
         app.lyrics_fullscreen = Some(false);
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.lyrics_following = false;
+        // Light differs from the dark palette this view is always drawn in.
+        let accent = crate::theme::Palette::light().accent;
+        ctx.set_theme(egui::Theme::Light);
         let mut rows = Vec::new();
+        let mut sung = None;
         for (step, position) in [0, 41_000].into_iter().enumerate() {
             app.local.playback = Playback::Paused;
             app.local.position_ms = position;
@@ -2257,6 +2261,7 @@ mod tests {
                                 if text.galley.job.text
                                     == "Streetlights blinking down the river road" =>
                             {
+                                sung = text.galley.job.sections.first().map(|s| s.format.color);
                                 Some(text.galley.rows.len())
                             }
                             _ => None,
@@ -2268,6 +2273,7 @@ mod tests {
         }
         app.backend.shutdown();
         assert_eq!(rows[0], rows[1], "highlighting must not rewrap a line");
+        assert_eq!(sung, Some(accent), "the sung line takes the theme's accent");
     }
 
     /// Where a line of lyrics was drawn, in a frame of full screen lyrics.
