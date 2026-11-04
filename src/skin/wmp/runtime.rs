@@ -75,7 +75,6 @@ pub struct Runtime {
     last_deck: Option<Deck>,
     /// Errors already logged.
     logged: HashSet<String>,
-    started: Instant,
     /// The whole skin closed.
     pub closed: bool,
 }
@@ -112,7 +111,6 @@ impl Runtime {
             next_key: 0,
             last_deck: Some(deck),
             logged: HashSet::new(),
-            started: now,
             closed: false,
         };
         let start = runtime.wmp.start_view();
@@ -273,10 +271,15 @@ impl Runtime {
         let started = Instant::now();
         while let Some(queued) = self.views[index].state.queue.pop_front() {
             self.run_one(index, queued);
+            self.collect_if_full(index);
             if started.elapsed() > FRAME_SHARE {
                 break;
             }
         }
+    }
+
+    /// Frees what scripts no longer reach, between handlers.
+    fn collect_if_full(&mut self, index: usize) {
         let live = &mut self.views[index];
         if live.engine.heap_bytes() > 4 * 1024 * 1024 {
             let roots: Vec<Value> = live
@@ -388,14 +391,11 @@ impl Runtime {
                 }
             }
         }
-        if self.views.is_empty() || (self.primary().is_none() && self.has_opened_a_window()) {
+        // A control view runs on without a window of its own only while
+        // there is one to control.
+        if self.primary().is_none() {
             self.finish();
         }
-    }
-
-    fn has_opened_a_window(&self) -> bool {
-        // A control view can run alone only while a window is on its way.
-        self.shared.requests.is_empty()
     }
 
     fn finish(&mut self) {
@@ -1058,15 +1058,6 @@ impl Runtime {
             self.pump(index);
             self.settle(now);
         }
-    }
-
-    #[cfg(test)]
-    pub fn logged_errors(&self) -> Vec<String> {
-        self.logged.iter().cloned().collect()
-    }
-
-    pub fn uptime_ms(&self, now: Instant) -> u64 {
-        now.saturating_duration_since(self.started).as_millis() as u64
     }
 
     /// The numbers a test or demo wants from a view: an element's attribute.

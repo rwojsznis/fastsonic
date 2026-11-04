@@ -559,6 +559,10 @@ impl Bridge<'_> {
                     self.command(Command::ResetEq);
                     return Ok(Value::Undefined);
                 }
+                "gainlevels" => {
+                    let band = format!("gainlevel{}", arg_number(args, 0));
+                    return Ok(self.element_get(id, &band));
+                }
                 "presettitle" => {
                     let at = arg_number(args, 0) as usize;
                     let title = self.deck().eq_presets.get(at).cloned().unwrap_or_default();
@@ -709,7 +713,19 @@ impl Host for Bridge<'_> {
         }
         if matches!(
             lower.as_str(),
-            "left" | "top" | "width" | "height" | "visible" | "enabled" | "zindex" | "alphablend"
+            "left"
+                | "top"
+                | "width"
+                | "height"
+                | "visible"
+                | "enabled"
+                | "zindex"
+                | "alphablend"
+                | "moveto"
+                | "slideto"
+                | "movesizeto"
+                | "alphablendto"
+                | "click"
         ) {
             return true;
         }
@@ -733,6 +749,11 @@ impl Host for Bridge<'_> {
             Kind::View => matches!(
                 lower.as_str(),
                 "close" | "minimize" | "maximize" | "restore" | "size" | "returntomediacenter"
+            ),
+            Kind::Equalizer => lower == "reset" || lower.starts_with("gainlevel"),
+            Kind::ListBox => matches!(
+                lower.as_str(),
+                "show" | "dismiss" | "appenditem" | "deleteall" | "selecteditem" | "itemcount"
             ),
             _ => false,
         }
@@ -866,6 +887,16 @@ impl Host for Bridge<'_> {
     fn call(&mut self, object: HostId, name: &str, args: &[Value]) -> Result<Value, String> {
         let lower = name.to_ascii_lowercase();
         let name = lower.as_str();
+        // `eq.gainLevels(band) = value`, as the parser hands it over.
+        if let Some(property) = name.strip_prefix("set:") {
+            if property == "gainlevels" {
+                let band = format!("gainlevel{}", arg_number(args, 0));
+                let value = args.get(1).cloned().unwrap_or(Value::Undefined);
+                self.set(object, &band, value);
+                return Ok(Value::Undefined);
+            }
+            return self.call(object, property, args);
+        }
         match object {
             CONTROLS => {
                 let sounding =
@@ -1003,7 +1034,10 @@ impl Bridge<'_> {
         let song = self.song(object);
         let bitrate = self.deck().bitrate;
         Ok(match name {
-            "getiteminfo" | "getiteminfobytype" => song_info(song, bitrate, &arg_text(args, 0)),
+            // Item information is always a string, durations included.
+            "getiteminfo" | "getiteminfobytype" => {
+                text(&text_of(&song_info(song, bitrate, &arg_text(args, 0))))
+            }
             "getiteminfobyatom" => {
                 let atom = arg_number(args, 0);
                 let name = if atom >= 0.0 {
@@ -1011,7 +1045,7 @@ impl Bridge<'_> {
                 } else {
                     ""
                 };
-                song_info(song, bitrate, name)
+                text(&text_of(&song_info(song, bitrate, name)))
             }
             "getattributename" => text(
                 ATOMS
