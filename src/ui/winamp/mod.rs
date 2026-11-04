@@ -27,6 +27,8 @@ use crate::winamp::{MAX_SCALE, WinampState};
 use super::widgets::{SliderEvent, wheel_notches};
 
 mod equalizer;
+#[cfg(feature = "milkdrop")]
+mod milkdrop;
 mod pixel_text;
 mod playlist;
 mod wmp;
@@ -409,6 +411,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         };
         playlist::show(app, &mut below, now.as_ref(), focused);
     }
+    #[cfg(feature = "milkdrop")]
+    milkdrop::show(app, &ctx);
 
     // The visualiser wants a frame at the chosen rate while it moves;
     // otherwise the marquee steps and the time ticks, and while paused the

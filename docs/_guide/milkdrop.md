@@ -3,8 +3,13 @@
 Open MilkDrop from the top-bar visualiser button, Ctrl+Shift+K, Settings, or
 the mini player's **V** menu. It uses
 [projectM](https://github.com/projectM-visualizer/projectm) to play `.milk`
-presets in its own window and process. Windows Media Player skins also show
-it in their visualisation areas; see
+presets in its own window and process. With a classic Winamp skin on, that
+window wears the skin's frame, as it did in Winamp 5, with a title bar, a close
+button and a corner to resize it by. Double-click it or press **F** for
+fullscreen; leaving fullscreen brings the frame back. The next and previous
+preset keys and the right-click below work in it too; the other MilkDrop keys
+and the song title are only in the plain window. Windows Media Player skins
+also show it in their visualisation areas; see
 [Windows Media Player skins](winamp.md#windows-media-player-skins).
 
 <video autoplay loop muted playsinline preload="metadata" aria-label="MilkDrop running in Fastsonic" style="width: 100%; height: auto;">

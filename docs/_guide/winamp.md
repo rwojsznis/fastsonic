@@ -56,6 +56,9 @@ supported backend again.
 Non-rectangular skins use `region.txt` for transparent areas. Winamp 3 and 5
 skins use a different format and are not supported.
 
+MilkDrop, opened from a classic skin's mini player, wears that skin's generic
+window frame from `gen.bmp`. A skin without one borrows the built-in skin's.
+
 ## Windows Media Player skins
 
 The mini player also wears Windows Media Player skins. Drop a `.wmz` file on
