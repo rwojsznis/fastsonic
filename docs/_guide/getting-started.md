@@ -176,7 +176,8 @@ features; Navidrome-only personalisation sections may be empty.
 Choose the microphone button in the player bar, or press **L**, to open lyrics.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to seek there. The expand
-button, or **F** when no text field has focus, opens the full-screen view;
+button in the lyrics panel or at the right of the player bar, or **F** when no
+text field has focus, opens the full-screen view;
 press **F** or **Esc**, or choose the shrink button, to return to the previous
 window mode. In a wide window, the cover sits beside the lyrics; a song with no
 words shows its cover alone. There, **Q** shows or hides the queue as a column
@@ -184,8 +185,9 @@ on the right without leaving full screen, and a Queue panel open when you
 enter becomes that column. Drag the column's left edge to resize it; the Queue
 panel keeps the width you choose.
 
-Press **V** in full screen lyrics to put MilkDrop behind the words instead of
-the cover's art, and again to bring the art back; Fastsonic remembers which
+Press **V** in full screen lyrics, or click anywhere that isn't a line of
+lyrics or a control, to put MilkDrop behind the words instead of the cover's
+art, and do the same again to bring the art back; Fastsonic remembers which
 you chose. **N** and **P** change the preset there. The picture is dimmed as
 far as it takes to keep the words clear, and holds still while the music is
 paused. It uses the presets you have: with none, the art stays. It follows the

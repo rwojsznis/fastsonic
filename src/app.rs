@@ -2649,8 +2649,8 @@ impl App {
 
     /// Puts the demo in full screen lyrics with MilkDrop behind them.
     #[cfg(feature = "demo")]
-    pub fn demo_lyrics_milkdrop(&mut self) {
-        self.milkdrop_backdrop = true;
+    pub fn demo_lyrics_milkdrop(&mut self, milkdrop: bool) {
+        self.milkdrop_backdrop = milkdrop;
         self.lyrics_fullscreen = Some(false);
         self.show_lyrics_panel = true;
     }

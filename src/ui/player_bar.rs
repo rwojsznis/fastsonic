@@ -866,6 +866,16 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     );
 }
 
+/// What the right of the bar always holds, in points: the volume slider and
+/// its button, the queue and lyrics buttons, and the gaps.
+const EXTRAS_WIDTH: f32 = 92.0 + 3.0 * (18.0 + theme::ICON_BUTTON_PAD) + 3.0 * 6.0 + 4.0;
+
+/// Whether the full screen button has room beside the rest, keeping clear of
+/// the transport, with `room` points to the right of it.
+fn full_screen_button_fits(room: f32) -> bool {
+    room >= EXTRAS_WIDTH + 18.0 + theme::ICON_BUTTON_PAD + 6.0 + TRANSPORT_GAP
+}
+
 fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_right: f32) {
     let palette = app.palette;
     ui.spacing_mut().item_spacing.x = 6.0;
@@ -876,6 +886,20 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         Some(fraction) => (fraction * 100.0).round() as u8,
         None => volume,
     };
+    // The bar's last control, right of the volume. It gives way before
+    // anything else, once Listening activity has; **F** stays.
+    let room = ui.max_rect().right() - transport_right;
+    if full_screen_button_fits(room) {
+        let inside = app.lyrics_fullscreen.is_some();
+        let (icon, tip) = if inside {
+            (Icon::Shrink, "Leave full screen (Esc)")
+        } else {
+            (Icon::Expand, "Full screen lyrics")
+        };
+        if theme::icon_button(ui, icon, 18.0, palette.secondary, palette.text, tip).clicked() {
+            app.actions.push(Action::SetLyricsFullscreen(!inside));
+        }
+    }
     match thin_slider(
         ui,
         &palette,
@@ -1166,5 +1190,12 @@ mod player_bar_tint_tests {
 
         let accent = Color32::from_rgb(30, 215, 96);
         assert_eq!(vis_colours(None, accent, true).len(), 2);
+    }
+
+    /// A window too narrow for it loses the button, not the volume.
+    #[test]
+    fn the_full_screen_button_goes_when_the_bar_is_tight() {
+        assert!(full_screen_button_fits(320.0));
+        assert!(!full_screen_button_fits(200.0));
     }
 }

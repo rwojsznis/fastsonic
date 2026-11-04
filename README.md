@@ -90,7 +90,7 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   [autoscroll](docs/_guide/using-fastsonic.md#middle-click-autoscroll).
 - Synced lyrics in a side panel or full-screen view, with line seeking and
   automatic following. Words come from your server, with LRCLIB as fallback;
-  lyrics found before stay available while either cannot answer. Full screen, also on **F**, places a large cover
+  lyrics found before stay available while either cannot answer. Full screen, from the player bar's button or **F**, places a large cover
   beside the lyrics in wide windows, or centres it when there are no words;
   **Q** adds a queue column beside them, and **V** puts MilkDrop behind
   the words in place of the cover.
