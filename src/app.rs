@@ -2914,6 +2914,7 @@ impl App {
             queue,
             eq_on: self.settings.eq_on,
             eq_bands: self.settings.eq_bands_db,
+            eq_preamp: self.settings.eq_preamp_db,
             eq_presets: presets,
             eq_preset: None,
             effect: match self.settings.vis {
@@ -2976,6 +2977,9 @@ impl App {
                 measure,
                 move || wake.request_repaint(),
             ));
+            if let Some(runtime) = &mut self.winamp.runtime {
+                runtime.await_window();
+            }
             #[cfg(feature = "demo")]
             for script in std::mem::take(&mut self.winamp.demo_scripts) {
                 if let Some(runtime) = &mut self.winamp.runtime
@@ -3075,6 +3079,7 @@ impl App {
                 self.actions
                     .push(Action::SetEqBand(band, gain.clamp(-12.0, 12.0)));
             }
+            Command::SetEqPreamp(gain) => self.actions.push(Action::SetEqPreamp(gain)),
             Command::SetEqOn(on) => {
                 if self.settings.eq_on != on {
                     self.actions.push(Action::ToggleEq);
