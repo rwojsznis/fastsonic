@@ -2838,9 +2838,15 @@ impl App {
                 .as_ref()
                 .map_or(0.0, |now| f64::from(now.position_ms) / 1000.0),
             bitrate: 320_000,
-            volume: now.as_ref().map_or_else(
-                || crate::app::volume_to_percent(self.local.volume),
-                |now| now.volume_percent,
+            // A dragged slider's level is the one shown.
+            volume: self.volume_preview.map_or_else(
+                || {
+                    now.as_ref().map_or_else(
+                        || crate::app::volume_to_percent(self.local.volume),
+                        |now| now.volume_percent,
+                    )
+                },
+                |fraction| (fraction * 100.0).round() as u8,
             ),
             mute: self.volume_is_muted(),
             balance: (self.settings.balance * 100.0).round() as i32,
@@ -2976,7 +2982,14 @@ impl App {
             Command::Previous => self.actions.push(Action::Previous),
             Command::Seek(position) => self.actions.push(Action::Seek(position)),
             Command::SeekBy(by) => self.actions.push(Action::SeekBy(by)),
-            Command::SetVolume(volume) => self.actions.push(Action::SetVolume(volume)),
+            Command::SetVolume(volume) => {
+                self.volume_preview = None;
+                self.actions.push(Action::SetVolume(volume));
+            }
+            Command::PreviewVolume(volume) => {
+                self.volume_preview = Some(f32::from(volume) / 100.0);
+                self.actions.push(Action::PreviewVolume(volume));
+            }
             Command::SetMute(mute) => {
                 if self.volume_is_muted() != mute {
                     self.actions.push(Action::ToggleMute);
@@ -11656,6 +11669,23 @@ mod tests {
         );
         assert!(!app.skin_return);
         assert!(!app.milkdrop_backdrop);
+    }
+
+    /// The deck is what a skin's sliders read back: a drag must not snap to
+    /// the level from before it on the next tick.
+    #[test]
+    fn a_skin_s_drag_is_previewed_and_the_deck_shows_it() {
+        use crate::skin::wmp::deck::Command;
+        let mut app = test_app("skin-volume-drag");
+        let deck = app.wmp_deck();
+        let before = deck.volume;
+        let dragged = before.wrapping_add(13) % 100;
+        app.wmp_command(Command::PreviewVolume(dragged), &deck);
+        assert_eq!(app.wmp_deck().volume, dragged);
+        assert!(matches!(app.actions.last(), Some(Action::PreviewVolume(_))));
+        app.wmp_command(Command::SetVolume(dragged), &deck);
+        assert_eq!(app.volume_preview, None);
+        assert!(matches!(app.actions.last(), Some(Action::SetVolume(_))));
     }
 
     #[test]
