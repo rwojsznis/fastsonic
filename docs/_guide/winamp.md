@@ -8,7 +8,8 @@ Windows Media Player `.wmz` skins. Find Winamp skins at the
 Only one player window is open at a time. Click the skin logo or Eject, use
 the shortcut again, or choose **Open main window** from the tray menu to return
 to the main window. On Hyprland, skinned windows ask the compositor for no
-border, rounding or shadow, so a round skin is not drawn inside a rectangle.
+border, rounding, shadow or blur, so a round skin is not drawn inside a
+rectangle.
 
 ![The mini player wearing the built-in skin](../assets/images/winamp.png)
 
