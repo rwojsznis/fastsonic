@@ -6733,7 +6733,12 @@ impl App {
         // one: reading it back would overwrite what it was drawn from and
         // lose the album the track came out of.
         if let Some(now) = self.now_playing().filter(|now| !now.resuming) {
-            self.resume_context = self.playing_context_uri();
+            // A paused song from a sorted view has no context to report, but
+            // its playlist is still what it plays from (#1013).
+            let same_song = self.resume_track.as_deref() == Some(now.uri.as_str());
+            self.resume_context = self
+                .playing_context_uri()
+                .or_else(|| self.resume_context.clone().filter(|_| same_song));
             self.resume_track = Some(now.uri.clone());
             self.resume_context_track = self.context_row_under(&now.uri);
             self.resume_position_ms = now.position_ms;
@@ -10838,6 +10843,49 @@ mod tests {
             "the album survives a save while the preview is on show"
         );
         assert_eq!(app.resume_context_track.as_deref(), Some("sonic:track:abc"));
+    }
+
+    /// #1013: a paused song from a sorted playlist reports no context once
+    /// the click's hold has passed, and closing keeps the playlist it plays
+    /// from, so Play carries on through that playlist after a restart. A
+    /// different song keeps no stale playlist.
+    #[test]
+    fn the_playing_playlist_survives_a_save_without_a_reported_context() {
+        let paused_on = |uri: &str| LocalState {
+            connected: true,
+            playback: Playback::Paused,
+            track: Some(crate::engine::LocalTrack {
+                uri: uri.into(),
+                duration_ms: 240_000,
+                ..Default::default()
+            }),
+            position_ms: 5_000,
+            ..Default::default()
+        };
+        let mut app = headless_app();
+        app.local = paused_on("sonic:track:song");
+        app.resume_context = Some("sonic:playlist:kept".into());
+        app.resume_track = Some("sonic:track:song".into());
+        app.assumed_context = Some(AssumedContext {
+            uri: "sonic:playlist:kept".into(),
+            shuffle: None,
+            at: Instant::now() - ASSUMED_CONTEXT_HOLD - Duration::from_secs(1),
+        });
+        assert_eq!(app.playing_context_uri(), None, "nothing reports it");
+
+        app.save_session();
+
+        assert_eq!(app.resume_context.as_deref(), Some("sonic:playlist:kept"));
+        assert_eq!(app.resume_position_ms, 5_000);
+        app.backend.shutdown();
+
+        let mut app = headless_app();
+        app.local = paused_on("sonic:track:other");
+        app.resume_context = Some("sonic:playlist:kept".into());
+        app.resume_track = Some("sonic:track:song".into());
+        app.save_session();
+        assert_eq!(app.resume_context, None);
+        app.backend.shutdown();
     }
 
     /// Saving the queue writes the playing song and every row after it,

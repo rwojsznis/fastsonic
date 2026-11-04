@@ -68,7 +68,9 @@ for.
    resume the last song, it restores your queued songs and the place the
    album or playlist had reached — including the album's own place under a
    song you had queued, so that resuming plays your song and then carries
-   on where the album was. A radio is only the songs its page showed, and
+   on where the album was. The playlist carries on after the song even when
+   it was paused or playing from a sorted view when you closed the app.
+   A radio is only the songs its page showed, and
    those are not kept: resuming one plays the last song on its own, still
    named as the radio's. Changing the output device or the normalisation
    switch replaces the player; the queue comes across with it, a radio's
