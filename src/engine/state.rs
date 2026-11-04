@@ -243,6 +243,14 @@ pub struct LoadSpec {
     pub repeat: Option<RepeatMode>,
 }
 
+impl LoadSpec {
+    /// A resumed session or a handover to a new engine, rather than the
+    /// listener choosing something to play: only a restore names `repeat`.
+    pub fn is_restore(&self) -> bool {
+        self.repeat.is_some()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum PlayerCommand {
     Toggle,

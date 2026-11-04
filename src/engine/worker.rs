@@ -1116,6 +1116,7 @@ impl Worker {
             Ok(entries) => entries,
             Err(message) => return self.fail(message),
         };
+        let (context_uri, entries, start) = starting_point(&spec, entries);
         if entries.is_empty() {
             return self.fail("There is nothing to play here.".into());
         }
@@ -1125,9 +1126,8 @@ impl Worker {
             self.queue.set_shuffle(shuffle);
             self.state.shuffle = shuffle;
         }
-        let start = start_index(&entries, spec.offset_uri.as_deref(), spec.offset_index);
         // Rule 6: the songs queued by hand survive a new album.
-        self.queue.load(spec.context_uri.clone(), entries, start);
+        self.queue.load(context_uri, entries, start);
         // Rule 9: a restore carries the queue with it — the songs owed to
         // "Playing next", and the one that was playing over the top of the
         // album, which leaves the album where the offset put it.
@@ -1417,6 +1417,23 @@ fn stream_of(song: &Child, url: String, cache: Option<Arc<Cache>>) -> Stream {
     }
 }
 
+/// What a load plays, under which name, and from which row. A restore
+/// resumes the song its offset names; a context that no longer holds it,
+/// a playlist edited on the server since, would start its first song at
+/// the saved position, so the song plays on its own instead (rule 9).
+fn starting_point(spec: &LoadSpec, entries: Vec<Entry>) -> (Option<String>, Vec<Entry>, usize) {
+    if spec.is_restore()
+        && spec.current.is_none()
+        && let Some(uri) = spec.offset_uri.as_deref()
+        && let Some(id) = convert::id_of(uri, convert::Kind::Track)
+        && !entries.iter().any(|entry| entry.id == id)
+    {
+        return (Some(uri.to_owned()), vec![Entry::new(id)], 0);
+    }
+    let start = start_index(&entries, spec.offset_uri.as_deref(), spec.offset_index);
+    (spec.context_uri.clone(), entries, start)
+}
+
 /// Where a load starts: the track it named, else the index it named, else
 /// the beginning. Given both, the index picks which copy of a song the list
 /// holds more than once, as long as that row still holds the song.
@@ -1532,6 +1549,52 @@ mod tests {
         assert_eq!(start_index(&list, Some("sonic:track:z"), None), 0);
         assert_eq!(start_index(&list, None, Some(9)), 0);
         assert_eq!(start_index(&list, None, None), 0);
+    }
+
+    /// Upstream #856: a resumed song its playlist no longer holds plays on
+    /// its own at the saved position, not the playlist's first song. Any
+    /// other load, and a restore with a queued song over the album, keeps
+    /// the context and its fallback to the first row.
+    #[test]
+    fn a_restore_the_context_no_longer_holds_plays_the_song_alone() {
+        let ids = |entries: &[Entry]| -> Vec<String> {
+            entries.iter().map(|entry| entry.id.clone()).collect()
+        };
+        let restore = LoadSpec {
+            context_uri: Some("sonic:playlist:p".into()),
+            offset_uri: Some("sonic:track:gone".into()),
+            repeat: Some(RepeatMode::Off),
+            ..LoadSpec::default()
+        };
+        let (context, list, start) = starting_point(&restore, entries(&["a", "b"]));
+        assert_eq!(context.as_deref(), Some("sonic:track:gone"));
+        assert_eq!((ids(&list), start), (vec!["gone".to_string()], 0));
+
+        let (context, list, start) = starting_point(&restore, Vec::new());
+        assert_eq!(context.as_deref(), Some("sonic:track:gone"));
+        assert_eq!((ids(&list), start), (vec!["gone".to_string()], 0));
+
+        let held = LoadSpec {
+            offset_uri: Some("sonic:track:b".into()),
+            ..restore.clone()
+        };
+        let (context, list, start) = starting_point(&held, entries(&["a", "b"]));
+        assert_eq!(context.as_deref(), Some("sonic:playlist:p"));
+        assert_eq!((list.len(), start), (2, 1));
+
+        let chosen = LoadSpec {
+            repeat: None,
+            ..restore.clone()
+        };
+        let (context, _, start) = starting_point(&chosen, entries(&["a", "b"]));
+        assert_eq!((context.as_deref(), start), (Some("sonic:playlist:p"), 0));
+
+        let over_the_album = LoadSpec {
+            current: Some("sonic:track:q".into()),
+            ..restore
+        };
+        let (context, _, start) = starting_point(&over_the_album, entries(&["a", "b"]));
+        assert_eq!((context.as_deref(), start), (Some("sonic:playlist:p"), 0));
     }
 
     #[test]
