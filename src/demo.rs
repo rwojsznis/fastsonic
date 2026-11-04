@@ -889,7 +889,7 @@ fn demo_listeners() -> Vec<crate::listeners::Listener> {
 /// Enough fixed sound for the tap's speaker lag and the analyzer window.
 /// No server or audio device is involved.
 #[cfg(feature = "demo")]
-fn demo_sound() -> Vec<f64> {
+pub(crate) fn demo_sound() -> Vec<f64> {
     (0..20_000)
         .flat_map(|frame| {
             let phase = frame as f64 / 44_100.0 * std::f64::consts::TAU;
@@ -1067,6 +1067,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.settings.vis = crate::settings::VisMode::Bars;
                     app.local.playback = Playback::Playing;
                     app.winamp.tap.push(&demo_sound(), 1.0);
+                    app.winamp.demo_sounding = true;
                 }
             }
             "playlist" => app.settings.playlist_open = true,

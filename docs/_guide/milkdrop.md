@@ -3,7 +3,9 @@
 Open MilkDrop from the top-bar visualiser button, Ctrl+Shift+K, Settings, or
 the mini player's **V** menu. It uses
 [projectM](https://github.com/projectM-visualizer/projectm) to play `.milk`
-presets in its own window and process.
+presets in its own window and process. Windows Media Player skins also show
+it in their visualisation areas; see
+[Windows Media Player skins](winamp.md#windows-media-player-skins).
 
 <video autoplay loop muted playsinline preload="metadata" aria-label="MilkDrop running in Fastsonic" style="width: 100%; height: auto;">
   <source src="../assets/images/milkdrop.mp4" type="video/mp4">

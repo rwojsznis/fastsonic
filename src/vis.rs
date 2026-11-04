@@ -79,6 +79,10 @@ pub struct AudioTap {
     /// The ring the MilkDrop child reads, attached while its window is open.
     #[cfg(feature = "milkdrop")]
     shm: Mutex<Option<std::sync::Arc<crate::milkdrop::shm::Ring>>>,
+    /// The ring of the child drawing for a skin's pane, which can run beside
+    /// the window's.
+    #[cfg(feature = "milkdrop")]
+    pane_shm: Mutex<Option<std::sync::Arc<crate::milkdrop::shm::Ring>>>,
 }
 
 impl std::fmt::Debug for AudioTap {
@@ -96,6 +100,8 @@ impl Default for AudioTap {
             born: Instant::now(),
             #[cfg(feature = "milkdrop")]
             shm: Mutex::new(None),
+            #[cfg(feature = "milkdrop")]
+            pane_shm: Mutex::new(None),
         }
     }
 }
@@ -123,12 +129,19 @@ impl AudioTap {
     }
 
     /// Whether anything is drawing from the tap: a visualiser has read it
-    /// in the last few frames, or MilkDrop's window is open. Only then does
-    /// the engine keep the lead fresh between top-ups of its queue; with
-    /// nothing on screen it sleeps until the device wants more.
+    /// in the last few frames, or MilkDrop's window or a skin's MilkDrop
+    /// pane is running. Only then does the engine keep the lead fresh
+    /// between top-ups of its queue; with nothing on screen it sleeps until
+    /// the device wants more.
     pub fn watched(&self) -> bool {
         #[cfg(feature = "milkdrop")]
-        if self.shm.lock().unwrap_or_else(|p| p.into_inner()).is_some() {
+        if self.shm.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+            || self
+                .pane_shm
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_some()
+        {
             return true;
         }
         let read = self.read.load(Ordering::Relaxed);
@@ -145,20 +158,39 @@ impl AudioTap {
             return;
         }
         #[cfg(feature = "milkdrop")]
-        if let Some(ring) = self.shm.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
-            ring.set_lead(frames);
+        for ring in [&self.shm, &self.pane_shm] {
+            if let Some(ring) = ring.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+                ring.set_lead(frames);
+            }
         }
     }
 
+    /// Connects the tap to the pane's ring. `None` detaches it.
+    #[cfg(feature = "milkdrop")]
+    pub fn set_pane_shm(&self, ring: Option<std::sync::Arc<crate::milkdrop::shm::Ring>>) {
+        if let Some(ring) = &ring {
+            ring.set_lead(self.lead.load(Ordering::Relaxed));
+        }
+        *self.pane_shm.lock().unwrap_or_else(|p| p.into_inner()) = ring;
+    }
+
     /// Adds scaled stereo samples to the mono analyser buffer and, when
-    /// attached, MilkDrop's stereo shared-memory ring.
+    /// attached, MilkDrop's stereo shared-memory rings.
     pub fn push(&self, interleaved: &[f64], gain: f32) {
         let mut samples = self.samples.lock().unwrap_or_else(|p| p.into_inner());
         let (frames, _) = interleaved.as_chunks::<CHANNELS>();
         #[cfg(feature = "milkdrop")]
-        let shm = self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        let rings = [
+            self.shm.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+            self.pane_shm
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
+        ];
         #[cfg(feature = "milkdrop")]
-        let mut stereo: Vec<f32> = if shm.is_some() {
+        let wanted = rings.iter().any(Option::is_some);
+        #[cfg(feature = "milkdrop")]
+        let mut stereo: Vec<f32> = if wanted {
             Vec::with_capacity(frames.len() * 2)
         } else {
             Vec::new()
@@ -170,13 +202,13 @@ impl AudioTap {
             }
             samples.push_back(mono);
             #[cfg(feature = "milkdrop")]
-            if shm.is_some() {
+            if wanted {
                 stereo.push(frame[0] as f32 * gain);
                 stereo.push(frame[1] as f32 * gain);
             }
         }
         #[cfg(feature = "milkdrop")]
-        if let Some(ring) = &shm {
+        for ring in rings.iter().flatten() {
             ring.push(&stereo);
         }
     }
