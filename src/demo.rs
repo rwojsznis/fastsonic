@@ -7749,9 +7749,10 @@ mod tests {
     }
 
     /// A Windows Media Player skin is listed under its own title, even from
-    /// a `.zip`, and choosing one asks for it.
+    /// a `.zip`, each kind of skin has its own source, and choosing one asks
+    /// for it.
     #[test]
-    fn the_mini_player_settings_list_a_media_player_skin_under_its_own_title() {
+    fn the_mini_player_settings_give_each_kind_of_skin_its_own_source() {
         let (ctx, mut app) = accessible_app("settings-media-player-skin");
         app.backend.shutdown();
         let folder = app.dirs.skins_dir();
@@ -7778,6 +7779,23 @@ mod tests {
         let player = sidebar_text(&painted, "Windows Media Player");
         let chip = sidebar_text(&painted, "chrome");
         assert!(chip.top() > player.top(), "listed under its own title");
+        // Only the Mini player section: MilkDrop has a folder of its own.
+        let section =
+            sidebar_text(&painted, "Mini player").top()..sidebar_text(&painted, "MilkDrop").top();
+        let count = |wanted: &str| {
+            painted
+                .iter()
+                .filter(|(text, rect)| text == wanted && section.contains(&rect.top()))
+                .count()
+        };
+        assert_eq!(count("Winamp"), 1);
+        assert_eq!(count("Windows Media Player"), 1);
+        assert_eq!(count("chrome"), 1);
+        assert_eq!(count("Skin Museum"), 1);
+        assert_eq!(count("Windows Media Player Skins Collection"), 1);
+        // One folder holds both kinds, so one button opens it, on its own row.
+        assert_eq!(count("Skins folder"), 1);
+        assert_eq!(count("Open folder"), 1);
         app.actions.clear();
         view_frame_sized(
             &ctx,
