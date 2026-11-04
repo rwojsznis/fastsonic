@@ -33,6 +33,8 @@ the whole list, though it still pauses and resumes the page's songs while
 they are what is playing. Clearing the filter restores the original order.
 Playing a song a playlist holds more than once starts the copy you chose,
 sorted or not, and only that row shows as playing until another song does.
+Another playlist that also holds the playing song shows it as an ordinary
+row, since the song is not playing from there.
 Sorting by album keeps each album's songs together in disc and track order,
 and two albums that share a name stay apart.
 

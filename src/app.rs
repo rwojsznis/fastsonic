@@ -1097,8 +1097,22 @@ impl App {
     /// Whether a row holding `uri` may show as the current song. A song
     /// started from a row marks that row alone in its own list; other copies
     /// of the song there are ordinary rows. Anywhere else, and once the
-    /// remembered row no longer holds the song, every copy shows it.
+    /// remembered row no longer holds the song, every copy shows it, except
+    /// in a playlist other than the one playing: the song is not playing
+    /// from there (#1106).
     pub fn row_is_played_copy(&self, context: &RowContext, index: usize, uri: &str) -> bool {
+        if let RowContext::Context { uri: list_uri, .. }
+        | RowContext::View {
+            context_uri: list_uri,
+            ..
+        } = context
+            && util::uri_kind(list_uri) == Some("playlist")
+            && self
+                .playing_context_uri()
+                .is_some_and(|playing| playing != *list_uri)
+        {
+            return false;
+        }
         let Some(played) = self.played_row.as_ref().filter(|played| played.uri == uri) else {
             return true;
         };
@@ -8545,6 +8559,42 @@ mod tests {
             rows.revision = rows.revision.wrapping_add(1);
             assert!(app.row_is_played_copy(&liked, row - 1, &song));
         }
+        app.backend.shutdown();
+    }
+
+    /// A song playing from one playlist is an ordinary row in another that
+    /// also holds it (#1106). Outside playlists, and while nothing says where
+    /// the song plays from, every copy still shows it.
+    #[test]
+    fn the_playing_song_marks_only_the_playlist_it_plays_from() {
+        let mut app = headless_app();
+        let song = "sonic:track:both";
+        let playlist = |id: &str| RowContext::Context {
+            uri: format!("sonic:playlist:{id}"),
+            editable_playlist: None,
+        };
+        let view = RowContext::View {
+            uris: std::sync::Arc::from([song.to_string()]),
+            context_uri: "sonic:playlist:other".into(),
+            editable_playlist: None,
+        };
+        let album = RowContext::Context {
+            uri: "sonic:album:same".into(),
+            editable_playlist: None,
+        };
+        assert!(app.row_is_played_copy(&playlist("other"), 3, song));
+
+        app.assumed_context = Some(AssumedContext {
+            uri: "sonic:playlist:source".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+
+        assert!(app.row_is_played_copy(&playlist("source"), 0, song));
+        assert!(!app.row_is_played_copy(&playlist("other"), 3, song));
+        assert!(!app.row_is_played_copy(&view, 0, song));
+        assert!(app.row_is_played_copy(&album, 0, song));
+        assert!(app.row_is_played_copy(&RowContext::Uris(std::sync::Arc::from([])), 0, song));
         app.backend.shutdown();
     }
 
