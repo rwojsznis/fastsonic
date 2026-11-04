@@ -1113,6 +1113,16 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.settings.skin_scale = Some(2);
                 app.winamp.demo_sounding = true;
             }
+            // Full screen lyrics with MilkDrop behind them, on whatever is
+            // in the demo's presets folder.
+            "lyrics-milkdrop" => {
+                app.demo_lyrics_milkdrop();
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+                app.lyrics_following = true;
+                app.winamp.demo_sounding = true;
+                app.local.playback = Playback::Playing;
+            }
             "playlist" => app.settings.playlist_open = true,
             "shade" => app.settings.winamp_shaded = true,
             "playlist-shade" => app.settings.playlist_shaded = true,

@@ -136,6 +136,24 @@ fn draw(app: &mut App, ui: &mut Ui) {
     if close.clicked() {
         app.actions.push(Action::ToggleWinampMilkdrop);
     }
+    let big = generic::full_screen_button(width);
+    let [r, g, b] = generic::title_colour(skin.sheet(Sheet::Gen), focused);
+    for (x, y, across, down) in generic::FULL_SCREEN_GLYPH {
+        view.fill(
+            big.x + x,
+            big.y + y,
+            across,
+            down,
+            Color32::from_rgb(r, g, b),
+        );
+    }
+    if view
+        .interact(big, "milkdrop-full-screen", Sense::click())
+        .on_hover_text("Full screen with lyrics")
+        .clicked()
+    {
+        app.actions.push(Action::MilkdropFullscreen);
+    }
     let grip_area = generic::grip(width, height);
     let grip = view.interact(grip_area, "milkdrop-grip", Sense::drag());
     if grip.hovered() || grip.dragged() {

@@ -342,6 +342,9 @@ pub struct Settings {
     pub milkdrop_scale: u32,
     /// The MilkDrop window fills the screen.
     pub milkdrop_fullscreen: bool,
+    /// MilkDrop rather than the cover's art behind full screen lyrics.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lyrics_milkdrop: bool,
     /// The MilkDrop window's size in logical points, when not full-screen.
     pub milkdrop_size: [f32; 2],
 }
@@ -414,6 +417,7 @@ impl Default for Settings {
             milkdrop_screen_hz: 0,
             milkdrop_scale: 1,
             milkdrop_fullscreen: false,
+            lyrics_milkdrop: false,
             milkdrop_size: crate::milkdrop::DEFAULT_SIZE,
         }
     }

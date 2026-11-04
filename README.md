@@ -92,7 +92,8 @@ This fork will backport changes from `fastpotify` repository while removing Spot
   automatic following. Words come from your server, with LRCLIB as fallback;
   lyrics found before stay available while either cannot answer. Full screen, also on **F**, places a large cover
   beside the lyrics in wide windows, or centres it when there are no words;
-  **Q** adds a queue column beside them.
+  **Q** adds a queue column beside them, and **V** puts MilkDrop behind
+  the words in place of the cover.
 
 Fastsonic plays only on single computer. It does not provide Spotify Connect,
 Subsonic jukebox mode, podcasts, offline sync, multiple server profiles, or a

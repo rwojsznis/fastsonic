@@ -63,6 +63,12 @@ skins use a different format and are not supported.
 MilkDrop, opened from a classic skin's mini player, wears that skin's generic
 window frame from `gen.bmp`. A skin without one borrows the built-in skin's.
 
+The button beside its close button, a double click on the picture, or **F**
+takes MilkDrop to full screen. A Windows Media Player skin's visualisation area
+does the same with a double click, or the button that shows when you point at
+it. Full screen is the lyrics view, with MilkDrop behind the words in place of
+the cover's art; leaving it brings the skin back as it was.
+
 ## Windows Media Player skins
 
 The mini player also wears Windows Media Player skins. Drop a `.wmz` file on

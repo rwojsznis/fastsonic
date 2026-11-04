@@ -141,8 +141,18 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             }
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
-            if let Some(enter) = lyrics_fullscreen {
+            if app.milkdrop_framed() {
+                key(Modifiers::NONE, Key::F, Action::MilkdropFullscreen);
+            } else if let Some(enter) = lyrics_fullscreen {
                 key(Modifiers::NONE, Key::F, Action::SetLyricsFullscreen(enter));
+            }
+            #[cfg(feature = "milkdrop")]
+            if app.lyrics_fullscreen.is_some() {
+                key(Modifiers::NONE, Key::V, Action::ToggleLyricsMilkdrop);
+                if app.milkdrop_behind_lyrics() {
+                    key(Modifiers::NONE, Key::N, Action::MilkdropEffect(1));
+                    key(Modifiers::NONE, Key::P, Action::MilkdropEffect(-1));
+                }
             }
         }
     });
@@ -264,6 +274,8 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Q", "Show the queue"),
     ("L", "Show the lyrics"),
     ("F", "Full screen lyrics"),
+    ("V", "Full screen lyrics: MilkDrop behind the words"),
+    ("N  /  P", "Full screen lyrics: next or previous preset"),
     ("Esc", "Lyrics: leave full screen"),
     (
         "Shift+↑  /  Shift+↓",

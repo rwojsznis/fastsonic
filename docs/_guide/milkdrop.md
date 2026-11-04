@@ -5,8 +5,10 @@ the mini player's **V** menu. It uses
 [projectM](https://github.com/projectM-visualizer/projectm) to play `.milk`
 presets in its own window and process. With a classic Winamp skin on, that
 window wears the skin's frame, as it did in Winamp 5, with a title bar, a close
-button and a corner to resize it by. Double-click it or press **F** for
-fullscreen; leaving fullscreen brings the frame back. The next and previous
+button and a corner to resize it by. The button beside the close button,
+a double click or **F** takes it to full screen lyrics, with MilkDrop behind
+the words in place of the cover's art; leaving brings the frame back. The
+main window's full screen lyrics show it too: press **V** there. The next and previous
 preset keys and the right-click below work in it too; the other MilkDrop keys
 and the song title are only in the plain window. Windows Media Player skins
 also show it in their visualisation areas; see

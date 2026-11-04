@@ -183,3 +183,10 @@ words shows its cover alone. There, **Q** shows or hides the queue as a column
 on the right without leaving full screen, and a Queue panel open when you
 enter becomes that column. Drag the column's left edge to resize it; the Queue
 panel keeps the width you choose.
+
+Press **V** in full screen lyrics to put MilkDrop behind the words instead of
+the cover's art, and again to bring the art back; Fastsonic remembers which
+you chose. **N** and **P** change the preset there. The picture is dimmed as
+far as it takes to keep the words clear, and holds still while the music is
+paused. It uses the presets you have: with none, the art stays. It follows the
+sound after the equalizer and before the volume, like every visualizer.
