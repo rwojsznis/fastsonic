@@ -2,7 +2,8 @@
 
 Open the mini player with Ctrl+M (Cmd+Shift+M on macOS), the shrink button, or
 **Switch to it** in Settings. It supports classic Winamp 2 `.wsz` skins and
-Windows Media Player `.wmz` skins. Find Winamp skins at the
+Windows Media Player `.wmz` skins. On a new install it opens in Fastsonic
+Wide, one of the two skins Fastsonic ships. Find Winamp skins at the
 [Winamp Skin Museum](https://skins.webamp.org).
 
 Only one player window is open at a time. Click the skin logo or Eject, use

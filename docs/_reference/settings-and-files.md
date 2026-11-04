@@ -187,6 +187,10 @@ hints, sidebar state, zoom, player bar visualizer, Winamp skin/random
 selection/windows/equalizer, and MilkDrop. `player_bar_vis_click` (on by
 default, so older files keep it) lets a click on the player bar's empty space
 cycle `player_bar_vis` through `off`, `spectrum` and `waveform`.
+`skin` names the mini player's skin: a file or folder in the skins folder,
+`Fastsonic Tall` or `Fastsonic Wide`, or `null` for the built-in Winamp skin.
+A new install opens in `Fastsonic Wide`; a file that already holds a choice,
+`null` included, keeps it.
 `eq_user_presets` holds the equalizer presets you saved, each with a `name`,
 its `preamp_db` and its ten `bands_db`, listed after the built-in presets; a
 file from before them has none.
