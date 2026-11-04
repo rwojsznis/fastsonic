@@ -6,7 +6,7 @@ the mini player's **V** menu. It uses
 presets in its own window and process. With a classic Winamp skin on, it is
 a panel of the mini player instead, under the equalizer and the playlist, and
 wears the skin's frame as it did in Winamp 5, with a title bar, a close button
-and a corner to resize it by; the window grows with it. The button beside the close button,
+and a corner to make it taller by; the window grows with it. The button beside the close button,
 a double click or **F** takes it to full screen lyrics, with MilkDrop behind
 the words in place of the cover's art; leaving brings the frame back. The
 main window's full screen lyrics show it too: press **V** there. The next and previous

@@ -63,7 +63,8 @@ skins use a different format and are not supported.
 MilkDrop, opened from a classic skin's mini player, is a panel of the player,
 under the equalizer and the playlist. It wears the skin's generic window frame
 from `gen.bmp`; a skin without one borrows the built-in skin's. Drag its bottom
-right corner to resize it, and the window grows with it. It moves with the
+right corner to make it taller, and the window grows with it. It stays as wide
+as the player. It moves with the
 player, and the skin's double size applies to it.
 
 The button beside its close button, a double click on the picture, or **F**
