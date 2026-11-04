@@ -1449,6 +1449,14 @@ mod tests {
     }
 
     fn accessible_app(name: &str) -> (egui::Context, App) {
+        let (ctx, mut app) = unpopulated_app(name);
+        populate(&mut app);
+        (ctx, app)
+    }
+
+    /// `accessible_app` without the sample library, so nothing plays and
+    /// no cover is fetched.
+    fn unpopulated_app(name: &str) -> (egui::Context, App) {
         let root =
             std::env::temp_dir().join(format!("fastsonic-a11y-{name}-{}", std::process::id()));
         let ctx = egui::Context::default();
@@ -1469,7 +1477,6 @@ mod tests {
             },
         );
         app.attach(&ctx);
-        populate(&mut app);
         (ctx, app)
     }
 
@@ -8436,12 +8443,15 @@ mod tests {
 
     /// Settings > Storage names each size beside its row, measured in the
     /// background, and measures again after each clear. Only the Settings
-    /// page is drawn: the rest of the demo would fetch covers into the
-    /// artwork cache under test.
+    /// page is drawn, and without the sample library: its playing song's
+    /// cover would download into the artwork cache under test, for the
+    /// media controls and the accent colour, whenever the network answers.
     #[test]
     fn storage_shows_measured_sizes_and_refreshes_after_clearing() {
         use crate::storage::Size;
-        let (ctx, mut app) = accessible_app("storage-sizes");
+        let (ctx, mut app) = unpopulated_app("storage-sizes");
+        app.backend.set_offline(true);
+        app.offline = true;
         app.audio_cache = None;
         let _ = std::fs::remove_dir_all(app.dirs.art_cache_dir());
         let _ = std::fs::remove_dir_all(app.dirs.audio_cache_dir());
