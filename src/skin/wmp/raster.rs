@@ -380,7 +380,7 @@ pub fn draw(paints: &[Paint], canvas: &mut Bitmap) {
                 clip,
             } => fill(canvas, *area, *color, *alpha, clip),
             Paint::Text { text: paint, clip } => text(canvas, paint, clip),
-            Paint::Effects { area, clip } => effects(canvas, *area, clip),
+            Paint::Effects { area, clip, .. } => effects(canvas, *area, clip),
             Paint::Art {
                 area,
                 background,
