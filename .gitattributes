@@ -23,3 +23,7 @@ flake.lock          merge=ours
 flake.nix           merge=ours
 mise.toml           merge=ours
 packaging/**        merge=ours
+
+# The shipped skins are checked against their sources byte for byte, so
+# a Windows checkout must not change their line endings.
+assets/skins/** -text
