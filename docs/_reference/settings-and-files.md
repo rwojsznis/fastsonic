@@ -207,7 +207,8 @@ itself is left as you chose it. `milkdrop_seconds` (10 by default) is how
 long each MilkDrop preset plays, never less than its 2.7-second fade; a new
 value applies to the preset playing. `lyrics_milkdrop` (`false` by default)
 puts MilkDrop rather than the cover's art behind full screen lyrics, as **V**
-there leaves it. The sidebar's Library keeps
+there leaves it. `milkdrop_panel` (`[275, 232]`) is the MilkDrop panel's size
+in the mini player, in skin pixels. The sidebar's Library keeps
 `library_sort`, the order chosen for each section (`playlists`, `albums`,
 `artists`), as one of `library`, `recently_played`, `name`, `creator`,
 `recently_added` or `local` where the section supports it; a section missing
