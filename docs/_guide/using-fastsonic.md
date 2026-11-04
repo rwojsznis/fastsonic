@@ -114,8 +114,10 @@ Ctrl+A (Cmd+A on macOS) selects every song the list shows, following its
 filter. Ctrl+C copies the selected songs' links, one a line, and Ctrl+V in a
 playlist you can edit adds the songs whose links are on the clipboard. Ctrl+X
 copies them and removes them from a playlist you can edit, so Ctrl+V in
-another moves them there. A focused text field or an open dialog keeps these
-keys.
+another moves them there. Shift+Q adds the selected songs to the queue, or
+shows the queue when no songs are selected, and Shift+N plays them next;
+holding either adds the songs once. A focused text field or an open dialog
+keeps these keys.
 
 Right-click a text field for Cut, Copy, Paste and Select all; the password
 field offers only Paste and Select all.

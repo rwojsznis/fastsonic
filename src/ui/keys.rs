@@ -28,8 +28,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     } else {
         None
     };
+    let songs_picked = app.picked_rows(app.page()).is_some();
     let mut actions = Vec::new();
     ctx.input_mut(|input| {
+        // With songs picked, Shift+Q is the song list's: it queues them.
+        let queue_key_is_the_lists = songs_picked
+            && input.events.iter().any(|event| {
+                matches!(event, egui::Event::Key { key: Key::Q, pressed: true, modifiers, .. }
+                    if modifiers.shift_only())
+            });
         let mut key = |modifiers: Modifiers, key: Key, action: Action| {
             if input.consume_key(modifiers, key) {
                 actions.push(action);
@@ -129,7 +136,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::M, Action::ToggleMute);
             key(Modifiers::NONE, Key::S, Action::ToggleShuffle);
             key(Modifiers::NONE, Key::R, Action::CycleRepeat);
-            key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
+            if !queue_key_is_the_lists {
+                key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
+            }
             key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
             if let Some(enter) = lyrics_fullscreen {
@@ -260,6 +269,8 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         "Shift+↑  /  Shift+↓",
         "Song list: extend or shrink the selection",
     ),
+    ("Shift+Q", "Song list: add the selected songs to the queue"),
+    ("Shift+N", "Song list: play the selected songs next"),
     (
         platform_shortcut("Delete", "Delete  or  Backspace"),
         "Remove from this playlist",
@@ -780,6 +791,24 @@ mod tests {
             format!("{:?}", [Action::Quit]),
             "the quit shortcut still quits"
         );
+        assert_eq!(
+            press(&mut app, Key::Q, Modifiers::SHIFT),
+            format!("{:?}", [Action::ToggleQueuePanel]),
+            "with no songs picked Shift+Q shows the queue, as it did"
+        );
+        let page = app.page().clone();
+        app.pick_rows(&page, "view", [0].into_iter().collect());
+        assert_eq!(
+            press(&mut app, Key::Q, Modifiers::SHIFT),
+            "[]",
+            "with songs picked Shift+Q is left to the song list"
+        );
+        assert_eq!(
+            press(&mut app, Key::Q, Modifiers::NONE),
+            format!("{:?}", [Action::ToggleQueuePanel]),
+            "Q still shows the queue with songs picked"
+        );
+        app.clear_picked_rows();
         assert_eq!(
             press(&mut app, Key::B, shift),
             format!("{:?}", [Action::Open(Page::Album(album.unwrap()))]),

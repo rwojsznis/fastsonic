@@ -627,10 +627,12 @@ fn view_uris(
     })
 }
 
-/// Select all, Cut, Copy, Paste and Delete on a song list. Cut copies the
-/// picked songs and removes them from a playlist the account can edit,
-/// Delete only removes them, and Paste adds copied songs to one. A focused text field keeps these keys for its
-/// own text, and an open dialog keeps them from the list behind it.
+/// Select all, Cut, Copy, Paste, Delete, and the queue keys on a song list.
+/// Cut copies the picked songs and removes them from a playlist the account
+/// can edit, Delete only removes them, Paste adds copied songs to one, and
+/// Shift+Q and Shift+N queue them or play them next. A focused text field
+/// keeps these keys for its own text, and an open dialog keeps them from
+/// the list behind it.
 fn list_shortcuts(
     ui: &egui::Ui,
     app: &mut App,
@@ -657,7 +659,8 @@ fn list_shortcuts(
     let can_delete = editable.is_some()
         && app.picked_rows(&table.page).is_some()
         && !egui::Popup::is_any_open(ui.ctx());
-    let (select_all, cut, copy, pasted, delete) = ui.input_mut(|input| {
+    let queue_keys = !picked_songs.is_empty() && !egui::Popup::is_any_open(ui.ctx());
+    let (select_all, cut, copy, pasted, delete, queue, play_next) = ui.input_mut(|input| {
         // The platform's Cut, Copy and Paste keys arrive as these events,
         // not as key presses.
         let cut = editable.is_some()
@@ -685,8 +688,24 @@ fn list_shortcuts(
                 && (input.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
                     || (cfg!(target_os = "macos")
                         && input.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))),
+            queue_keys && first_shift_press(input, egui::Key::Q),
+            queue_keys && first_shift_press(input, egui::Key::N),
         )
     });
+    // As the selection's menu.
+    if queue {
+        app.actions.push(Action::QueueMany {
+            songs: picked_songs
+                .iter()
+                .map(|song| (song.uri().to_string(), song.name().to_string()))
+                .collect(),
+        });
+    }
+    if play_next {
+        app.actions.push(Action::PlayNext {
+            items: picked_songs.to_vec(),
+        });
+    }
     if select_all {
         let all = (0..visible.len())
             .filter(|row| {
@@ -724,6 +743,16 @@ fn list_shortcuts(
     if let (Some(playlist_id), Some(text)) = (editable, pasted) {
         app.actions.push(Action::PasteSongs { playlist_id, text });
     }
+}
+
+/// Whether Shift+`key` was pressed, taking its presses. The repeats of a held
+/// key count for nothing, so holding it does not queue the songs over and over.
+fn first_shift_press(input: &mut egui::InputState, key: egui::Key) -> bool {
+    let first = input.events.iter().any(|event| {
+        matches!(event, egui::Event::Key { key: pressed, pressed: true, repeat: false, modifiers, .. }
+            if *pressed == key && modifiers.shift_only())
+    });
+    input.consume_key(egui::Modifiers::SHIFT, key) && first
 }
 
 /// Arrow keys follow display order, independent of the positions of the
@@ -2209,6 +2238,74 @@ mod tests {
             table.app.actions.as_slice(),
             [Action::PlayFromRow { index: 1, .. }]
         ));
+    }
+
+    /// Shift+Q queues the picked songs in list order, once however long the
+    /// key is held, and does nothing without a pick (#1110).
+    #[test]
+    fn shift_q_queues_the_picked_songs() {
+        let mut table = KeyboardTable::new();
+        let shift_q = |pressed| egui::Event::Key {
+            key: egui::Key::Q,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::SHIFT,
+        };
+
+        table.frame(vec![shift_q(true), shift_q(false)]);
+        assert!(table.app.actions.is_empty(), "nothing is picked");
+
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+        table.modified_key(egui::Key::ArrowDown, egui::Modifiers::SHIFT);
+        table.frame(vec![shift_q(true)]);
+        let [Action::QueueMany { songs }] = table.app.actions.as_slice() else {
+            panic!("expected one queue action: {:?}", table.app.actions);
+        };
+        assert_eq!(
+            songs.iter().map(|song| song.0.as_str()).collect::<Vec<_>>(),
+            ["sonic:track:t_1", "sonic:track:t_2"]
+        );
+        table.app.actions.clear();
+
+        // egui reports a held key's repeats, and they queue nothing.
+        table.frame(vec![shift_q(true), shift_q(true)]);
+        assert!(table.app.actions.is_empty());
+        table.frame(vec![shift_q(false)]);
+
+        table
+            .ctx
+            .memory_mut(|memory| memory.request_focus(egui::Id::new("keyboard-filter")));
+        table.frame(Vec::new());
+        table.frame(vec![shift_q(true), shift_q(false)]);
+        assert!(table.app.actions.is_empty(), "a text field keeps the key");
+    }
+
+    /// Shift+N plays the picked songs next, as the selection's menu does
+    /// (#1110).
+    #[test]
+    fn shift_n_plays_the_picked_songs_next() {
+        let mut table = KeyboardTable::new();
+        table.modified_key(egui::Key::N, egui::Modifiers::SHIFT);
+        assert!(table.app.actions.is_empty(), "nothing is picked");
+        // Released, or egui takes the next press for a repeat.
+        table.frame(vec![egui::Event::Key {
+            key: egui::Key::N,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: egui::Modifiers::SHIFT,
+        }]);
+
+        table.focus_song("Bohemian Rhapsody");
+        table.key(egui::Key::ArrowDown);
+        table.modified_key(egui::Key::N, egui::Modifiers::SHIFT);
+        let [Action::PlayNext { items }] = table.app.actions.as_slice() else {
+            panic!("expected play next: {:?}", table.app.actions);
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].uri(), "sonic:track:t_1");
     }
 
     /// Select all, copy and paste on a song list, and the guards that keep
