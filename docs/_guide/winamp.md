@@ -81,6 +81,13 @@ Internet Archive's
 [Windows Media Player Skins Collection](https://archive.org/details/windowsmediaplayerskinscollection)
 has over 170 of them.
 
+Fastsonic comes with one of its own, **Fastsonic Ribbon**, listed first under
+Windows Media Player in Settings. It is small enough to keep at the side of your
+screen: a white ceramic ribbon that sweeps round a smoked-glass core as it
+opens, with a green light under its arch that burns while the music plays. Click
+the square, or the small button below it, to switch between the album art and
+the visualizer. It remembers which you chose.
+
 A skin runs as it did in Windows Media Player. Its own scripts run, in a
 sandbox with no access to your files, the network or other programs, so its
 intro animations, drawers, shutters and hidden panels work. Every view it

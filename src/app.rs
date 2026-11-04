@@ -14198,12 +14198,13 @@ mod tests {
             app.winamp.poll_choices();
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        app.apply(Action::ToggleWinampWindow, &ctx);
-        app.apply(Action::ToggleWinampWindow, &ctx);
-        assert_eq!(app.settings.skin.as_deref(), Some("A.wsz"));
-        app.apply(Action::ToggleWinampWindow, &ctx);
-        app.apply(Action::ToggleWinampWindow, &ctx);
-        assert_eq!(app.settings.skin, None);
+        // The built-in skin, A and the shipped Media Player skin.
+        for _ in 0..6 {
+            let before = app.settings.skin.clone();
+            app.apply(Action::ToggleWinampWindow, &ctx);
+            app.apply(Action::ToggleWinampWindow, &ctx);
+            assert_ne!(app.settings.skin, before, "never the same twice in a row");
+        }
         app.apply(Action::SetSkin(Some("A.wsz".into())), &ctx);
         assert!(!app.settings.random_skin);
         app.apply(Action::ToggleWinampWindow, &ctx);

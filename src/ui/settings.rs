@@ -911,9 +911,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 .filter(|index| choices[*index].kind == SkinKind::WindowsMediaPlayer)
                 .collect();
             ui.add_space(6.0);
-            if kept.is_empty() {
+            // What comes with the app is not an installed skin.
+            if kept
+                .iter()
+                .all(|index| choices[*index].name == crate::skin::RIBBON)
+            {
                 skin_note(ui, &palette, "None installed yet.");
-            } else {
+            }
+            if !kept.is_empty() {
                 let cards: Vec<Card> = kept
                     .iter()
                     .map(|index| Card {
