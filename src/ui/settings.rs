@@ -187,10 +187,6 @@ fn frame_rate_dial(ui: &mut egui::Ui, palette: &Palette, screen_hz: u32, fps: u3
     }
 }
 
-/// What a Windows Media Player skin leaves out, said once one is chosen.
-const WMP_CAVEAT: &str =
-    "This skin has no equalizer or playlist window, and its scripts do not run.";
-
 /// A line of explanation under a skin part's title, wrapped to the width
 /// like a setting row's description.
 fn skin_note(ui: &mut egui::Ui, palette: &Palette, text: &str) {
@@ -817,6 +813,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             },
         );
         let folder = app.dirs.skins_dir();
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Skins folder",
+            &format!(
+                "Winamp and Windows Media Player skins are both kept in {}.",
+                folder.display()
+            ),
+            |ui| {
+                if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), "Open folder", false)
+                    .clicked()
+                {
+                    app.actions.push(Action::OpenSkinsFolder);
+                }
+            },
+        );
         app.winamp.poll_choices();
         app.winamp.refresh_choices(&folder, ui.ctx());
         let choices = app.winamp.choices.clone();
@@ -829,26 +841,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             skin_note(
                 ui,
                 &palette,
-                &format!(
-                    "Classic .wsz skins. Installed skins are in {}. Find more at the Winamp Skin Museum.",
-                    folder.display()
-                ),
+                "Classic .wsz skins. Find more at the Winamp Skin Museum.",
             );
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if theme::soft_button(ui, &palette, Some(Icon::Globe), "Skin Museum", false)
-                    .clicked()
-                {
-                    app.actions
-                        .push(Action::OpenUrl("https://skins.webamp.org/".into()));
-                }
-                if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), "Open folder", false)
-                    .clicked()
-                {
-                    app.actions.push(Action::OpenSkinsFolder);
-                }
-            });
+            if theme::soft_button(ui, &palette, Some(Icon::Globe), "Skin Museum", false).clicked() {
+                app.actions
+                    .push(Action::OpenUrl("https://skins.webamp.org/".into()));
+            }
             ui.add_space(6.0);
             let mut options: Vec<(usize, &str)> = vec![(0, "Fastsonic")];
             options.extend(
@@ -878,8 +877,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             skin_note(
                 ui,
                 &palette,
-                "Windows Media Player .wmz skins. Drop one on either window to add it.",
+                "Windows Media Player .wmz skins. Find more in the Internet Archive's collection.",
             );
+            ui.add_space(6.0);
+            if theme::soft_button(
+                ui,
+                &palette,
+                Some(Icon::Globe),
+                "Windows Media Player Skins Collection",
+                false,
+            )
+            .clicked()
+            {
+                app.actions.push(Action::OpenUrl(
+                    "https://archive.org/details/windowsmediaplayerskinscollection".into(),
+                ));
+            }
             let options: Vec<(usize, &str)> = choices
                 .iter()
                 .enumerate()
@@ -899,10 +912,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     app.actions
                         .push(Action::SetSkin(Some(choices[picked].name.clone())));
                 }
-            }
-            if showing.is_some_and(|index| choices[index].kind == SkinKind::WindowsMediaPlayer) {
-                ui.add_space(6.0);
-                skin_note(ui, &palette, WMP_CAVEAT);
             }
         });
         widgets::setting_row(

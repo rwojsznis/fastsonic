@@ -1045,6 +1045,30 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     app.winamp.tap.push(&demo_sound(), 1.0);
                 }
             }
+            surface if surface.starts_with("wmp-run=") => {
+                // `|` stands for the comma that separates surfaces.
+                let script = surface["wmp-run=".len()..].replace('|', ",");
+                app.winamp.demo_scripts.push(script);
+            }
+            surface if surface.starts_with("wmp-skin=") => {
+                // Through the skins folder, as the real load path reads it.
+                let path = std::path::Path::new(&surface["wmp-skin=".len()..]);
+                let folder = app.dirs.skins_dir();
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned());
+                if let Some(name) = name
+                    && std::fs::create_dir_all(&folder).is_ok()
+                    && std::fs::copy(path, folder.join(&name)).is_ok()
+                {
+                    app.settings.winamp_window = true;
+                    app.settings.skin = Some(name);
+                    app.settings.skin_scale = Some(1);
+                    app.settings.vis = crate::settings::VisMode::Bars;
+                    app.local.playback = Playback::Playing;
+                    app.winamp.tap.push(&demo_sound(), 1.0);
+                }
+            }
             "playlist" => app.settings.playlist_open = true,
             "shade" => app.settings.winamp_shaded = true,
             "playlist-shade" => app.settings.playlist_shaded = true,
@@ -7725,9 +7749,9 @@ mod tests {
     }
 
     /// A Windows Media Player skin is listed under its own title, even from
-    /// a `.zip`, and choosing one says what it lacks.
+    /// a `.zip`, and choosing one asks for it.
     #[test]
-    fn the_mini_player_settings_say_what_a_media_player_skin_lacks() {
+    fn the_mini_player_settings_list_a_media_player_skin_under_its_own_title() {
         let (ctx, mut app) = accessible_app("settings-media-player-skin");
         app.backend.shutdown();
         let folder = app.dirs.skins_dir();
@@ -7738,7 +7762,6 @@ mod tests {
             false,
         )]);
         std::fs::write(folder.join("chrome.zip"), archive).unwrap();
-        let caveat = "This skin has no equalizer or playlist window, and its scripts do not run.";
         let view = crate::ui::settings::show;
         let size = egui::vec2(1280.0, 6000.0);
         // The folder is listed on another thread.
@@ -7755,7 +7778,6 @@ mod tests {
         let player = sidebar_text(&painted, "Windows Media Player");
         let chip = sidebar_text(&painted, "chrome");
         assert!(chip.top() > player.top(), "listed under its own title");
-        assert!(!painted.iter().any(|(text, _)| text == caveat));
         app.actions.clear();
         view_frame_sized(
             &ctx,
@@ -7771,15 +7793,12 @@ mod tests {
             app.actions.as_slice(),
             [Action::SetSkin(Some(name))] if name == "chrome.zip"
         ));
-        app.settings.skin = Some("chrome.zip".into());
-        let painted = view_frame_sized(&ctx, &mut app, vec![], view, size);
-        sidebar_text(&painted, caveat);
         let _ = std::fs::remove_dir_all(folder.parent().unwrap().parent().unwrap());
     }
 
     /// The mini player draws a Windows Media Player skin at its own size,
-    /// one skin pixel per screen pixel by default, and its buttons do what
-    /// their names say.
+    /// one skin pixel per screen pixel by default, and its buttons run
+    /// their `onClick` scripts.
     #[test]
     fn a_media_player_skin_fills_the_mini_player_and_its_buttons_play() {
         let (ctx, mut app) = accessible_app("winamp-media-player-skin");
@@ -7791,8 +7810,10 @@ mod tests {
             png.into_inner()
         };
         let definition = br#"<THEME><VIEW backgroundImage="back.png">
-            <BUTTON id="play" left="10" top="10" image="button.png"/>
-            <BUTTON id="next" left="40" top="10" image="button.png"/>
+            <BUTTON id="play" left="10" top="10" image="button.png"
+                onClick="player.controls.play();"/>
+            <BUTTON id="next" left="40" top="10" image="button.png"
+                onClick="player.controls.next();"/>
             </VIEW></THEME>"#;
         let archive = crate::skin::zip::write(&[
             ("chrome.wms", definition.as_slice(), false),
@@ -7806,7 +7827,10 @@ mod tests {
         app.settings.skin = Some("chrome.wmz".into());
         let size = crate::ui::winamp::initial_size(&app.settings, &app.winamp.skin);
         assert_eq!(size, egui::vec2(120.0, 60.0));
+        // The skin runs once a frame, as the app's update runs it, and
+        // hears the pointer through the actions the view leaves.
         let draw = |app: &mut App, events: Vec<egui::Event>| {
+            app.run_wmp_skin(&ctx);
             let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
@@ -7816,6 +7840,14 @@ mod tests {
                 |ui| crate::ui::winamp::show(app, ui),
             );
             output.textures_delta.clear();
+            let (heard, others): (Vec<_>, Vec<_>) = std::mem::take(&mut app.actions)
+                .into_iter()
+                .partition(|action| matches!(action, Action::WmpInput { .. }));
+            app.actions = others;
+            for action in heard {
+                app.apply(action, &ctx);
+            }
+            app.run_wmp_skin(&ctx);
             output
         };
         fn pictures(shape: &egui::epaint::Shape) -> usize {
@@ -7825,13 +7857,18 @@ mod tests {
                 _ => 0,
             }
         }
-        draw(&mut app, Vec::new());
-        let output = draw(&mut app, Vec::new());
-        let drawn: usize = output
-            .shapes
-            .iter()
-            .map(|clipped| pictures(&clipped.shape))
-            .sum();
+        // Pictures are decoded on the skin's worker and drawn once there.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut drawn = 0;
+        while drawn < 3 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            let output = draw(&mut app, Vec::new());
+            drawn = output
+                .shapes
+                .iter()
+                .map(|clipped| pictures(&clipped.shape))
+                .sum();
+        }
         assert_eq!(drawn, 3, "the background and both buttons");
         app.actions.clear();
         draw(

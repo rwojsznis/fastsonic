@@ -1057,6 +1057,12 @@ pub enum Action {
     MeasureStorage,
     /// Open or close the Winamp window.
     ToggleWinampWindow,
+    /// The pointer or a key on a view of a Windows Media Player skin.
+    WmpInput {
+        view: u32,
+        input: crate::skin::wmp::runtime::Input,
+        modifiers: crate::skin::wmp::runtime::Modifiers,
+    },
     /// Select a skin, or the built-in skin for `None`.
     SetSkin(Option<String>),
     SetRandomSkin(bool),

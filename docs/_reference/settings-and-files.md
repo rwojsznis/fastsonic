@@ -10,6 +10,7 @@ Linux the default locations are:
 | Settings | `~/.config/fastsonic/settings.json` | Yes; preferences reset |
 | Custom themes | `~/.config/fastsonic/themes/` | Yes; the bundled palettes come back |
 | Winamp and Windows Media Player skins | `~/.config/fastsonic/skins/` | Yes; add them again |
+| What Windows Media Player skins remember | `~/.config/fastsonic/skin-preferences/` | Yes; skins forget their own choices |
 | MilkDrop presets | `~/.config/fastsonic/milkdrop/` | Yes; fetch them again |
 | Server credential | `~/.local/state/fastsonic/credentials.json` | Yes; sign in again |
 | Last session | `~/.local/state/fastsonic/session.json` | Yes |
