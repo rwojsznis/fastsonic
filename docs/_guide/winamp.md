@@ -5,8 +5,10 @@ Open the mini player with Ctrl+M (Cmd+Shift+M on macOS), the shrink button, or
 Windows Media Player `.wmz` skins. Find Winamp skins at the
 [Winamp Skin Museum](https://skins.webamp.org).
 
-Only one player window is open at a time. Click the skin logo or Eject, or use
-the shortcut again, to return to the main window.
+Only one player window is open at a time. Click the skin logo or Eject, use
+the shortcut again, or choose **Open main window** from the tray menu to return
+to the main window. On Hyprland, skinned windows ask the compositor for no
+border, rounding or shadow, so a round skin is not drawn inside a rectangle.
 
 ![The mini player wearing the built-in skin](../assets/images/winamp.png)
 

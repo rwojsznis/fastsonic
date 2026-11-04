@@ -14,6 +14,8 @@ pub mod engine;
 pub mod eq;
 pub mod file_writer;
 pub mod history;
+#[cfg(target_os = "linux")]
+pub mod hyprland;
 pub mod images;
 pub mod limiter;
 pub mod listeners;

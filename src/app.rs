@@ -830,6 +830,12 @@ impl App {
         ctx.set_theme(self.theme_preference());
         self.applied_dark = None;
         self.winamp.forget_textures();
+        #[cfg(target_os = "linux")]
+        if self.settings.winamp_window {
+            crate::hyprland::bare_skin_windows();
+        } else {
+            crate::hyprland::keep_borders();
+        }
         self.window_hidden = false;
         self.hide_intent = false;
         self.wants_show = false;
@@ -3081,11 +3087,30 @@ impl App {
                 } else {
                     Action::HideWindow
                 }),
+                TrayCommand::MainWindow => {
+                    let action = self.open_main_window();
+                    self.actions.push(action);
+                }
                 TrayCommand::PlayPause => self.actions.push(Action::TogglePlay),
                 TrayCommand::Next => self.actions.push(Action::Next),
                 TrayCommand::Previous => self.actions.push(Action::Previous),
                 TrayCommand::Quit => self.actions.push(Action::Quit),
             }
+        }
+    }
+
+    /// The tray's Open main window: shows the main window, from the mini
+    /// player too, whether its window is open or closed to the tray.
+    fn open_main_window(&mut self) -> Action {
+        if !self.settings.winamp_window {
+            Action::ShowWindow
+        } else if self.window_hidden {
+            // Closed to the tray: the next window is the main one.
+            self.settings.winamp_window = false;
+            self.settings_dirty = true;
+            Action::ShowWindow
+        } else {
+            Action::ToggleWinampWindow
         }
     }
 
@@ -8427,6 +8452,22 @@ mod tests {
         app.settings.winamp_on_top = true;
         app.attach(&ctx);
         assert_eq!(app.winamp_level_reassert, 3);
+    }
+
+    /// The tray's Open main window leaves the mini player for the main
+    /// window, whether the mini player is showing or closed to the tray.
+    #[test]
+    fn the_tray_opens_the_main_window_from_the_mini_player() {
+        let mut app = headless_app();
+        assert!(matches!(app.open_main_window(), Action::ShowWindow));
+        app.settings.winamp_window = true;
+        assert!(matches!(app.open_main_window(), Action::ToggleWinampWindow));
+        app.window_hidden = true;
+        assert!(matches!(app.open_main_window(), Action::ShowWindow));
+        assert!(
+            !app.settings.winamp_window,
+            "the next window is the main one"
+        );
     }
 
     /// Opening the Winamp window without always-on-top re-asserts nothing.

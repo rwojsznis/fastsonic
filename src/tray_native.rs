@@ -19,6 +19,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 pub enum TrayCommand {
     Show,
     ShowHide,
+    MainWindow,
     PlayPause,
     Next,
     Previous,
@@ -28,6 +29,7 @@ pub enum TrayCommand {
 type Wake = Arc<dyn Fn() + Send + Sync>;
 
 const SHOW: &str = "show";
+const MAIN_WINDOW: &str = "main-window";
 const PLAY_PAUSE: &str = "play-pause";
 const NEXT: &str = "next";
 const PREVIOUS: &str = "previous";
@@ -36,6 +38,7 @@ const QUIT: &str = "quit";
 fn command_for(id: &MenuId) -> Option<TrayCommand> {
     match id.0.as_str() {
         SHOW => Some(TrayCommand::ShowHide),
+        MAIN_WINDOW => Some(TrayCommand::MainWindow),
         PLAY_PAUSE => Some(TrayCommand::PlayPause),
         NEXT => Some(TrayCommand::Next),
         PREVIOUS => Some(TrayCommand::Previous),
@@ -87,6 +90,7 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
     let play_pause = MenuItem::with_id(PLAY_PAUSE, play_pause_label(false), true, None);
     menu.append_items(&[
         &MenuItem::with_id(SHOW, "Show or hide Fastsonic", true, None),
+        &MenuItem::with_id(MAIN_WINDOW, "Open main window", true, None),
         &PredefinedMenuItem::separator(),
         &play_pause,
         &MenuItem::with_id(NEXT, "Next", true, None),

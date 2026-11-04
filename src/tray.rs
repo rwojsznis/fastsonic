@@ -17,6 +17,7 @@ use ksni::blocking::TrayMethods;
 pub enum TrayCommand {
     Show,
     ShowHide,
+    MainWindow,
     PlayPause,
     Next,
     Previous,
@@ -91,6 +92,12 @@ impl ksni::Tray for FastTray {
             StandardItem {
                 label: "Show or hide Fastsonic".into(),
                 activate: Box::new(|tray: &mut Self| tray.send(TrayCommand::ShowHide)),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "Open main window".into(),
+                activate: Box::new(|tray: &mut Self| tray.send(TrayCommand::MainWindow)),
                 ..Default::default()
             }
             .into(),
