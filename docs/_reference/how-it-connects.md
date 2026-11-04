@@ -195,8 +195,10 @@ keeps the display on, and a sleep you ask for still happens.
   When LRCLIB answers that it is busy (429), Fastsonic waits as long as it
   asks, one second if it does not say, and asks again up to three times; a
   short overload (502 to 504) is asked once more. A wait longer than five
-  seconds, or a `Retry-After` date, is never shortened: the panel shows an
-  error instead, and a click on it asks again. If the exact lookup is
+  seconds, or a `Retry-After` date, is never shortened: that lookup fails
+  instead. A failed lookup for the playing song is made again after 5, 15,
+  45 and 120 seconds while the panel keeps looking; only then does it show
+  the error, and a click on it starts over. If the exact lookup is
   briefly unavailable, LRCLIB's search is tried. One lookup gets 20 seconds
   in all and each request five. A failed lookup is never saved as "no
   lyrics"; lyrics found earlier, from the server or LRCLIB, still show
