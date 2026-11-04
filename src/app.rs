@@ -258,6 +258,10 @@ pub struct App {
     /// the window is mapped, so the creation-time level does not stick; a level
     /// pushed on the first frames after mapping does.
     winamp_level_reassert: u8,
+    /// The page on screen and how far down it was, for the next window.
+    pub page_scroll: Option<(String, f32)>,
+    /// What a new window takes up from `page_scroll` on its first frame.
+    pub restore_scroll: Option<(String, f32)>,
     /// The queue as the engine last published it, in the vocabulary the
     /// panel draws: what is playing, then every row below it in play order
     /// (rule 1 of `docs/_reference/queue.md`). It is never fetched and
@@ -649,6 +653,8 @@ impl App {
             session_dirty: false,
             last_session_save: Instant::now(),
             winamp_level_reassert: 0,
+            page_scroll: None,
+            restore_scroll: None,
             // Filled in below, from what the last session left (rule 9).
             queue: Queue::default(),
             queued_len: 0,
@@ -816,6 +822,8 @@ impl App {
         self.wants_show = false;
         self.switch_intent = false;
         self.winamp_level_reassert = 0;
+        // egui's memory went with the last window, the scroll position with it.
+        self.restore_scroll = self.page_scroll.clone();
         // Nothing of the notch card's is carried from one event loop into
         // the next; the next pass makes a fresh one if it is still wanted.
         crate::notch::shutdown();
@@ -7213,6 +7221,42 @@ mod tests {
     #[test]
     fn middle_clicking_a_playlist_row_autoscrolls_only_on_windows_by_default() {
         middle_click_a_playlist_row(false);
+    }
+
+    /// Switching to the mini player or the tray drops the window and egui's
+    /// memory with it; the next window opens the page where it was.
+    #[test]
+    fn a_new_window_opens_settings_where_the_last_one_was() {
+        let draw = |ctx: &egui::Context, app: &mut App| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 500.0),
+                )),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+        };
+        let mut app = test_app("scroll-survives-the-window");
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.apply(Action::Open(Page::Settings), &ctx);
+        app.page_scroll = Some((Page::Settings.encode(), 300.0));
+        app.restore_scroll = app.page_scroll.clone();
+        for _ in 0..3 {
+            draw(&ctx, &mut app);
+        }
+        assert_eq!(app.page_scroll.as_ref().map(|at| at.1), Some(300.0));
+
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        for _ in 0..3 {
+            draw(&ctx, &mut app);
+        }
+        assert_eq!(app.page_scroll.as_ref().map(|at| at.1), Some(300.0));
+        app.backend.shutdown();
     }
 
     /// A narrow window takes width from the side panels before the top bar
