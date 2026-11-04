@@ -10888,6 +10888,28 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// #1069: an artist's compilations have a category of their own, which
+    /// asks the server for exactly those releases.
+    #[test]
+    fn compilations_load_under_their_own_discography_category() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.artist_pages
+            .insert("art".into(), crate::model::ArtistPage::default());
+        app.apply(
+            Action::SetDiscographyFilter {
+                artist_id: "art".into(),
+                filter: DiscographyFilter::Compilations,
+            },
+            &ctx,
+        );
+        let page = &app.artist_pages["art"];
+        assert_eq!(page.filter, DiscographyFilter::Compilations);
+        assert!(page.albums["compilation"].loading);
+        assert!(DiscographyFilter::ALL.contains(&DiscographyFilter::Compilations));
+        app.backend.shutdown();
+    }
+
     /// Saving the queue writes the playing song and every row after it,
     /// each song once, in playing order.
     #[test]

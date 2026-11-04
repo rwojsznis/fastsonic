@@ -807,11 +807,26 @@ impl SubsonicClient {
     }
 
     /// `ApiRequest::ArtistAlbums`. The albums came with the artist, so this
-    /// is the same call and a local slice. There is no album-group filter:
-    /// singles and compilations are not a separate query.
-    pub async fn artist_albums(&self, id: &str, offset: u32, limit: u32) -> Result<Page<Album>> {
+    /// is the same call and a local slice. Singles and compilations are not
+    /// a separate query either: `groups`, the comma-separated categories of
+    /// `DiscographyFilter::groups`, is matched here against each album.
+    pub async fn artist_albums(
+        &self,
+        id: &str,
+        groups: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Page<Album>> {
         let artist = self.get_artist(id).await?;
-        let albums: Vec<Album> = artist.album.iter().map(convert::album).collect();
+        let albums: Vec<Album> = artist
+            .album
+            .iter()
+            .filter(|album| {
+                let group = convert::discography_group(album, id);
+                groups.split(',').any(|wanted| wanted == group)
+            })
+            .map(convert::album)
+            .collect();
         Ok(convert::slice(&albums, offset, limit))
     }
 

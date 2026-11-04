@@ -368,15 +368,51 @@ fn album_release_date(album: &AlbumId3) -> Option<String> {
 
 /// `Album::kind_label` reads this, and understands "single", "ep",
 /// "compilation" and "appears_on". OpenSubsonic's `releaseTypes` uses the same words with
-/// different capitalisation; `isCompilation` is the older signal.
+/// different capitalisation; `isCompilation` is the older signal. A
+/// compilation is called one even when its first release type is "album",
+/// so its label matches the discography category it is under.
 fn album_kind(album: &AlbumId3) -> Option<String> {
-    if let Some(kind) = album.release_types.first() {
-        return Some(kind.to_lowercase());
+    if is_compilation(album) {
+        return Some("compilation".to_string());
     }
-    album
-        .is_compilation
-        .unwrap_or_default()
-        .then(|| "compilation".to_string())
+    album.release_types.first().map(|kind| kind.to_lowercase())
+}
+
+fn is_compilation(album: &AlbumId3) -> bool {
+    album.is_compilation.unwrap_or_default()
+        || album
+            .release_types
+            .iter()
+            .any(|kind| kind.eq_ignore_ascii_case("compilation"))
+}
+
+/// The discography category an album the server lists under `artist_id`
+/// falls in, in the words `DiscographyFilter::groups` uses. An album that
+/// does not credit the artist is one they appear on; otherwise it is a
+/// compilation, a single or EP, or an album.
+pub fn discography_group(album: &AlbumId3, artist_id: &str) -> &'static str {
+    let credits: Vec<&str> = if album.artists.is_empty() {
+        album.artist_id.as_deref().into_iter().collect()
+    } else {
+        album
+            .artists
+            .iter()
+            .map(|artist| artist.id.as_str())
+            .collect()
+    };
+    if !credits.is_empty() && !credits.contains(&artist_id) {
+        "appears_on"
+    } else if is_compilation(album) {
+        "compilation"
+    } else if album
+        .release_types
+        .iter()
+        .any(|kind| kind.eq_ignore_ascii_case("single") || kind.eq_ignore_ascii_case("ep"))
+    {
+        "single"
+    } else {
+        "album"
+    }
 }
 
 fn album_genres(album: &AlbumId3) -> Vec<String> {
@@ -721,9 +757,56 @@ mod tests {
             ..AlbumId3::default()
         });
         assert_eq!(ep.kind_label(), "EP", "not an Album, and not a Single");
+        let flagged = album(&AlbumId3 {
+            release_types: vec!["Album".into(), "Compilation".into()],
+            ..AlbumId3::default()
+        });
+        assert_eq!(flagged.kind_label(), "Compilation");
         assert_eq!(compilation.year(), Some("2024"));
         assert_eq!(compilation.genres, vec!["Test Tones".to_string()]);
         assert_eq!(compilation.total_tracks, Some(4));
+    }
+
+    /// Upstream #1069: each album an artist's page lists falls in one
+    /// discography category, compilations included, by OpenSubsonic's
+    /// `releaseTypes` or the older `isCompilation`.
+    #[test]
+    fn an_artists_albums_fall_into_discography_categories() {
+        let credited = |artist: &str| ArtistId3 {
+            id: artist.into(),
+            ..ArtistId3::default()
+        };
+        let group = |release_types: &[&str], is_compilation, artists: Vec<ArtistId3>| {
+            discography_group(
+                &AlbumId3 {
+                    release_types: release_types.iter().map(|kind| kind.to_string()).collect(),
+                    is_compilation,
+                    artists,
+                    artist_id: Some("ar1".into()),
+                    ..AlbumId3::default()
+                },
+                "ar1",
+            )
+        };
+        assert_eq!(group(&[], None, vec![]), "album");
+        assert_eq!(
+            group(&["Album"], Some(false), vec![credited("ar1")]),
+            "album"
+        );
+        assert_eq!(
+            group(&["album", "compilation"], None, vec![]),
+            "compilation"
+        );
+        assert_eq!(group(&[], Some(true), vec![]), "compilation");
+        assert_eq!(group(&["Single"], None, vec![]), "single");
+        assert_eq!(group(&["EP"], None, vec![]), "single");
+        assert_eq!(group(&["Album"], None, vec![credited("ar9")]), "appears_on");
+        assert_eq!(
+            group(&["Album"], None, vec![credited("ar9"), credited("ar1")]),
+            "album"
+        );
+        let unnamed = AlbumId3::default();
+        assert_eq!(discography_group(&unnamed, "ar1"), "album");
     }
 
     /// The album's day when the server knows it whole; otherwise the year,

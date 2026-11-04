@@ -93,6 +93,14 @@ comes from an OpenSubsonic server's release date, and only when it falls in
 the year the album shows; an album tagged only with its year shows the year
 again.
 
+## Discography
+
+An artist's discography can be narrowed to Albums, Singles & EPs,
+Compilations or Appears On. The categories come from an OpenSubsonic
+server's release types, with the older compilation flag counting too; an
+album tagged with neither is an album. Appears On holds the albums the
+server lists under the artist without crediting them as an album artist.
+
 ## Keyboard input
 
 In a playlist, album or Liked Songs, Up and Down move between songs in the

@@ -21,6 +21,7 @@ use super::client::SubsonicClient;
 use super::convert;
 use crate::api::activity::NetActivity;
 use crate::api::subsonic::Credentials;
+use crate::model::DiscographyFilter;
 
 const TEST_PLAYLIST_PREFIX: &str = "fastsonic-test-";
 
@@ -135,7 +136,10 @@ async fn an_artist_page_loads_and_its_lastfm_half_is_empty_not_broken() {
 
     let artist = client.artist(&artist_id).await.unwrap();
     assert!(!artist.name.is_empty());
-    let albums = client.artist_albums(&artist_id, 0, 50).await.unwrap();
+    let albums = client
+        .artist_albums(&artist_id, DiscographyFilter::All.groups(), 0, 50)
+        .await
+        .unwrap();
     assert!(!albums.items.is_empty());
 
     // No Last.fm key on the development server, and none on the ordinary

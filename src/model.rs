@@ -629,27 +629,37 @@ pub enum DiscographyFilter {
     All,
     Albums,
     Singles,
+    Compilations,
     AppearsOn,
 }
 
 impl DiscographyFilter {
-    pub const ALL: [DiscographyFilter; 4] =
-        [Self::All, Self::Albums, Self::Singles, Self::AppearsOn];
+    pub const ALL: [DiscographyFilter; 5] = [
+        Self::All,
+        Self::Albums,
+        Self::Singles,
+        Self::Compilations,
+        Self::AppearsOn,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
             Self::Albums => "Albums",
             Self::Singles => "Singles & EPs",
+            Self::Compilations => "Compilations",
             Self::AppearsOn => "Appears On",
         }
     }
 
+    /// The categories of `convert::discography_group` this chip shows. All
+    /// is every album the server lists under the artist.
     pub fn groups(self) -> &'static str {
         match self {
-            Self::All => "album,single,compilation",
+            Self::All => "album,single,compilation,appears_on",
             Self::Albums => "album",
             Self::Singles => "single",
+            Self::Compilations => "compilation",
             Self::AppearsOn => "appears_on",
         }
     }

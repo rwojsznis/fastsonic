@@ -1625,7 +1625,9 @@ async fn handle(
             id,
         },
         ApiRequest::ArtistAlbums { id, groups, offset } => ApiResponse::ArtistAlbums {
-            result: client.artist_albums(&id, offset, PLAYLIST_PAGE_SIZE).await,
+            result: client
+                .artist_albums(&id, &groups, offset, PLAYLIST_PAGE_SIZE)
+                .await,
             id,
             groups,
             offset,
