@@ -2667,6 +2667,18 @@ impl App {
         self.show_lyrics_panel = true;
     }
 
+    /// A first use has nothing to draw but the idle preset, which hardly
+    /// answers the music; the packs are fetched in the background and the
+    /// picture fills up on its own.
+    #[cfg(feature = "milkdrop")]
+    fn fetch_presets_if_none(&mut self, ctx: &egui::Context) {
+        let folder = self.dirs.milkdrop_dir();
+        if self.winamp.presets.downloading().is_none() && !crate::milkdrop::has_presets(&folder) {
+            self.winamp.presets.download_missing(folder, ctx.clone());
+            self.toast("Downloading MilkDrop preset packs");
+        }
+    }
+
     /// Whether MilkDrop has the whole window, past its first frame.
     pub fn immersive(&self) -> bool {
         self.immersive.is_some_and(|mode| mode.showing)
@@ -6458,16 +6470,7 @@ impl App {
                 self.settings_dirty = true;
                 #[cfg(feature = "milkdrop")]
                 if self.settings.milkdrop_open {
-                    // A first open has nothing to draw but the idle preset,
-                    // which hardly answers the music; fetch the packs in the
-                    // background and the window fills up on its own.
-                    let folder = self.dirs.milkdrop_dir();
-                    if self.winamp.presets.downloading().is_none()
-                        && !crate::milkdrop::has_presets(&folder)
-                    {
-                        self.winamp.presets.download_missing(folder, ctx.clone());
-                        self.toast("Downloading MilkDrop preset packs");
-                    }
+                    self.fetch_presets_if_none(ctx);
                 }
             }
             Action::MilkdropEffect(by) => {
@@ -6501,6 +6504,8 @@ impl App {
                         controls_until: 0.0,
                     });
                     self.milkdrop_backdrop = true;
+                    #[cfg(feature = "milkdrop")]
+                    self.fetch_presets_if_none(ctx);
                 }
             }
             Action::LeaveImmersive => self.end_immersive(),

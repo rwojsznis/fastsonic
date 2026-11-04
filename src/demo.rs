@@ -2221,6 +2221,55 @@ mod tests {
         frame_events(ctx, app, Vec::new());
     }
 
+    /// The sung line grows, but each line wraps for its grown size all
+    /// along, so lighting one up never rewraps its words.
+    #[test]
+    fn fullscreen_lyrics_highlight_preserves_line_layout() {
+        let (ctx, mut app) = accessible_app("lyrics-layout");
+        app.backend.set_offline(true);
+        populate(&mut app);
+        app.show_lyrics_panel = true;
+        app.lyrics_fullscreen = Some(false);
+        app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+        app.lyrics_following = false;
+        let mut rows = Vec::new();
+        for (step, position) in [0, 41_000].into_iter().enumerate() {
+            app.local.playback = Playback::Paused;
+            app.local.position_ms = position;
+            app.local.position_at = None;
+            for frame in 0..30 {
+                let input = egui::RawInput {
+                    time: Some(step as f64 + f64::from(frame) / 30.0),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    ..Default::default()
+                };
+                let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+                output.textures_delta.clear();
+                if frame == 29 {
+                    let line = output
+                        .shapes
+                        .iter()
+                        .find_map(|shape| match &shape.shape {
+                            egui::Shape::Text(text)
+                                if text.galley.job.text
+                                    == "Streetlights blinking down the river road" =>
+                            {
+                                Some(text.galley.rows.len())
+                            }
+                            _ => None,
+                        })
+                        .expect("the lyric line is rendered");
+                    rows.push(line);
+                }
+            }
+        }
+        app.backend.shutdown();
+        assert_eq!(rows[0], rows[1], "highlighting must not rewrap a line");
+    }
+
     /// Where a line of lyrics was drawn, in a frame of full screen lyrics.
     fn lyric_at(ctx: &egui::Context, app: &mut App, line: &str) -> egui::Pos2 {
         let input = egui::RawInput {
@@ -2296,6 +2345,10 @@ mod tests {
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.lyrics_following = false;
         app.answer_milkdrop(Picture::Frame(egui::TextureId::default()));
+        // With a preset here, nothing is fetched.
+        let presets = app.dirs.milkdrop_dir();
+        std::fs::create_dir_all(&presets).unwrap();
+        std::fs::write(presets.join("test.milk"), "").unwrap();
         (ctx, app)
     }
 
