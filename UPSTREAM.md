@@ -762,3 +762,96 @@ Declined:
 - The fastframe crates and their version move (`91b511ad`) and the
   translation catalogues (`758651b1`).
 - The website (`796393c4`) and the release itself (`2a57faf1`).
+
+## Sync through upstream 0.17.1
+
+`upstream/v0.17.1` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+Upstream's fastframe crates stayed at 0.15.4. Most of the range is
+Windows Media Player skins and MilkDrop, which carry over almost whole;
+much of the rest is again Soloist and Spotify's own services.
+
+Taken and adapted to Fastsonic:
+
+- Windows Media Player skins run as Windows Media Player ran them: a
+  sandboxed JScript interpreter for skin scripts (`2d05a39e`, `11157ba9`,
+  `eaab50bd`), a skin runtime that also reads skins with damaged zip
+  headers (`20ba019d`), and the renderer and control fixes after it
+  (`b2bc28b7`, `48be87d2`, `db102e76`, `1fba9bf0`, `7bd0dddc`, `5a7c8d82`,
+  `aaa906b7`, `c38c4361` folded into its parent). Settings gives each kind
+  of skin its source and one folder button (`72877ab1`) and shows skins as
+  preview cards (`9b26a46f`, `991a22bf`, `bd1cb961`, `efa35d7b`), without
+  upstream's Settings-search demo flags, since the fork's Settings has no
+  search. Hyprland loses its border round a skin (`7bd0dddc`).
+- MilkDrop inside a skin's pane (`c2a413f6`), with the pane's ring delayed
+  by the audio queued at the device like the rest of the fork's tap, and
+  in the classic skin's generic window (`ed62a2b8`), with
+  `assets/skins/fastsonic.wsz` rebuilt from `examples/default_skin.rs`.
+- MilkDrop behind full screen lyrics (`467b0cd7`, `92642a73` folded in,
+  `5e931fd1`), where clicking switches the backdrop between MilkDrop and
+  the album art, and the art leaves MilkDrop alone (`6ced8ade`); a full
+  screen button on the player bar (`3ae2b946`), fitted to the fork's bar,
+  which has no devices button; the sung line stands out in the theme's
+  accent (`ef949f09`, `eb3f2df6`, `4238db5b`), and MilkDrop starts after an
+  update.
+- MilkDrop docked in the mini player, kept to the player's width
+  (`60c9f1f3`, `38baf124`).
+- Skin details: previewing a volume drag (the skin half of `d5175da1`),
+  fallback bar colours (`505f2b02`), a slim strip of the sound
+  (`f05aad57`), waiting for the window and reaching the preamp
+  (`a5675ea8`), reopening the mini player after a quit from a skin
+  (`bb2f75b9`), and Hyprland's blur off behind skins (`58d9c8c7`).
+- Upstream's own Windows Media Player skins ship as Fastsonic Tall and
+  Fastsonic Wide (`5bc072e4`, `ecd35e24`, `d14b0c57`, `72f8ca2e`), with
+  upstream's artwork and the archives rebuilt from the renamed sources by
+  `examples/ribbon_skin.rs`, whose sources stay byte for byte on Windows
+  (`c97f46bb`). A new install opens the mini player in Fastsonic Wide
+  (`11b87b7b`); a settings file that names a skin, or none, keeps it.
+- A playlist shows its song as playing only while it is the playing
+  context (`5a359cc9`).
+- A paused song of a sorted playlist keeps its playlist across a restart
+  (`89c0e5fe`), without the half about Spotify's last state.
+- A restore whose saved song left its playlist on the server plays that
+  song on its own with the saved queue after it, in the engine, rather than
+  the playlist's first song (`b9332612`'s symptom; upstream's trigger is a
+  librespot fallback).
+- Artist pages gain a Compilations chip (`6a22cddd`), and every
+  discography chip now filters: until this sync each showed the whole
+  `getArtist` list. Categories come from OpenSubsonic `releaseTypes` and
+  `isCompilation`, and Appears on from albums that do not credit the
+  artist.
+- Shift+Q and Shift+N add the selected songs to the queue or play them
+  next (`92cf9665`).
+- Page chips stay on one scrolling row (`37f6da09`).
+- "Mini player" whatever kind of skin is on (`800facb6`).
+- Settings and other pages keep their scroll across the mini player and
+  the tray (`3767d53a`).
+- A failed LRCLIB lookup is asked again after 5, 15, 45 and 120 s before
+  the failure shows (`fc76af90`); the server's own lyrics never fail that
+  way.
+
+Already true here, or not applicable:
+
+- `1155dee9`: the fork's chips already wrap.
+- `1aae7124`: guards against a late Spotify poll; the fork's playing
+  context arrives from the engine with its track.
+- `687dbdb4`: selects the song a Spotify track link names; the fork opens
+  no links.
+- `3960ed89`: the docs it adds are the website's and Soloist's.
+
+Declined:
+
+- Soloist (`b51b7755`, `8e65c56a`, `f0584788`, `ea091c86`, `29425fdc`,
+  `45c18eee`, `722287b7`, `43fa2db6`, `9b47b55c`, `195ddfb2`, `bed3235b`,
+  `2b692cc4`, `dd067f3d`, `da10519f`, `e2a9f1ca`, `029f5a35`, `efb8a6e8`,
+  `26d712c4`), and the Soloist volume half of `d5175da1`.
+- Spotify links in the search bar (`aac03b88`), Spotify's lyrics
+  (`5cb44618`, `ba095e38`) and the Client ID wording (`966f9b33`).
+- The translation catalogues (`f2f5330f`, `26ae69d1`, `d1cab458`,
+  `1bf2f815`), the account repository policy (`7163c71f`, `37923223`),
+  the Arch packages (`d9710b9c`) and the DMG's size (`3563c578`), which
+  the fork builds differently.
+- The website (`bf9371ba`, `160141f8`, `1bfd18ae`, `4959e110`), the release
+  notes (`6513e38b`, `59d0a5ce`, `a6fa73ff`) and the releases themselves
+  (`ca2cfab6`, `d22e8185`).
