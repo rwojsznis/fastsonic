@@ -39,7 +39,9 @@ struct Cli {
     /// `focus`, `resume`, `lyrics`, `lyrics-fullscreen`, `player-bar-spectrum`,
     /// `player-bar-waveform`, `scripts`, `rtl`, `signed-out`, `connecting`, `library-list` and
     /// `library-grid` (each also `-narrow` or `-wide`), `collection-loading`,
-    /// `start-in-tray`, and the Winamp ones.
+    /// `start-in-tray`, and the Winamp ones. `wmp-skin=PATH` wears a Windows
+    /// Media Player skin, and `wmp-run=SCRIPT` runs script in it once it
+    /// starts (`|` for a comma), to open a drawer or view for a capture.
     #[cfg(feature = "demo")]
     #[arg(long)]
     demo_show: Option<String>,
