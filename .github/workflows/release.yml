@@ -180,12 +180,9 @@ jobs:
       # Signing and notarization run only when the Apple credentials exist as
       # repository secrets; without them the DMG ships unsigned and its
       # GitHub release notes must explain the Privacy & Security dance.
-      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      # The secrets themselves reach only the steps that use them, never the
+      # build, where every dependency's build script runs.
+      SIGNED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -215,7 +212,10 @@ jobs:
           bash packaging/macos/bundle.sh universal/fastsonic Fastsonic.app "$version"
 
       - name: Import signing certificate
-        if: env.APPLE_CERTIFICATE_P12 != ''
+        if: env.SIGNED == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           keychain="$RUNNER_TEMP/signing.keychain-db"
           echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
@@ -228,7 +228,11 @@ jobs:
           security list-keychains -d user -s "$keychain" login.keychain
 
       - name: Sign
-        if: env.APPLE_CERTIFICATE_P12 != ''
+        if: env.SIGNED == 'true'
+        env:
+          # The certificate's SHA-1 fingerprint, not its name: codesign
+          # cannot match a name with non-ASCII letters in it.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           codesign --force --deep --options runtime --timestamp \
             --sign "$APPLE_SIGNING_IDENTITY" Fastsonic.app
@@ -245,13 +249,29 @@ jobs:
           hdiutil create -volname Fastsonic -srcfolder "$stage" -ov \
             -format UDZO "dist/$name.dmg"
 
+      - name: Sign DMG
+        if: env.SIGNED == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" \
+            "dist/fastsonic-${GITHUB_REF_NAME}-macos-universal.dmg"
+
       - name: Notarize
-        if: env.APPLE_CERTIFICATE_P12 != ''
+        if: env.SIGNED == 'true'
+        env:
+          # A Team key with the Developer role: it can notarize and nothing
+          # else, unlike an Apple ID's app-specific password.
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
           name="fastsonic-${GITHUB_REF_NAME}-macos-universal"
+          key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$key"
           xcrun notarytool submit "dist/$name.dmg" --wait \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD"
+            --key "$key" --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID"
           xcrun stapler staple "dist/$name.dmg"
 
       - uses: actions/upload-artifact@v7
