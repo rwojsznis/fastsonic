@@ -4,10 +4,10 @@
 
 Release builds for Linux, macOS and Windows are on the
 [releases page](https://github.com/rwojsznis/fastsonic/releases), with a
-`checksums.txt` beside them. Neither the macOS nor the Windows build is
-signed, so Gatekeeper and SmartScreen will both object on first open; the
-release notes say what to do about it. There is no Homebrew tap and no AUR
-package.
+`checksums.txt` beside them. The macOS app is signed with a Developer ID
+and notarized by Apple, so it opens like any other downloaded app. The
+Windows build is not signed, so SmartScreen will object on first open.
+There is no Homebrew tap and no AUR package.
 
 SmartScreen may warn about an unknown publisher the first time a Windows
 file runs; choose **More info**, then **Run anyway**. The Windows files are
