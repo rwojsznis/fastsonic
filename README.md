@@ -3,11 +3,15 @@
 > [!NOTE] 
 > **tl;dr:** fork of [Fastpotify](https://github.com/crmne/fastpotify) modified for self-hosted music servers. Should work with Subsonic/OpenSubsonic to Navidrome, Gonic, and compatible servers.
 
-![Fastsonic showing a playlist with the queue open](docs/screenshot.png)
+![Fastsonic playing an album from the Navidrome demo server, with the queue open](docs/screenshot.png)
 
 Tested with Navidrome and MacOS. It has no browser engine, telemetry, hosted backend - it's a thin client which streams the original audio file, and decodes it locally.
 
 This fork will backport changes from `fastpotify` repository while removing Spotify-specific functionalities. Grab the newest binary from the [releases section](https://github.com/rwojsznis/fastsonic/releases). The macOS app is signed and notarized.
+
+Looking for an iOS app? Check out [Fastsonic on the App Store](https://apps.apple.com/app/fastsonic/id6821304227).
+It is free; downloads sit behind a small one-time purchase that keeps the
+Apple developer account running.
 
 ## Features
 

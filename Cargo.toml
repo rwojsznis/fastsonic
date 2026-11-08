@@ -31,6 +31,11 @@ directories = "6"
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "links", "wayland", "x11", "persistence"] }
 egui = "0.36"
 egui_extras = { version = "0.36", features = ["image", "svg"] }
+# The window and tray icons, drawn from packaging/icons (src/util.rs), and
+# the notch card's icons, drawn to PNG for AppKit, which reads SVG only on
+# recent releases. Already compiled for egui_extras' SVG loader, so this
+# adds no code to the build.
+resvg = { version = "0.45", default-features = false }
 # Reading what a system font covers, so the app can borrow a face for a script
 # Inter cannot draw. skrifa is the parser epaint already rasterizes with, and
 # the version has to track epaint's or the binary compiles two copies of it;
@@ -143,10 +148,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # Settings keeps it there (src/main.rs). The version eframe already
 # compiles, named here for its macOS builder extension.
 winit = "0.30"
-# The notch card's icons are the app's own SVGs, drawn to PNG for AppKit,
-# which reads SVG only on recent releases. Already compiled for egui_extras'
-# SVG loader, so this adds no code to the build.
-resvg = { version = "0.45", default-features = false }
 
 # AccessKit connects egui's control names, states, and actions to native
 # screen readers.
