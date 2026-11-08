@@ -9,6 +9,10 @@ Tested with Navidrome and MacOS. It has no browser engine, telemetry, hosted bac
 
 This fork will backport changes from `fastpotify` repository while removing Spotify-specific functionalities. Grab the newest binary from the [releases section](https://github.com/rwojsznis/fastsonic/releases). The macOS app is signed and notarized.
 
+Looking for an iOS app? Check out [Fastsonic on the App Store](https://apps.apple.com/app/fastsonic/id6821304227).
+It is free; downloads sit behind a small one-time purchase that keeps the
+Apple developer account running.
+
 ## Features
 
 - Songs, albums, artists, starred music, playlists, search, and a self-hosted
