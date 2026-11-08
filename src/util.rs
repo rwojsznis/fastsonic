@@ -109,23 +109,16 @@ pub fn uri_kind(uri: &str) -> Option<&str> {
     parts.next()
 }
 
-/// The application icon, drawn at runtime: a green disc with a play mark.
-/// Shared by the window icon and the tray pixmap.
-/// The menu-bar shape for macOS: the circle with the play triangle punched
-/// out. macOS template images use only the alpha channel and paint the
-/// shape themselves, black in a light menu bar and white in a dark one.
+/// The packaged app icon, the stripes on their dark rounded square.
+const APP_ICON_SVG: &[u8] = include_bytes!("../packaging/icons/fastsonic.svg");
+/// The stripes alone, filling the square, for single-colour trays.
+const SYMBOLIC_ICON_SVG: &[u8] = include_bytes!("../packaging/icons/fastsonic-symbolic.svg");
+
+/// The menu-bar shape for macOS: the stripes, black on transparent. macOS
+/// template images use only the alpha channel and paint the shape
+/// themselves, black in a light menu bar and white in a dark one.
 pub fn tray_template_rgba(size: usize) -> Vec<u8> {
-    let mut rgba = app_icon_rgba(size);
-    for pixel in rgba.as_chunks_mut::<4>().0 {
-        // The triangle is the dark colour; make it a hole instead.
-        if pixel[1] < 128 {
-            pixel[3] = 0;
-        }
-        pixel[0] = 0;
-        pixel[1] = 0;
-        pixel[2] = 0;
-    }
-    rgba
+    rasterize_rgba(SYMBOLIC_ICON_SVG, size)
 }
 
 /// The tray icon as Settings asks for it on Linux and Windows: the colour
@@ -145,46 +138,37 @@ pub fn tray_icon_rgba(choice: crate::settings::TrayIcon, size: usize) -> Vec<u8>
     rgba
 }
 
-/// The mark rasterised to pixels for the window icon and the trays,
-/// where no egui painter exists. This is deliberately the one separate
-/// implementation of the logo; on-screen drawing goes through
-/// `theme::logo` and `theme::play_glyph_offset` instead.
+/// The packaged icon as pixels for the window icon and the trays, where no
+/// egui painter exists.
 pub fn app_icon_rgba(size: usize) -> Vec<u8> {
-    let mut rgba = vec![0u8; size * size * 4];
-    let center = size as f32 / 2.0;
-    let radius = center - 2.0;
-    let scale = size as f32 / 128.0;
-    let triangle = [
-        (center - 12.0 * scale, center - 22.0 * scale),
-        (center - 12.0 * scale, center + 22.0 * scale),
-        (center + 26.0 * scale, center),
-    ];
-    let sign = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| {
-        (a.0 - c.0) * (b.1 - c.1) - (b.0 - c.0) * (a.1 - c.1)
+    rasterize_rgba(APP_ICON_SVG, size)
+}
+
+/// A square SVG drawn at `size` pixels as straight (not premultiplied)
+/// RGBA, which is what window and tray icons take.
+fn rasterize_rgba(svg: &[u8], size: usize) -> Vec<u8> {
+    use resvg::{tiny_skia, usvg};
+    let side = size as u32;
+    let (Ok(tree), Some(mut pixmap)) = (
+        usvg::Tree::from_data(svg, &usvg::Options::default()),
+        tiny_skia::Pixmap::new(side, side),
+    ) else {
+        return vec![0; size * size * 4];
     };
-    for y in 0..size {
-        for x in 0..size {
-            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-            let distance = ((px - center).powi(2) + (py - center).powi(2)).sqrt();
-            let coverage = (radius - distance + 0.5).clamp(0.0, 1.0);
-            if coverage <= 0.0 {
-                continue;
-            }
-            let d1 = sign((px, py), triangle[0], triangle[1]);
-            let d2 = sign((px, py), triangle[1], triangle[2]);
-            let d3 = sign((px, py), triangle[2], triangle[0]);
-            let negative = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
-            let positive = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
-            let inside = !(negative && positive);
-            let (r, g, b) = if inside { (10, 20, 14) } else { (30, 215, 96) };
-            let index = (y * size + x) * 4;
-            rgba[index] = r;
-            rgba[index + 1] = g;
-            rgba[index + 2] = b;
-            rgba[index + 3] = (coverage * 255.0) as u8;
-        }
-    }
-    rgba
+    let scale = side as f32 / tree.size().width().max(tree.size().height());
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let colour = pixel.demultiply();
+            [colour.red(), colour.green(), colour.blue(), colour.alpha()]
+        })
+        .collect()
 }
 
 pub fn greeting() -> &'static str {
@@ -551,8 +535,8 @@ mod tests {
     use super::*;
 
     /// Colour is the app icon; white and black paint the menu-bar
-    /// template's shape, keeping its transparency, so the play triangle
-    /// stays a hole.
+    /// template's shape, keeping its transparency, so the gaps between the
+    /// stripes stay holes.
     #[test]
     fn white_and_black_tray_icons_paint_the_template_shape() {
         use crate::settings::TrayIcon;
@@ -567,8 +551,20 @@ mod tests {
                 assert_eq!(pixel[3], outline[3], "the shape stays");
             }
         }
-        let centre = (16 * 32 + 16) * 4 + 3;
-        assert_eq!(tray_icon_rgba(TrayIcon::White, 32)[centre], 0, "a hole");
+        let alpha = |rgba: &[u8], x: usize, y: usize| rgba[(y * 32 + x) * 4 + 3];
+        let white = tray_icon_rgba(TrayIcon::White, 32);
+        assert_eq!(alpha(&white, 20, 3), 255, "the top stripe");
+        assert_eq!(alpha(&white, 28, 10), 0, "beside the short second stripe");
+    }
+
+    /// The window icon is the packaged drawing: the dark square with its
+    /// rounded corners cut away.
+    #[test]
+    fn app_icon_draws_the_packaged_square() {
+        let rgba = app_icon_rgba(64);
+        let pixel = |x: usize, y: usize| &rgba[(y * 64 + x) * 4..][..4];
+        assert_eq!(pixel(0, 0)[3], 0, "a rounded corner");
+        assert_eq!(pixel(32, 60), [0x12, 0x12, 0x12, 255], "the background");
     }
 
     fn scratch(name: &str) -> std::path::PathBuf {

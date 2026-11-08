@@ -24,8 +24,8 @@ These instructions add implementation constraints for coding agents.
 
 The boundaries above describe what is here, not a plan. The fork's
 migration off Spotify is done: there is no Spotify client, no Connect, no
-device picker, no podcasts and no librespot left to work around. What
-remains of it is the packaging artwork, which is still upstream's.
+device picker, no podcasts and no librespot left to work around. The app
+icon is Fastsonic's own, shared with the iOS app.
 
 ## Architecture
 
