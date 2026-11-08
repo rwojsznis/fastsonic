@@ -6,7 +6,7 @@ the audio stream on this computer. It is written in Rust with
 [egui](https://github.com/emilk/egui), has no browser engine, and runs on
 Linux, macOS, and Windows.
 
-![Fastsonic showing a playlist with the queue open and a track playing](../screenshot.png)
+![Fastsonic playing an album from the Navidrome demo server, with the queue open](../screenshot.png)
 
 ## What it does
 
