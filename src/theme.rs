@@ -619,10 +619,16 @@ impl Icon {
     }
 }
 
+const LOGO_URI: &str = "bytes://fastsonic-logo.svg";
+
 fn register_icons(ctx: &egui::Context) {
     for (_, uri, bytes) in ICONS {
         ctx.include_bytes(*uri, *bytes);
     }
+    ctx.include_bytes(
+        LOGO_URI,
+        include_bytes!("../packaging/icons/fastsonic.svg").as_slice(),
+    );
 }
 
 /// A static icon.
@@ -707,18 +713,11 @@ pub fn play_glyph_offset(icon: Icon, icon_size: f32) -> Vec2 {
     }
 }
 
-/// The app's mark, the accent disc with the play triangle, drawn the same
-/// wherever it appears.
-pub fn logo(ui: &egui::Ui, center: egui::Pos2, diameter: f32, disc: Color32, glyph: Color32) {
-    ui.painter().circle_filled(center, diameter / 2.0, disc);
-    let icon_size = diameter * 0.45;
-    let icon_rect = egui::Rect::from_center_size(
-        center + play_glyph_offset(Icon::PlayFilled, icon_size),
-        Vec2::splat(icon_size),
-    );
-    Icon::PlayFilled
-        .image(glyph, icon_size)
-        .paint_at(ui, icon_rect);
+/// The app's mark, the packaged icon, drawn the same wherever it appears.
+pub fn logo(ui: &egui::Ui, center: egui::Pos2, side: f32) {
+    egui::Image::new(LOGO_URI)
+        .fit_to_exact_size(Vec2::splat(side))
+        .paint_at(ui, egui::Rect::from_center_size(center, Vec2::splat(side)));
 }
 
 pub fn circle_button(
@@ -1106,6 +1105,18 @@ pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sign-in card and About draw the packaged icon, which has to be
+    /// registered for the image loader to find it.
+    #[test]
+    fn the_logo_is_the_packaged_icon() {
+        let ctx = egui::Context::default();
+        register_icons(&ctx);
+        let Ok(egui::load::BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(LOGO_URI) else {
+            panic!("the logo is registered");
+        };
+        assert_eq!(&*bytes, include_bytes!("../packaging/icons/fastsonic.svg"));
+    }
 
     /// Only the custom Windows title bar slims the top bar down to its
     /// caption buttons; Linux's custom title bar and macOS keep the height.

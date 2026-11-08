@@ -124,7 +124,7 @@ fn card_contents(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             ui.set_width(CARD_WIDTH - 72.0);
             ui.spacing_mut().item_spacing.y = 8.0;
             let (logo, _) = ui.allocate_exact_size(Vec2::splat(64.0), egui::Sense::hover());
-            theme::logo(ui, logo.center(), 64.0, palette.accent, palette.on_accent);
+            theme::logo(ui, logo.center(), 64.0);
             ui.add_space(4.0);
             theme::text(ui, "Fastsonic", theme::bold(28.0), palette.text);
             theme::text(
