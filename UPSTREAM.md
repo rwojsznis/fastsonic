@@ -855,3 +855,56 @@ Declined:
 - The website (`bf9371ba`, `160141f8`, `1bfd18ae`, `4959e110`), the release
   notes (`6513e38b`, `59d0a5ce`, `a6fa73ff`) and the releases themselves
   (`ca2cfab6`, `d22e8185`).
+
+## Sync through upstream 0.17.2
+
+`upstream/v0.17.2` is recorded as the second parent of the Fastsonic sync
+commit. Every portable commit in the range was ported in its own fork
+commit, whose message names the upstream commit and how it was adapted.
+The range is small: most of it is Soloist, Spotify's own services,
+upstream's self-updater and its website.
+
+Taken and adapted to Fastsonic:
+
+- The heart's menu is a checklist (`2128cb4e`): Liked Songs and each
+  playlist known to hold the song are checked, Done applies the changes as
+  one action (star or unstar, `songIdToAdd`, every copy out through
+  `songIndexToRemove`) and a click outside changes nothing. A playlist
+  whose rows are not all held shows as unknown and is never emptied of the
+  song. Unlike upstream, the app keeps each edit it sends until a full read
+  agrees, so a lagging read cannot clear a check. Every playlist picker
+  shows covers. The duplicate questions' queue is left out with the
+  confirmation it belongs to (`930480d`, declined above).
+- The logs, the crash log and the folders made for them and for private
+  files are the user's alone on Unix (fastframe `e341da9` and `f1bd05d`,
+  arriving upstream with the fastframe 0.16.1 bump `d0c2f052`), in the
+  fork's own log and `util::write_with`; the state folder made at start is
+  private too.
+- No rectangular shadow round skin windows on Windows (`eb0596b7`).
+  Upstream moved to an egui fork revision for it; this fork keeps egui from
+  crates.io and subclasses the see-through mini player's window instead.
+
+Already true here, or not applicable:
+
+- `6b4a6fa0`: a clicked queue row already starts at once, since the
+  engine's `skip_to` moves to the row in one step and loads only that
+  song; the rows above never play.
+- `047a0b8d`: the demo's `place_skin` already carries that `cfg`.
+
+Declined:
+
+- Soloist (`d4a91791`, `353d1d3a`, `3e41c012`, `d7dbe668`).
+- Spotify and its devices: Sonos (`d5160e5c`, `b99170f2`), Recent's
+  pairing with Spotify's own plays (`dd225bac`), Spotify's queue padding
+  (`6bbcf5c8`), shuffle that Spotify forbids (`df755258`) and librespot's
+  picked-song fix (`7e28c310`).
+- Upstream's self-updater: package installs' update commands
+  (`54019718`), installing at the next start (`214a9ca9`, `793d2a0d`),
+  the Updates section (`e11e1dee`) and the sign-in redirect address that
+  shares its widget (`40cd04af`). The fork's update check only links to
+  the release. The rest of fastframe 0.16 is that updater.
+- Omarchy's own shades (`b75af93a`): the fork has no Omarchy palette.
+- The translation catalogues (`eada9e75`), Fedora COPR (`58ec4560`), the
+  website and its docs publishing (`672d665f`, `0afc9bcb`, `d3ad3a61`,
+  `733c1684`, `b54adb16`, `52863632`), the release notes (`0a8a409e`) and
+  the release itself (`aae7452b`).
