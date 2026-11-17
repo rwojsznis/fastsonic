@@ -318,6 +318,11 @@ pub struct App {
     pub queue_tab: QueueTab,
     pub search: SearchState,
     pub playlist_pages: HashMap<String, PlaylistPage>,
+    /// Songs this client put into (`true`) or took out of (`false`) a
+    /// playlist, by playlist id then song, until a full read of its rows
+    /// agrees. The heart's checklist reads them before the rows, so an edit
+    /// shows at once and a read that lags behind it cannot undo it.
+    playlist_edits: HashMap<String, HashMap<String, bool>>,
     load_generation: u64,
     pub album_pages: HashMap<String, AlbumPage>,
     pub artist_pages: HashMap<String, ArtistPage>,
@@ -713,6 +718,7 @@ impl App {
                 .unwrap_or_default(),
             search: SearchState::default(),
             playlist_pages: HashMap::new(),
+            playlist_edits: HashMap::new(),
             load_generation: 0,
             album_pages: HashMap::new(),
             artist_pages: HashMap::new(),
@@ -1856,6 +1862,7 @@ impl App {
         };
         self.home = HomeData::default();
         self.playlist_pages.clear();
+        self.playlist_edits.clear();
         self.album_pages.clear();
         self.artist_pages.clear();
         self.radio_pages.clear();
@@ -4392,6 +4399,7 @@ impl App {
                 }
                 self.note_saved(flags);
                 self.request_user_names(adders);
+                self.settle_playlist_edits(&id);
                 // The whole list is here; remember it under its snapshot.
                 if let Some(page) = self.playlist_pages.get(&id)
                     && page.items.is_complete()
@@ -4522,6 +4530,8 @@ impl App {
                     }
                     Err(error) => {
                         self.toast_error(format!("Playlist change failed: {error}"));
+                        // What it holds is the server's to say again.
+                        self.playlist_edits.remove(&id);
                         if let Some(page) = self.playlist_pages.get_mut(&id).filter(|_| settled) {
                             page.items.reload();
                             page.contributors.clear();
@@ -5193,6 +5203,7 @@ impl App {
         }
         self.note_saved(flags);
         self.request_user_names(adders);
+        self.settle_playlist_edits(id);
     }
 
     /// Play what was playing when the app last closed, with the queue that
@@ -5752,6 +5763,24 @@ impl App {
                     uris,
                     position: None,
                 });
+            }
+            Action::UpdatePlaylists { uri, add, remove } => {
+                for playlist_id in remove {
+                    let removal = Action::RemoveFromPlaylist {
+                        playlist_id,
+                        uris: vec![uri.clone()],
+                        positions: Vec::new(),
+                    };
+                    self.apply(removal, ctx);
+                }
+                for (playlist_id, playlist_name) in add {
+                    let addition = Action::AddToPlaylist {
+                        playlist_id,
+                        playlist_name,
+                        uris: vec![uri.clone()],
+                    };
+                    self.apply(addition, ctx);
+                }
             }
             Action::RemoveFromPlaylist {
                 playlist_id,
@@ -6742,6 +6771,37 @@ impl App {
     }
 
     fn send_playlist_write(&mut self, request: ApiRequest) {
+        match &request {
+            ApiRequest::AddToPlaylist {
+                playlist_id, uris, ..
+            } => {
+                let edits = self.playlist_edits.entry(playlist_id.clone()).or_default();
+                for uri in uris {
+                    edits.insert(uri.clone(), true);
+                }
+            }
+            // By song, every copy goes; picked rows may leave another copy,
+            // which only the rows can tell.
+            ApiRequest::RemoveFromPlaylist {
+                playlist_id,
+                uris,
+                rows,
+                ..
+            } => {
+                let edits = self.playlist_edits.entry(playlist_id.clone()).or_default();
+                for uri in uris {
+                    if rows.is_empty() {
+                        edits.insert(uri.clone(), false);
+                    } else {
+                        edits.remove(uri);
+                    }
+                }
+                if edits.is_empty() {
+                    self.playlist_edits.remove(playlist_id);
+                }
+            }
+            _ => {}
+        }
         if let ApiRequest::AddToPlaylist { playlist_id, .. }
         | ApiRequest::RemoveFromPlaylist { playlist_id, .. }
         | ApiRequest::ReorderPlaylist { playlist_id, .. } = &request
@@ -6775,6 +6835,52 @@ impl App {
             editable_playlist: Some((id, playlist.snapshot_id.clone())),
             uri,
         })
+    }
+
+    /// Whether the playlist holds the song: as this client last changed it,
+    /// or else as its loaded rows say. A song found in the rows is there
+    /// even when they are partial; not finding it says so only when every
+    /// row is held. `None` when that cannot be told without reading it.
+    pub fn playlist_holds(&self, playlist_id: &str, uri: &str) -> Option<bool> {
+        if let Some(held) = self
+            .playlist_edits
+            .get(playlist_id)
+            .and_then(|edits| edits.get(uri))
+        {
+            return Some(*held);
+        }
+        let page = self.playlist_pages.get(playlist_id)?;
+        let found = page
+            .items
+            .items
+            .iter()
+            .any(|row| row.playable().is_some_and(|item| item.uri() == uri));
+        (found || page.items.is_complete() || page.cache_complete).then_some(found)
+    }
+
+    /// Forgets this client's edits to a playlist that its rows, now read in
+    /// full with no edit on its way, agree with. One they contradict stays:
+    /// those rows may have been read before the edit landed.
+    fn settle_playlist_edits(&mut self, playlist_id: &str) {
+        let Some(page) = self.playlist_pages.get(playlist_id) else {
+            return;
+        };
+        if page.pending_writes > 0 || !(page.items.is_complete() || page.cache_complete) {
+            return;
+        }
+        let rows = &page.items.items;
+        let Some(edits) = self.playlist_edits.get_mut(playlist_id) else {
+            return;
+        };
+        edits.retain(|uri, held| {
+            let found = rows
+                .iter()
+                .any(|row| row.playable().is_some_and(|item| item.uri() == uri));
+            found != *held
+        });
+        if edits.is_empty() {
+            self.playlist_edits.remove(playlist_id);
+        }
     }
 
     pub fn editable_playlists(&self) -> Vec<(String, String)> {
@@ -9350,6 +9456,114 @@ mod tests {
         playlist_with_songs(&mut app, "pl", &[once, twice]);
         let request = played_playlist_row(&mut app, twice, 1);
         assert_eq!(request.offset_position, None);
+        app.backend.shutdown();
+    }
+
+    /// Done in the heart's checklist adds the song to each newly checked
+    /// playlist and takes every copy out of each unchecked one, in one
+    /// action. What it did shows at once, a read from before it cannot undo
+    /// it, a full read that agrees settles it, and a failed write leaves
+    /// the playlist to the server again.
+    #[test]
+    fn the_hearts_playlist_edits_hold_until_a_full_read_agrees() {
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        let ctx = egui::Context::default();
+        let song = "sonic:track:song";
+        playlist_with_songs(&mut app, "mix", &[song, "sonic:track:other", song]);
+        assert_eq!(app.playlist_holds("mix", song), Some(true));
+        assert_eq!(app.playlist_holds("run", song), None, "never read");
+
+        app.apply(
+            Action::UpdatePlaylists {
+                uri: song.into(),
+                add: vec![("run".into(), "Run".into())],
+                remove: vec!["mix".into()],
+            },
+            &ctx,
+        );
+        let asked: Vec<String> = app
+            .backend
+            .asked_api()
+            .into_iter()
+            .map(|request| match request {
+                ApiRequest::RemoveFromPlaylist {
+                    playlist_id,
+                    uris,
+                    rows,
+                    ..
+                } => {
+                    assert_eq!(uris, [song]);
+                    assert!(rows.is_empty(), "every copy goes");
+                    format!("remove {playlist_id}")
+                }
+                ApiRequest::AddToPlaylist {
+                    playlist_id, uris, ..
+                } => {
+                    assert_eq!(uris, [song]);
+                    format!("add {playlist_id}")
+                }
+                _ => "other".into(),
+            })
+            .collect();
+        assert_eq!(asked, ["remove mix", "add run"]);
+        assert_eq!(app.playlist_holds("mix", song), Some(false));
+        assert_eq!(app.playlist_holds("run", song), Some(true), "shown at once");
+
+        let full_read = |app: &mut App, uris: &[&str]| {
+            app.handle_api(ApiResponse::PlaylistItems {
+                id: "mix".into(),
+                offset: 0,
+                generation: 0,
+                result: Ok(crate::api::models::Page {
+                    items: uris
+                        .iter()
+                        .map(|uri| crate::api::models::PlaylistItem {
+                            item: Some(PlayableItem::Track(Track {
+                                uri: (*uri).into(),
+                                ..Default::default()
+                            })),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    total: uris.len() as u32,
+                    ..Default::default()
+                }),
+            });
+        };
+        app.handle_api(ApiResponse::PlaylistItemsChanged {
+            id: "mix".into(),
+            message: String::new(),
+            result: Ok(Some("after".into())),
+        });
+        assert_eq!(app.playlist_holds("mix", song), Some(false));
+        full_read(&mut app, &[song, "sonic:track:other"]);
+        assert_eq!(
+            app.playlist_holds("mix", song),
+            Some(false),
+            "a read from before the removal cannot undo it"
+        );
+        full_read(&mut app, &["sonic:track:other"]);
+        assert!(!app.playlist_edits.contains_key("mix"), "the rows agree");
+        assert_eq!(app.playlist_holds("mix", song), Some(false));
+
+        app.handle_api(ApiResponse::PlaylistItemsChanged {
+            id: "run".into(),
+            message: String::new(),
+            result: Err(crate::api::subsonic::ApiError::NotSignedIn),
+        });
+        assert_eq!(app.playlist_holds("run", song), None);
+
+        app.apply(
+            Action::UpdatePlaylists {
+                uri: song.into(),
+                add: vec![("run".into(), "Run".into())],
+                remove: Vec::new(),
+            },
+            &ctx,
+        );
+        app.reset_data();
+        assert_eq!(app.playlist_holds("run", song), None, "a new account");
         app.backend.shutdown();
     }
 

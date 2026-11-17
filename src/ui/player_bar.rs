@@ -8,14 +8,14 @@ use crate::model::{Action, DragTrack, Page};
 use crate::theme::{self, Icon};
 use crate::util;
 
-use super::widgets::{SliderEvent, thin_slider};
+use super::widgets::{PlaylistChecks, SliderEvent, thin_slider};
 
 /// How much of the playing art's tint the bar's fill carries.
 const TINT_STRENGTH: f32 = 0.12;
 /// How long the bar takes to cross over to a new song's tint.
 const TINT_FADE_SECONDS: f32 = 0.45;
 const TINT_SESSION_ID: &str = "player-bar-tint-session";
-/// The Add to playlist menu a liked song's heart opens.
+/// The playlist checklist a liked song's heart opens.
 const LIKED_POPUP_ID: &str = "player-bar-liked-playlists";
 /// How strongly the visualizer shows through behind the controls: the
 /// spectrum's bars fade from their foot to their top, with a glow around
@@ -597,18 +597,28 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         );
         let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, tooltip);
         let popup_id = egui::Id::new(LIKED_POPUP_ID);
-        // A liked song's heart opens Add to playlist, with Remove from Liked
-        // Songs below the playlists. The first click on a song not yet liked
-        // still likes it at once.
+        let query_id = popup_id.with("query");
+        let checks_id = popup_id.with("checks");
+        // What the menu holds while open, dropped once it closes.
+        let forget = |ui: &mut egui::Ui| {
+            ui.data_mut(|data| {
+                data.remove::<String>(query_id);
+                data.remove::<PlaylistChecks>(checks_id);
+            });
+        };
+        // A liked song's heart opens a checklist of Liked Songs and the
+        // playlists: checks change nothing until Done, and a click outside
+        // drops them. The first click on a song not yet liked still likes
+        // it at once.
         match song.as_ref().filter(|_| saved) {
             None => {
                 egui::Popup::close_id(ui.ctx(), popup_id);
+                forget(ui);
                 if response.clicked() {
                     app.actions.push(Action::ToggleSaved(now.uri.clone()));
                 }
             }
             Some(item) => {
-                let query_id = popup_id.with("query");
                 let songs = [(item.uri().to_string(), item.name().to_string())];
                 let shown = egui::Popup::menu(&response)
                     .id(popup_id)
@@ -618,28 +628,45 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                         let stored = ui.data(|data| data.get_temp::<String>(query_id));
                         let fresh = stored.is_none();
                         let mut query = stored.unwrap_or_default();
+                        let mut checks = ui
+                            .data(|data| data.get_temp::<PlaylistChecks>(checks_id))
+                            .filter(|checks| checks.uri == item.uri())
+                            .unwrap_or_else(|| PlaylistChecks::new(app, item.uri()));
                         let before = app.actions.len();
-                        let field = super::widgets::playlist_picker(ui, app, &songs, &mut query);
+                        let field = super::widgets::playlist_picker(
+                            ui,
+                            app,
+                            &songs,
+                            &mut query,
+                            Some(&mut checks),
+                        );
                         if fresh {
                             field.request_focus();
                         }
-                        ui.data_mut(|data| data.insert_temp(query_id, query));
                         super::widgets::menu_separator(ui, &palette);
-                        if super::widgets::menu_item(
-                            ui,
-                            &palette,
-                            Some(Icon::HeartFilled),
-                            "Remove from Liked Songs",
-                        ) {
-                            app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                        let done = ui
+                            .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                theme::pill_button(ui, &palette, "Done", true)
+                            })
+                            .inner
+                            .clicked();
+                        if done {
+                            if !checks.liked {
+                                app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                            }
+                            app.actions.extend(checks.changes(app));
                         }
-                        // A playlist, New playlist, or Remove closes it.
-                        if app.actions.len() > before {
+                        ui.data_mut(|data| {
+                            data.insert_temp(query_id, query);
+                            data.insert_temp(checks_id, checks);
+                        });
+                        // Done or New playlist closes it.
+                        if done || app.actions.len() > before {
                             ui.close();
                         }
                     });
                 if shown.is_none() {
-                    ui.data_mut(|data| data.remove::<String>(query_id));
+                    forget(ui);
                 }
             }
         }

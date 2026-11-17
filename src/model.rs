@@ -927,6 +927,14 @@ pub enum Action {
         playlist_name: String,
         uris: Vec<String>,
     },
+    /// Done in the heart's checklist, for all its playlists at once: the
+    /// song `uri` goes into each of `add` (id and name) and every copy of it
+    /// out of each of `remove`.
+    UpdatePlaylists {
+        uri: String,
+        add: Vec<(String, String)>,
+        remove: Vec<String>,
+    },
     /// Put these songs on the clipboard, one `sonic:track:` link a line.
     CopySongs(Vec<String>),
     /// Add the songs on a pasted clipboard to a playlist.

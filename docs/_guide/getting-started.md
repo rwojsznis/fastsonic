@@ -160,16 +160,23 @@ features; Navidrome-only personalisation sections may be empty.
   keys, and they leave the selected songs as they are.
 - Right-click a song, playlist, album, or artist for actions such as Play
   next, star, add to playlist, and copy link.
-  In **Add to playlist**, type to filter, use Up or Down to pick a match,
-  and press Enter to add the song to it.
+  In **Add to playlist**, each playlist shows its cover; type to filter,
+  use Up or Down to pick a match, and press Enter to add the song to it.
 - **Pages keep their shape while they load.** Until the server answers, grey
   rows and cards in the shape of the songs, albums and artists to come stand
   in for them. A list that is loading more at its end still shows
   **Loading…**.
-- **The heart likes, then adds to a playlist.** In the player bar, the heart
-  stars the playing song, adding it to Liked Songs. Once it is liked, the
-  heart opens **Add to playlist** instead, with **Remove from Liked Songs**
-  below the playlists.
+- **The heart likes, then checks off playlists.** In the player bar, the
+  heart stars the playing song, adding it to Liked Songs. Once it is liked,
+  the heart opens a list of your playlists with their covers, Liked Songs
+  checked at the top. Check the playlists the song belongs in, uncheck Liked
+  Songs to unstar it, then choose **Done**; nothing changes before that, and
+  a click outside the list changes nothing. A playlist whose songs Fastsonic
+  has read in full shows a check when it already holds the song, and
+  unchecking it takes every copy of the song out. A fainter circle marks a
+  playlist not read in full, which may already hold the song: checking it
+  adds the song, as another copy if it is there already, and leaving it
+  unchecked leaves the playlist as it is.
 
 ## Lyrics
 
