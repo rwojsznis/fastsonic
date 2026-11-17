@@ -543,6 +543,8 @@ fn main() -> eframe::Result<()> {
         let persist_memory = options.persist_window;
         #[cfg(target_os = "linux")]
         let hide_from_taskbar = options.viewport.taskbar == Some(false);
+        #[cfg(windows)]
+        let see_through = options.viewport.transparent == Some(true);
         let window_started = std::cell::Cell::new(false);
         let started = &window_started;
         eframe::run_native(
@@ -609,6 +611,13 @@ fn main() -> eframe::Result<()> {
                     use raw_window_handle::HasWindowHandle;
                     if let Ok(handle) = cc.window_handle() {
                         fastsonic::window::skip_x11_taskbar(handle.as_raw());
+                    }
+                }
+                #[cfg(windows)]
+                if see_through {
+                    use raw_window_handle::HasWindowHandle;
+                    if let Ok(handle) = cc.window_handle() {
+                        fastsonic::window::drop_undecorated_shadow(handle.as_raw());
                     }
                 }
                 app.attach(&cc.egui_ctx);

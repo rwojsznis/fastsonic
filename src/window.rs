@@ -66,6 +66,84 @@ pub fn conceal(window: raw_window_handle::RawWindowHandle) {
     }
 }
 
+/// Keeps Windows from drawing its drop shadow round a see-through
+/// undecorated window: a skin that is not a rectangle.
+///
+/// egui-winit asks winit for the undecorated-window shadow on every
+/// borderless window, and winit makes it by leaving a one-pixel frame in
+/// `WM_NCCALCSIZE`, which DWM then shades round the whole window rectangle,
+/// so a shaped skin showed a faint rectangle. This window answers that
+/// message itself the way winit does for a window without the shadow: all
+/// of it is client area. Upstream fixed it in its egui fork
+/// (emilk/egui#8834); this fork uses egui from crates.io. Any other handle
+/// is left alone.
+#[cfg(windows)]
+pub fn drop_undecorated_shadow(window: raw_window_handle::RawWindowHandle) {
+    use windows_sys::Win32::UI::Shell::SetWindowSubclass;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+        SetWindowPos,
+    };
+    let raw_window_handle::RawWindowHandle::Win32(handle) = window else {
+        return;
+    };
+    let hwnd = handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+    // SAFETY: winit hands over a live window, on the thread that owns it,
+    // where the app creator runs; the subclass removes itself when the
+    // window is destroyed.
+    unsafe {
+        if SetWindowSubclass(hwnd, Some(without_shadow), NO_SHADOW_SUBCLASS, 0) == 0 {
+            log::warn!("could not take the shadow from round the skin's window");
+            return;
+        }
+        // The frame is worked out again, now without the shadow's pixel.
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED
+                | SWP_NOMOVE
+                | SWP_NOSIZE
+                | SWP_NOZORDER
+                | SWP_NOOWNERZORDER
+                | SWP_NOACTIVATE,
+        );
+    }
+}
+
+#[cfg(windows)]
+const NO_SHADOW_SUBCLASS: usize = 0x6e6f_7368;
+
+#[cfg(windows)]
+unsafe extern "system" fn without_shadow(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    message: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+    id: usize,
+    _data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_NCCALCSIZE, WM_NCDESTROY};
+    // SAFETY: called by the window's own message loop with its arguments.
+    unsafe {
+        match message {
+            // The whole window is client area, leaving DWM no frame to
+            // shade. A skin window is never maximized, the one case where
+            // winit does more here.
+            WM_NCCALCSIZE if wparam != 0 => 0,
+            WM_NCDESTROY => {
+                RemoveWindowSubclass(hwnd, Some(without_shadow), id);
+                DefSubclassProc(hwnd, message, wparam, lparam)
+            }
+            _ => DefSubclassProc(hwnd, message, wparam, lparam),
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 mod x11 {
     use x11rb::connection::Connection;
