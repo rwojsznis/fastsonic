@@ -99,8 +99,11 @@ file beside it (a hidden `.<name>.<number>.tmp`), flushed to the disk, and
 then moved over the old file, so a crash or a power cut leaves the old
 contents or the new ones, never half of either; a write that fails removes
 its temporary file and leaves the old file as it was. On Linux and macOS,
-`history.json` and `credentials.json` are written readable by your account
-only.
+`history.json`, `credentials.json` and the three logs are written readable by
+your account only, and so is a log an older version left readable by others
+(a link at a log's path keeps its target's permissions). A state folder
+Fastsonic creates, and any folder it creates for those files, is your
+account's alone too; a folder already there keeps its permissions.
 
 Settings, the session and the play history are written on a thread of their
 own, so a slow disk never stops the window; a newer save of a file still

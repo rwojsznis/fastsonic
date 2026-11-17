@@ -768,7 +768,10 @@ impl LogFile {
         use std::io::Write;
         // The earlier run's log is worth more than a failed rename: the new
         // file is made either way.
-        let _ = std::fs::rename(path, previous);
+        if std::fs::rename(path, previous).is_ok() {
+            // A version before logs were private left it readable by others.
+            fastsonic::util::make_log_private(previous);
+        }
         let mut sink = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
         let pending = match std::mem::replace(&mut *sink, LogSink::Off) {
             LogSink::Pending(pending) => pending,
@@ -777,7 +780,13 @@ impl LogFile {
                 return Ok(());
             }
         };
-        let mut file = std::fs::File::create(path)?;
+        let mut file = fastsonic::util::open_log(
+            path,
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true),
+        )?;
         file.write_all(&pending)?;
         *sink = LogSink::Open(file);
         Ok(())
@@ -825,10 +834,8 @@ fn log_panics(path: std::path::PathBuf) {
             env!("CARGO_PKG_VERSION"),
             thread.name().unwrap_or("unnamed"),
         );
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path);
+        let file =
+            fastsonic::util::open_log(&path, std::fs::OpenOptions::new().create(true).append(true));
         if let Ok(mut file) = file {
             use std::io::Write;
             let _ = file.write_all(entry.as_bytes());

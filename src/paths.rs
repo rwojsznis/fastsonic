@@ -195,11 +195,14 @@ impl AppDirs {
         self.playlist_cache_dir().join(account_id)
     }
 
+    /// Creates the three folders. State holds the credential, the history
+    /// and the logs, so a state folder made here is its owner's alone. It
+    /// comes first because on macOS it is the configuration's folder too.
     pub fn ensure(&self) -> std::io::Result<()> {
-        for dir in [&self.config, &self.state, &self.cache] {
-            std::fs::create_dir_all(dir)?;
-        }
-        Ok(())
+        use crate::util::{Access, create_dir};
+        create_dir(&self.state, Access::Private)?;
+        create_dir(&self.config, Access::Default)?;
+        create_dir(&self.cache, Access::Default)
     }
 }
 

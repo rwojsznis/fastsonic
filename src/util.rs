@@ -384,8 +384,9 @@ pub enum Access {
     /// The system's default for a new file.
     #[default]
     Default,
-    /// Its owner only (0600 on Unix). Windows keeps a user's profile
-    /// private already, so there it is the same as `Default`.
+    /// Its owner only (0600 on Unix, and 0700 for the folders the write
+    /// creates). Windows keeps a user's profile private already, so there it
+    /// is the same as `Default`.
     Private,
 }
 
@@ -426,7 +427,7 @@ pub fn write_with(
         Some(folder) if !folder.as_os_str().is_empty() => folder,
         _ => std::path::Path::new("."),
     };
-    std::fs::create_dir_all(folder)?;
+    create_dir(folder, access)?;
     let temporary = temporary_path(path);
     let result = (|| {
         let mut file = create_new(&temporary, access)?;
@@ -456,6 +457,73 @@ fn temporary_path(path: &std::path::Path) -> std::path::PathBuf {
         .unwrap_or_default();
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()))
+}
+
+/// Creates `dir` and any missing folders above it. For a private file they
+/// are its owner's alone (0700 on Unix), as the file is: in a folder others
+/// can list, they would see that it is there, and its name and size. Folders
+/// already there keep their permissions.
+pub fn create_dir(dir: &std::path::Path, access: Access) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    if access == Access::Private {
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    }
+    #[cfg(not(unix))]
+    let _ = access;
+    builder.create(dir)
+}
+
+/// Opens the log at `path` with `options`, readable by its owner alone
+/// (0600 on Unix). A log can hold what the user did and the names of their
+/// files and server, and the folders above it may be readable by others. A
+/// log an older version left readable is made private too, as far as the
+/// system lets its owner change it: a log it cannot change is still
+/// written.
+pub fn open_log(
+    path: &std::path::Path,
+    options: &mut std::fs::OpenOptions,
+) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(options, 0o600);
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    restrict(&file, path);
+    Ok(file)
+}
+
+/// Makes the log at `path` readable by its owner alone (0600 on Unix), as
+/// far as the system allows. A link there is left alone, as [`open_log`]
+/// says.
+pub fn make_log_private(path: &std::path::Path) {
+    #[cfg(unix)]
+    if std::fs::symlink_metadata(path).is_ok_and(|found| found.is_file())
+        && let Ok(file) = std::fs::File::open(path)
+    {
+        restrict(&file, path);
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// Makes `file`, open at `path`, readable by its owner alone, unless `path`
+/// is something other than that file. A link may lead to a file shared with
+/// others, or to a device, whose permissions are not the log's to change.
+/// The change goes through the open file, never the path, so what was
+/// checked is what changes, whatever lands at the path meanwhile.
+#[cfg(unix)]
+fn restrict(file: &std::fs::File, path: &std::path::Path) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let the_same = match (file.metadata(), std::fs::symlink_metadata(path)) {
+        (Ok(open), Ok(found)) => {
+            found.is_file() && open.dev() == found.dev() && open.ino() == found.ino()
+        }
+        _ => false,
+    };
+    if the_same {
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+    }
 }
 
 /// A new file, never one already there, so the write cannot go through a
@@ -663,6 +731,75 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_folders_made_for_a_private_file_are_its_owners_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("private-folders");
+        let shared = dir.join("shared");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_private(&shared.join("state/app/credentials.json"), "secret").unwrap();
+        write_file(&shared.join("config/settings.json"), "{}").unwrap();
+        let modes = (
+            mode(&shared.join("state")),
+            mode(&shared.join("state/app")),
+            mode(&shared),
+            mode(&shared.join("config")) & 0o077 != 0,
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(modes, (0o700, 0o700, 0o755, true));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_log_others_could_read_is_made_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("log-mode");
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = dir.join("old.log");
+        std::fs::write(&old, "last run\n").unwrap();
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
+        make_log_private(&old);
+        let fresh = dir.join("fresh.log");
+        std::fs::write(&fresh, "").unwrap();
+        std::fs::set_permissions(&fresh, std::fs::Permissions::from_mode(0o644)).unwrap();
+        open_log(&fresh, std::fs::OpenOptions::new().append(true)).unwrap();
+        let new = dir.join("new.log");
+        open_log(&new, std::fs::OpenOptions::new().write(true).create(true)).unwrap();
+        let modes = (mode(&old), mode(&fresh), mode(&new));
+        let kept = std::fs::read_to_string(&old).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(modes, (0o600, 0o600, 0o600));
+        assert_eq!(kept, "last run\n");
+    }
+
+    /// A link may lead to a file shared with others, or to a device.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_log_keeps_its_targets_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("log-link");
+        std::fs::create_dir_all(&dir).unwrap();
+        let shared = dir.join("shared.log");
+        std::fs::write(&shared, "").unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let path = dir.join("fastsonic.log");
+        std::os::unix::fs::symlink(&shared, &path).unwrap();
+        let opened = open_log(&path, std::fs::OpenOptions::new().create(true).append(true));
+        make_log_private(&path);
+        let shared_mode = mode(&shared);
+        std::fs::remove_dir_all(dir).unwrap();
+        opened.unwrap();
+        assert_eq!(shared_mode, 0o644);
     }
 
     #[test]
